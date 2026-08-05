@@ -1694,53 +1694,109 @@ kimi_spawn_fail() {  # <detail>
 }
 
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  spawn_send_text_line "$WT_TARGET" 'treehouse get'
-
-  # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
-  # Target the stable window id, not the name: if the name is ever lost (e.g. an
-  # automatic-rename slips through), display-message -t <bad-name> falls back to the
-  # active client's window, which would misread firstmate's OWN pane path as the
-  # worktree and tangle a hook into the primary checkout. The window id never lies.
-  # Compare against PROJ_ABS_REAL (physical), not PROJ_ABS: a symlinked project
-  # prefix would otherwise make the pane's OS-level cwd read differ from
-  # PROJ_ABS on the very first poll, before the pane has actually moved.
+  # Worktree entry has two shapes, chosen by what this backend can actually
+  # tell us about the pane rather than by platform name.
   #
-  # A single read that already differs from PROJ_ABS_REAL is not proof the pane
-  # settled there: on some tmux/WSL setups a brand-new window's pane_current_path
-  # transiently reports an unrelated stale path (seen live as another real git
-  # checkout entirely) before the shell catches up with treehouse get's cd. That
-  # stale path still passes the PROJ_ABS_REAL comparison and validate_spawn_worktree
-  # below (it resolves to a real, distinct worktree top-level too), so accepting it
-  # on one read alone silently records the wrong worktree= in state/<id>.meta. Require
-  # two consecutive reads to agree on the same non-project path before accepting it;
-  # a mismatch just becomes the new candidate rather than resetting the wait, so a
-  # pane that is already settled by the first real read only costs the one existing
-  # inter-poll sleep as confirmation, not a whole extra cycle on top.
-  candidate=""
-  for _ in $(seq 1 60); do
-    p=$(spawn_current_path "$WT_TARGET" || true)
-    if [ -n "$p" ]; then
-      p_real=$(real_path_or_raw "$p")
-      if [ "$p_real" != "$PROJ_ABS_REAL" ]; then
-        if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
-          WT="$p"
-          break
-        fi
-        candidate="$p_real"
-      else
-        candidate=""
-      fi
-    else
-      candidate=""
+  # The original handshake types `treehouse get` into the pane and polls the
+  # pane's LIVE foreground cwd until it moves off the project directory. That
+  # only works where the backend reports a live foreground cwd. Herdr on
+  # Windows does not: `pane get` carries no foreground_cwd field at all, only a
+  # creation-time cwd frozen at the project path, so the poll could never
+  # succeed and every spawn died on the 60s timeout.
+  #
+  # So probe the capability first, against the fresh pane, which is sitting in
+  # the project directory and has been sent nothing yet. A backend that can
+  # report a live path reports one here. Probing beats hardcoding a platform:
+  # the same gap on any other backend selects the same fallback.
+  spawn_reports_live_path=0
+  for _ in 1 2 3; do
+    if [ -n "$(spawn_current_path "$WT_TARGET" || true)" ]; then
+      spawn_reports_live_path=1
+      break
     fi
     sleep 1
   done
-  if [ -z "$WT" ]; then
-    echo "error: treehouse get did not enter a worktree within 60s; inspect window $T" >&2
-    exit 1
-  fi
 
-  validate_spawn_worktree "treehouse get" "$T"
+  if [ "$spawn_reports_live_path" = 1 ]; then
+    spawn_send_text_line "$WT_TARGET" 'treehouse get'
+
+    # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
+    # Target the stable window id, not the name: if the name is ever lost (e.g. an
+    # automatic-rename slips through), display-message -t <bad-name> falls back to the
+    # active client's window, which would misread firstmate's OWN pane path as the
+    # worktree and tangle a hook into the primary checkout. The window id never lies.
+    # Compare against PROJ_ABS_REAL (physical), not PROJ_ABS: a symlinked project
+    # prefix would otherwise make the pane's OS-level cwd read differ from
+    # PROJ_ABS on the very first poll, before the pane has actually moved.
+    #
+    # A single read that already differs from PROJ_ABS_REAL is not proof the pane
+    # settled there: on some tmux/WSL setups a brand-new window's pane_current_path
+    # transiently reports an unrelated stale path (seen live as another real git
+    # checkout entirely) before the shell catches up with treehouse get's cd. That
+    # stale path still passes the PROJ_ABS_REAL comparison and validate_spawn_worktree
+    # below (it resolves to a real, distinct worktree top-level too), so accepting it
+    # on one read alone silently records the wrong worktree= in state/<id>.meta. Require
+    # two consecutive reads to agree on the same non-project path before accepting it;
+    # a mismatch just becomes the new candidate rather than resetting the wait, so a
+    # pane that is already settled by the first real read only costs the one existing
+    # inter-poll sleep as confirmation, not a whole extra cycle on top.
+    candidate=""
+    for _ in $(seq 1 60); do
+      p=$(spawn_current_path "$WT_TARGET" || true)
+      if [ -n "$p" ]; then
+        p_real=$(real_path_or_raw "$p")
+        if [ "$p_real" != "$PROJ_ABS_REAL" ]; then
+          if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
+            WT="$p"
+            break
+          fi
+          candidate="$p_real"
+        else
+          candidate=""
+        fi
+      else
+        candidate=""
+      fi
+      sleep 1
+    done
+    if [ -z "$WT" ]; then
+      echo "error: treehouse get did not enter a worktree within 60s; inspect window $T" >&2
+      exit 1
+    fi
+
+    validate_spawn_worktree "treehouse get" "$T"
+  else
+    # No live pane path to read, so stop inferring the worktree and ask for one
+    # outright. `treehouse get --lease` reserves a worktree WITHOUT opening a
+    # subshell and prints its absolute path, making the worktree identity known
+    # rather than guessed. The lease is durable, so the slot is never handed out
+    # twice even before a shell occupies it, and fm-teardown already releases it
+    # through `treehouse return`. fm-bootstrap already gates on this flag
+    # (treehouse_supports_lease) and fm-home-seed already leases secondmate
+    # homes exactly this way.
+    WT=$(cd "$PROJ_ABS" && treehouse get --lease --lease-holder "$ID" 2>/dev/null) || {
+      echo "error: this backend reports no live pane path, and 'treehouse get --lease' failed to lease a worktree for $ID in $PROJ_ABS" >&2
+      exit 1
+    }
+    [ -n "$WT" ] || {
+      echo "error: 'treehouse get --lease' reported no worktree path for $ID in $PROJ_ABS" >&2
+      exit 1
+    }
+    # Normalize to the physical form so every downstream comparison, meta record
+    # and `git -C` call sees one spelling. On a Git Bash host this also folds a
+    # drive-letter lease path to its POSIX equivalent.
+    WT=$(cd "$WT" 2>/dev/null && pwd -P) || {
+      echo "error: leased worktree path for $ID is not a usable directory" >&2
+      exit 1
+    }
+
+    validate_spawn_worktree "treehouse get --lease" "$T"
+
+    # The lease is a reservation, not an occupancy: the agent launches in this
+    # pane, so the pane still has to enter the worktree. There is no live path
+    # to confirm it with - the lease is the authority for what WT is.
+    spawn_send_text_line "$WT_TARGET" "cd $(printf '%q' "$WT")"
+  fi
 fi
 
 # Per-task temp root: /tmp/fm-<id>/ with Go's build temp nested at gotmp/. Go won't
