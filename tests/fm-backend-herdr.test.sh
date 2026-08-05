@@ -2225,6 +2225,70 @@ SH
   pass "herdr presentation ordering: missing owning parent is warning-only and read-only"
 }
 
+canon_socket() {  # <socket-path> -> canonical form on stdout, adapter's exit code
+  bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_canonical_socket_path "$1"' "$ROOT" "$1"
+}
+
+test_canonical_socket_path_accepts_a_windows_drive_letter_path() {
+  local dir back fwd status
+  # Herdr on Windows reports a drive-letter socket path in BOTH
+  # HERDR_SOCKET_PATH and `session list --json`. Refusing it made the
+  # launcher-identity same-session proof fail, which refused every spawn on
+  # that platform with "reports an unusable socket path".
+  dir="$TMP_ROOT/canon-windows"; mkdir -p "$dir"
+
+  back=$(canon_socket 'C:\Users\me\AppData\Roaming\herdr\herdr.sock') \
+    || fail "a Windows drive-letter socket path must be accepted, not refused"
+  [ -n "$back" ] || fail "a Windows socket path canonicalised to the empty string"
+
+  # The two Windows spellings of one socket must compare equal, which is the
+  # whole contract of this function.
+  fwd=$(canon_socket 'C:/Users/me/AppData/Roaming/herdr/herdr.sock') \
+    || fail "a forward-slash Windows socket path must be accepted"
+  [ "$back" = "$fwd" ] \
+    || fail "two spellings of one Windows socket must compare equal: $back vs $fwd"
+
+  # A drive letter is not a licence to accept a relative path after it.
+  status=0; canon_socket 'C:relative\herdr.sock' >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "a drive-relative path must still be refused"
+
+  pass "fm_backend_herdr_canonical_socket_path: accepts a Windows drive-letter socket path"
+}
+
+test_canonical_socket_path_still_refuses_and_canonicalises_posix() {
+  local dir out status
+  dir="$TMP_ROOT/canon-posix"; mkdir -p "$dir/sockdir"
+  : > "$dir/sockdir/fmtest.sock"
+
+  out=$(canon_socket "$dir/sockdir/fmtest.sock") || fail "a POSIX socket path must still be accepted"
+  [ "$out" = "$(cd "$dir/sockdir" && pwd -P)/fmtest.sock" ] \
+    || fail "a POSIX socket path must still canonicalise through its parent directory: $out"
+
+  status=0; canon_socket 'relative/herdr.sock' >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "a relative socket path must still be refused"
+
+  status=0; canon_socket '' >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "an empty socket path must still be refused"
+
+  pass "fm_backend_herdr_canonical_socket_path: POSIX and refusal behaviour unchanged"
+}
+
+test_canonical_socket_path_folds_separators_when_the_directory_is_gone() {
+  local back fwd
+  # An unresolvable directory is left as-is by contract, so the separator fold
+  # is what keeps the two Windows spellings comparing equal in that case too.
+  back=$(canon_socket 'Z:\no\such\dir\herdr.sock') \
+    || fail "a Windows path with a missing directory must not be refused"
+  fwd=$(canon_socket 'Z:/no/such/dir/herdr.sock') \
+    || fail "a forward-slash Windows path with a missing directory must not be refused"
+  [ "$back" = "$fwd" ] \
+    || fail "missing-directory Windows spellings must still compare equal: $back vs $fwd"
+  case "$back" in
+    *\\*) fail "a canonicalised Windows path must not retain backslashes: $back" ;;
+  esac
+  pass "fm_backend_herdr_canonical_socket_path: separators fold when the directory is gone"
+}
+
 test_presentation_session_lock_path_is_shared_across_homes() {
   local dir log resp fb path_a path_b path_other path_tmp path_private
   dir="$TMP_ROOT/presentation-session-lock"; mkdir -p "$dir/responses" "$dir/sockdir"
@@ -4005,6 +4069,9 @@ test_projection_order_ambiguous_existing_block_is_read_only
 test_projection_order_anchors_the_parent_by_exact_id
 test_projection_order_foreign_new_child_before_parent_is_read_only
 test_projection_order_missing_parent_is_read_only
+test_canonical_socket_path_accepts_a_windows_drive_letter_path
+test_canonical_socket_path_still_refuses_and_canonicalises_posix
+test_canonical_socket_path_folds_separators_when_the_directory_is_gone
 test_presentation_session_lock_path_is_shared_across_homes
 test_presentation_session_lock_path_rejects_malformed_socket
 test_projection_order_rejects_malformed_socket

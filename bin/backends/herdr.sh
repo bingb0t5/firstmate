@@ -501,18 +501,30 @@ fm_backend_herdr_presentation_lock_namespace_valid() {
 # it would turn JSON null into the literal string "null"). Canonicalizes the
 # parent directory when that directory exists so symlink parents such as /tmp
 # -> /private/tmp cannot yield two lock identities for the same socket.
-# fm_backend_herdr_canonical_socket_path: normalize one absolute Unix-socket
-# path so two spellings of the same socket compare equal. Refuses a relative
-# or empty path. An unresolvable directory is left as-is rather than treated as
-# a failure, so a socket whose directory was removed still compares by its own
+# fm_backend_herdr_canonical_socket_path: normalize one absolute socket path so
+# two spellings of the same socket compare equal. Refuses a relative or empty
+# path. An unresolvable directory is left as-is rather than treated as a
+# failure, so a socket whose directory was removed still compares by its own
 # literal path. Single owner for every socket-identity comparison in this
 # adapter (the presentation session lock and the launcher-identity same-session
 # proof both use it).
+#
+# Two absolute spellings are accepted: a POSIX path, and a Windows drive-letter
+# path such as "C:\Users\me\AppData\Roaming\herdr\herdr.sock". Herdr on Windows
+# reports the drive-letter form in both HERDR_SOCKET_PATH and `session list
+# --json`, so rejecting it refused every spawn on that platform with an
+# unusable-socket error. Backslashes are folded to forward slashes first, which
+# both makes the two Windows spellings compare equal and lets dirname/basename
+# and the directory canonicalization below treat the path uniformly; on a Git
+# Bash host that canonicalization then yields the POSIX form (/c/Users/...).
+# The path is only ever an identity token compared against another value from
+# this same function - it is never opened - so folding separators is safe.
 fm_backend_herdr_canonical_socket_path() {  # <socket-path>
   local socket=$1 sock_dir sock_base
   [ -n "$socket" ] || return 1
   case "$socket" in
     /*) ;;
+    [A-Za-z]:[\\/]*) socket=$(printf '%s' "$socket" | tr '\\' '/') ;;
     *) return 1 ;;
   esac
   sock_dir=$(dirname "$socket")
@@ -1275,8 +1287,17 @@ fm_backend_herdr_workspace_find_all() {  # <session>
   # compile error that `2>/dev/null` would silently swallow, making this find
   # ALWAYS return empty and every spawn mint a fresh "firstmate" workspace
   # (the workspace leak).
+  # fm_backend_herdr_strip_cr: jq on Windows opens stdout in text mode and ends
+  # every record with CRLF. A command substitution drops only the TRAILING
+  # carriage return, so a single-value read comes back clean while a multi-line
+  # read keeps an interior CR on every line but the last. Any consumer that
+  # splits such a capture then carries a stray CR into an id it passes back to
+  # herdr, or into an operator-facing message. Every multi-line jq capture in
+  # this adapter is stripped at its source for that reason; single-value reads
+  # need no strip and are deliberately left alone.
   printf '%s' "$list" | jq -r --arg want "$label" \
-    '.result.workspaces[]? | select(.label == $want) | .workspace_id' 2>/dev/null
+    '.result.workspaces[]? | select(.label == $want) | .workspace_id' 2>/dev/null \
+    | tr -d '\r'
 }
 
 # fm_backend_herdr_workspace_find: this HOME's own workspace id inside
@@ -1791,6 +1812,9 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
     return 1
   }
+  # Stripped after capture, not through a pipe, so jq's own exit status above
+  # still decides the parse failure. See fm_backend_herdr_workspace_find_all.
+  dup_tabs=${dup_tabs//$'\r'/}
   dup_tab_ids=""
   if [ -n "$dup_tabs" ]; then
     while IFS= read -r dup; do
@@ -1830,6 +1854,7 @@ EOF
     fi
     remaining_dup_tabs=$(printf '%s' "$list" | jq -r --arg want "$label" --arg replacement "$tab_id" \
       '.result.tabs[]? | select(.label == $want and .tab_id != $replacement) | .tab_id' 2>/dev/null)
+    remaining_dup_tabs=${remaining_dup_tabs//$'\r'/}
     remaining_dup_tabs=${remaining_dup_tabs//$'\n'/ }
     if [ -n "$remaining_dup_tabs" ]; then
       echo "error: failed to remove preexisting herdr tab(s) $remaining_dup_tabs for label '$label' in workspace $wsid (session $session)" >&2
