@@ -271,26 +271,13 @@ fm_busy_record_read() {  # <state-dir> <id>
 # Stop hook this source covers the interrupt path itself. Any later
 # run_retracted records follow the terminal rather than replacing it.
 #
-# fm_busy_muse_idle_verified is the gate on the IDLE half only. Busy needs no
-# gate: an open run is positive proof a turn is in flight. Idle does, because a
-# settled log only proves no run is open RIGHT NOW, and the multi-step,
-# real-model tool loop that would show whether one turn stays inside one run is
-# unverified - the credentialed smoke is deferred (docs/verification/muse.md).
-# If it turned out a real turn spans several runs, an ungated idle would report
-# a working crewmate as finished; reporting unknown instead is the safe
-# direction, because unknown is never promoted to either boolean pole.
-#
-# To open the gate: run a real multi-step tool-loop turn on a
-# firstmate-launched muse worker with META_API_KEY set, confirm exactly one
-# started/terminal pair brackets the whole turn (not one pair per model step),
-# record the version, exact commands, and observed output in
-# docs/verification/muse.md, and add the verified version string(s) here.
-FM_BUSY_MUSE_IDLE_VERIFIED_VERSIONS=""
-
-fm_busy_muse_idle_verified() {
-  [ -n "$FM_BUSY_MUSE_IDLE_VERIFIED_VERSIONS" ]
-}
-
+# Both halves of the fold are trusted. An open run is positive proof a turn is
+# in flight, and a settled log is idle: the credentialed multi-step smoke showed
+# one 75-second real-model turn with 23 tool batches stays inside exactly one
+# started/terminal pair, so a settled log is a finished turn rather than a pause
+# between the runs of one turn (docs/verification/muse.md). Resolution failures -
+# no sidecar, no matching log, an unreadable or run-free log - remain unknown,
+# because those prove nothing about the turn either way.
 # fm_busy_muse_binding_path: the per-task sidecar fm-spawn writes so the
 # classifier binds a pane to its session log without re-deriving muse's data
 # directory. It records sessions_root=<abs>, workspace_root=<abs>, one
@@ -622,8 +609,7 @@ fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
   case "$harness" in
     muse*)
       # Semantic, on demand: fold this task's bound session log. An open run is
-      # positive proof of a turn in flight; a settled log only classifies idle
-      # once fm_busy_muse_idle_verified opens on a credentialed multi-step run.
+      # positive proof of a turn in flight and a settled log is a finished turn.
       # Every other outcome - no sidecar, no matching log, an unreadable or
       # run-free log - is unknown, never idle.
       if ! log=$(fm_busy_muse_session_log "$state" "$id"); then
@@ -632,13 +618,7 @@ fm_busy_classify() {  # <backend> <target> <harness> <id> <state-dir> [tail40]
       fi
       case "$(fm_busy_muse_run_state "$log" 2>/dev/null)" in
         busy) printf 'busy muse-session-log' ;;
-        settled)
-          if fm_busy_muse_idle_verified; then
-            printf 'idle muse-session-log'
-          else
-            printf 'unknown muse-session-log'
-          fi
-          ;;
+        settled) printf 'idle muse-session-log' ;;
         *) printf 'unknown muse-session-log' ;;
       esac
       return 0

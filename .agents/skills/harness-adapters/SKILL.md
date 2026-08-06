@@ -445,9 +445,9 @@ muse's own native sub-agents write independent run lifecycles one directory deep
 
 The recorded sessions root is the resolved `XDG_DATA_HOME` that `fm-spawn` also forwards to the worker launch, so the binding and pane remain aligned across a long-lived backend daemon.
 
-The IDLE half is gated behind `fm_busy_muse_idle_verified` in `bin/fm-busy-lib.sh` and is currently CLOSED, so a settled log reads `unknown`, never `idle`.
-Busy needs no gate because an open run is positive proof a turn is in flight.
-[`docs/verification/muse.md`](../../../docs/verification/muse.md) owns the evidence and the exact deferred credentialed smoke that opens the gate.
+Both halves of the fold are trusted with no opt-in: an open run reads `busy`, a settled log reads `idle`, and only a resolution failure - no binding, no matching log, an unreadable or run-free log - reads `unknown`.
+The credentialed multi-step smoke established the idle half by confirming that one real 75-second tool-loop turn stays inside exactly one run pair, and that an Escape mid tool loop closes that run as `cancelled` rather than leaving it open.
+[`docs/verification/muse.md`](../../../docs/verification/muse.md) owns that evidence and the commands that re-check it after a muse upgrade.
 
 ### Native sub-agents and worktrees
 
