@@ -66,7 +66,7 @@
 # (its plugin engine reports "plugins are not available in this build" without
 # MUSE_EXPERIMENTAL_PLUGINS). Nothing is armed for muse for the same reason
 # standalone Kimi is not: a seeded record with no writer could never be
-# cleared. See fm_busy_muse_run_state for the fold and its verification gate.
+# cleared. See fm_busy_muse_run_state for the fold.
 #
 # Codex negotiation (fm_busy_codex_appserver_observable,
 # fm_busy_codex_hooks_verified): the approved contract prefers Codex's
@@ -273,11 +273,17 @@ fm_busy_record_read() {  # <state-dir> <id>
 #
 # Both halves of the fold are trusted. An open run is positive proof a turn is
 # in flight, and a settled log is idle: the credentialed multi-step smoke showed
-# one 75-second real-model turn with 23 tool batches stays inside exactly one
-# started/terminal pair, so a settled log is a finished turn rather than a pause
-# between the runs of one turn (docs/verification/muse.md). Resolution failures -
-# no sidecar, no matching log, an unreadable or run-free log - remain unknown,
-# because those prove nothing about the turn either way.
+# one run pair spans a whole multi-step turn, including an Escape interrupt that
+# closes the run with terminal=cancelled instead of continuing the turn in
+# another run. This gives the settled log the same idle trust as the Claude and
+# Pi push sources. A version allowlist would be false precision and a maintenance
+# treadmill for an auto-updating vendor binary: the running process identifies
+# itself only as muse-bin-*, while session metadata records semver 0.1.0 plus a
+# build SHA that the process identity cannot be matched against. Resolution
+# failures - no sidecar, no matching log, an unreadable or run-free log - remain
+# unknown,
+# because those prove nothing about the turn either way. See
+# docs/verification/muse.md for the evidence.
 # fm_busy_muse_binding_path: the per-task sidecar fm-spawn writes so the
 # classifier binds a pane to its session log without re-deriving muse's data
 # directory. It records sessions_root=<abs>, workspace_root=<abs>, one
