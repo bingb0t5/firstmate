@@ -487,13 +487,53 @@ fm_backend_herdr_presentation_lock_namespace_uid() {
   fi
 }
 
+# fm_backend_herdr_presentation_lock_namespace_modes_representable: true when
+# <parent> is on a filesystem that can actually store POSIX permission bits.
+#
+# Probed, not inferred from platform or mount options: create a directory, ask
+# for 0700, and read back what was stored. A filesystem that silently discards
+# the request answers for itself. The probe directory is removed either way.
+#
+# This exists because Git Bash mounts NTFS `noacl` by default, where chmod is a
+# silent no-op and every directory reads 755. Asserting an exact mode there is
+# asserting something the filesystem cannot express.
+fm_backend_herdr_presentation_lock_namespace_modes_representable() {  # <parent>
+  local parent=$1 probe mode
+  [ -d "$parent" ] || return 1
+  probe=$(mktemp -d "$parent/.fm-modeprobe.XXXXXX" 2>/dev/null) || return 1
+  chmod 700 "$probe" 2>/dev/null
+  mode=$(fm_backend_herdr_presentation_lock_namespace_mode "$probe")
+  rmdir "$probe" 2>/dev/null
+  [ "$mode" = 700 ]
+}
+
+# Ownership is the load-bearing assertion and is never relaxed: the namespace
+# must be a real directory, not a symlink, owned by this user.
+#
+# The exact-700 assertion additionally requires that no OTHER user can reach the
+# lock files. Where the filesystem can express that, it is still required
+# verbatim. Where it provably cannot - Git Bash's `noacl` NTFS mount, which
+# reports 755 for every directory and discards chmod - requiring it made the
+# namespace permanently unobtainable, which took teardown down with no manual
+# recovery rather than making anything safer.
+#
+# On that mount Git Bash maps /tmp to the user's own profile temp directory
+# (`usertemp`), so the namespace is not in a shared location and Windows' own
+# access control, not the emulated mode bits, is what actually guards it.
 fm_backend_herdr_presentation_lock_namespace_valid() {
   local dir=$1 expected_uid owner mode
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
   expected_uid=$(id -u 2>/dev/null) || return 1
   owner=$(fm_backend_herdr_presentation_lock_namespace_uid "$dir") || return 1
   mode=$(fm_backend_herdr_presentation_lock_namespace_mode "$dir") || return 1
-  [ "$owner" = "$expected_uid" ] && [ "$mode" = 700 ]
+  [ "$owner" = "$expected_uid" ] || return 1
+  [ "$mode" = 700 ] && return 0
+  # Not 700: only acceptable when this filesystem cannot store modes at all.
+  fm_backend_herdr_presentation_lock_namespace_modes_representable "$(dirname "$dir")"
+  case $? in
+    0) return 1 ;;  # modes work here, so 755 is a real permission problem
+    *) return 0 ;;  # modes are unrepresentable; ownership is the guarantee
+  esac
 }
 
 # Resolve the one verified running named-session socket path as an absolute

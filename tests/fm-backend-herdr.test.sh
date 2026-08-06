@@ -2273,6 +2273,67 @@ test_canonical_socket_path_still_refuses_and_canonicalises_posix() {
   pass "fm_backend_herdr_canonical_socket_path: POSIX and refusal behaviour unchanged"
 }
 
+ns_valid() {  # <dir> <representable: yes|no> -> adapter's exit code
+  # Stub the filesystem-capability probe so BOTH branches are testable on any
+  # host: this suite must not depend on whether the runner's own filesystem can
+  # store POSIX mode bits.
+  bash -c '
+    . "$0/bin/backends/herdr.sh"
+    fm_backend_herdr_presentation_lock_namespace_modes_representable() {
+      [ "'"$2"'" = yes ]
+    }
+    fm_backend_herdr_presentation_lock_namespace_valid "$1"
+  ' "$ROOT" "$1"
+}
+
+test_lock_namespace_requires_exact_mode_where_the_filesystem_supports_it() {
+  local dir status
+  dir="$TMP_ROOT/ns-modes-work/ns"; mkdir -p "$dir"
+  chmod 755 "$dir" 2>/dev/null
+
+  # Where modes are real, a non-700 namespace is a genuine permission problem
+  # and must still be refused - this is the property the relaxation must not eat.
+  status=0; ns_valid "$dir" yes || status=$?
+  expect_code 1 "$status" "a 755 namespace on a mode-capable filesystem must still be refused"
+
+  pass "lock namespace: exact mode is still required where the filesystem can store it"
+}
+
+test_lock_namespace_accepts_owned_dir_where_modes_are_unrepresentable() {
+  local dir status
+  dir="$TMP_ROOT/ns-modes-dead/ns"; mkdir -p "$dir"
+  chmod 755 "$dir" 2>/dev/null
+
+  # Git Bash's noacl NTFS mount reports 755 for everything and discards chmod.
+  # Requiring 700 there made the namespace permanently unobtainable, which took
+  # teardown down with it and made nothing safer.
+  status=0; ns_valid "$dir" no || status=$?
+  expect_code 0 "$status" "an owned namespace must be accepted where modes cannot be stored"
+
+  pass "lock namespace: ownership carries it where the filesystem cannot store modes"
+}
+
+test_lock_namespace_never_relaxes_ownership_or_symlink_checks() {
+  local dir link status
+  dir="$TMP_ROOT/ns-guards/ns"; mkdir -p "$dir"
+  link="$TMP_ROOT/ns-guards/link"; ln -sfn "$dir" "$link" 2>/dev/null || true
+
+  # Ownership and the symlink refusal are load-bearing and are relaxed by
+  # NEITHER branch, so both are asserted with the probe forced permissive.
+  if [ -L "$link" ]; then
+    status=0; ns_valid "$link" no || status=$?
+    expect_code 1 "$status" "a symlinked namespace must be refused even where modes cannot be stored"
+  fi
+
+  status=0; ns_valid "$TMP_ROOT/ns-guards/missing" no || status=$?
+  expect_code 1 "$status" "a missing namespace must be refused"
+
+  status=0; ns_valid "$TMP_ROOT/ns-guards/ns/../ns" no || status=$?
+  expect_code 0 "$status" "an owned real directory must still resolve"
+
+  pass "lock namespace: ownership and symlink refusals survive the relaxation"
+}
+
 test_canonical_socket_path_folds_separators_when_the_directory_is_gone() {
   local back fwd
   # An unresolvable directory is left as-is by contract, so the separator fold
@@ -4069,6 +4130,9 @@ test_projection_order_ambiguous_existing_block_is_read_only
 test_projection_order_anchors_the_parent_by_exact_id
 test_projection_order_foreign_new_child_before_parent_is_read_only
 test_projection_order_missing_parent_is_read_only
+test_lock_namespace_requires_exact_mode_where_the_filesystem_supports_it
+test_lock_namespace_accepts_owned_dir_where_modes_are_unrepresentable
+test_lock_namespace_never_relaxes_ownership_or_symlink_checks
 test_canonical_socket_path_accepts_a_windows_drive_letter_path
 test_canonical_socket_path_still_refuses_and_canonicalises_posix
 test_canonical_socket_path_folds_separators_when_the_directory_is_gone
