@@ -160,7 +160,7 @@ This was the one item deferred until a `META_API_KEY` was available, because it 
 An open run was always positive proof of a turn in flight, but a settled log only proves no run is open at that instant, so the classifier held idle behind an opt-in in case a real turn spanned several runs.
 The smoke below answered that: one run brackets a whole multi-step turn, and an Escape interrupt closes that run with `terminal=cancelled` rather than leaving the turn to continue in another run.
 The credentialed result gives a settled Muse log the same idle trust as the Claude and Pi push sources, so the opt-in was removed and `bin/fm-busy-lib.sh` classifies a settled log `idle` outright.
-Muse auto-updates its vendor binary underneath the fleet, the running process identifies itself only as `muse-bin-*`, and the session log's own metadata carries semver `0.1.0` plus a build SHA that cannot be matched to that process identity.
+Muse auto-updates its vendor binary underneath the fleet, firstmate normalizes the versioned process identity to the `muse` harness before busy classification, and the session log's own metadata carries semver `0.1.0` plus a build SHA that cannot be matched to that normalized identity.
 A verified-build allowlist against this coarse identity would be false precision because it could not distinguish the running build, as well as a maintenance treadmill against the auto-updating binary.
 
 Both runs below used the default `meta` provider with model `muse-spark-1.2-contributor`, on a real firstmate-launched crewmate pane, authenticated through the stored `~/.config/muse/auth.json` written by `muse auth set --provider meta --api-key-stdin` so the key never entered `argv`.

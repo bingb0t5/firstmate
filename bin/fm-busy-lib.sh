@@ -277,12 +277,11 @@ fm_busy_record_read() {  # <state-dir> <id>
 # closes the run with terminal=cancelled instead of continuing the turn in
 # another run. This gives the settled log the same idle trust as the Claude and
 # Pi push sources. A version allowlist would be false precision and a maintenance
-# treadmill for an auto-updating vendor binary: the running process identifies
-# itself only as muse-bin-*, while session metadata records semver 0.1.0 plus a
-# build SHA that the process identity cannot be matched against. Resolution
+# treadmill for an auto-updating vendor binary: busy classification receives
+# only the normalized muse harness identity, while session metadata records
+# semver 0.1.0 plus a build SHA that cannot be matched against it. Resolution
 # failures - no sidecar, no matching log, an unreadable or run-free log - remain
-# unknown,
-# because those prove nothing about the turn either way. See
+# unknown because those prove nothing about the turn either way. See
 # docs/verification/muse.md for the evidence.
 # fm_busy_muse_binding_path: the per-task sidecar fm-spawn writes so the
 # classifier binds a pane to its session log without re-deriving muse's data
