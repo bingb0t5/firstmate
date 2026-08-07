@@ -46,7 +46,8 @@
 # guard ignores stop_hook_active and instead cooperates with the Stop-owned
 # auto-arm (bin/fm-claude-stop-autoarm.sh), which fires on the same Stop event:
 #   1. a live identity-matched watcher with a fresh beacon allows immediately;
-#   2. otherwise wait briefly (FM_CLAUDE_AUTOARM_SYNC_WAIT_MS, default 800ms)
+#   2. otherwise wait briefly (FM_CLAUDE_AUTOARM_SYNC_WAIT_MS, default 800ms;
+#      35000ms on Git Bash/MSYS, see the budget note below)
 #      for the auto-arm to claim this home (state/.claude-autoarm.lock owner
 #      alive) or to record a fresh actionable exit-2 outcome
 #      (state/.claude-autoarm-epoch) for this event epoch - either proof allows
@@ -68,10 +69,29 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 CLAUDE_MODE=0
-SYNC_WAIT_MS=${FM_CLAUDE_AUTOARM_SYNC_WAIT_MS:-800}
+# How long to wait for the Stop-owned auto-arm, firing on the SAME Stop event,
+# to claim this home. Git Bash/MSYS pays a much higher fork cost, and the
+# auto-arm clears several process-table gates before it reaches its owner lock:
+# fm_session_lock_owned_by_self alone walks the harness ancestry through `ps`,
+# measured at 12.3s on a real Windows home, with the owner lock taken at 20.4s
+# and the epoch recorded at 21.2s. Against the POSIX 800ms budget the guard saw
+# neither proof, concluded recovery was absent, and blocked - which cancelled
+# the very async auto-arm it was waiting for, so state/.claude-autoarm-epoch
+# could never be written and the bounded fail-open (which requires a recorded
+# failure) stayed unreachable. Supervision could not start at all on Windows.
+#
+# 35000 matches FM_OPENCODE_ARM_READY_TIMEOUT_MS and FM_PI_ARM_READY_TIMEOUT_MS,
+# which already carry this same Windows default for this same reason; the guard
+# stops waiting the moment either proof appears, so the budget is a ceiling and
+# not a cost paid per turn.
+case "${OSTYPE:-}" in
+  msys*|mingw*|cygwin*) SYNC_WAIT_DEFAULT=35000 ;;
+  *) SYNC_WAIT_DEFAULT=800 ;;
+esac
+SYNC_WAIT_MS=${FM_CLAUDE_AUTOARM_SYNC_WAIT_MS:-$SYNC_WAIT_DEFAULT}
 EPOCH_FRESH=${FM_CLAUDE_AUTOARM_EPOCH_FRESH:-15}
 BLOCK_BUDGET=${FM_CLAUDE_TURNEND_BLOCK_BUDGET:-3}
-case "$SYNC_WAIT_MS" in ''|*[!0-9]*) SYNC_WAIT_MS=800 ;; esac
+case "$SYNC_WAIT_MS" in ''|*[!0-9]*) SYNC_WAIT_MS=$SYNC_WAIT_DEFAULT ;; esac
 case "$EPOCH_FRESH" in ''|*[!0-9]*|0) EPOCH_FRESH=15 ;; esac
 case "$BLOCK_BUDGET" in ''|*[!0-9]*|0) BLOCK_BUDGET=3 ;; esac
 
