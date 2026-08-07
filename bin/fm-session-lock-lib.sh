@@ -130,10 +130,29 @@ EOF
 }
 
 # True if $1 is a live process that looks like a verified harness.
+#
+# EXISTENCE COMES FROM THE PROCESS TABLE, NOT FROM `kill -0`. The two answer the
+# same question on POSIX - `ps` reports a pid exactly while it exists, including
+# a zombie, and `kill -0` succeeds for the same set plus EPERM - so requiring
+# both was harmless there and the ancestry walk already trusts `ps` alone.
+#
+# It is not harmless everywhere. A harness whose pid lives in a different pid
+# namespace than the shell's signal namespace fails `kill -0` while being
+# perfectly alive and perfectly reportable. Git Bash on Windows is the verified
+# case: a native Windows harness is addressed by an MSYS-offset pid (0x400000 +
+# winpid), `ps` resolves it through the Windows process table, and `kill` - a
+# bash builtin, so not shimmable through PATH - cannot see it in any namespace.
+# Gating on `kill -0` there made a live lock owner permanently indistinguishable
+# from a dead one, so bin/fm-claude-stop-autoarm.sh could never claim the home
+# and bin/fm-lock.sh re-acquired in a loop that could not converge.
+#
+# `kill -0` is dropped rather than demoted to a fast accept: this predicate must
+# read comm and args to decide harness identity regardless, so the signal probe
+# can never short-circuit the ps call it was paired with.
 fm_harness_pid_alive() {
   local pid=$1 comm args
-  kill -0 "$pid" 2>/dev/null || return 1
   comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
+  [ -n "$comm" ] || return 1
   args=$(ps -o args= -p "$pid" 2>/dev/null)
   fm_harness_process_matches "$comm" "$args"
 }
