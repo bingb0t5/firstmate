@@ -1518,6 +1518,61 @@ test_hook_claude_mode_waits_for_late_claim() {
   pass "fm-turnend-guard --claude: bounded claim wait avoids a token-consuming forced continuation"
 }
 
+# The sync-wait DEFAULT is platform-dependent, and getting it wrong is not a
+# tuning matter: on Git Bash/MSYS the auto-arm needs roughly 20s to clear its
+# process-table gates and reach its owner lock, so a POSIX 800ms budget makes the
+# guard block, which cancels the async auto-arm it is waiting for. The epoch is
+# then never recorded, the bounded fail-open (which requires a recorded failure)
+# stays unreachable, and supervision can never start at all.
+#
+# Drive the claim later than the POSIX budget but well inside the MSYS one, with
+# FM_CLAUDE_AUTOARM_SYNC_WAIT_MS UNSET so the default itself is what decides.
+#
+# The delay must also clear the guard's own startup, not just the 800ms budget:
+# the guard checks for an existing claim BEFORE it waits, and on a slow host it
+# can take seconds to get that far, which would let the POSIX control see the
+# claim already in place and allow. 8s sits above that startup on a slow host and
+# far below the 35000ms MSYS budget, so both branches are decided by the default
+# rather than by how fast the host happens to be.
+test_hook_claude_mode_sync_wait_default_is_platform_aware() {
+  local dir helper out status holder ostype expected
+  for ostype in msys linux-gnu; do
+    case "$ostype" in
+      msys) expected=0 ;;
+      *) expected=2 ;;
+    esac
+    dir=$(make_primary_dir "$TMP_ROOT/hook-claude-syncdefault-$ostype")
+    : > "$dir/state/task1.meta"
+    (
+      sleep 8
+      sleep 60 &
+      record_autoarm_owner "$dir" $!
+      printf '%s\n' $! > "$dir/holder.pid"
+      wait
+    ) &
+    helper=$!
+    out=$(OSTYPE="$ostype" run_hook_claude "$dir" false); status=$?
+    holder=$(cat "$dir/holder.pid" 2>/dev/null || true)
+    kill "$holder" 2>/dev/null || true
+    kill "$helper" 2>/dev/null || true
+    wait "$helper" 2>/dev/null || true
+    case "$ostype" in
+      msys)
+        expect_code "$expected" "$status" \
+          "OSTYPE=$ostype must wait past the POSIX budget for the auto-arm claim; an 800ms default here cancels the async auto-arm and supervision can never start"
+        [ -z "$out" ] || fail "OSTYPE=$ostype default wait produced output: $out"
+        ;;
+      *)
+        expect_code "$expected" "$status" \
+          "OSTYPE=$ostype must keep the short POSIX budget rather than inherit the MSYS one"
+        assert_contains "$out" "TURN WOULD END BLIND" \
+          "OSTYPE=$ostype must still re-block when no claim lands inside its budget"
+        ;;
+    esac
+  done
+  pass "fm-turnend-guard --claude: the auto-arm sync-wait default is MSYS-aware and POSIX is unchanged"
+}
+
 test_hook_claude_mode_secondmate_reblocks_like_primary() {
   local dir pid out status
   dir=$(make_secondmate_dir "$TMP_ROOT/hook-claude-sm-reblock")
@@ -1597,4 +1652,5 @@ test_hook_claude_mode_fail_open_requires_notice_and_failure_epoch
 test_hook_claude_mode_away_mode_never_uses_stop_autoarm_fail_open
 test_hook_claude_mode_allow_resets_budget
 test_hook_claude_mode_waits_for_late_claim
+test_hook_claude_mode_sync_wait_default_is_platform_aware
 test_hook_claude_mode_secondmate_reblocks_like_primary
