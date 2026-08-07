@@ -34,6 +34,23 @@ FM_TEST_LIB_SOURCED=1
 # strips this to verify real refusal.
 export FM_GATE_REFUSE_BYPASS=1
 
+# Drop the developer's per-shell startup hook for the whole suite. bash sources
+# $BASH_ENV in EVERY non-interactive shell, so it runs inside every `bash -c`
+# fixture a test spawns - after the test has set that child's environment, and
+# with the last word on it.
+#
+# That breaks the fakebin contract outright. fm_fakebin's whole premise is that
+# `PATH="$fakebin:$PATH"` makes a stub win, and a BASH_ENV script that reorders
+# PATH puts its own directory back in front of the stub. Verified case: a Git
+# Bash setup whose BASH_ENV moves ~/bin to the head of PATH unless PATH already
+# starts with it. Every stub in this suite was silently bypassed and the fixtures
+# answered from the real host instead - the failures name real pids and real
+# process trees, which reads as a broken assertion rather than a defeated stub.
+#
+# Tests must describe their own environment completely. Anything a fixture needs
+# on PATH it puts there itself.
+unset BASH_ENV ENV
+
 # Resolve the repo root from this library's own location. Consumed by sourcing
 # test files, not by this library, so it reads as "unused" here.
 # shellcheck disable=SC2034

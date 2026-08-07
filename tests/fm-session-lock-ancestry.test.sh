@@ -220,6 +220,68 @@ SH
   pass "session-lock: a live version-named session holding the lock is not mistaken for a stale owner"
 }
 
+test_harness_outside_the_signal_namespace_is_still_live() {
+  local dir fakebin
+  dir="$TMP_ROOT/foreign-signal-namespace"
+  fakebin=$(fm_fakebin "$dir")
+  mkdir -p "$dir/state"
+  # A native Windows harness addressed by its MSYS-offset pid (0x400000 +
+  # winpid). `ps` resolves it through the Windows process table; `kill -0`
+  # cannot see it in any pid namespace the shell can address.
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+field= pid=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) field=$2; shift 2 ;;
+    -p) pid=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+case "$pid:$field" in
+  4225416:comm=) printf '%s\n' 'C:\Users\richa\.local\bin\claude.exe' ;;
+  4225416:args=) printf '%s\n' 'C:\Users\richa\.local\bin\claude.exe' ;;
+  4225416:ppid=) printf '%s\n' 1 ;;
+  *:comm=) printf '%s\n' bash ;;
+  *:args=) printf '%s\n' bash ;;
+  *:ppid=) printf '%s\n' 4225416 ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  printf '4225416\n' > "$dir/state/.lock"
+
+  # `kill` fails for every pid here, exactly as the bash builtin does against a
+  # native Windows process. Liveness must come from the process table alone:
+  # gating on the signal probe made this live lock owner permanently
+  # indistinguishable from a dead one, so the Stop auto-arm could never claim
+  # the home and fm-lock.sh re-acquired in a loop that could not converge.
+  PATH="$fakebin:$PATH" bash -c '
+    . "$0"
+    kill() { return 1; }
+    fm_harness_pid_alive 4225416
+  ' "$LIB" || fail "a live harness outside the shell signal namespace was classified as a dead lock owner"
+
+  PATH="$fakebin:$PATH" bash -c '
+    . "$0"
+    kill() { return 1; }
+    fm_session_lock_owned_by_self "$1"
+  ' "$LIB" "$dir/state" \
+    || fail "the session holding the lock did not recognize itself as the owner"
+
+  # The relaxation must not widen what counts as a harness: a pid the process
+  # table reports as an ordinary shell is still not a lock owner, and a
+  # succeeding signal probe must not rescue it.
+  if PATH="$fakebin:$PATH" bash -c '
+    . "$0"
+    kill() { return 0; }
+    fm_harness_pid_alive 999
+  ' "$LIB"; then
+    fail "a pid the process table reports as an ordinary shell passed the harness-liveness predicate"
+  fi
+  pass "session-lock: a harness whose pid the shell cannot signal is still live when the process table reports it"
+}
+
 # --- end-to-end layer: the real Stop auto-arm in real process trees ----------
 
 install_autoarm_scripts() {
@@ -358,6 +420,7 @@ test_version_named_session_is_identified_on_both_platforms
 test_ordinary_paths_are_never_harness_processes
 test_harness_beyond_a_gap_never_owns_the_lock
 test_competing_version_named_session_is_seen_as_live
+test_harness_outside_the_signal_namespace_is_still_live
 test_e2e_version_named_session_claims_the_home
 test_e2e_daemon_parented_session_claims_the_home
 test_e2e_daemon_parented_version_named_session_keeps_its_lock
