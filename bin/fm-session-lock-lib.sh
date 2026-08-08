@@ -157,6 +157,26 @@ fm_harness_pid_alive() {
   fm_harness_process_matches "$comm" "$args"
 }
 
+# True when this process has NO resolvable harness ancestry at all - not "the
+# ancestry resolved to some other harness", but "the walk found nothing".
+#
+# The distinction matters because the two mean opposite things. A resolvable
+# ancestry that omits the lock pid is positive evidence of a DIFFERENT session
+# and must stay fatal. An unresolvable ancestry is the ABSENCE of evidence, and
+# the caller may have other proof to fall back on.
+#
+# A hook that Claude Code runs with `async`/`asyncRewake` is detached: it is
+# reparented to init, so the walk from $$ hits ppid 1 on its first hop and can
+# never reach the harness that spawned it. Verified live - the same predicates
+# that answer YES from an ordinary child of the harness answer NO from an
+# orphan, with the identical lock file:
+#
+#   ordinary child : ancestry [4225416]  owned_by_self YES
+#   orphan (ppid=1): ancestry []         owned_by_self NO
+fm_harness_ancestry_unavailable() {
+  ! fm_harness_ancestry_pids >/dev/null 2>&1
+}
+
 # True when state dir $1 holds a session lock whose pid is ANY harness ancestor
 # of the current process: this script runs inside the session that owns the
 # home's fleet lock. Membership is the honest test of that question, because the

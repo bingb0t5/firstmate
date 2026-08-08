@@ -92,14 +92,44 @@ fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 # Defer the mutating claim until after the unchanged AFK and need gates, so an
 # idle or away home remains byte-for-byte inert. Missing or malformed locks are
 # uncertainty rather than stale-owner evidence and remain inert.
+#
+# Ancestry is not always AVAILABLE to answer that question, and the absence of
+# evidence is not evidence of a foreign session. Claude Code runs this hook with
+# `asyncRewake`, which implies `async` - "runs in background without blocking" -
+# so the hook is detached and reparented to init. The walk from $$ hits ppid 1 on
+# its first hop and can never reach the harness that spawned it, which makes
+# fm_session_lock_owned_by_self permanently false HERE while being perfectly true
+# from any ordinary child of the same session.
+#
+# That is what kept supervision off entirely. The hook read its OWN home's live
+# lock, could not recognize itself as the owner, concluded a different live
+# session held the home, and exited 0 - every single time, so the epoch was never
+# written, no failure was ever recorded, and the turn-end guard's bounded
+# fail-open (which requires a recorded failure) stayed unreachable. Traced live:
+# both Stop hooks start in the same second with ppid=1, and this one exits 0 ten
+# seconds later without claiming.
+#
+# So split the two cases. A RESOLVABLE ancestry that omits the lock pid is still
+# positive evidence of a foreign session and still fatal. An UNRESOLVABLE
+# ancestry falls back to the evidence a detached hook does have: this is the
+# genuine primary checkout for this home (fm_primary_scope_matches, already
+# passed above), and the lock is held by a live harness - which, for a hook the
+# harness itself fired for this project, is that harness. The single-flight owner
+# lock below is what makes this safe rather than merely convenient: even if two
+# sessions on one home both reached here, exactly one acquires the claim.
 RECOVER_SESSION_LOCK=0
 if ! fm_session_lock_owned_by_self "$STATE"; then
   LOCK_PID=$(cat "$STATE/.lock" 2>/dev/null || true)
   case "$LOCK_PID" in
     ''|*[!0-9]*) exit 0 ;;
   esac
-  fm_harness_pid_alive "$LOCK_PID" && exit 0
-  RECOVER_SESSION_LOCK=1
+  if fm_harness_pid_alive "$LOCK_PID"; then
+    # A live lock owner. Ours if we simply cannot see our own ancestry; a
+    # competitor's if the ancestry resolved and this pid was not in it.
+    fm_harness_ancestry_unavailable || exit 0
+  else
+    RECOVER_SESSION_LOCK=1
+  fi
 fi
 
 # --- AFK: the away daemon owns the watcher and triage; never rewake ----------
