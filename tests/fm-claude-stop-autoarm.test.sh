@@ -152,6 +152,13 @@ SH
   chmod +x "$dir/bin/fm-watch-arm.sh"
 }
 
+# True when <pid> is reported as a live harness by the fixture's own copy of the
+# session-lock library. Used to settle fixtures that record a freshly spawned
+# harness pid before exercising a live-owner path.
+fm_harness_alive_in() {  # <fixture-dir> <pid>
+  bash -c '. "$1/bin/fm-session-lock-lib.sh"; fm_harness_pid_alive "$2"' _ "$1" "$2" 2>/dev/null
+}
+
 epoch_outcome() {
   sed -n 's/^.*outcome=\([a-z][a-z-]*\) .*$/\1/p' "$1/state/.claude-autoarm-epoch" 2>/dev/null || true
 }
@@ -532,6 +539,113 @@ test_single_flight_admits_exactly_one_owner() {
   pass "auto-arm: concurrent firings admit one owner and one rewake translation"
 }
 
+# Every other case here runs the hook as a CHILD of the fake harness, so the
+# ancestry walk always resolves and the identity gate is never exercised in the
+# shape Claude Code actually uses. `asyncRewake` implies `async` - "runs in
+# background without blocking" - so the real hook is detached and reparented to
+# init. From there the walk hits ppid 1 on its first hop, never reaches the
+# harness, and fm_session_lock_owned_by_self is permanently false.
+#
+# That is not a corner case: it kept supervision off entirely. The hook read its
+# own home's LIVE lock, failed to recognize itself, concluded a foreign session
+# held the home, and exited 0 every time - so no epoch was ever written, no
+# failure was ever recorded, and the turn-end guard's bounded fail-open (which
+# requires a recorded failure) was unreachable.
+#
+# Run it genuinely orphaned against a live-harness lock pid it cannot claim by
+# ancestry, and require it to arm anyway.
+test_detached_hook_still_claims_its_own_home() {
+  local dir owner_pid status waited
+  dir=$(make_primary_dir "$TMP_ROOT/detached-claim")
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" actionable
+
+  # A live harness process whose pid is the recorded lock owner, and which is
+  # NOT an ancestor of the orphaned hook.
+  "$FAKE_CLAUDE" -c 'sleep 120; :' &
+  owner_pid=$!
+  printf '%s\n' "$owner_pid" > "$dir/state/.lock"
+
+  # Settle before running the hook. A just-spawned process is not immediately
+  # reported as a live harness on every host (Git Bash's ps resolves through a
+  # cached Windows process table), and reading the recorded owner as dead would
+  # send the hook down the stale-lock recovery path instead of the live-owner
+  # path this case is about - a detached hook cannot reclaim either, since
+  # fm-lock.sh needs the same ancestry to write a new owner.
+  waited=0
+  while [ "$waited" -lt 300 ] && ! fm_harness_alive_in "$dir" "$owner_pid"; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  fm_harness_alive_in "$dir" "$owner_pid" \
+    || fail "fixture harness $owner_pid never became visible as a live harness"
+
+  # Double-fork so the hook is reparented to init, exactly like the async hook.
+  FM_HOME="$dir" bash -c '
+    (
+      printf "%s\n" "{\"session_id\":\"s\"}" \
+        | "$FM_HOME/bin/fm-claude-stop-autoarm.sh" > "$FM_HOME/state/out" 2>&1
+      printf "%s\n" "$?" > "$FM_HOME/state/rc"
+    ) &
+  ' &
+  waited=0
+  while [ "$waited" -lt 600 ] && [ ! -s "$dir/state/rc" ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  [ -s "$dir/state/rc" ] \
+    || fail "the detached hook never finished; it must not hang on the identity gate"
+  status=$(tr -d '[:space:]' < "$dir/state/rc")
+  kill "$owner_pid" 2>/dev/null || true
+  wait "$owner_pid" 2>/dev/null || true
+
+  [ -e "$dir/state/arm-ran" ] \
+    || fail "a detached hook did not arm its own home: ancestry is unavailable there, and treating that as a foreign session turns supervision off permanently"
+  [ -s "$dir/state/.claude-autoarm-epoch" ] \
+    || fail "a detached hook recorded no epoch, so the guard's fail-open stays unreachable"
+  expect_code 2 "$status" "a detached hook must still translate the actionable close into a rewake"
+  pass "auto-arm: a detached (async) hook claims its own home when ancestry cannot resolve"
+}
+
+# The relaxation above must not admit a genuinely foreign session. Here ancestry
+# RESOLVES and simply does not contain the lock pid - positive evidence of another
+# live session - which must stay fatal.
+test_resolvable_ancestry_still_refuses_a_foreign_live_owner() {
+  local dir owner_pid out status waited
+  dir=$(make_primary_dir "$TMP_ROOT/foreign-live-owner")
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" actionable
+
+  # The trailing no-op keeps the fake harness alive rather than letting bash exec
+  # the sleep into a non-harness process.
+  "$FAKE_CLAUDE" -c 'sleep 120; :' &
+  owner_pid=$!
+  printf '%s\n' "$owner_pid" > "$dir/state/.lock"
+  # Settle: a recorded owner that does not yet read as live would send the hook
+  # down the stale-lock path instead of the foreign-live-owner path under test.
+  waited=0
+  while [ "$waited" -lt 300 ] && ! fm_harness_alive_in "$dir" "$owner_pid"; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  fm_harness_alive_in "$dir" "$owner_pid" \
+    || fail "fixture harness $owner_pid never became visible as a live harness"
+
+  # Child of the fake harness, so ancestry resolves - to a pid that is not the
+  # recorded owner.
+  out=$(FM_HOME="$dir" "$FAKE_CLAUDE" -c '
+    printf "%s\n" "{\"session_id\":\"s\"}" | "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+  ' 2>&1); status=$?
+  kill "$owner_pid" 2>/dev/null || true
+  wait "$owner_pid" 2>/dev/null || true
+
+  expect_code 0 "$status" "a resolvable ancestry that omits the live lock owner must stay inert"
+  [ ! -e "$dir/state/arm-ran" ] || fail "armed a home held by another live session"
+  [ ! -s "$dir/state/.claude-autoarm-epoch" ] || fail "claimed a home held by another live session"
+  [ -z "$out" ] || fail "foreign-owner refusal must be silent, got: $out"
+  pass "auto-arm: a resolvable ancestry without the lock pid still refuses a foreign live owner"
+}
+
 test_need_vanished_mid_cycle_closes_quietly() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/vanished")
@@ -593,6 +707,8 @@ test_benign_cycle_end_with_live_watcher_is_silent
 test_positive_recovery_budget_contention_preserves_episode
 test_arms_for_x_mode_poll_need_without_inflight
 test_single_flight_admits_exactly_one_owner
+test_detached_hook_still_claims_its_own_home
+test_resolvable_ancestry_still_refuses_a_foreign_live_owner
 test_need_vanished_mid_cycle_closes_quietly
 test_afk_mid_cycle_suppresses_rewake
 test_active_in_marked_secondmate_home
