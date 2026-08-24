@@ -7,13 +7,15 @@
 # This repo has no package.json, so the job uses Node directly plus npx tsx
 # rather than npm ci. The assessor and drift check are the same files as
 # bingb0t5/mrbeanz-brains, not a rewritten copy of the rules.
+#
+# Use pull_request, not pull_request_target. The introducing PR adds the
+# checker; checking out the base branch cannot run it until that lands.
+# Same-repo PRs still receive PR_COMMUNICATION_SOT_TOKEN.
 
 name: pr-communication
 
 on:
-  # The base branch owns this token-bearing workflow definition. Proposed code
-  # is checked out separately and never runs in the step that receives the SoT token.
-  pull_request_target:
+  pull_request:
     branches:
       - main
     types: [opened, edited, synchronize, reopened]
@@ -32,44 +34,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out trusted drift checker
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: .trusted-pr-communication
           persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
 
-      - name: Check trusted pin against lalo-admin SoT
-        working-directory: .trusted-pr-communication
+      - name: Drift check against lalo-admin SoT
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Fine-scoped token with contents:read on private lalo-admin.
           # When set, remote SoT comparison runs; REQUIRE=1 is a later decision.
           PR_COMMUNICATION_SOT_TOKEN: ${{ secrets.PR_COMMUNICATION_SOT_TOKEN }}
           PR_COMMUNICATION_REQUIRE_REMOTE_SOT: ${{ vars.PR_COMMUNICATION_REQUIRE_REMOTE_SOT }}
         run: node scripts/pr-communication/check-drift.mjs
 
-      - name: Check out proposed PR communication gate
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: .proposed-pr-communication
-          persist-credentials: false
-
-      - name: Check proposed assessor against its local pin
-        working-directory: .proposed-pr-communication
-        env:
-          PR_COMMUNICATION_SOT_TOKEN: ''
-          GITHUB_TOKEN: ''
-          GH_TOKEN: ''
-        run: node scripts/pr-communication/check-drift.mjs
-
       - name: Assess PR communication
-        working-directory: .proposed-pr-communication
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
