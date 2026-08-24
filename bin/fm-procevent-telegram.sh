@@ -163,14 +163,13 @@
 # away from the terminal die invisibly while Telegram discards the undelivered
 # updates behind it. So each of those two codes, and only those two, produces
 # exactly one durable `blocked: <code>` result - a real capture and a real
-# wake through the ordinary path above, nothing new - recorded in
-# state/.telegram-blocked so the condition is announced once rather than on
-# every poll. While that marker stands the same code stays silent; the first
-# successful poll clears it, so a later permanent failure announces again.
-# `arm` and `retire` clear it too, because the announcement is owed once per
-# armed lifetime of the condition: an operator who retires this source,
-# attempts a fix, and re-arms needs to hear that the channel is still dead
-# rather than inherit the previous episode's silence.
+# wake through the ordinary path above, nothing new - recorded independently
+# by code in state/.telegram-blocked so each condition is announced once
+# rather than on every poll. A 401 remains sticky across 409 responses and
+# explicit arm or retire operations. A 409 remains announced across other
+# failures during the same unresolved overlap. Only a valid, parsed Telegram
+# success clears these episode markers, so a later occurrence can announce
+# again.
 # The channel is never retired over this: `terminal` still never exits 0, the
 # source stays armed, and an operator fixing the token or stopping the legacy
 # sweep resumes delivery with no further action. The signal shares the same
@@ -207,12 +206,9 @@
 #     closing it would mean either re-validating credentials on every poll
 #     cycle through a side channel `poll` cannot see (arm's own refusal
 #     already covers the common case) or silently returning a nonzero exit
-#     here instead of the zero this command documents - and this script
-#     would rather be honest about a narrow, operator-triggered gap than
-#     quietly disagree with its own contract. A pending-delivery record is
-#     checked and reported before this credential check, so a message
-#     already durably written is never stranded behind a later credential
-#     change.
+#     here instead of the zero this command documents. Pending delivery and
+#     receipt recovery also wait behind this credential gate, so this outcome
+#     is always silent and makes no state changes.
 #
 # POLL TIMEOUT. Telegram's `getUpdates` `timeout` parameter accepts up to
 # roughly 50 seconds before the API itself becomes unreliable about honoring
@@ -322,7 +318,6 @@ cmd_source_id() {
 cmd_arm() {
   [ "$#" -eq 0 ] || usage
   credential_available || die "no readable Telegram credential at $(env_file_path)"
-  clear_blocked || die "cannot clear the stale blocked marker at $BLOCKED_FILE"
   "$SCRIPT_DIR/fm-procevent.sh" register telegram "$SOURCE_ID" -- \
     "$SCRIPT_DIR/fm-procevent-telegram.sh" poll || exit 1
   printf 'armed: %s\n' "$SOURCE_ID"
@@ -330,10 +325,7 @@ cmd_arm() {
 
 cmd_retire() {
   [ "$#" -eq 0 ] || usage
-  local rc=0
-  "$SCRIPT_DIR/fm-procevent.sh" retire "$SOURCE_ID" || rc=$?
-  clear_blocked || rc=1
-  return "$rc"
+  "$SCRIPT_DIR/fm-procevent.sh" retire "$SOURCE_ID"
 }
 
 # Never exits 0. See the header: this source must never retire itself.
@@ -383,50 +375,55 @@ ensure_inbox() {
   [ -d "$INBOX" ] && [ ! -L "$INBOX" ]
 }
 
-read_blocked() {
-  local v
-  if [ -f "$BLOCKED_FILE" ] && [ ! -L "$BLOCKED_FILE" ]; then
-    v=$(cat "$BLOCKED_FILE" 2>/dev/null)
-  fi
-  case "${v:-}" in ''|*[!0-9]*) printf '\n' ;; *) printf '%s\n' "$v" ;; esac
+blocked_present() {  # <http-code>
+  local code=$1 line
+  [ -f "$BLOCKED_FILE" ] && [ ! -L "$BLOCKED_FILE" ] || return 1
+  while IFS= read -r line; do
+    [ "$line" = "$code" ] && return 0
+  done < "$BLOCKED_FILE"
+  return 1
 }
 
 write_blocked() {  # <http-code>
-  local code=$1 tmp
-  case "$code" in ''|*[!0-9]*) return 1 ;; esac
+  local code=$1 tmp existing_401=0 existing_409=0
+  case "$code" in 401|409) ;; *) return 1 ;; esac
   mkdir -p "$STATE" 2>/dev/null || return 1
   [ ! -e "$BLOCKED_FILE" ] || [ -f "$BLOCKED_FILE" ] || return 1
   [ ! -L "$BLOCKED_FILE" ] || return 1
+  blocked_present 401 && existing_401=1
+  blocked_present 409 && existing_409=1
   tmp=$(umask 077; mktemp "$STATE/.telegram-blocked.XXXXXX") || return 1
-  printf '%s\n' "$code" > "$tmp" || { rm -f -- "$tmp"; return 1; }
+  {
+    [ "$existing_401" -eq 0 ] || printf '401\n'
+    [ "$existing_409" -eq 0 ] || printf '409\n'
+    if { [ "$code" = 401 ] && [ "$existing_401" -eq 0 ]; } \
+      || { [ "$code" = 409 ] && [ "$existing_409" -eq 0 ]; }; then
+      printf '%s\n' "$code"
+    fi
+  } > "$tmp" || { rm -f -- "$tmp"; return 1; }
   chmod 0600 "$tmp" || { rm -f -- "$tmp"; return 1; }
   mv -f -- "$tmp" "$BLOCKED_FILE"
 }
 
-# The marker is adapter-private state with an adapter-owned lifetime, so the
-# lifecycle commands that start and stop this channel clear it too: an
-# operator who retires the source, attempts a fix, and re-arms is owed a
-# fresh announcement rather than silence inherited from the previous episode.
 clear_blocked() {
   [ -e "$BLOCKED_FILE" ] || [ -L "$BLOCKED_FILE" ] || return 0
   rm -f -- "$BLOCKED_FILE"
 }
 
-# One announcement per occurrence of a permanent condition: the marker is
-# recorded first so a repeat poll stays silent, and a poll that actually
-# succeeds - or either lifecycle boundary above - clears it.
+# One announcement per occurrence of each permanent condition: the code is
+# recorded first so repeats stay silent, and only a valid parsed poll clears
+# all resolved conditions.
 # See PERMANENT FAILURE.
 report_blocked() {  # <http-code>
   local code=$1
-  [ "$(read_blocked)" != "$code" ] || return 1
+  blocked_present "$code" && return 1
   write_blocked "$code" || return 1
   printf 'blocked: %s\n' "$code"
 }
 
 # A durable bridge between "messages are on disk" and "the offset advanced
 # past them": written after a complete batch or after any partial delivery,
-# read and reported before anything else on the next poll (even before
-# credential validation - see the EXIT-CODE CONTRACT note), and cleared only
+# read and reported after credential validation on the next poll, and cleared only
 # once its count and target offset have both been produced as this poll's
 # result. Per-update receipts recover this record if its write fails. See LOSS
 # LIMITATION for the one crash window this cannot close.
@@ -558,6 +555,15 @@ cmd_poll() {
   [ "$#" -eq 0 ] || usage
   local env_file token captain_chat_id captain_user_id offset body_file rc http_code out highest messages batch_error new_offset
 
+  env_file=$(env_file_path)
+  credential_readable || exit 0
+  token=$(telegram_bot_token "$env_file")
+  [ -n "$token" ] || exit 0
+  captain_chat_id=$(telegram_captain_chat_id "$env_file")
+  [ -n "$captain_chat_id" ] || exit 0
+  captain_user_id=$(telegram_captain_user_id "$env_file")
+  [ -n "$captain_user_id" ] || exit 0
+
   if [ -e "$PENDING_FILE" ] || [ -L "$PENDING_FILE" ]; then
     report_pending
     exit $?
@@ -568,15 +574,6 @@ cmd_poll() {
     rc=$?
     [ "$rc" -eq 2 ] || exit "$rc"
   fi
-
-  env_file=$(env_file_path)
-  credential_readable || exit 0
-  token=$(telegram_bot_token "$env_file")
-  [ -n "$token" ] || exit 0
-  captain_chat_id=$(telegram_captain_chat_id "$env_file")
-  [ -n "$captain_chat_id" ] || exit 0
-  captain_user_id=$(telegram_captain_user_id "$env_file")
-  [ -n "$captain_user_id" ] || exit 0
 
   ensure_inbox || exit 1
   mkdir -p "$RECEIPT_DIR" 2>/dev/null || exit 1
@@ -603,8 +600,6 @@ cmd_poll() {
       ;;
     *) exit 1 ;;
   esac
-  rm -f -- "$BLOCKED_FILE" 2>/dev/null || :
-
   out=$(python3 - "$STATE" "$INBOX" "$RECEIPT_DIR" "$body_file" "$captain_chat_id" "$captain_user_id" <<'PY'
 import json
 import os
@@ -752,6 +747,7 @@ print("MESSAGES=%d" % messages)
 print("ERROR=0")
 PY
   ) || exit 1
+  clear_blocked || exit 1
 
   highest=$(printf '%s\n' "$out" | sed -n 's/^HIGHEST=//p')
   messages=$(printf '%s\n' "$out" | sed -n 's/^MESSAGES=//p')

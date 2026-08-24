@@ -103,6 +103,7 @@ JSON
 cat > "$FIXTURES/empty.json" <<JSON
 {"ok":true,"result":[]}
 JSON
+printf '{"ok":true,"result":' > "$FIXTURES/malformed-response.json"
 cat > "$FIXTURES/overlap-batch.json" <<JSON
 {"ok":true,"result":[{"update_id":4001,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"already delivered by the legacy script"}},{"update_id":4002,"message":{"date":2,"chat":{"id":555},"from":{"id":909},"text":"genuinely new in this batch"}}]}
 JSON
@@ -366,6 +367,15 @@ assert_present "$H_MARKER_FAIL/state/.telegram-delivery-receipts/3001.json" \
   "the published message remains durably discoverable after pending-marker failure"
 rmdir "$H_MARKER_FAIL/state/.telegram-pending-delivery"
 rmdir "$H_MARKER_FAIL/state/telegram-inbox/3002.json"
+rm -f -- "$MARKER_FAIL_ENV"
+marker_nocred_status=0
+marker_nocred_out=$(poll_once "$H_MARKER_FAIL" "$MARKER_FAIL_ENV" "$FIXTURES/two-text.json") \
+  || marker_nocred_status=$?
+[ "$marker_nocred_status" -eq 0 ] || fail "receipt recovery without credentials did not exit 0"
+[ -z "$marker_nocred_out" ] || fail "receipt recovery without credentials produced output: $marker_nocred_out"
+assert_present "$H_MARKER_FAIL/state/.telegram-delivery-receipts/3001.json" \
+  "credential-free polling must not consume a delivery receipt"
+write_env_file "$MARKER_FAIL_ENV" "$TOKEN"
 marker_recover_status=0
 marker_recover_out=$(poll_once "$H_MARKER_FAIL" "$MARKER_FAIL_ENV" "$FIXTURES/two-text.json") || marker_recover_status=$?
 [ "$marker_recover_status" -eq 0 ] || fail "the durable receipt was not recovered: $marker_recover_out"
@@ -560,7 +570,7 @@ assert_absent "$H_HANDLED/state/telegram-inbox/4001.json" \
 assert_present "$H_HANDLED/state/telegram-inbox/4002.json" "the genuinely new update is still delivered"
 pass "a handled update is never redelivered even after its live inbox copy is gone"
 
-# --- offset-write failure recovers its wake, even without credentials ------
+# --- offset-write failure waits silently for credentials before recovery ---
 H_PEND="$TMP_ROOT/pending"; new_home "$H_PEND"
 PEND_ENV="$TMP_ROOT/pending.env"; write_env_file "$PEND_ENV" "$TOKEN"
 mkdir -p "$H_PEND/state/.telegram-offset"  # obstruct: the offset path is a directory
@@ -577,11 +587,17 @@ rm -f -- "$PEND_ENV"  # credentials disappear before the retry
 pend_recover_status=0
 pend_recover_out=$(poll_once "$H_PEND" "$PEND_ENV" "$FIXTURES/one-text.json") || pend_recover_status=$?
 [ "$pend_recover_status" -eq 0 ] || fail "pending-delivery recovery without credentials did not exit 0: $pend_recover_out"
-assert_contains "$pend_recover_out" "message: 1" \
-  "the previously-written message is still reported even though credentials are now gone"
+[ -z "$pend_recover_out" ] || fail "pending recovery without credentials produced output: $pend_recover_out"
+assert_absent "$H_PEND/state/.telegram-offset" "credential-free recovery must not advance the offset"
+assert_present "$H_PEND/state/.telegram-pending-delivery" \
+  "credential-free recovery must preserve the pending record"
+write_env_file "$PEND_ENV" "$TOKEN"
+pend_restored_out=$(poll_once "$H_PEND" "$PEND_ENV" "$FIXTURES/one-text.json")
+assert_contains "$pend_restored_out" "message: 1" \
+  "the previously-written message is reported once credentials return"
 [ "$(cat "$H_PEND/state/.telegram-offset")" = 1002 ] || fail "the offset advances once persistence recovers"
 assert_absent "$H_PEND/state/.telegram-pending-delivery" "the pending record clears once reported"
-pass "an offset-write failure recovers its wake on retry, even after credentials are removed"
+pass "pending recovery stays silent and inert until credentials return"
 
 # --- a confirmed permanent API failure is announced exactly once -----------
 # 401 (revoked or rotated token) and 409 (the legacy check-sweep still holding
@@ -606,11 +622,30 @@ repeat_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401
 [ -z "$repeat_out" ] || fail "an already-announced permanent failure produced output: $repeat_out"
 pass "a permanent API failure wakes firstmate exactly once, and never retires the channel"
 
+malformed_recovery_status=0
+malformed_recovery_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/malformed-response.json") \
+  || malformed_recovery_status=$?
+[ "$malformed_recovery_status" -ne 0 ] || fail "a malformed HTTP 200 response was treated as recovery"
+[ -z "$malformed_recovery_out" ] || fail "a malformed HTTP 200 response produced output: $malformed_recovery_out"
+sticky_401_status=0
+sticky_401_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) || sticky_401_status=$?
+[ "$sticky_401_status" -ne 0 ] || fail "a malformed HTTP 200 cleared the sticky 401: $sticky_401_out"
+[ -z "$sticky_401_out" ] || fail "the sticky 401 announced twice after malformed HTTP 200: $sticky_401_out"
+pass "a malformed HTTP success cannot clear a sticky 401"
+
 # A different permanent condition is its own announcement.
 switch_status=0
 switch_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 409) || switch_status=$?
 [ "$switch_status" -eq 0 ] || fail "a 409 after an announced 401 was swallowed: status=$switch_status"
 assert_contains "$switch_out" "blocked: 409" "a different permanent condition announces on its own"
+switch_back_status=0
+switch_back_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) || switch_back_status=$?
+[ "$switch_back_status" -ne 0 ] || fail "a 409 replaced the sticky 401 marker: $switch_back_out"
+[ -z "$switch_back_out" ] || fail "a 409 caused the sticky 401 to announce twice: $switch_back_out"
+repeat_409_status=0
+repeat_409_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 409) || repeat_409_status=$?
+[ "$repeat_409_status" -ne 0 ] || fail "a 401 replaced the continuous 409 marker: $repeat_409_out"
+[ -z "$repeat_409_out" ] || fail "the continuous 409 announced twice: $repeat_409_out"
 # Recovery clears the condition, and the message behind it is still delivered.
 recovered_status=0
 recovered_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json") || recovered_status=$?
@@ -623,10 +658,7 @@ reblock_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/empty.json" 401) 
 assert_contains "$reblock_out" "blocked: 401" "a permanent failure that recurs after recovery announces again"
 pass "a cleared blockage resumes delivery and lets a later permanent failure announce again"
 
-# --- re-arming after a fix attempt is owed a fresh announcement ------------
-# The marker is adapter-private state, so an operator who retires the source
-# to investigate, fails to fix the cause, and re-arms must hear that the
-# channel is still dead rather than inherit the previous episode's silence.
+# --- lifecycle operations preserve a blocked episode -----------------------
 H_REARM="$TMP_ROOT/blocked-rearm"; new_home "$H_REARM"
 REARM_ENV="$TMP_ROOT/blocked-rearm.env"; write_env_file "$REARM_ENV" "$TOKEN"
 rearm_first_status=0
@@ -640,13 +672,12 @@ FM_HOME="$H_REARM" FM_TELEGRAM_ENV_FILE="$REARM_ENV" "$ADAPTER" retire >/dev/nul
 FM_HOME="$H_REARM" FM_TELEGRAM_ENV_FILE="$REARM_ENV" "$ADAPTER" arm >/dev/null
 rearm_status=0
 rearm_out=$(poll_once "$H_REARM" "$REARM_ENV" "$FIXTURES/empty.json" 401) || rearm_status=$?
-[ "$rearm_status" -eq 0 ] || fail "a re-armed source stayed silently blocked from a stale episode: status=$rearm_status"
-assert_contains "$rearm_out" "blocked: 401" "the re-armed source announces the still-unfixed condition"
+[ "$rearm_status" -ne 0 ] || fail "re-arm cleared the sticky 401 marker: $rearm_out"
+[ -z "$rearm_out" ] || fail "re-arm caused the sticky 401 to announce twice: $rearm_out"
 FM_HOME="$H_REARM" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null 2>&1 || :
-pass "retiring and re-arming a blocked channel earns a fresh announcement"
+pass "retiring and re-arming cannot clear a sticky 401"
 
-# Retire alone clears it: an operator who stops the channel and later restarts
-# polling by any route is never left inheriting the stale marker.
+# Retire alone also preserves the continuous 409 episode.
 H_RETIRE_CLEAR="$TMP_ROOT/blocked-retire"; new_home "$H_RETIRE_CLEAR"
 RETIRE_CLEAR_ENV="$TMP_ROOT/blocked-retire.env"; write_env_file "$RETIRE_CLEAR_ENV" "$TOKEN"
 retire_clear_out=$(poll_once "$H_RETIRE_CLEAR" "$RETIRE_CLEAR_ENV" "$FIXTURES/empty.json" 409)
@@ -654,9 +685,9 @@ assert_contains "$retire_clear_out" "blocked: 409" "the 409 announces before the
 FM_HOME="$H_RETIRE_CLEAR" "$ADAPTER" retire >/dev/null 2>&1 || :
 retire_clear_status=0
 retire_clear_again=$(poll_once "$H_RETIRE_CLEAR" "$RETIRE_CLEAR_ENV" "$FIXTURES/empty.json" 409) || retire_clear_status=$?
-[ "$retire_clear_status" -eq 0 ] || fail "retire left the stale blocked marker in place: status=$retire_clear_status"
-assert_contains "$retire_clear_again" "blocked: 409" "the condition announces again after a retire"
-pass "retire clears the blocked marker so a later episode is never swallowed"
+[ "$retire_clear_status" -ne 0 ] || fail "retire cleared the continuous 409 marker: $retire_clear_again"
+[ -z "$retire_clear_again" ] || fail "retire caused the continuous 409 to announce twice: $retire_clear_again"
+pass "retire preserves a continuous 409 episode"
 
 # A transient status must stay exactly as silent as it always was.
 H_TRANSIENT="$TMP_ROOT/transient"; new_home "$H_TRANSIENT"
