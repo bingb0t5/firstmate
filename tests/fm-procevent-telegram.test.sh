@@ -57,6 +57,13 @@ chmod +x "$FAKEBIN/curl"
 
 export PATH="$FAKEBIN:$PATH"
 
+help_status=0
+help_out=$("$ADAPTER" --help) || help_status=$?
+[ "$help_status" -ne 0 ] || fail "help unexpectedly reported command success"
+assert_contains "$help_out" "deregister" "help omits the old check-sweep retirement prerequisite"
+assert_contains "$help_out" "Before \`arm\`" "help does not place retirement before arm"
+pass "help requires retiring the old check-sweep before arm"
+
 FIXTURES="$TMP_ROOT/fixtures"
 mkdir -p "$FIXTURES"
 TOKEN=SEKRIT-TEST-TOKEN-7f3a9c

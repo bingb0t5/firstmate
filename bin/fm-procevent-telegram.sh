@@ -11,7 +11,10 @@
 # arm         Register this home's single Telegram source with the runner.
 #             Refuses when no readable credential file exists (see below), so
 #             an unconfigured home never gets a registered source and never
-#             sees a Telegram-shaped wake at all.
+#             sees a Telegram-shaped wake at all. Before arming, deregister
+#             state/telegram-watch.check.sh from the old check sweep and stop
+#             invoking it. The two consumers must never overlap because that
+#             home-local script does not share this adapter's delivery state.
 # source-id   The canonical id: always the constant "telegram". This home has
 #             at most one Telegram channel, so there is nothing to derive an
 #             id from.
@@ -64,9 +67,9 @@
 # state/telegram-inbox/ BEFORE the offset file advances past it, and if any
 # write in a batch fails, the offset is not advanced at all: the whole batch,
 # including messages already written earlier in that same batch, is fetched
-# again next time. Persistence is serialized and checks both the live inbox
-# and its handled/ archive before creating a file, so a refetched update is
-# never counted or delivered twice. A lost message from the captain is not
+# again next time. Persistence checks both the live inbox and its handled/
+# archive before creating a file, so a refetched update is never counted or
+# delivered twice. A lost message from the captain is not
 # recoverable at all. Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID and non-text
 # updates (a photo, a sticker, a chat-membership change) are consumed the same
 # way - their ids are folded into the advanced offset - but produce no inbox
@@ -113,9 +116,11 @@
 #
 # OFFSET FILE. state/.telegram-offset - the same file and convention the
 # home-local state/telegram-watch.check.sh check-sweep script already uses.
-# Sharing it is deliberate and safe: every message file is named by its
-# Telegram update id, and persistence rejects ids already present in either
-# the live inbox or handled archive before deciding whether to wake firstmate.
+# Before `arm`, deregister that old check and ensure the check sweep has
+# stopped invoking it. The home-local producer does not participate in this
+# adapter's delivery boundary, so concurrent handoff is unsafe. Once it is
+# stopped, retaining the offset preserves continuity, and ids already present
+# in either the live inbox or handled archive are not delivered again.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -130,7 +135,7 @@ POLL_TIMEOUT=${FM_TELEGRAM_POLL_TIMEOUT:-25}
 CURL_MAX_TIME=${FM_TELEGRAM_CURL_MAX_TIME:-$((POLL_TIMEOUT + 15))}
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-usage() { sed -n '2,116p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,123p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
 
 env_file_path() {
   printf '%s\n' "${FM_TELEGRAM_ENV_FILE:-$HOME/.config/beanz/telegram.env}"
@@ -269,7 +274,6 @@ cmd_poll() {
 
   out=$(python3 - "$INBOX" "$body_file" "$captain_chat_id" <<'PY'
 import json
-import fcntl
 import os
 import sys
 
@@ -291,46 +295,42 @@ if not updates:
 
 highest = 0
 messages = 0
-lock_path = os.path.join(inbox, ".delivery.lock")
 try:
-    lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-    with os.fdopen(lock_fd, "r+") as lock_fh:
-        fcntl.flock(lock_fh, fcntl.LOCK_EX)
-        for u in updates:
-            uid = u.get("update_id")
-            if not isinstance(uid, int):
-                raise ValueError("update_id is not an integer")
-            if uid > highest:
-                highest = uid
-            msg = u.get("message") or u.get("edited_message") or {}
-            text = msg.get("text")
-            chat_id = (msg.get("chat") or {}).get("id")
-            if not text or str(chat_id) != captain_chat_id:
-                continue
-            payload = {
-                "update_id": uid,
-                "date": msg.get("date"),
-                "chat_id": chat_id,
-                "text": text,
-            }
-            dest = os.path.join(inbox, "%d.json" % uid)
-            handled = os.path.join(inbox, "handled", "%d.json" % uid)
-            if os.path.isfile(dest) or os.path.isfile(handled):
-                continue
-            tmp = os.path.join(inbox, ".%d.json.tmp.%d" % (uid, os.getpid()))
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as out_fh:
-                json.dump(payload, out_fh)
-                out_fh.flush()
-                os.fchmod(out_fh.fileno(), 0o600)
-                os.fsync(out_fh.fileno())
-            os.replace(tmp, dest)
-            dir_fd = os.open(inbox, os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-            messages += 1
+    for u in updates:
+        uid = u.get("update_id")
+        if not isinstance(uid, int):
+            raise ValueError("update_id is not an integer")
+        if uid > highest:
+            highest = uid
+        msg = u.get("message") or u.get("edited_message") or {}
+        text = msg.get("text")
+        chat_id = (msg.get("chat") or {}).get("id")
+        if not text or str(chat_id) != captain_chat_id:
+            continue
+        payload = {
+            "update_id": uid,
+            "date": msg.get("date"),
+            "chat_id": chat_id,
+            "text": text,
+        }
+        dest = os.path.join(inbox, "%d.json" % uid)
+        handled = os.path.join(inbox, "handled", "%d.json" % uid)
+        if os.path.isfile(dest) or os.path.isfile(handled):
+            continue
+        tmp = os.path.join(inbox, ".%d.json.tmp.%d" % (uid, os.getpid()))
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as out_fh:
+            json.dump(payload, out_fh)
+            out_fh.flush()
+            os.fchmod(out_fh.fileno(), 0o600)
+            os.fsync(out_fh.fileno())
+        os.replace(tmp, dest)
+        dir_fd = os.open(inbox, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+        messages += 1
 except (OSError, ValueError):
     if "tmp" in locals():
         try:
