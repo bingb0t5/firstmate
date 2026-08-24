@@ -237,10 +237,18 @@ Before treating any GNHF-driven branch as ready, whether reviewing between Compa
 or at a Hands-Off task's own `done:`:
 
 1. Inspect branch, status, commits, changed files, and diff - never GNHF's summary alone.
-   Check the run's commit count and branch diff stats against its reported good/failed
-   iteration tally rather than trusting the tally itself: "N good iterations" with fewer
-   than N new commits means iterations were counted good without committing anything, which
-   is a stop-and-investigate signal rather than evidence of progress.
+   To catch the silent no-op spin above, measure each invocation's real progress yourself:
+   capture `git rev-parse HEAD` immediately *before* invoking GNHF, and once it exits count
+   only the commits that invocation actually added, with
+   `git rev-list --count <pre-invocation-head>..HEAD`. Compare that against the same
+   invocation's own reported good-iteration count; "N good iterations" having added fewer
+   than N commits means iterations were counted good without committing anything, which is a
+   stop-and-investigate signal rather than evidence of progress. Never compare against
+   GNHF's own printed `branch diff N commits` figure: it is computed from the run's original
+   base commit, so on any resumed invocation it still includes every earlier invocation's
+   commits and would report a clean-looking all-clear for a run that did nothing this time.
+   The printed `iterations N total` is cumulative for the same reason, while the good/failed
+   tally resets each invocation - so those two figures are not on a common base either.
 2. Read GNHF's `notes.md` and debug log as claims, not evidence.
 3. Run the task's own real verification: tests, lint, build, or domain-specific checks.
 4. Compare the result against current intent and the task's stop condition.
