@@ -2017,10 +2017,11 @@ EOF
 }
 
 # --- automatic /stow trigger 1: STOW DUE on compact/clear re-emit ------------
-# A staleness gate on state/.last-stow-attempt that surfaces one STOW DUE line
-# in a lock-owning compact/clear re-emit, silent when the marker is current and
-# silent when the re-emit could not verify fleet-lock ownership. These exercise
-# the real digest's public output only - never source bytes.
+# An explicit config/auto-stow grant and staleness gate on
+# state/.last-stow-attempt that surface one STOW DUE line in a lock-owning
+# compact/clear re-emit, silent when disabled, when the marker is current, and
+# when the re-emit could not verify fleet-lock ownership. These exercise the
+# real digest's public output only - never source bytes.
 
 # Set <file>'s mtime to exactly <epoch> seconds (touch -t takes a local-time
 # stamp, not an epoch, on both platforms, so convert via BSD `date -r` or GNU
@@ -2038,9 +2039,29 @@ set_stow_marker_mtime() {  # <epoch> <file>
 
 run_reemit_for_stow() {  # <home> <root> <path> [source]
   local home=$1 root=$2 path=$3 source=${4:-compact}
+  touch "$home/config/auto-stow"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$path" \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     "$SESSION_START" --reemit --source "$source"
+}
+
+test_stow_due_silent_without_captain_opt_in() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-disabled)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    "$SESSION_START" --reemit --source compact)
+
+  assert_not_contains "$out" "STOW DUE:" \
+    "a home without the captain's config/auto-stow grant enabled automatic /stow"
+
+  pass "automatic /stow stays disabled until the captain grants it for the home"
 }
 
 # Line number of the first line matching <needle>, or empty when absent.
@@ -2774,6 +2795,7 @@ test_portable_timeout_escalates_term_resistant_process
 test_runtime_bound_leaves_a_healthy_digest_untouched
 test_runtime_bound_leaves_harness_ancestry_headroom
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain
+test_stow_due_silent_without_captain_opt_in
 test_stow_due_surfaced_when_marker_absent_on_reemit
 test_stow_due_silent_when_marker_is_fresh
 test_stow_due_default_interval_keeps_a_recent_marker_silent

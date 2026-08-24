@@ -189,10 +189,11 @@ The skill text owns the marker spelling, the tick order, and the reinforcement r
 
 ## Automatic /stow
 
-Two existing turns already reach the agent, and both now decide whether to run the internal [`/stow` skill](../.agents/skills/stow/SKILL.md) instead of waiting for the captain to type it.
+Create the home-local, gitignored `config/auto-stow` file to grant automatic memory curation for that home; its contents are ignored, and removing it disables both triggers.
+This explicit captain opt-in satisfies `VISION.md`'s authority boundary while letting two existing turns decide whether to run the internal [`/stow` skill](../.agents/skills/stow/SKILL.md) instead of waiting for the captain to type it.
 
-1. A lock-owning compact/clear session-start re-emit prepends one `STOW DUE:` line when `state/.last-stow-attempt` is missing or older than `FM_AUTO_STOW_INTERVAL_SECS` (default 86400), and stays silent when the marker is current or the session could not verify fleet-lock ownership (`bin/fm-session-start.sh`).
-2. Heartbeat handling in `AGENTS.md` section 8 rule 4 runs `/stow` first when the same marker is due, using that same larger interval so a pass does not run on every heartbeat wake.
+1. An enabled, lock-owning compact/clear session-start re-emit prepends one `STOW DUE:` line when `state/.last-stow-attempt` is missing or older than `FM_AUTO_STOW_INTERVAL_SECS` (default 86400), and stays silent when the marker is current, automatic stow is disabled, or the session could not verify fleet-lock ownership (`bin/fm-session-start.sh`).
+2. Enabled heartbeat handling in `AGENTS.md` section 8 rule 4 runs `/stow` first when the same marker is due, using that same larger interval so a pass does not run on every heartbeat wake.
 
 `FM_AUTO_STOW_INTERVAL_SECS` accepts whole seconds from 1 through 31536000 (365 days); empty, non-numeric, zero, or larger values fall back to 86400.
 The stow skill touches `state/.last-stow-attempt` at the end of every pass, reset-safe or not, and touches `state/.last-stow` only when the pass is reset-safe.

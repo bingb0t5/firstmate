@@ -351,8 +351,9 @@ QUEUED_LIMIT=${FM_SESSION_START_QUEUED_LIMIT:-20}
 case "$QUEUED_LIMIT" in ''|*[!0-9]*|0) QUEUED_LIMIT=20 ;; esac
 BACKLOG_FIELDS=blocked_by,hold_kind,hold_reason
 
-# Automatic /stow, trigger 1 (the compact/clear re-emit path below): a
-# staleness gate on state/.last-stow-attempt, touched by the stow skill itself
+# Automatic /stow, trigger 1 (the compact/clear re-emit path below): an
+# explicit home-local config/auto-stow grant plus a staleness gate on
+# state/.last-stow-attempt, touched by the stow skill itself
 # at the end of every pass whether or not it reached reset-safe (mirrors
 # state/.last-heartbeat's bare-mtime marker, bin/fm-watch.sh). Reading the
 # attempt marker rather than its reset-safe-only sibling state/.last-stow is
@@ -681,7 +682,7 @@ fi
 # this home's memory files, so a re-emit that could not verify fleet-lock
 # ownership must stay silent about it and leave the still-due marker to the
 # next session start or re-emit that does own the lock.
-if [ "$REEMIT" -eq 1 ] && [ "$READ_ONLY" -eq 0 ]; then
+if [ "$REEMIT" -eq 1 ] && [ "$READ_ONLY" -eq 0 ] && [ -e "$CONFIG/auto-stow" ]; then
   stow_due_line
 fi
 REBUILDING_SESSION_PID=$(fm_harness_ancestry_pid 2>/dev/null || true)
