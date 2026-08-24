@@ -283,6 +283,11 @@ cmd_poll() {
   [ "$#" -eq 0 ] || usage
   local env_file token captain_chat_id offset body_file rc http_code out highest messages new_offset
 
+  if [ -e "$PENDING_FILE" ] || [ -L "$PENDING_FILE" ]; then
+    report_pending
+    exit $?
+  fi
+
   env_file=$(env_file_path)
   credential_readable || exit 0
   token=$(telegram_bot_token "$env_file")
@@ -292,11 +297,6 @@ cmd_poll() {
 
   mkdir -p "$INBOX" 2>/dev/null || exit 1
   [ -d "$INBOX" ] && [ ! -L "$INBOX" ] || exit 1
-
-  if [ -e "$PENDING_FILE" ] || [ -L "$PENDING_FILE" ]; then
-    report_pending
-    exit $?
-  fi
 
   offset=$(read_offset)
 

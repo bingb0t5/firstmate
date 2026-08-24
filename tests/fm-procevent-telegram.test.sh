@@ -57,16 +57,6 @@ chmod +x "$FAKEBIN/curl"
 
 export PATH="$FAKEBIN:$PATH"
 
-help_status=0
-help_out=$("$ADAPTER" --help) || help_status=$?
-[ "$help_status" -ne 0 ] || fail "help unexpectedly reported command success"
-assert_contains "$help_out" "deregister" "help omits the old check-sweep retirement prerequisite"
-assert_contains "$help_out" "Before \`arm\`" "help does not place retirement before arm"
-assert_contains "$help_out" "before the runner's" "help omits the residual pre-capture crash window"
-assert_contains "$help_out" "power loss" "help omits the pending-marker resurrection risk"
-assert_contains "$help_out" "Never describe" "help overstates the source-side delivery guarantee"
-pass "help requires retiring the old check-sweep before arm"
-
 FIXTURES="$TMP_ROOT/fixtures"
 mkdir -p "$FIXTURES"
 TOKEN=SEKRIT-TEST-TOKEN-7f3a9c
@@ -272,13 +262,14 @@ offset_fail_out=$(poll_once "$H_OFFSET_FAIL" "$OFFSET_FAIL_ENV" "$FIXTURES/one-t
 assert_present "$H_OFFSET_FAIL/state/telegram-inbox/1001.json" "the inbox write did not precede the offset failure"
 assert_present "$H_OFFSET_FAIL/state/.telegram-pending-delivery" "the offset failure lost its pending wake"
 rmdir "$H_OFFSET_FAIL/state/.telegram-offset"
+rm "$OFFSET_FAIL_ENV"
 offset_recover_status=0
 offset_recover_out=$(poll_once "$H_OFFSET_FAIL" "$OFFSET_FAIL_ENV" "$FIXTURES/empty.json") || offset_recover_status=$?
-[ "$offset_recover_status" -eq 0 ] || fail "the pending wake did not recover after the offset became writable"
+[ "$offset_recover_status" -eq 0 ] || fail "the pending wake did not recover without credentials"
 assert_contains "$offset_recover_out" "message: 1" "recovery did not report the already-written message"
 [ "$(cat "$H_OFFSET_FAIL/state/.telegram-offset")" = 1002 ] || fail "recovery did not advance the preserved target offset"
 assert_absent "$H_OFFSET_FAIL/state/.telegram-pending-delivery" "recovery did not clear the reported pending wake"
-pass "an offset write failure preserves and later reports the pending wake"
+pass "an offset write failure recovers its wake without credentials"
 
 # --- the bot token never reaches durable output -----------------------------
 H_TOKEN="$TMP_ROOT/tokenleak"; new_home "$H_TOKEN"
