@@ -58,6 +58,19 @@ exit "${CURL_STUB_EXIT:-0}"
 SH
 chmod +x "$FAKEBIN/curl"
 
+cat > "$FAKEBIN/rm" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ -n "${FAIL_RM_PATH:-}" ]; then
+  for arg in "$@"; do
+    [ "$arg" = "$FAIL_RM_PATH" ] && exit 1
+  done
+fi
+exec /bin/rm "$@"
+SH
+chmod +x "$FAKEBIN/rm"
+
+ORIGINAL_PATH=$PATH
 export PATH="$FAKEBIN:$PATH"
 
 FIXTURES="$TMP_ROOT/fixtures"
@@ -102,6 +115,9 @@ cat > "$FIXTURES/malformed-update.json" <<JSON
 JSON
 cat > "$FIXTURES/boolean-update-id.json" <<JSON
 {"ok":true,"result":[{"update_id":true,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"boolean identifier"}}]}
+JSON
+cat > "$FIXTURES/zero-update-id.json" <<JSON
+{"ok":true,"result":[{"update_id":0,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"zero identifier"}}]}
 JSON
 cat > "$FIXTURES/out-of-range-update-id.json" <<JSON
 {"ok":true,"result":[{"update_id":2147483648,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"out-of-range identifier"}}]}
@@ -420,6 +436,30 @@ assert_absent "$H_CLEANUP_FAIL/state/.telegram-pending-delivery" \
   "successful retry clears the pending wake"
 pass "receipt cleanup completes before a pending wake is published"
 
+# --- pending cleanup must finish before a wake is published -----------------
+H_PENDING_REMOVE="$TMP_ROOT/pending-remove-fail"; new_home "$H_PENDING_REMOVE"
+PENDING_REMOVE_ENV="$TMP_ROOT/pending-remove-fail.env"
+write_env_file "$PENDING_REMOVE_ENV" "$TOKEN"
+printf '1 1002\n' > "$H_PENDING_REMOVE/state/.telegram-pending-delivery"
+FAIL_RM_PATH="$H_PENDING_REMOVE/state/.telegram-pending-delivery"
+export FAIL_RM_PATH
+pending_remove_status=0
+pending_remove_out=$(poll_once "$H_PENDING_REMOVE" "$PENDING_REMOVE_ENV" "$FIXTURES/empty.json") \
+  || pending_remove_status=$?
+unset FAIL_RM_PATH
+[ "$pending_remove_status" -ne 0 ] \
+  || fail "a pending cleanup failure unexpectedly succeeded: $pending_remove_out"
+[ -z "$pending_remove_out" ] \
+  || fail "a pending cleanup failure published a wake before cleanup completed: $pending_remove_out"
+assert_present "$H_PENDING_REMOVE/state/.telegram-pending-delivery" \
+  "a failed pending cleanup retains the durable wake for retry"
+pending_remove_retry_out=$(poll_once "$H_PENDING_REMOVE" "$PENDING_REMOVE_ENV" "$FIXTURES/empty.json")
+assert_contains "$pending_remove_retry_out" "message: 1" \
+  "the pending wake publishes once cleanup can finish"
+assert_absent "$H_PENDING_REMOVE/state/.telegram-pending-delivery" \
+  "successful pending cleanup removes the durable wake"
+pass "pending cleanup completes before a wake is published"
+
 # --- a receipt must never resurrect a message firstmate already handled ----
 # Same failure the marker-fail case drives: the message is published and its
 # durable receipt survives, but the poll exits without reporting. Firstmate,
@@ -554,7 +594,7 @@ assert_absent "$H_MALFORMED_U/state/.telegram-offset" \
   "an update with no readable update_id must never let the offset advance past it"
 pass "an update that is not an object blocks its batch cleanly instead of crashing"
 
-for invalid_id_case in boolean-update-id out-of-range-update-id; do
+for invalid_id_case in boolean-update-id zero-update-id out-of-range-update-id; do
   invalid_id_home="$TMP_ROOT/$invalid_id_case"; new_home "$invalid_id_home"
   invalid_id_env="$TMP_ROOT/$invalid_id_case.env"; write_env_file "$invalid_id_env" "$TOKEN"
   invalid_id_status=0
@@ -710,6 +750,11 @@ boolean_update_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/boolean-up
   || boolean_update_status=$?
 [ "$boolean_update_status" -ne 0 ] || fail "a boolean update_id was treated as recovery"
 [ -z "$boolean_update_out" ] || fail "a boolean update_id produced output: $boolean_update_out"
+zero_update_status=0
+zero_update_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/zero-update-id.json") \
+  || zero_update_status=$?
+[ "$zero_update_status" -ne 0 ] || fail "a zero update_id was treated as recovery"
+[ -z "$zero_update_out" ] || fail "a zero update_id produced output: $zero_update_out"
 still_sticky_status=0
 still_sticky_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) \
   || still_sticky_status=$?
@@ -867,4 +912,5 @@ assert_present "$H_E2E_BLOCKED/state/procevent/telegram.source" "the source stay
 FM_HOME="$H_E2E_BLOCKED" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null
 pass "a permanent API failure wakes firstmate through the real runner and leaves the source armed"
 
+PATH="$ORIGINAL_PATH"
 printf 'all fm-procevent-telegram tests passed\n'

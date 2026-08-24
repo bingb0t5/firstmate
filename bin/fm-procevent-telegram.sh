@@ -466,14 +466,15 @@ recover_receipts() {
   local count offset
   [ -d "$RECEIPT_DIR" ] && [ ! -L "$RECEIPT_DIR" ] || return 1
   ensure_inbox || return 1
-  count=$(python3 - "$RECEIPT_DIR" "$INBOX" <<'PY'
+  count=$(python3 - "$SCRIPT_DIR" "$RECEIPT_DIR" "$INBOX" <<'PY'
 import glob
 import json
 import os
 import sys
 
-receipt_dir, inbox = sys.argv[1], sys.argv[2]
-MAX_UPDATE_ID = 2**31 - 1
+script_dir, receipt_dir, inbox = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, script_dir)
+from fm_procevent_telegram_validation import valid_update_id
 
 
 def publish(receipt, dest):
@@ -496,7 +497,7 @@ for receipt in glob.glob(os.path.join(receipt_dir, "*.json")):
     if not isinstance(data, dict):
         sys.exit(1)
     uid = data.get("update_id")
-    if type(uid) is not int or not 0 <= uid <= MAX_UPDATE_ID or not data.get("text"):
+    if not valid_update_id(uid) or not data.get("text"):
         sys.exit(1)
     # Same archive check the claim loop makes, for the same reason: firstmate
     # may have handled and archived this update between the poll that
@@ -544,8 +545,8 @@ $pending
 EOF
   write_offset "$target" || return 1
   clear_receipts || return 1
-  printf 'message: %s\n' "$count" || return 1
   rm -f -- "$PENDING_FILE" || return 1
+  printf 'message: %s\n' "$count" || return 1
   return 0
 }
 
@@ -601,21 +602,23 @@ cmd_poll() {
       ;;
     *) exit 1 ;;
   esac
-  out=$(python3 - "$STATE" "$INBOX" "$RECEIPT_DIR" "$body_file" "$captain_chat_id" "$captain_user_id" <<'PY'
+  out=$(python3 - "$SCRIPT_DIR" "$STATE" "$INBOX" "$RECEIPT_DIR" "$body_file" "$captain_chat_id" "$captain_user_id" <<'PY'
 import json
 import os
 import sys
 
-state, inbox, receipt_dir, body_path, captain_chat_id, captain_user_id = (
+script_dir, state, inbox, receipt_dir, body_path, captain_chat_id, captain_user_id = (
     sys.argv[1],
     sys.argv[2],
     sys.argv[3],
     sys.argv[4],
     sys.argv[5],
     sys.argv[6],
+    sys.argv[7],
 )
 os.umask(0o077)
-MAX_UPDATE_ID = 2**31 - 1
+sys.path.insert(0, script_dir)
+from fm_procevent_telegram_validation import valid_update_id
 
 state_fd = os.open(state, os.O_RDONLY)
 try:
@@ -665,7 +668,7 @@ try:
         if not isinstance(u, dict):
             raise ValueError("update is not an object")
         uid = u.get("update_id")
-        if type(uid) is not int or not 0 <= uid <= MAX_UPDATE_ID:
+        if not valid_update_id(uid):
             raise ValueError("update_id is outside the supported integer range")
         if uid > highest:
             highest = uid
