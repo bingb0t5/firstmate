@@ -13,7 +13,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
+const TRUSTED_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
+const ROOT = process.env.PR_COMMUNICATION_CANDIDATE_ROOT
+  ? join(TRUSTED_ROOT, process.env.PR_COMMUNICATION_CANDIDATE_ROOT)
+  : TRUSTED_ROOT;
 const VENDORED_PATH = join(ROOT, 'scripts/pr-communication/prCommunication.ts');
 const PIN_PATH = join(ROOT, 'scripts/pr-communication/SOURCE.sha256');
 const SOURCE_REPO = 'bingb0t5/lalo-admin';
@@ -75,6 +78,13 @@ const token = (
 ).trim();
 const requireRemote = String(process.env.PR_COMMUNICATION_REQUIRE_REMOTE_SOT || '').trim() === '1';
 
+if (!token) {
+  console.error(
+    `PR_COMMUNICATION_SOT_TOKEN is required to verify the private ${SOURCE_REPO} source of truth.`,
+  );
+  process.exit(1);
+}
+
 try {
   const remoteBody = await fetchSourceOfTruth(token);
   if (vendoredBody !== remoteBody) {
@@ -87,19 +97,13 @@ try {
   console.log(`Remote SoT matches ${SOURCE_REPO}@${SOURCE_REF}:${SOURCE_PATH}.`);
 } catch (error) {
   const status = error && error.status;
-  const authFailure = status === 401 || status === 403 || status === 404;
   const transientFailure =
     status === undefined || status === 408 || status === 429 || (status >= 500 && status <= 599);
-  if ((!authFailure && !transientFailure) || requireRemote) {
+  if (!transientFailure || requireRemote) {
     console.error(error.message || error);
     process.exit(1);
   }
   console.warn(
     `Remote SoT check skipped (${status || 'network error'}). Using the verified local pin.`,
   );
-  if (authFailure) {
-    console.warn(
-      `Default GITHUB_TOKEN may not be able to read private ${SOURCE_REPO}. Add repo secret PR_COMMUNICATION_SOT_TOKEN (contents:read on lalo-admin), or grant org Actions access to that private sibling, then set PR_COMMUNICATION_REQUIRE_REMOTE_SOT=1.`,
-    );
-  }
 }

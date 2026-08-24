@@ -5,7 +5,7 @@ import {
   emitPrCommunicationCheckOutput,
   planPrCommunicationEmission,
   runPrCommunicationCheck,
-} from './check-pr-communication.js';
+} from './check-pr-communication.ts';
 
 const completeBody = `## CEO overview
 

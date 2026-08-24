@@ -20,11 +20,6 @@ if ! command -v node >/dev/null 2>&1; then
   exit 0
 fi
 
-if ! command -v npx >/dev/null 2>&1; then
-  echo "skip: npx is required to run the PR communication gate"
-  exit 0
-fi
-
 complete_body() {
   cat <<'EOF'
 ## CEO overview
@@ -57,7 +52,7 @@ This is a quick change.
 EOF
 }
 
-test_local_pin_passes_without_remote_token() {
+test_missing_remote_token_fails_closed() {
   local out rc
   set +e
   out=$(
@@ -67,15 +62,17 @@ test_local_pin_passes_without_remote_token() {
   )
   rc=$?
   set -e
-  expect_code 0 "$rc" "offline drift check"
+  expect_code 1 "$rc" "missing remote credential"
   assert_contains "$out" "Local pin OK" "drift check did not confirm the local SoT pin"
-  pass "local SoT pin passes without a remote token"
+  assert_contains "$out" "PR_COMMUNICATION_SOT_TOKEN is required" \
+    "missing remote credential did not explain the fail-closed result"
+  pass "missing remote credential fails closed after verifying the local pin"
 }
 
 test_vendored_unit_suite() {
   local out rc
   set +e
-  out=$(npx --yes tsx@4.23.12 --test "$UNIT" 2>&1)
+  out=$(node --experimental-strip-types --test "$UNIT" 2>&1)
   rc=$?
   set -e
   expect_code 0 "$rc" "vendored pr-communication unit suite"
@@ -87,7 +84,7 @@ test_cli_rejects_incomplete_description() {
   set +e
   out=$(
     PR_TITLE='WIP' PR_BODY="$(incomplete_body)" \
-      npx --yes tsx@4.23.12 "$CHECK" 2>&1
+      node --experimental-strip-types "$CHECK" 2>&1
   )
   rc=$?
   set -e
@@ -116,7 +113,7 @@ test_cli_rejects_untouched_module_boundary_template() {
   set +e
   out=$(
     PR_TITLE='Describe a complete customer-facing change' PR_BODY="$(cat "$TEMPLATE")" \
-      npx --yes tsx@4.23.12 "$CHECK" 2>&1
+      node --experimental-strip-types "$CHECK" 2>&1
   )
   rc=$?
   set -e
@@ -130,7 +127,8 @@ test_transient_remote_failure_uses_local_pin() {
   local mode out rc
   for mode in network 503; do
     set +e
-    out=$(PR_COMMUNICATION_FETCH_FAILURE="$mode" node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
+    out=$(PR_COMMUNICATION_FETCH_FAILURE="$mode" PR_COMMUNICATION_SOT_TOKEN=test-token \
+      node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
     rc=$?
     set -e
     expect_code 0 "$rc" "transient remote failure ($mode)"
@@ -144,7 +142,8 @@ test_required_remote_failure_fails_closed() {
   local out rc
   set +e
   out=$(
-    PR_COMMUNICATION_FETCH_FAILURE=503 PR_COMMUNICATION_REQUIRE_REMOTE_SOT=1 \
+    PR_COMMUNICATION_FETCH_FAILURE=503 PR_COMMUNICATION_SOT_TOKEN=test-token \
+      PR_COMMUNICATION_REQUIRE_REMOTE_SOT=1 \
       node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1
   )
   rc=$?
@@ -154,13 +153,25 @@ test_required_remote_failure_fails_closed() {
   pass "required remote failures fail closed"
 }
 
+test_auth_remote_failure_fails_closed() {
+  local out rc
+  set +e
+  out=$(PR_COMMUNICATION_FETCH_FAILURE=401 PR_COMMUNICATION_SOT_TOKEN=invalid \
+    node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "remote authentication failure"
+  assert_contains "$out" "401" "remote authentication failure did not report its status"
+  pass "remote authentication failures fail closed"
+}
+
 test_cli_accepts_complete_description() {
   local out rc
   set +e
   out=$(
     PR_TITLE='Show members the status of their requests' \
       PR_BODY="$(complete_body)" \
-      npx --yes tsx@4.23.12 "$CHECK" 2>&1
+      node --experimental-strip-types "$CHECK" 2>&1
   )
   rc=$?
   set -e
@@ -170,10 +181,11 @@ test_cli_accepts_complete_description() {
   pass "CLI passes a compliant PR description"
 }
 
-test_local_pin_passes_without_remote_token
+test_missing_remote_token_fails_closed
 test_vendored_unit_suite
 test_cli_rejects_incomplete_description
 test_cli_rejects_untouched_module_boundary_template
 test_cli_accepts_complete_description
 test_transient_remote_failure_uses_local_pin
 test_required_remote_failure_fails_closed
+test_auth_remote_failure_fails_closed
