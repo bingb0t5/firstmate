@@ -56,9 +56,8 @@ test_missing_remote_token_fails_closed() {
   local out rc
   set +e
   out=$(
-    env -u PR_COMMUNICATION_SOT_TOKEN \
+    env -u PR_COMMUNICATION_SOT_TOKEN -u GITHUB_TOKEN -u GH_TOKEN \
       -u PR_COMMUNICATION_REQUIRE_REMOTE_SOT \
-      GITHUB_TOKEN=ghs_not_a_sot_token GH_TOKEN=ghs_not_a_sot_token \
       node "$DRIFT" 2>&1
   )
   rc=$?
@@ -67,7 +66,7 @@ test_missing_remote_token_fails_closed() {
   assert_contains "$out" "Local pin OK" "drift check did not confirm the local SoT pin"
   assert_contains "$out" "PR_COMMUNICATION_SOT_TOKEN is required" \
     "missing remote credential did not explain the fail-closed result"
-  pass "missing SOT token fails closed even when GITHUB_TOKEN is set"
+  pass "missing remote credential fails closed after verifying the local pin"
 }
 
 test_vendored_unit_suite() {

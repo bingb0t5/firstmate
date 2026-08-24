@@ -15,8 +15,8 @@ GitHub Actions and Dependabot are exempt so their automation keeps working, but 
 
 A second check (`pr-communication`) enforces the pull request communication structure shared with the Lalo repos.
 Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) for the required CEO overview, validation, module-boundary decision, and decision-needed sections.
-The assessment rules are vendored from `lalo-admin`; the companion `pr-communication-sot` check compares them with that remote source of truth using only `PR_COMMUNICATION_SOT_TOKEN` and fails closed when the credential is missing or rejected.
-Only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.
+The assessment rules are vendored from `lalo-admin`; the local pin always guards that copy against unreviewed changes, and the companion `pr-communication-sot` check compares it with that remote source of truth using only `PR_COMMUNICATION_SOT_TOKEN`.
+The remote comparison fails closed when the credential is missing or rejected, and only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.
 
 ## Workflow
 

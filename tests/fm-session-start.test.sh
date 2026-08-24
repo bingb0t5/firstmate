@@ -2016,6 +2016,301 @@ EOF
   pass "--reemit reprints the digest without repeating startup's mutating sweeps and still drains queued wakes"
 }
 
+# --- automatic /stow trigger 1: STOW DUE on compact/clear re-emit ------------
+# An explicit config/auto-stow grant and staleness gate on
+# state/.last-stow-attempt that surface one STOW DUE line in a lock-owning
+# compact/clear re-emit, silent when disabled, when the marker is current, and
+# when the re-emit could not verify fleet-lock ownership. These exercise the
+# real digest's public output only - never source bytes.
+
+# Set <file>'s mtime to exactly <epoch> seconds (touch -t takes a local-time
+# stamp, not an epoch, on both platforms, so convert via BSD `date -r` or GNU
+# `date -d @`).
+set_stow_marker_mtime() {  # <epoch> <file>
+  local epoch=$1 f=$2 stamp
+  touch "$f"
+  if stamp=$(date -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null); then
+    touch -t "$stamp" "$f"
+  else
+    stamp=$(date -d "@$epoch" +%Y%m%d%H%M.%S)
+    touch -t "$stamp" "$f"
+  fi
+}
+
+run_reemit_for_stow() {  # <home> <root> <path> [source]
+  local home=$1 root=$2 path=$3 source=${4:-compact}
+  touch "$home/config/auto-stow"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$path" \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    "$SESSION_START" --reemit --source "$source"
+}
+
+test_stow_due_silent_without_captain_opt_in() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-disabled)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    "$SESSION_START" --reemit --source compact)
+
+  assert_not_contains "$out" "STOW DUE:" \
+    "a home without the captain's config/auto-stow grant enabled automatic /stow"
+
+  pass "automatic /stow stays disabled until the captain grants it for the home"
+}
+
+# Line number of the first line matching <needle>, or empty when absent.
+stow_line_no() {  # <output> <needle>
+  printf '%s\n' "$1" | grep -n -F -- "$2" | head -1 | cut -d: -f1
+}
+
+test_stow_due_surfaced_when_marker_absent_on_reemit() {
+  local rec root home fakebin out due_at bootstrap_at
+  rec=$(new_world stow-due-absent)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH" clear)
+
+  assert_contains "$out" "STOW DUE: no recorded /stow pass" \
+    "an absent state/.last-stow-attempt marker did not surface a STOW DUE line naming it unrecorded"
+  # It leads the digest's substance: after the lock verdict it is held for (a
+  # mutating pass must not be ordered from an unlocked session) but ahead of
+  # every other stage the captain would otherwise start working through.
+  due_at=$(stow_line_no "$out" "STOW DUE:")
+  bootstrap_at=$(stow_line_no "$out" "BOOTSTRAP")
+  [ -n "$due_at" ] && [ -n "$bootstrap_at" ] && [ "$due_at" -lt "$bootstrap_at" ] || \
+    fail "STOW DUE did not precede the rest of the digest (STOW DUE at line '$due_at', BOOTSTRAP at line '$bootstrap_at')"
+
+  pass "an absent state/.last-stow-attempt marker surfaces a STOW DUE line ahead of a compact/clear re-emit's stages"
+}
+
+test_stow_due_silent_when_marker_is_fresh() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-fresh)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  touch "$home/state/.last-stow-attempt"
+
+  out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_not_contains "$out" "STOW DUE:" \
+    "a freshly touched state/.last-stow-attempt marker must keep a compact/clear re-emit silent"
+
+  pass "a fresh state/.last-stow-attempt marker keeps the compact/clear re-emit silent"
+}
+
+test_stow_due_default_interval_keeps_a_recent_marker_silent() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-recent)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  set_stow_marker_mtime "$(( $(date +%s) - 300 ))" "$home/state/.last-stow-attempt"
+
+  out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_not_contains "$out" "STOW DUE:" \
+    "a 5-minute-old marker must stay silent under the ~24h default FM_AUTO_STOW_INTERVAL_SECS"
+
+  pass "a marker well inside the default interval keeps the re-emit silent"
+}
+
+test_stow_due_when_marker_older_than_interval() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-stale)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  set_stow_marker_mtime "$(( $(date +%s) - 90000 ))" "$home/state/.last-stow-attempt"
+
+  out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  # Age is measured at digest time, so a 90000s-old marker can print 90000
+  # through ~90120 on a loaded host (SESSION_START_BUDGET defaults to 120s).
+  # Pin the five-digit 9xxxx band rather than the prefix "900", which flips
+  # once the age leaves 90000-90099.
+  printf '%s\n' "$out" | grep -Eq 'STOW DUE: last /stow pass was 9[0-9]{4}s ago' || \
+    fail "a state/.last-stow-attempt marker older than the interval did not surface a STOW DUE line naming a measured five-digit age in the 9xxxx range"$'\n'"--- output ---"$'\n'"$out"
+  assert_contains "$out" "ago (over the 86400s interval" \
+    "the STOW DUE line did not disclose the interval it compared against"
+
+  pass "a state/.last-stow-attempt marker older than the default interval surfaces a STOW DUE line on re-emit"
+}
+
+test_stow_due_when_marker_is_future_dated() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-future)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  set_stow_marker_mtime "$(( $(date +%s) + 300 ))" "$home/state/.last-stow-attempt"
+
+  out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "STOW DUE: last /stow pass was ${FM_AUTO_STOW_INTERVAL_SECS:-86400}s ago" \
+    "a future-dated state/.last-stow-attempt marker suppressed automatic /stow"
+  assert_contains "$out" "over the ${FM_AUTO_STOW_INTERVAL_SECS:-86400}s interval" \
+    "a future-dated marker did not use the configured staleness threshold"
+
+  pass "a future-dated attempt marker fails open and surfaces a STOW DUE line"
+}
+
+# A pass that ends with an unresolved exception still touches the attempt
+# marker while leaving the reset-safe state/.last-stow marker alone. The gate
+# must read the attempt marker, or such a home would be told to re-run /stow on
+# every single wake instead of once per interval.
+test_stow_due_throttles_on_the_attempt_marker_not_the_reset_safe_one() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-attempt-only)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  # Last reset-safe pass is ancient; a pass ran just now but could not claim
+  # reset-safe, so only the attempt marker is current.
+  set_stow_marker_mtime "$(( $(date +%s) - 90000 ))" "$home/state/.last-stow"
+  touch "$home/state/.last-stow-attempt"
+
+  out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_not_contains "$out" "STOW DUE:" \
+    "a just-attempted pass that could not reach reset-safe was told to run /stow again immediately"
+
+  pass "the staleness gate throttles on the attempt marker, not the reset-safe marker"
+}
+
+test_stow_due_respects_custom_interval_env_var() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-custom-interval)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  # 5 minutes old: silent under the ~24h default (proven above), due once
+  # FM_AUTO_STOW_INTERVAL_SECS tightens the gate below that age.
+  set_stow_marker_mtime "$(( $(date +%s) - 300 ))" "$home/state/.last-stow-attempt"
+
+  out=$(FM_AUTO_STOW_INTERVAL_SECS=60 run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "STOW DUE:" \
+    "FM_AUTO_STOW_INTERVAL_SECS=60 did not tighten the staleness gate for a 5-minute-old marker"
+
+  pass "FM_AUTO_STOW_INTERVAL_SECS overrides the default staleness interval"
+}
+
+# An interval larger than any plausible fabricated age: a missing marker must
+# still read as due immediately rather than being compared against an invented
+# elapsed time.
+test_stow_due_missing_marker_is_due_under_any_interval() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-long-interval)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  out=$(FM_AUTO_STOW_INTERVAL_SECS=1209600 run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "STOW DUE: no recorded /stow pass" \
+    "a missing marker stopped reading as due once FM_AUTO_STOW_INTERVAL_SECS exceeded a fortnight"
+
+  pass "a missing marker is due under any configured interval"
+}
+
+test_stow_due_huge_interval_falls_back_to_default() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-huge-interval)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  set_stow_marker_mtime "$(( $(date +%s) - 90000 ))" "$home/state/.last-stow-attempt"
+
+  out=$(FM_AUTO_STOW_INTERVAL_SECS=999999999999999999999 run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "STOW DUE:" \
+    "an oversized FM_AUTO_STOW_INTERVAL_SECS value silently suppressed a due stale marker"
+  assert_contains "$out" "ago (over the 86400s interval" \
+    "an oversized FM_AUTO_STOW_INTERVAL_SECS value did not fall back to the default interval"
+
+  pass "an oversized automatic stow interval falls back safely to the default"
+}
+
+# /stow mutates this home's memory files, so a re-emit that could not verify
+# fleet-lock ownership must not be ordered to run one alongside the session
+# that does own the lock.
+test_stow_due_silent_on_a_read_only_reemit() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-read-only)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  # No marker at all: due on every count except lock ownership.
+  printf '999999\n' > "$home/state/.lock"
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$*" in
+  *"-p 999999"*) printf 'claude\n'; exit 0 ;;
+  *"comm="*|*"args="*) printf 'bash\n'; exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/ps"
+
+  out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "READ-ONLY SESSION" \
+    "the read-only re-emit fixture did not actually refuse the lock"
+  assert_not_contains "$out" "STOW DUE:" \
+    "a re-emit without verified fleet-lock ownership was told to run the mutating /stow pass"
+
+  pass "a re-emit that lacks verified fleet-lock ownership stays silent about /stow"
+}
+
+test_stow_due_never_appears_on_ordinary_startup() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-startup)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  # No state/.last-stow-attempt marker at all - trigger 1 is scoped to the
+  # compact/clear re-emit path only, never the ordinary full-digest startup.
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_not_contains "$out" "STOW DUE:" \
+    "an ordinary full-digest startup must not carry the compact/clear re-emit's STOW DUE line"
+
+  pass "the STOW DUE line is scoped to the compact/clear re-emit path, not ordinary startup"
+}
+
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact() {
   local rec root home fakebin startup compact_equal compact_first compact_second clear_out resume_out reset_out baseline baseline_after expected_hash refresh_line bootstrap_line
   rec=$(new_world agents-refresh)
@@ -2500,6 +2795,18 @@ test_portable_timeout_escalates_term_resistant_process
 test_runtime_bound_leaves_a_healthy_digest_untouched
 test_runtime_bound_leaves_harness_ancestry_headroom
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain
+test_stow_due_silent_without_captain_opt_in
+test_stow_due_surfaced_when_marker_absent_on_reemit
+test_stow_due_silent_when_marker_is_fresh
+test_stow_due_default_interval_keeps_a_recent_marker_silent
+test_stow_due_when_marker_older_than_interval
+test_stow_due_when_marker_is_future_dated
+test_stow_due_throttles_on_the_attempt_marker_not_the_reset_safe_one
+test_stow_due_respects_custom_interval_env_var
+test_stow_due_missing_marker_is_due_under_any_interval
+test_stow_due_huge_interval_falls_back_to_default
+test_stow_due_silent_on_a_read_only_reemit
+test_stow_due_never_appears_on_ordinary_startup
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
 test_read_only_pi_compact_refreshes_against_its_own_session_identity
 test_codex_unreachable_reset_sources_do_not_claim_instruction_refresh
