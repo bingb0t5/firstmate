@@ -88,14 +88,18 @@ try {
 } catch (error) {
   const status = error && error.status;
   const authFailure = status === 401 || status === 403 || status === 404;
-  if (!authFailure || requireRemote) {
+  const transientFailure =
+    status === undefined || status === 408 || status === 429 || (status >= 500 && status <= 599);
+  if ((!authFailure && !transientFailure) || requireRemote) {
     console.error(error.message || error);
     process.exit(1);
   }
   console.warn(
-    `Remote SoT check skipped (${status || 'error'}). Default GITHUB_TOKEN cannot read private ${SOURCE_REPO}.`,
+    `Remote SoT check skipped (${status || 'network error'}). Using the verified local pin.`,
   );
-  console.warn(
-    'Add repo secret PR_COMMUNICATION_SOT_TOKEN (contents:read on lalo-admin), or grant org Actions access to that private sibling, then set PR_COMMUNICATION_REQUIRE_REMOTE_SOT=1.',
-  );
+  if (authFailure) {
+    console.warn(
+      `Default GITHUB_TOKEN may not be able to read private ${SOURCE_REPO}. Add repo secret PR_COMMUNICATION_SOT_TOKEN (contents:read on lalo-admin), or grant org Actions access to that private sibling, then set PR_COMMUNICATION_REQUIRE_REMOTE_SOT=1.`,
+    );
+  }
 }

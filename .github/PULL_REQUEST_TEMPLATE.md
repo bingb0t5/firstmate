@@ -18,14 +18,14 @@
 - **Checks not run:**
 - **Evidence and limitations:**
 
-## Module-boundary decision
-
 <!-- One of:
   Module extracted or moved: ...
   Current module retained: ...
   Extraction deferred: ...
   Not applicable: documentation/config-only change.
 -->
+
+## Module-boundary decision
 
 ## Decision needed
 
