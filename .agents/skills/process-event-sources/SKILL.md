@@ -41,8 +41,8 @@ The runner then passes each captured result to that source's own adapter `answer
 This is generic: any adapter with an `answers` command works, and the runner still wakes you to act on the result.
 `captain-hold-lifecycle` owns when a binding is required and what the keys must be.
 
-The captain's Telegram channel is armed and retired through `bin/fm-procevent-telegram.sh arm` / `retire`; its header owns the exact commands, credential path, and timeout.
-Unlike every other adapter here, it is never terminal on its own - the captain's channel must never retire itself - so only an explicit `retire` stops it.
+`bin/fm-procevent-telegram.sh` owns the captain's Telegram channel; its header and `--help` own the exact commands, credential path, and timeout.
+Unlike every other adapter here, it is never terminal on its own - the captain's channel must never retire itself - so only explicit operator retirement stops it.
 
 A configured remote secondmate reply source is armed and handled through `bin/fm-procevent-remote-reply.sh`.
 Its header owns exact commands, while the adapter owns cursor continuity, validated deduplicated status ingest, path-confined document fetch, acknowledgement, and re-arming after a good delta.
@@ -59,7 +59,7 @@ Eligibility is a firstmate judgment made BEFORE arming, because the scripts cann
 Never bind an action that is destructive, irreversible, or security-sensitive, an action needing captain approval or any gate decision, or an action whose right form depends on what the condition finds - those keep the existing check-fires-then-firstmate-decides flow, for which a plain custom check or another adapter stays correct.
 When in doubt, arm only the condition half as an ordinary check and keep the action as a wake-time decision.
 
-`bin/fm-procevent.sh --help`, `bin/fm-procevent-lavish.sh --help`, `bin/fm-procevent-when.sh --help`, and `bin/fm-procevent-remote-reply.sh --help` own the exact commands and flags.
+`bin/fm-procevent.sh --help`, `bin/fm-procevent-lavish.sh --help`, `bin/fm-procevent-telegram.sh --help`, `bin/fm-procevent-when.sh --help`, and `bin/fm-procevent-remote-reply.sh --help` own the exact commands and flags.
 
 Two rules the commands cannot enforce for you:
 

@@ -539,7 +539,7 @@ Real feedback, ended and missing sessions, any other `SERVER_ERROR`, and that sa
 An already-armed Lavish source keeps its registered listener command until it is retired and armed again, so re-arm a live board once to adopt this retry policy.
 
 `bin/fm-procevent-telegram.sh` covers the captain's Telegram channel; its header and `--help` own its exact commands, credential handling, and timeout.
-It is this runner's one deliberate exception to adapter-driven terminal retirement: its `terminal` command never exits 0, because the captain's channel must never retire itself, so only an explicit `retire` stops it.
+It is this runner's one deliberate exception to adapter-driven terminal retirement: the captain's channel never reports itself terminal, so only explicit operator retirement stops it.
 
 The `when` adapter (`bin/fm-procevent-when.sh`) turns this channel into a condition->action primitive: it registers a deterministic condition and a deterministic action once, its blocking child polls the condition without waking firstmate, and a stable true fires the action at most once before one terminal outcome is durably captured and published as a wake that remains eligible for re-announcement until handled.
 The (condition, action) spec is stored privately under `state/when/` and hash-bound by a trust record the same way `bin/fm-check-register.sh` binds a custom check, while the spec separately binds the resolved action executable's bytes; a mutated or unregistered spec or a changed action executable is refused before the action runs.
