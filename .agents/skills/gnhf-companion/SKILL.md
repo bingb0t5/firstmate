@@ -166,9 +166,23 @@ Claude Code's own Bash tool caps one call at 10 minutes). This is a property of 
 harness, not of GNHF or of firstmate's supervision, and it is not a license to reach for
 shell backgrounding: size `--max-iterations`/`--max-tokens` so one invocation comfortably
 fits inside the acting harness's own foreground budget, and let the crewmate's own
-multi-turn loop invoke GNHF again with `--current-branch` (which resumes automatically) on
-a later turn for a longer overall span. Verify the acting harness's own limit rather than
-assuming one; a harness with no documented cap needs no such splitting.
+multi-turn loop invoke GNHF again on a later turn for a longer overall span. Verify the
+acting harness's own limit rather than assuming one; a harness with no documented cap needs
+no such splitting.
+
+Re-invoking is not automatically a resume. Verified against the installed gnhf 0.1.45,
+`--current-branch` resume is keyed to a byte-identical prompt string: gnhf hashes the whole
+prompt to derive the run id, so a reworded prompt - even one differing only by a trailing
+space - silently starts a brand-new run with a fresh iteration and token budget and none of
+the accumulated `notes.md` context, and reports no error when it does. To get a true resume
+across a crewmate's own turns, re-invoke with the exact same prompt string, unchanged. A
+crewmate that cannot guarantee a byte-identical re-invocation must instead treat each
+invocation as its own fresh bounded run and account for cumulative iterations and tokens
+across those calls itself, because gnhf's own caps only ever bound one invocation. In
+Companion mode this is not a defect: each steered slice is already intentionally a fresh
+bounded run by design, since new instructions mean a new bounded scope, so firstmate should
+size each slice's caps knowing that slice receives its own full budget rather than a
+continuously draining shared one.
 
 ## Companion review before delivery
 

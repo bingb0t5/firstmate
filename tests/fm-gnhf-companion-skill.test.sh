@@ -13,30 +13,56 @@ test_skill_frontmatter() {
     "gnhf-companion skill file is missing"
   command -v python3 >/dev/null 2>&1 || fail "python3 is required to parse skill metadata"
 
-  python3 - "$SKILL" <<'PY' || fail "gnhf-companion declarative metadata is invalid"
+  local frontmatter_error
+  if ! frontmatter_error=$(python3 - "$SKILL" 2>&1 <<'PY'
 import pathlib
 import sys
-import yaml
 
-skill_path = pathlib.Path(sys.argv[1])
-content = skill_path.read_text(encoding="utf-8")
-if not content.startswith("---\n"):
+lines = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+if not lines or lines[0] != "---":
     raise SystemExit("missing frontmatter opener")
 try:
-    frontmatter, _ = content[4:].split("\n---\n", 1)
+    end = lines.index("---", 1)
 except ValueError as error:
     raise SystemExit("missing frontmatter closer") from error
 
-metadata = yaml.safe_load(frontmatter)
-expected = {
-    "name": "gnhf-companion",
-    "user-invocable": False,
-    "metadata": {"internal": True},
-}
-for key, value in expected.items():
-    if metadata.get(key) != value:
-        raise SystemExit(f"unexpected {key}: {metadata.get(key)!r}")
+parsed = {}
+current_key = None
+for line in lines[1:end]:
+    if not line.strip() or line.lstrip().startswith("#"):
+        continue
+    key, separator, value = line.partition(":")
+    if line[:1] not in (" ", "\t"):
+        if not separator:
+            continue
+        current_key = key.strip()
+        parsed[current_key] = value.strip() or {}
+    elif separator and isinstance(parsed.get(current_key), dict):
+        parsed[current_key][key.strip()] = value.strip()
+
+
+def as_bool(value):
+    return {"true": True, "false": False}.get(value, value)
+
+
+nested = parsed.get("metadata")
+internal = nested.get("internal") if isinstance(nested, dict) else None
+
+failures = []
+if parsed.get("name") != "gnhf-companion":
+    failures.append("name is {!r}, expected 'gnhf-companion'".format(parsed.get("name")))
+if as_bool(parsed.get("user-invocable")) is not False:
+    failures.append(
+        "user-invocable is {!r}, expected false".format(parsed.get("user-invocable"))
+    )
+if as_bool(internal) is not True:
+    failures.append("metadata.internal is {!r}, expected true".format(internal))
+if failures:
+    raise SystemExit("; ".join(failures))
 PY
+  ); then
+    fail "gnhf-companion declarative metadata is invalid: $frontmatter_error"
+  fi
 
   pass "gnhf-companion skill carries its required frontmatter"
 }
