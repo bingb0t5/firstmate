@@ -542,9 +542,9 @@ report_pending() {
 $pending
 EOF
   write_offset "$target" || return 1
+  clear_receipts || return 1
   printf 'message: %s\n' "$count" || return 1
   rm -f -- "$PENDING_FILE" || return 1
-  clear_receipts || return 1
   return 0
 }
 

@@ -388,6 +388,32 @@ assert_absent "$H_MARKER_FAIL/state/.telegram-delivery-receipts/3001.json" \
   "the durable receipt clears after the message is reported"
 pass "a pending-marker write failure cannot hide an already-published message"
 
+# --- receipt cleanup must finish before a pending wake is published --------
+# The pending record and receipt directory are durable adapter state. A
+# malformed receipt entry models cleanup failing after a prior invocation
+# persisted the handoff but before it could announce the message.
+H_CLEANUP_FAIL="$TMP_ROOT/cleanup-fail"; new_home "$H_CLEANUP_FAIL"
+CLEANUP_FAIL_ENV="$TMP_ROOT/cleanup-fail.env"; write_env_file "$CLEANUP_FAIL_ENV" "$TOKEN"
+mkdir -p "$H_CLEANUP_FAIL/state/telegram-inbox"
+cp "$FIXTURES/one-text.json" "$H_CLEANUP_FAIL/state/telegram-inbox/1001.json"
+printf '1 1002\n' > "$H_CLEANUP_FAIL/state/.telegram-pending-delivery"
+mkdir -p "$H_CLEANUP_FAIL/state/.telegram-delivery-receipts/broken.json"
+cleanup_fail_status=0
+cleanup_fail_out=$(poll_once "$H_CLEANUP_FAIL" "$CLEANUP_FAIL_ENV" "$FIXTURES/empty.json") \
+  || cleanup_fail_status=$?
+[ "$cleanup_fail_status" -ne 0 ] || fail "malformed receipt cleanup unexpectedly succeeded"
+[ -z "$cleanup_fail_out" ] || fail "a wake was published before receipt cleanup completed: $cleanup_fail_out"
+assert_present "$H_CLEANUP_FAIL/state/.telegram-pending-delivery" \
+  "cleanup failure must retain the pending wake for retry"
+rmdir "$H_CLEANUP_FAIL/state/.telegram-delivery-receipts/broken.json"
+rmdir "$H_CLEANUP_FAIL/state/.telegram-delivery-receipts"
+cleanup_retry_out=$(poll_once "$H_CLEANUP_FAIL" "$CLEANUP_FAIL_ENV" "$FIXTURES/empty.json")
+assert_contains "$cleanup_retry_out" "message: 1" \
+  "the pending wake publishes once receipt cleanup can finish"
+assert_absent "$H_CLEANUP_FAIL/state/.telegram-pending-delivery" \
+  "successful retry clears the pending wake"
+pass "receipt cleanup completes before a pending wake is published"
+
 # --- a receipt must never resurrect a message firstmate already handled ----
 # Same failure the marker-fail case drives: the message is published and its
 # durable receipt survives, but the poll exits without reporting. Firstmate,
