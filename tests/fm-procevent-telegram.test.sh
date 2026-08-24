@@ -159,6 +159,25 @@ assert_absent "$H_NOCRED2/state/telegram-inbox" "a missing credential file must 
 assert_absent "$H_NOCRED2/state/.telegram-offset" "a missing credential file must never advance an offset"
 pass "an absent credential file exits zero, silent, and touches nothing"
 
+H_BADMODE="$TMP_ROOT/badmode"; new_home "$H_BADMODE"
+BADMODE_ENV="$TMP_ROOT/badmode.env"; write_env_file "$BADMODE_ENV" "$TOKEN"
+chmod 0644 "$BADMODE_ENV"
+badmode_arm_status=0
+badmode_arm_out=$(FM_HOME="$H_BADMODE" FM_TELEGRAM_ENV_FILE="$BADMODE_ENV" \
+  "$ADAPTER" arm 2>&1) || badmode_arm_status=$?
+[ "$badmode_arm_status" -ne 0 ] || fail "arm succeeded with a mode-0644 credential file"
+assert_contains "$badmode_arm_out" "no readable Telegram credential" "arm explains the insecure credential refusal"
+assert_absent "$H_BADMODE/state/procevent/telegram.source" "arm registered a source with insecure credentials"
+badmode_poll_status=0
+badmode_poll_out=$(poll_once "$H_BADMODE" "$BADMODE_ENV" "$FIXTURES/one-text.json" \
+  2>"$TMP_ROOT/badmode.err") || badmode_poll_status=$?
+[ "$badmode_poll_status" -eq 0 ] || fail "insecure credential poll did not exit 0: status=$badmode_poll_status"
+[ -z "$badmode_poll_out" ] || fail "insecure credential poll produced output: $badmode_poll_out"
+[ ! -s "$TMP_ROOT/badmode.err" ] || fail "insecure credential poll wrote to stderr: $(cat "$TMP_ROOT/badmode.err")"
+assert_absent "$H_BADMODE/state/telegram-inbox" "insecure credentials must never create an inbox"
+assert_absent "$H_BADMODE/state/.telegram-offset" "insecure credentials must never advance an offset"
+pass "mode-0644 credentials make arm refuse and poll exit silent"
+
 # --- a non-text update advances the offset without waking -------------------
 H_STICKER="$TMP_ROOT/sticker"; new_home "$H_STICKER"
 STICKER_ENV="$TMP_ROOT/sticker.env"; write_env_file "$STICKER_ENV" "$TOKEN"
