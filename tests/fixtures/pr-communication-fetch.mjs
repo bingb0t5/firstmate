@@ -1,6 +1,11 @@
-const failure = process.env.PR_COMMUNICATION_FETCH_FAILURE;
+import { readFileSync } from 'node:fs';
 
-if (failure === 'network') {
+const failure = process.env.PR_COMMUNICATION_FETCH_FAILURE;
+const bodyPath = process.env.PR_COMMUNICATION_FETCH_BODY_PATH;
+
+if (bodyPath) {
+  globalThis.fetch = async () => new Response(readFileSync(bodyPath, 'utf8'));
+} else if (failure === 'network') {
   globalThis.fetch = async () => {
     throw new TypeError('simulated network failure', { cause: { code: 'ENETUNREACH' } });
   };

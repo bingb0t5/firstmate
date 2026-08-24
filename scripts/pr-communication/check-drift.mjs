@@ -19,7 +19,8 @@ const ROOT = process.env.PR_COMMUNICATION_CANDIDATE_ROOT
   ? join(TRUSTED_ROOT, process.env.PR_COMMUNICATION_CANDIDATE_ROOT)
   : TRUSTED_ROOT;
 const VENDORED_PATH = join(ROOT, 'scripts/pr-communication/prCommunication.ts');
-const PIN_PATH = join(TRUSTED_ROOT, 'scripts/pr-communication/SOURCE.sha256');
+const CANDIDATE_PIN_PATH = join(ROOT, 'scripts/pr-communication/SOURCE.sha256');
+const TRUSTED_PIN_PATH = join(TRUSTED_ROOT, 'scripts/pr-communication/SOURCE.sha256');
 const ENTRYPOINT_PATH = join(ROOT, 'scripts/check-pr-communication.ts');
 const ENTRYPOINT_PIN_PATH = join(TRUSTED_ROOT, 'scripts/pr-communication/ENTRYPOINT.sha256');
 const SOURCE_REPO = 'bingb0t5/lalo-admin';
@@ -61,11 +62,12 @@ async function fetchSourceOfTruth(token) {
 
 const vendoredBody = stripSourceHeader(readFileSync(VENDORED_PATH, 'utf8'));
 const actualHash = sha256(vendoredBody);
-const pinnedHash = readFileSync(PIN_PATH, 'utf8').trim();
+const candidatePinnedHash = readFileSync(CANDIDATE_PIN_PATH, 'utf8').trim();
+const trustedPinnedHash = readFileSync(TRUSTED_PIN_PATH, 'utf8').trim();
 
-if (actualHash !== pinnedHash) {
+if (actualHash !== candidatePinnedHash) {
   console.error('Vendored PR communication assessor does not match SOURCE.sha256.');
-  console.error(`expected: ${pinnedHash}`);
+  console.error(`expected: ${candidatePinnedHash}`);
   console.error(`actual:   ${actualHash}`);
   console.error('Re-vendor from lalo-admin and refresh SOURCE.sha256.');
   process.exit(1);
@@ -125,6 +127,12 @@ try {
     networkFailure || status === 408 || status === 429 || (status >= 500 && status <= 599);
   if (!transientFailure || requireRemote) {
     console.error(error.message || error);
+    process.exit(1);
+  }
+  if (actualHash !== trustedPinnedHash) {
+    console.error('Vendored PR communication assessor does not match trusted SOURCE.sha256.');
+    console.error(`expected: ${trustedPinnedHash}`);
+    console.error(`actual:   ${actualHash}`);
     process.exit(1);
   }
   console.warn(
