@@ -41,10 +41,10 @@ project directly, and nothing here creates an exception: firstmate's role is to 
 steer, and review a crewmate that chooses to use GNHF, exactly as it briefs, steers, and
 reviews any other crewmate.
 
-Because a task worktree is already exclusive to the crewmate that owns it (`fm-spawn`'s
-isolation assertion), no GNHF run can overlap a different worker owning the same scope
-without a second worktree pointed at the same task existing in the first place, which the
-spawn contract already prevents. Nothing new needs to detect that overlap.
+The crewmate's task worktree isolates its filesystem writes from every other worker's
+working directory, so GNHF cannot directly collide with another worker's in-progress
+files. This does not serialize overlapping scopes across tasks; ordinary branch review
+and reconciliation still apply when separately spawned workers touch the same subsystem.
 
 ## GNHF never grants authority
 
@@ -108,8 +108,8 @@ there is no dedicated `fm-brief.sh` flag for this and none is needed.
   "looks good." Good: "the target test suite passes and no file outside `src/foo/` changed."
 - **Explicit caps.** Pass `--max-iterations <n>` and `--max-tokens <n>` sized to the task.
   GNHF has no direct wall-clock flag; treat the iteration and token caps as the runtime
-  bound, and set `--max-rate-limit-wait` explicitly rather than leaving its 24h default when
-  the task needs a tighter window.
+  bound, and pass an explicit task-sized `--max-rate-limit-wait <duration>` on every
+  invocation rather than leaving its 24-hour default in effect.
 - **Clean starting state.** GNHF itself refuses a dirty working tree; a freshly spawned
   task worktree already starts clean, so this is satisfied by the ordinary spawn contract
   as long as GNHF is the first thing the crewmate runs there.
@@ -118,9 +118,10 @@ there is no dedicated `fm-brief.sh` flag for this and none is needed.
   *multiple* GNHF runs inside one shared checkout, which would nest a second, redundant
   isolation boundary inside the first and GNHF itself refuses to combine with
   `--current-branch`. Run GNHF on the crewmate's own current branch instead.
-- **`--push` only when the task's own delivery mode already pushes.** GNHF's `--push` is a
-  crewmate decision under the ordinary delivery contract (`no-mistakes` or `direct-PR`), not
-  a GNHF default; omit it for `local-only` tasks and for any task still under review.
+- **`--push` only in direct-PR mode.** GNHF's `--push` is permitted only when the task is
+  already on the direct-PR delivery path and that path authorizes the worker to push.
+  Omit it in `no-mistakes` mode, where the pipeline alone owns push, and in `local-only`
+  mode. Also omit it for any direct-PR task still under review.
 - **No `&`, no `nohup`, no detached backgrounding.** Run GNHF as an ordinary foreground
   command inside the crewmate's own turn. See "No new supervision surface" below for why
   this is sufficient and required.
