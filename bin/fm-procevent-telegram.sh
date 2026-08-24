@@ -64,9 +64,10 @@
 # state/telegram-inbox/ BEFORE the offset file advances past it, and if any
 # write in a batch fails, the offset is not advanced at all: the whole batch,
 # including messages already written earlier in that same batch, is fetched
-# again next time. A duplicate inbox file (same update id, same content) is
-# harmless and idempotent; a lost message from the captain is not recoverable
-# at all. Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID and non-text
+# again next time. Persistence is serialized and checks both the live inbox
+# and its handled/ archive before creating a file, so a refetched update is
+# never counted or delivered twice. A lost message from the captain is not
+# recoverable at all. Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID and non-text
 # updates (a photo, a sticker, a chat-membership change) are consumed the same
 # way - their ids are folded into the advanced offset - but produce no inbox
 # file and never count toward "message" below.
@@ -113,9 +114,8 @@
 # OFFSET FILE. state/.telegram-offset - the same file and convention the
 # home-local state/telegram-watch.check.sh check-sweep script already uses.
 # Sharing it is deliberate and safe: every message file is named by its
-# Telegram update id, so even if both mechanisms ran in the same narrow
-# transition window, at most one redundant fetch could occur and every write
-# it produced would be idempotent, never a duplicate delivery.
+# Telegram update id, and persistence rejects ids already present in either
+# the live inbox or handled archive before deciding whether to wake firstmate.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -269,6 +269,7 @@ cmd_poll() {
 
   out=$(python3 - "$INBOX" "$body_file" "$captain_chat_id" <<'PY'
 import json
+import fcntl
 import os
 import sys
 
@@ -290,45 +291,53 @@ if not updates:
 
 highest = 0
 messages = 0
-for u in updates:
-    uid = u.get("update_id")
-    if not isinstance(uid, int):
-        sys.exit(1)
-    if uid > highest:
-        highest = uid
-    msg = u.get("message") or u.get("edited_message") or {}
-    text = msg.get("text")
-    chat_id = (msg.get("chat") or {}).get("id")
-    if not text or str(chat_id) != captain_chat_id:
-        continue
-    payload = {
-        "update_id": uid,
-        "date": msg.get("date"),
-        "chat_id": chat_id,
-        "text": text,
-    }
-    dest = os.path.join(inbox, "%d.json" % uid)
-    tmp = os.path.join(inbox, ".%d.json.tmp" % uid)
-    try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as out_fh:
-            json.dump(payload, out_fh)
-            out_fh.flush()
-            os.fchmod(out_fh.fileno(), 0o600)
-            os.fsync(out_fh.fileno())
-        os.replace(tmp, dest)
-        dir_fd = os.open(inbox, os.O_RDONLY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-    except OSError:
+lock_path = os.path.join(inbox, ".delivery.lock")
+try:
+    lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(lock_fd, "r+") as lock_fh:
+        fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        for u in updates:
+            uid = u.get("update_id")
+            if not isinstance(uid, int):
+                raise ValueError("update_id is not an integer")
+            if uid > highest:
+                highest = uid
+            msg = u.get("message") or u.get("edited_message") or {}
+            text = msg.get("text")
+            chat_id = (msg.get("chat") or {}).get("id")
+            if not text or str(chat_id) != captain_chat_id:
+                continue
+            payload = {
+                "update_id": uid,
+                "date": msg.get("date"),
+                "chat_id": chat_id,
+                "text": text,
+            }
+            dest = os.path.join(inbox, "%d.json" % uid)
+            handled = os.path.join(inbox, "handled", "%d.json" % uid)
+            if os.path.isfile(dest) or os.path.isfile(handled):
+                continue
+            tmp = os.path.join(inbox, ".%d.json.tmp.%d" % (uid, os.getpid()))
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as out_fh:
+                json.dump(payload, out_fh)
+                out_fh.flush()
+                os.fchmod(out_fh.fileno(), 0o600)
+                os.fsync(out_fh.fileno())
+            os.replace(tmp, dest)
+            dir_fd = os.open(inbox, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+            messages += 1
+except (OSError, ValueError):
+    if "tmp" in locals():
         try:
             os.unlink(tmp)
         except OSError:
             pass
-        sys.exit(1)
-    messages += 1
+    sys.exit(1)
 
 print("HIGHEST=%d" % highest)
 print("MESSAGES=%d" % messages)

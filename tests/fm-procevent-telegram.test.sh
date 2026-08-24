@@ -147,6 +147,19 @@ assert_grep '"chat_id": 555' "$H_MSG/state/telegram-inbox/1001.json" "the inbox 
 [ "$(cat "$H_MSG/state/.telegram-offset")" = 1002 ] || fail "the offset did not advance past the delivered update"
 pass "a new text message is written to the inbox, and the offset advances past it"
 
+# --- a handled update is never delivered or counted again ------------------
+mkdir -p "$H_MSG/state/telegram-inbox/handled"
+mv "$H_MSG/state/telegram-inbox/1001.json" "$H_MSG/state/telegram-inbox/handled/1001.json"
+printf '1001\n' > "$H_MSG/state/.telegram-offset"
+duplicate_status=0
+duplicate_out=$(poll_once "$H_MSG" "$MSG_ENV" "$FIXTURES/one-text.json") || duplicate_status=$?
+[ "$duplicate_status" -ne 0 ] || fail "a handled update exited 0 and would have woken firstmate twice"
+[ -z "$duplicate_out" ] || fail "a handled update produced a second delivery result: $duplicate_out"
+assert_absent "$H_MSG/state/telegram-inbox/1001.json" "a handled update was recreated in the live inbox"
+assert_present "$H_MSG/state/telegram-inbox/handled/1001.json" "the handled update was disturbed"
+[ "$(cat "$H_MSG/state/.telegram-offset")" = 1002 ] || fail "the offset did not consume the handled update"
+pass "a handled update is consumed without a duplicate delivery"
+
 # --- missing credential file: silent and inert ------------------------------
 H_NOCRED2="$TMP_ROOT/nocred2"; new_home "$H_NOCRED2"
 noc_status=0
@@ -233,7 +246,7 @@ rmdir "$H_FAIL/state/telegram-inbox/3002.json"
 recover_status=0
 recover_out=$(poll_once "$H_FAIL" "$FAIL_ENV" "$FIXTURES/two-text.json") || recover_status=$?
 [ "$recover_status" -eq 0 ] || fail "the retried batch did not succeed once the obstruction was removed: $recover_out"
-assert_contains "$recover_out" "message: 2" "the retried batch redelivers both messages, including the already-written first one"
+assert_contains "$recover_out" "message: 1" "the retried batch counts only the message not already persisted"
 assert_present "$H_FAIL/state/telegram-inbox/3002.json" "the second message is written once the obstruction clears"
 [ "$(cat "$H_FAIL/state/.telegram-offset")" = 3003 ] || fail "the offset advances only after the retried batch fully succeeds"
 pass "a mid-batch write failure leaves the offset untouched and the batch safely redelivers"
