@@ -11,7 +11,9 @@
 name: pr-communication
 
 on:
-  pull_request:
+  # The base branch owns this token-bearing workflow definition. Proposed code
+  # is checked out separately and never runs in the step that receives the SoT token.
+  pull_request_target:
     branches:
       - main
     types: [opened, edited, synchronize, reopened]
@@ -30,10 +32,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
       - name: Check out trusted drift checker
         uses: actions/checkout@v6
         with:
@@ -54,7 +52,16 @@ jobs:
           PR_COMMUNICATION_REQUIRE_REMOTE_SOT: ${{ vars.PR_COMMUNICATION_REQUIRE_REMOTE_SOT }}
         run: node scripts/pr-communication/check-drift.mjs
 
+      - name: Check out proposed PR communication gate
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .proposed-pr-communication
+          persist-credentials: false
+
       - name: Check proposed assessor against its local pin
+        working-directory: .proposed-pr-communication
         env:
           PR_COMMUNICATION_SOT_TOKEN: ''
           GITHUB_TOKEN: ''
@@ -62,6 +69,7 @@ jobs:
         run: node scripts/pr-communication/check-drift.mjs
 
       - name: Assess PR communication
+        working-directory: .proposed-pr-communication
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
