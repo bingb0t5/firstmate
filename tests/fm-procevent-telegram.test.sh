@@ -60,6 +60,7 @@ export PATH="$FAKEBIN:$PATH"
 FIXTURES="$TMP_ROOT/fixtures"
 mkdir -p "$FIXTURES"
 TOKEN=SEKRIT-TEST-TOKEN-7f3a9c
+CAPTAIN_CHAT_ID=555
 cat > "$FIXTURES/one-text.json" <<JSON
 {"ok":true,"result":[{"update_id":1001,"message":{"message_id":5,"date":1700000000,"chat":{"id":555},"text":"ahoy from the captain"}}]}
 JSON
@@ -69,15 +70,18 @@ JSON
 cat > "$FIXTURES/non-text.json" <<JSON
 {"ok":true,"result":[{"update_id":2001,"message":{"message_id":6,"date":1700000001,"chat":{"id":555},"sticker":{"file_id":"abc"}}}]}
 JSON
+cat > "$FIXTURES/non-captain-text.json" <<JSON
+{"ok":true,"result":[{"update_id":2501,"edited_message":{"message_id":7,"date":1700000002,"chat":{"id":777},"text":"untrusted sender"}}]}
+JSON
 cat > "$FIXTURES/empty.json" <<JSON
 {"ok":true,"result":[]}
 JSON
 
 new_home() { mkdir -p "$1/state"; }
 
-write_env_file() {  # <path> <token>
+write_env_file() {  # <path> <token> [captain-chat-id]
   mkdir -p "$(dirname "$1")"
-  printf 'TELEGRAM_BOT_TOKEN=%s\n' "$2" > "$1"
+  printf 'TELEGRAM_BOT_TOKEN=%s\nTELEGRAM_CAPTAIN_CHAT_ID=%s\n' "$2" "${3:-$CAPTAIN_CHAT_ID}" > "$1"
   chmod 600 "$1"
 }
 
@@ -99,6 +103,18 @@ noarm_out=$(FM_HOME="$H_NOCRED" FM_TELEGRAM_ENV_FILE="$H_NOCRED/nonexistent.env"
 assert_contains "$noarm_out" "no readable Telegram credential" "arm explains the refusal"
 assert_absent "$H_NOCRED/state/procevent/telegram.source" "arm registered a source with no credential"
 pass "arm refuses to register a source with no readable credential file"
+
+H_NOCHAT="$TMP_ROOT/nochat"; new_home "$H_NOCHAT"
+NOCHAT_ENV="$TMP_ROOT/nochat.env"
+printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TOKEN" > "$NOCHAT_ENV"
+chmod 600 "$NOCHAT_ENV"
+nochat_status=0
+nochat_out=$(FM_HOME="$H_NOCHAT" FM_TELEGRAM_ENV_FILE="$NOCHAT_ENV" \
+  "$ADAPTER" arm 2>&1) || nochat_status=$?
+[ "$nochat_status" -ne 0 ] || fail "arm succeeded without a captain chat id"
+assert_contains "$nochat_out" "no readable Telegram credential" "arm explains the incomplete credential"
+assert_absent "$H_NOCHAT/state/procevent/telegram.source" "arm registered a source without a captain chat id"
+pass "arm refuses to register without a captain chat id"
 
 # --- arm registers with the real runner, list shows it, retire cleans up ----
 H_ARM="$TMP_ROOT/arm"; new_home "$H_ARM"
@@ -153,6 +169,17 @@ sticker_out=$(poll_once "$H_STICKER" "$STICKER_ENV" "$FIXTURES/non-text.json") |
 [ "$(cat "$H_STICKER/state/.telegram-offset")" = 2002 ] || fail "the non-text update's offset was not consumed"
 assert_absent "$H_STICKER/state/telegram-inbox/2001.json" "a non-text update must never create an inbox file"
 pass "a non-text update advances the offset and produces no capturable result"
+
+# --- text from a non-captain chat is consumed without waking ----------------
+H_UNTRUSTED="$TMP_ROOT/untrusted"; new_home "$H_UNTRUSTED"
+UNTRUSTED_ENV="$TMP_ROOT/untrusted.env"; write_env_file "$UNTRUSTED_ENV" "$TOKEN"
+untrusted_status=0
+untrusted_out=$(poll_once "$H_UNTRUSTED" "$UNTRUSTED_ENV" "$FIXTURES/non-captain-text.json") || untrusted_status=$?
+[ "$untrusted_status" -ne 0 ] || fail "a non-captain text exited 0 and would have woken firstmate"
+[ -z "$untrusted_out" ] || fail "a non-captain text produced output: $untrusted_out"
+[ "$(cat "$H_UNTRUSTED/state/.telegram-offset")" = 2502 ] || fail "the non-captain update's offset was not consumed"
+assert_absent "$H_UNTRUSTED/state/telegram-inbox/2501.json" "a non-captain text must never create an inbox file"
+pass "a non-captain text advances the offset without capture or wake"
 
 # --- an empty long-poll result is equally silent ----------------------------
 H_EMPTY="$TMP_ROOT/empty"; new_home "$H_EMPTY"
