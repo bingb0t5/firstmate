@@ -82,8 +82,9 @@
 # local transaction can close this source-side handoff window. Never describe
 # this path as at-least-once, no-loss, or lossless.
 #
-# A lost message from the captain is not recoverable at all. Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID and non-text
-# updates (a photo, a sticker, a chat-membership change) are consumed the same
+# A lost message from the captain is not recoverable at all.
+# Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID and non-text updates
+# (a photo, a sticker, a chat-membership change) are consumed the same
 # way - their ids are folded into the advanced offset - but produce no inbox
 # file and never count toward "message" below.
 #
