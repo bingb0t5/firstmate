@@ -75,7 +75,7 @@ test_local_pin_passes_without_remote_token() {
 test_vendored_unit_suite() {
   local out rc
   set +e
-  out=$(npx --yes tsx --test "$UNIT" 2>&1)
+  out=$(npx --yes tsx@4.23.12 --test "$UNIT" 2>&1)
   rc=$?
   set -e
   expect_code 0 "$rc" "vendored pr-communication unit suite"
@@ -87,7 +87,7 @@ test_cli_rejects_incomplete_description() {
   set +e
   out=$(
     PR_TITLE='WIP' PR_BODY="$(incomplete_body)" \
-      npx --yes tsx "$CHECK" 2>&1
+      npx --yes tsx@4.23.12 "$CHECK" 2>&1
   )
   rc=$?
   set -e
@@ -116,7 +116,7 @@ test_cli_rejects_untouched_module_boundary_template() {
   set +e
   out=$(
     PR_TITLE='Describe a complete customer-facing change' PR_BODY="$(cat "$TEMPLATE")" \
-      npx --yes tsx "$CHECK" 2>&1
+      npx --yes tsx@4.23.12 "$CHECK" 2>&1
   )
   rc=$?
   set -e
@@ -160,7 +160,7 @@ test_cli_accepts_complete_description() {
   out=$(
     PR_TITLE='Show members the status of their requests' \
       PR_BODY="$(complete_body)" \
-      npx --yes tsx "$CHECK" 2>&1
+      npx --yes tsx@4.23.12 "$CHECK" 2>&1
   )
   rc=$?
   set -e
