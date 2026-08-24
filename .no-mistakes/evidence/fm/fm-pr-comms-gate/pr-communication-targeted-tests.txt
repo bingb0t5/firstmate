@@ -1,0 +1,7 @@
+ok - local SoT pin passes without a remote token
+ok - vendored pr-communication unit suite passes
+ok - CLI fails a non-compliant PR description
+ok - CLI rejects untouched module-boundary template guidance
+ok - CLI passes a compliant PR description
+ok - transient remote failures use the local pin
+ok - required remote failures fail closed

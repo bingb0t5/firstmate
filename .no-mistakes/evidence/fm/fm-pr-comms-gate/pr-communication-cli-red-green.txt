@@ -1,9 +1,9 @@
-=== NON-COMPLIANT PR DESCRIPTION ===
+=== Non-compliant PR description ===
 Clarity check: The PR title is very short. State the user or business outcome.
 Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
 ::error::Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
 exit_code=1
 
-=== COMPLIANT PR DESCRIPTION ===
+=== Compliant PR description ===
 PR communication is complete.
 exit_code=0
