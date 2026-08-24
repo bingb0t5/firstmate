@@ -100,6 +100,12 @@ JSON
 cat > "$FIXTURES/malformed-update.json" <<JSON
 {"ok":true,"result":["not-an-update",{"update_id":5101,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"after the garbage"}}]}
 JSON
+cat > "$FIXTURES/boolean-update-id.json" <<JSON
+{"ok":true,"result":[{"update_id":true,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"boolean identifier"}}]}
+JSON
+cat > "$FIXTURES/out-of-range-update-id.json" <<JSON
+{"ok":true,"result":[{"update_id":2147483648,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"out-of-range identifier"}}]}
+JSON
 cat > "$FIXTURES/empty.json" <<JSON
 {"ok":true,"result":[]}
 JSON
@@ -501,6 +507,20 @@ syminbox_out=$(poll_once "$H_SYMINBOX" "$SYMINBOX_ENV" "$FIXTURES/two-text.json"
 assert_absent "$ELSEWHERE/3001.json" "a symlinked inbox must never receive a published claim"
 pass "receipt recovery refuses an inbox replaced by a symlink"
 
+H_BAD_RECEIPT_ID="$TMP_ROOT/receipt-invalid-id"; new_home "$H_BAD_RECEIPT_ID"
+BAD_RECEIPT_ENV="$TMP_ROOT/receipt-invalid-id.env"; write_env_file "$BAD_RECEIPT_ENV" "$TOKEN"
+mkdir -p "$H_BAD_RECEIPT_ID/state/.telegram-delivery-receipts"
+printf '{"update_id":true,"text":"invalid receipt"}\n' \
+  > "$H_BAD_RECEIPT_ID/state/.telegram-delivery-receipts/1.json"
+bad_receipt_status=0
+bad_receipt_out=$(poll_once "$H_BAD_RECEIPT_ID" "$BAD_RECEIPT_ENV" "$FIXTURES/empty.json") \
+  || bad_receipt_status=$?
+[ "$bad_receipt_status" -ne 0 ] || fail "a boolean receipt update_id was accepted: $bad_receipt_out"
+[ -z "$bad_receipt_out" ] || fail "a boolean receipt update_id produced a wake: $bad_receipt_out"
+assert_absent "$H_BAD_RECEIPT_ID/state/telegram-inbox/1.json" \
+  "a boolean receipt update_id must not be published"
+pass "receipt recovery rejects boolean update identifiers"
+
 # --- a malformed update shape is consumed, not left to wedge the channel ---
 # Anything not shaped like the documented API carries no captain text this
 # adapter could deliver, so it must be consumed like a non-text update while
@@ -533,6 +553,19 @@ malformed_u_out=$(poll_once "$H_MALFORMED_U" "$MALFORMED_U_ENV" "$FIXTURES/malfo
 assert_absent "$H_MALFORMED_U/state/.telegram-offset" \
   "an update with no readable update_id must never let the offset advance past it"
 pass "an update that is not an object blocks its batch cleanly instead of crashing"
+
+for invalid_id_case in boolean-update-id out-of-range-update-id; do
+  invalid_id_home="$TMP_ROOT/$invalid_id_case"; new_home "$invalid_id_home"
+  invalid_id_env="$TMP_ROOT/$invalid_id_case.env"; write_env_file "$invalid_id_env" "$TOKEN"
+  invalid_id_status=0
+  invalid_id_out=$(poll_once "$invalid_id_home" "$invalid_id_env" "$FIXTURES/$invalid_id_case.json") \
+    || invalid_id_status=$?
+  [ "$invalid_id_status" -ne 0 ] || fail "$invalid_id_case was accepted: $invalid_id_out"
+  [ -z "$invalid_id_out" ] || fail "$invalid_id_case produced output: $invalid_id_out"
+  assert_absent "$invalid_id_home/state/.telegram-offset" \
+    "$invalid_id_case must not advance the offset"
+done
+pass "polling rejects boolean and unsupported update identifiers"
 
 # --- HANDOFF: the atomic claim survives a legacy producer mid-write --------
 # state/telegram-watch.check.sh (out of scope to modify) writes its own copy
@@ -672,6 +705,11 @@ invalid_update_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/malformed-
   || invalid_update_status=$?
 [ "$invalid_update_status" -ne 0 ] || fail "an invalid update batch was treated as recovery"
 [ -z "$invalid_update_out" ] || fail "an invalid update batch produced output: $invalid_update_out"
+boolean_update_status=0
+boolean_update_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/boolean-update-id.json") \
+  || boolean_update_status=$?
+[ "$boolean_update_status" -ne 0 ] || fail "a boolean update_id was treated as recovery"
+[ -z "$boolean_update_out" ] || fail "a boolean update_id produced output: $boolean_update_out"
 still_sticky_status=0
 still_sticky_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) \
   || still_sticky_status=$?
