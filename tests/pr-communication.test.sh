@@ -12,6 +12,8 @@ set -u
 DRIFT="$ROOT/scripts/pr-communication/check-drift.mjs"
 CHECK="$ROOT/scripts/check-pr-communication.ts"
 UNIT="$ROOT/scripts/check-pr-communication.test.ts"
+FETCH_FIXTURE="$ROOT/tests/fixtures/pr-communication-fetch.mjs"
+TEMPLATE="$ROOT/.github/PULL_REQUEST_TEMPLATE.md"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "skip: node is required to run the PR communication gate"
@@ -109,6 +111,49 @@ test_cli_rejects_incomplete_description() {
   pass "CLI fails a non-compliant PR description"
 }
 
+test_cli_rejects_untouched_module_boundary_template() {
+  local out rc
+  set +e
+  out=$(
+    PR_TITLE='Describe a complete customer-facing change' PR_BODY="$(cat "$TEMPLATE")" \
+      npx --yes tsx "$CHECK" 2>&1
+  )
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "untouched PR template"
+  assert_contains "$out" "Module-boundary decision" \
+    "untouched template guidance incorrectly satisfied Module-boundary decision"
+  pass "CLI rejects untouched module-boundary template guidance"
+}
+
+test_transient_remote_failure_uses_local_pin() {
+  local mode out rc
+  for mode in network 503; do
+    set +e
+    out=$(PR_COMMUNICATION_FETCH_FAILURE="$mode" node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
+    rc=$?
+    set -e
+    expect_code 0 "$rc" "transient remote failure ($mode)"
+    assert_contains "$out" "Using the verified local pin" \
+      "transient remote failure ($mode) did not fall back to the local pin"
+  done
+  pass "transient remote failures use the local pin"
+}
+
+test_required_remote_failure_fails_closed() {
+  local out rc
+  set +e
+  out=$(
+    PR_COMMUNICATION_FETCH_FAILURE=503 PR_COMMUNICATION_REQUIRE_REMOTE_SOT=1 \
+      node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1
+  )
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "required remote failure"
+  assert_contains "$out" "503" "required remote failure did not report its status"
+  pass "required remote failures fail closed"
+}
+
 test_cli_accepts_complete_description() {
   local out rc
   set +e
@@ -128,4 +173,7 @@ test_cli_accepts_complete_description() {
 test_local_pin_passes_without_remote_token
 test_vendored_unit_suite
 test_cli_rejects_incomplete_description
+test_cli_rejects_untouched_module_boundary_template
 test_cli_accepts_complete_description
+test_transient_remote_failure_uses_local_pin
+test_required_remote_failure_fails_closed
