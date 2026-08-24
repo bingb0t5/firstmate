@@ -253,10 +253,29 @@ rmdir "$H_FAIL/state/telegram-inbox/3002.json"
 recover_status=0
 recover_out=$(poll_once "$H_FAIL" "$FAIL_ENV" "$FIXTURES/two-text.json") || recover_status=$?
 [ "$recover_status" -eq 0 ] || fail "the retried batch did not succeed once the obstruction was removed: $recover_out"
-assert_contains "$recover_out" "message: 1" "the retried batch counts only the message not already persisted"
+assert_contains "$recover_out" "message: 2" "the retried batch reports both previously unwoken messages"
 assert_present "$H_FAIL/state/telegram-inbox/3002.json" "the second message is written once the obstruction clears"
 [ "$(cat "$H_FAIL/state/.telegram-offset")" = 3003 ] || fail "the offset advances only after the retried batch fully succeeds"
 pass "a mid-batch write failure leaves the offset untouched and the batch safely redelivers"
+
+# --- offset failure preserves the pending wake across poll invocations ------
+H_OFFSET_FAIL="$TMP_ROOT/offsetfail"; new_home "$H_OFFSET_FAIL"
+OFFSET_FAIL_ENV="$TMP_ROOT/offsetfail.env"; write_env_file "$OFFSET_FAIL_ENV" "$TOKEN"
+mkdir "$H_OFFSET_FAIL/state/.telegram-offset"
+offset_fail_status=0
+offset_fail_out=$(poll_once "$H_OFFSET_FAIL" "$OFFSET_FAIL_ENV" "$FIXTURES/one-text.json") || offset_fail_status=$?
+[ "$offset_fail_status" -ne 0 ] || fail "an offset write failure exited 0"
+[ -z "$offset_fail_out" ] || fail "an offset write failure reported a wake before preserving the offset"
+assert_present "$H_OFFSET_FAIL/state/telegram-inbox/1001.json" "the inbox write did not precede the offset failure"
+assert_present "$H_OFFSET_FAIL/state/.telegram-pending-delivery" "the offset failure lost its pending wake"
+rmdir "$H_OFFSET_FAIL/state/.telegram-offset"
+offset_recover_status=0
+offset_recover_out=$(poll_once "$H_OFFSET_FAIL" "$OFFSET_FAIL_ENV" "$FIXTURES/empty.json") || offset_recover_status=$?
+[ "$offset_recover_status" -eq 0 ] || fail "the pending wake did not recover after the offset became writable"
+assert_contains "$offset_recover_out" "message: 1" "recovery did not report the already-written message"
+[ "$(cat "$H_OFFSET_FAIL/state/.telegram-offset")" = 1002 ] || fail "recovery did not advance the preserved target offset"
+assert_absent "$H_OFFSET_FAIL/state/.telegram-pending-delivery" "recovery did not clear the reported pending wake"
+pass "an offset write failure preserves and later reports the pending wake"
 
 # --- the bot token never reaches durable output -----------------------------
 H_TOKEN="$TMP_ROOT/tokenleak"; new_home "$H_TOKEN"

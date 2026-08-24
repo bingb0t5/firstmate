@@ -69,7 +69,10 @@
 # including messages already written earlier in that same batch, is fetched
 # again next time. Persistence checks both the live inbox and its handled/
 # archive before creating a file, so a refetched update is never counted or
-# delivered twice. A lost message from the captain is not
+# delivered twice. A durable pending-delivery record bridges inbox persistence,
+# offset advancement, and the capturable result; recovery reports that record
+# before polling again, so a failed offset write or interrupted result cannot
+# strand an already-written message without a wake. A lost message from the captain is not
 # recoverable at all. Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID and non-text
 # updates (a photo, a sticker, a chat-membership change) are consumed the same
 # way - their ids are folded into the advanced offset - but produce no inbox
@@ -129,13 +132,14 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 INBOX="$STATE/telegram-inbox"
 OFFSET_FILE="$STATE/.telegram-offset"
+PENDING_FILE="$STATE/.telegram-pending-delivery"
 SOURCE_ID=telegram
 
 POLL_TIMEOUT=${FM_TELEGRAM_POLL_TIMEOUT:-25}
 CURL_MAX_TIME=${FM_TELEGRAM_CURL_MAX_TIME:-$((POLL_TIMEOUT + 15))}
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-usage() { sed -n '2,123p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,126p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
 
 env_file_path() {
   printf '%s\n' "${FM_TELEGRAM_ENV_FILE:-$HOME/.config/beanz/telegram.env}"
@@ -234,11 +238,34 @@ write_offset() {  # <value>
   local value=$1 tmp
   case "$value" in ''|*[!0-9]*) return 1 ;; esac
   mkdir -p "$STATE" 2>/dev/null || return 1
+  [ ! -e "$OFFSET_FILE" ] || [ -f "$OFFSET_FILE" ] || return 1
   [ ! -L "$OFFSET_FILE" ] || return 1
   tmp=$(umask 077; mktemp "$STATE/.telegram-offset.XXXXXX") || return 1
   printf '%s\n' "$value" > "$tmp" || { rm -f -- "$tmp"; return 1; }
   chmod 0600 "$tmp" || { rm -f -- "$tmp"; return 1; }
   mv -f -- "$tmp" "$OFFSET_FILE"
+}
+
+read_pending() {
+  local count target extra
+  [ -f "$PENDING_FILE" ] && [ ! -L "$PENDING_FILE" ] || return 1
+  read -r count target extra < "$PENDING_FILE" || return 1
+  case "$count" in ''|*[!0-9]*|0) return 1 ;; esac
+  case "$target" in ''|*[!0-9]*) return 1 ;; esac
+  [ -z "$extra" ] || return 1
+  printf '%s %s\n' "$count" "$target"
+}
+
+report_pending() {
+  local pending count target
+  pending=$(read_pending) || return 1
+  read -r count target <<EOF
+$pending
+EOF
+  write_offset "$target" || return 1
+  printf 'message: %s\n' "$count" || return 1
+  rm -f -- "$PENDING_FILE" || return 1
+  return 0
 }
 
 # The blocking child. One getUpdates long poll, then exit; see the header's
@@ -257,6 +284,11 @@ cmd_poll() {
   mkdir -p "$INBOX" 2>/dev/null || exit 1
   [ -d "$INBOX" ] && [ ! -L "$INBOX" ] || exit 1
 
+  if [ -e "$PENDING_FILE" ] || [ -L "$PENDING_FILE" ]; then
+    report_pending
+    exit $?
+  fi
+
   offset=$(read_offset)
 
   body_file=$(mktemp "${TMPDIR:-/tmp}/fm-telegram-poll.XXXXXX") || exit 1
@@ -272,12 +304,13 @@ cmd_poll() {
   [ "$rc" -eq 0 ] || exit 1
   [ "$http_code" = 200 ] || exit 1
 
-  out=$(python3 - "$INBOX" "$body_file" "$captain_chat_id" <<'PY'
+  out=$(python3 - "$INBOX" "$body_file" "$captain_chat_id" "$offset" "$PENDING_FILE" <<'PY'
 import json
 import os
 import sys
 
-inbox, body_path, captain_chat_id = sys.argv[1], sys.argv[2], sys.argv[3]
+inbox, body_path, captain_chat_id, current_offset, pending_path = sys.argv[1:]
+current_offset = int(current_offset)
 os.umask(0o077)
 
 try:
@@ -315,7 +348,11 @@ try:
         }
         dest = os.path.join(inbox, "%d.json" % uid)
         handled = os.path.join(inbox, "handled", "%d.json" % uid)
-        if os.path.isfile(dest) or os.path.isfile(handled):
+        if os.path.isfile(handled):
+            continue
+        if os.path.isfile(dest):
+            if uid >= current_offset:
+                messages += 1
             continue
         tmp = os.path.join(inbox, ".%d.json.tmp.%d" % (uid, os.getpid()))
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -331,10 +368,30 @@ try:
         finally:
             os.close(dir_fd)
         messages += 1
+
+    if messages:
+        pending_tmp = "%s.tmp.%d" % (pending_path, os.getpid())
+        pending_fd = os.open(pending_tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(pending_fd, "w", encoding="utf-8") as pending_fh:
+            pending_fh.write("%d %d\n" % (messages, highest + 1))
+            pending_fh.flush()
+            os.fchmod(pending_fh.fileno(), 0o600)
+            os.fsync(pending_fh.fileno())
+        os.replace(pending_tmp, pending_path)
+        state_fd = os.open(os.path.dirname(pending_path), os.O_RDONLY)
+        try:
+            os.fsync(state_fd)
+        finally:
+            os.close(state_fd)
 except (OSError, ValueError):
     if "tmp" in locals():
         try:
             os.unlink(tmp)
+        except OSError:
+            pass
+    if "pending_tmp" in locals():
+        try:
+            os.unlink(pending_tmp)
         except OSError:
             pass
     sys.exit(1)
@@ -355,8 +412,8 @@ PY
   fi
 
   if [ "$messages" -gt 0 ]; then
-    printf 'message: %s\n' "$messages"
-    exit 0
+    report_pending
+    exit $?
   fi
   exit 1
 }
