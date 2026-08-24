@@ -169,6 +169,40 @@ test_auth_remote_failure_fails_closed() {
   pass "401, 403, and 404 remote failures fail closed"
 }
 
+test_invalid_token_header_fails_closed() {
+  local out rc
+  set +e
+  out=$(PR_COMMUNICATION_SOT_TOKEN=$'invalid\nheader' node "$DRIFT" 2>&1)
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "invalid token header"
+  assert_not_contains "$out" "Using the verified local pin" \
+    "invalid token header incorrectly used the local pin"
+  pass "invalid token header fails closed"
+}
+
+test_tampered_entrypoint_fails_closed() {
+  local candidate out rc
+  candidate=$(mktemp -d "$ROOT/.pr-communication-candidate.XXXXXX")
+  mkdir -p "$candidate/scripts/pr-communication"
+  cp "$CHECK" "$candidate/scripts/check-pr-communication.ts"
+  cp "$ROOT/scripts/pr-communication/prCommunication.ts" \
+    "$candidate/scripts/pr-communication/prCommunication.ts"
+  cp "$ROOT/scripts/pr-communication/SOURCE.sha256" \
+    "$candidate/scripts/pr-communication/SOURCE.sha256"
+  printf '\n// tampered\n' >> "$candidate/scripts/check-pr-communication.ts"
+  set +e
+  out=$(PR_COMMUNICATION_CANDIDATE_ROOT="${candidate#"$ROOT"/}" \
+    PR_COMMUNICATION_SOT_TOKEN=test-token node "$DRIFT" 2>&1)
+  rc=$?
+  set -e
+  rm -rf "$candidate"
+  expect_code 1 "$rc" "tampered PR communication entrypoint"
+  assert_contains "$out" "entrypoint does not match" \
+    "tampered entrypoint did not fail its trusted pin"
+  pass "tampered entrypoint fails closed"
+}
+
 test_cli_accepts_complete_description() {
   local out rc
   set +e
@@ -193,3 +227,5 @@ test_cli_accepts_complete_description
 test_transient_remote_failure_uses_local_pin
 test_required_remote_failure_fails_closed
 test_auth_remote_failure_fails_closed
+test_invalid_token_header_fails_closed
+test_tampered_entrypoint_fails_closed

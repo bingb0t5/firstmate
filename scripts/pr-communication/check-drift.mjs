@@ -20,6 +20,8 @@ const ROOT = process.env.PR_COMMUNICATION_CANDIDATE_ROOT
   : TRUSTED_ROOT;
 const VENDORED_PATH = join(ROOT, 'scripts/pr-communication/prCommunication.ts');
 const PIN_PATH = join(ROOT, 'scripts/pr-communication/SOURCE.sha256');
+const ENTRYPOINT_PATH = join(ROOT, 'scripts/check-pr-communication.ts');
+const ENTRYPOINT_PIN_PATH = join(TRUSTED_ROOT, 'scripts/pr-communication/ENTRYPOINT.sha256');
 const SOURCE_REPO = 'bingb0t5/lalo-admin';
 const SOURCE_PATH = 'src/shared/prCommunication.ts';
 const SOURCE_REF = 'main';
@@ -71,6 +73,18 @@ if (actualHash !== pinnedHash) {
 
 console.log(`Local pin OK (${actualHash}).`);
 
+const entrypointHash = sha256(readFileSync(ENTRYPOINT_PATH, 'utf8'));
+const pinnedEntrypointHash = readFileSync(ENTRYPOINT_PIN_PATH, 'utf8').trim();
+
+if (entrypointHash !== pinnedEntrypointHash) {
+  console.error('PR communication entrypoint does not match ENTRYPOINT.sha256.');
+  console.error(`expected: ${pinnedEntrypointHash}`);
+  console.error(`actual:   ${entrypointHash}`);
+  process.exit(1);
+}
+
+console.log(`Entrypoint pin OK (${entrypointHash}).`);
+
 const token = String(process.env.PR_COMMUNICATION_SOT_TOKEN || '').trim();
 const requireRemote = String(process.env.PR_COMMUNICATION_REQUIRE_REMOTE_SOT || '').trim() === '1';
 
@@ -93,8 +107,22 @@ try {
   console.log(`Remote SoT matches ${SOURCE_REPO}@${SOURCE_REF}:${SOURCE_PATH}.`);
 } catch (error) {
   const status = error && error.status;
+  const networkCodes = new Set([
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'EHOSTUNREACH',
+    'ENETDOWN',
+    'ENETUNREACH',
+    'ENOTFOUND',
+    'ETIMEDOUT',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_SOCKET',
+  ]);
+  const networkFailure =
+    error instanceof TypeError && networkCodes.has(error.cause && error.cause.code);
   const transientFailure =
-    status === undefined || status === 408 || status === 429 || (status >= 500 && status <= 599);
+    networkFailure || status === 408 || status === 429 || (status >= 500 && status <= 599);
   if (!transientFailure || requireRemote) {
     console.error(error.message || error);
     process.exit(1);

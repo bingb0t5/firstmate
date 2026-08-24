@@ -2,7 +2,7 @@ const failure = process.env.PR_COMMUNICATION_FETCH_FAILURE;
 
 if (failure === 'network') {
   globalThis.fetch = async () => {
-    throw new TypeError('simulated network failure');
+    throw new TypeError('simulated network failure', { cause: { code: 'ENETUNREACH' } });
   };
 } else if (failure) {
   const status = Number(failure);
