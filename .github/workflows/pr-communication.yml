@@ -31,22 +31,38 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Check out trusted drift checker
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .trusted-pr-communication
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
 
-      - name: Drift check against lalo-admin SoT
+      - name: Check trusted pin against lalo-admin SoT
+        working-directory: .trusted-pr-communication
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Fine-scoped token with contents:read on private lalo-admin.
           # When set, remote SoT comparison runs; REQUIRE=1 is a later decision.
           PR_COMMUNICATION_SOT_TOKEN: ${{ secrets.PR_COMMUNICATION_SOT_TOKEN }}
           PR_COMMUNICATION_REQUIRE_REMOTE_SOT: ${{ vars.PR_COMMUNICATION_REQUIRE_REMOTE_SOT }}
         run: node scripts/pr-communication/check-drift.mjs
 
+      - name: Check proposed assessor against its local pin
+        env:
+          PR_COMMUNICATION_SOT_TOKEN: ''
+          GITHUB_TOKEN: ''
+          GH_TOKEN: ''
+        run: node scripts/pr-communication/check-drift.mjs
+
       - name: Assess PR communication
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: npx --yes tsx scripts/check-pr-communication.ts
+        run: npx --yes tsx@4.23.12 scripts/check-pr-communication.ts
