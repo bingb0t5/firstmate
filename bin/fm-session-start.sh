@@ -383,6 +383,11 @@ stow_due_line() {
     return 0
   fi
   age=$(( $(date +%s) - m ))
+  if [ "$age" -lt 0 ]; then
+    printf 'STOW DUE: last /stow attempt marker is future-dated (source=%s); run /stow before other work.\n' \
+      "${SESSION_SOURCE:-unknown}"
+    return 0
+  fi
   [ "$age" -ge "$STOW_INTERVAL" ] || return 0
   printf 'STOW DUE: last /stow pass was %ss ago (over the %ss interval, source=%s); run /stow before other work.\n' \
     "$age" "$STOW_INTERVAL" "${SESSION_SOURCE:-unknown}"

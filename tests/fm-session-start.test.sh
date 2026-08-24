@@ -2132,6 +2132,24 @@ EOF
   pass "a state/.last-stow-attempt marker older than the default interval surfaces a STOW DUE line on re-emit"
 }
 
+test_stow_due_when_marker_is_future_dated() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-future)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  set_stow_marker_mtime "$(( $(date +%s) + 300 ))" "$home/state/.last-stow-attempt"
+
+  out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "STOW DUE: last /stow attempt marker is future-dated" \
+    "a future-dated state/.last-stow-attempt marker suppressed automatic /stow"
+
+  pass "a future-dated attempt marker fails open and surfaces a STOW DUE line"
+}
+
 # A pass that ends with an unresolved exception still touches the attempt
 # marker while leaving the reset-safe state/.last-stow marker alone. The gate
 # must read the attempt marker, or such a home would be told to re-run /stow on
@@ -2758,6 +2776,7 @@ test_stow_due_surfaced_when_marker_absent_on_reemit
 test_stow_due_silent_when_marker_is_fresh
 test_stow_due_default_interval_keeps_a_recent_marker_silent
 test_stow_due_when_marker_older_than_interval
+test_stow_due_when_marker_is_future_dated
 test_stow_due_throttles_on_the_attempt_marker_not_the_reset_safe_one
 test_stow_due_respects_custom_interval_env_var
 test_stow_due_missing_marker_is_due_under_any_interval
