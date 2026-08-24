@@ -351,6 +351,45 @@ QUEUED_LIMIT=${FM_SESSION_START_QUEUED_LIMIT:-20}
 case "$QUEUED_LIMIT" in ''|*[!0-9]*|0) QUEUED_LIMIT=20 ;; esac
 BACKLOG_FIELDS=blocked_by,hold_kind,hold_reason
 
+# Automatic /stow, trigger 1 (the compact/clear re-emit path below): an
+# explicit home-local config/auto-stow grant plus a staleness gate on
+# state/.last-stow-attempt, touched by the stow skill itself
+# at the end of every pass whether or not it reached reset-safe (mirrors
+# state/.last-heartbeat's bare-mtime marker, bin/fm-watch.sh). Reading the
+# attempt marker rather than its reset-safe-only sibling state/.last-stow is
+# what holds the once-per-interval throttle in a home whose exceptions /stow
+# cannot clear. Read only here, never written by this script. Trigger 2 is the
+# heartbeat-handling check in AGENTS.md section 8 rule 4, which reads the same
+# marker against the same interval.
+STOW_INTERVAL=${FM_AUTO_STOW_INTERVAL_SECS:-86400}
+if [[ "$STOW_INTERVAL" =~ ^0*([1-9][0-9]{0,7})$ ]]; then
+  STOW_INTERVAL=${BASH_REMATCH[1]}
+else
+  STOW_INTERVAL=86400
+fi
+if [ "${#STOW_INTERVAL}" -eq 8 ] && [ "$STOW_INTERVAL" -gt 31536000 ]; then
+  STOW_INTERVAL=86400
+fi
+
+# stow_due_line: one "STOW DUE: ..." line when state/.last-stow-attempt is
+# missing, unreadable, or at least STOW_INTERVAL seconds old, silent (prints
+# nothing, exit 0) when current. Detect-only and cheap - a single mtime stat -
+# matching the "always check, only speak up when it matters" idiom the
+# bootstrap stage already uses.
+stow_due_line() {
+  local marker="$STATE/.last-stow-attempt" m age
+  m=$(fm_path_mtime "$marker")
+  if [ -z "$m" ]; then
+    printf 'STOW DUE: no recorded /stow pass (source=%s); run /stow before other work.\n' "${SESSION_SOURCE:-unknown}"
+    return 0
+  fi
+  age=$(( $(date +%s) - m ))
+  [ "$age" -ge 0 ] || age=$STOW_INTERVAL
+  [ "$age" -ge "$STOW_INTERVAL" ] || return 0
+  printf 'STOW DUE: last /stow pass was %ss ago (over the %ss interval, source=%s); run /stow before other work.\n' \
+    "$age" "$STOW_INTERVAL" "${SESSION_SOURCE:-unknown}"
+}
+
 RULE='================================================================================'
 SUBRULE='--------------------------------------------------------------------------------'
 
@@ -638,6 +677,13 @@ if [ "$LOCK_RC" -ne 0 ]; then
     printf '●  otherwise mutate fleet state from this session.\n'
     printf '%s\n' "$BAR"
   }
+fi
+# Automatic /stow, trigger 1. Held until the lock verdict above: /stow mutates
+# this home's memory files, so a re-emit that could not verify fleet-lock
+# ownership must stay silent about it and leave the still-due marker to the
+# next session start or re-emit that does own the lock.
+if [ "$REEMIT" -eq 1 ] && [ "$READ_ONLY" -eq 0 ] && [ -e "$CONFIG/auto-stow" ]; then
+  stow_due_line
 fi
 REBUILDING_SESSION_PID=$(fm_harness_ancestry_pid 2>/dev/null || true)
 print_agents_refresh_if_required "$REBUILDING_SESSION_PID"
