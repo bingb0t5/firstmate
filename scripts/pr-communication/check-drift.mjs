@@ -1,0 +1,101 @@
+#!/usr/bin/env node
+/**
+ * Fail if the vendored assessor drifts from the pinned SoT hash, or (when
+ * reachable) from bingb0t5/lalo-admin@main:src/shared/prCommunication.ts.
+ *
+ * Default GITHUB_TOKEN cannot read private sibling repos. Set repo secret
+ * PR_COMMUNICATION_SOT_TOKEN (fine-scoped PAT or GitHub App token with
+ * contents:read on lalo-admin) to enable the remote comparison. Until then
+ * SOURCE.sha256 is the hard local pin.
+ */
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
+const VENDORED_PATH = join(ROOT, 'scripts/pr-communication/prCommunication.ts');
+const PIN_PATH = join(ROOT, 'scripts/pr-communication/SOURCE.sha256');
+const SOURCE_REPO = 'bingb0t5/lalo-admin';
+const SOURCE_PATH = 'src/shared/prCommunication.ts';
+const SOURCE_REF = 'main';
+
+function stripSourceHeader(text) {
+  const marker = '\n\n';
+  const idx = text.indexOf(marker);
+  if (idx < 0 || !text.startsWith('// SOURCE:')) {
+    throw new Error(`${VENDORED_PATH} is missing the expected SOURCE header`);
+  }
+  return text.slice(idx + marker.length);
+}
+
+function sha256(text) {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+async function fetchSourceOfTruth(token) {
+  const url = `https://api.github.com/repos/${SOURCE_REPO}/contents/${SOURCE_PATH}?ref=${SOURCE_REF}`;
+  const headers = {
+    Accept: 'application/vnd.github.raw',
+    'User-Agent': 'lalo-platform-pr-communication-drift-check',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    const body = await response.text();
+    const error = new Error(
+      `Failed to fetch ${SOURCE_REPO}@${SOURCE_REF}:${SOURCE_PATH} (${response.status}): ${body.slice(0, 300)}`,
+    );
+    error.status = response.status;
+    throw error;
+  }
+  return await response.text();
+}
+
+const vendoredBody = stripSourceHeader(readFileSync(VENDORED_PATH, 'utf8'));
+const actualHash = sha256(vendoredBody);
+const pinnedHash = readFileSync(PIN_PATH, 'utf8').trim();
+
+if (actualHash !== pinnedHash) {
+  console.error('Vendored PR communication assessor does not match SOURCE.sha256.');
+  console.error(`expected: ${pinnedHash}`);
+  console.error(`actual:   ${actualHash}`);
+  console.error('Re-vendor from lalo-admin and refresh SOURCE.sha256.');
+  process.exit(1);
+}
+
+console.log(`Local pin OK (${actualHash}).`);
+
+const token = (
+  process.env.PR_COMMUNICATION_SOT_TOKEN ||
+  process.env.GITHUB_TOKEN ||
+  process.env.GH_TOKEN ||
+  ''
+).trim();
+const requireRemote = String(process.env.PR_COMMUNICATION_REQUIRE_REMOTE_SOT || '').trim() === '1';
+
+try {
+  const remoteBody = await fetchSourceOfTruth(token);
+  if (vendoredBody !== remoteBody) {
+    console.error(`Vendored assessor drifted from ${SOURCE_REPO}@${SOURCE_REF}:${SOURCE_PATH}.`);
+    console.error(
+      'Re-vendor from lalo-admin, refresh SOURCE.sha256, and keep the SOURCE header intact.',
+    );
+    process.exit(1);
+  }
+  console.log(`Remote SoT matches ${SOURCE_REPO}@${SOURCE_REF}:${SOURCE_PATH}.`);
+} catch (error) {
+  const status = error && error.status;
+  const authFailure = status === 401 || status === 403 || status === 404;
+  if (!authFailure || requireRemote) {
+    console.error(error.message || error);
+    process.exit(1);
+  }
+  console.warn(
+    `Remote SoT check skipped (${status || 'error'}). Default GITHUB_TOKEN cannot read private ${SOURCE_REPO}.`,
+  );
+  console.warn(
+    'Add repo secret PR_COMMUNICATION_SOT_TOKEN (contents:read on lalo-admin), or grant org Actions access to that private sibling, then set PR_COMMUNICATION_REQUIRE_REMOTE_SOT=1.',
+  );
+}
