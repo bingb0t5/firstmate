@@ -1,0 +1,32 @@
+Firstmate PR communication gate - focused end-to-end evidence
+Target: 11f809b9d7ce35de5f1e5f9f041bf7e6d46b878f
+Date: 2026-08-24
+
+$ incomplete PR body through scripts/check-pr-communication.ts
+Clarity check: The PR title is very short. State the user or business outcome.
+Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+exit=1
+
+$ compliant PR body through scripts/check-pr-communication.ts
+PR communication is complete.
+exit=0
+
+$ simulated remote SoT responses through scripts/pr-communication/check-drift.mjs
+HTTP 401: Failed to fetch remote SoT; exit=1
+HTTP 403: Failed to fetch remote SoT; exit=1
+HTTP 404: Failed to fetch remote SoT; exit=1
+HTTP 408: Using the verified local pin; exit=0
+HTTP 429: Using the verified local pin; exit=0
+HTTP 503: Using the verified local pin; exit=0
+
+$ PR_COMMUNICATION_SOT_TOKEN absent while GITHUB_TOKEN and GH_TOKEN are present
+PR_COMMUNICATION_SOT_TOKEN is required to verify the private bingb0t5/lalo-admin source of truth.
+exit=1
+
+$ gh-axi pr checks 4 --repo bingb0t5/firstmate
+PR: https://github.com/bingb0t5/firstmate/pull/4
+pr-communication: fail
+pr-communication: pass
+PR state: merged; 15 passed, 1 failed, 16 total
+
+The two real-CI check conclusions on PR 4 preserve the requested fail-then-pass proof.
