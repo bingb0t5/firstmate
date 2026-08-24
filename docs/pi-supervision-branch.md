@@ -61,7 +61,7 @@ Every other fleet-wide or unresolvable wake - including watcher-failure alarms, 
 The branch's heartbeat review does not currently run automatic `/stow`.
 `AGENTS.md` section 8 rule 4's staleness-gated `/stow` instruction lives on main, and default-on branch supervision routes heartbeat wakes away from main.
 A lock-owning compact/clear session-start re-emit remains the automatic `/stow` path on a default Pi primary (`bin/fm-session-start.sh`; `FM_AUTO_STOW_INTERVAL_SECS` in [configuration.md](configuration.md)).
-Wiring heartbeat `/stow` into the branch is follow-up work: `bin/fm-branch-prompt.sh`'s byte-stable-prefix contract forbids per-wake state, so that change has to preserve cache identity rather than appending a live marker age.
+Wiring heartbeat `/stow` into the branch is tracked in [issue #2944](https://github.com/kunchenguid/firstmate/issues/2944): `bin/fm-branch-prompt.sh`'s byte-stable-prefix contract forbids per-wake state, so that change has to preserve cache identity rather than appending a live marker age.
 
 ## Cost model and the byte-stable prefix
 
