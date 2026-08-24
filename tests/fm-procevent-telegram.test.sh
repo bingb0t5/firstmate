@@ -104,6 +104,9 @@ cat > "$FIXTURES/empty.json" <<JSON
 {"ok":true,"result":[]}
 JSON
 printf '{"ok":true,"result":' > "$FIXTURES/malformed-response.json"
+cat > "$FIXTURES/rejected-response.json" <<JSON
+{"ok":false,"result":[]}
+JSON
 cat > "$FIXTURES/overlap-batch.json" <<JSON
 {"ok":true,"result":[{"update_id":4001,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"already delivered by the legacy script"}},{"update_id":4002,"message":{"date":2,"chat":{"id":555},"from":{"id":909},"text":"genuinely new in this batch"}}]}
 JSON
@@ -632,6 +635,23 @@ sticky_401_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json"
 [ "$sticky_401_status" -ne 0 ] || fail "a malformed HTTP 200 cleared the sticky 401: $sticky_401_out"
 [ -z "$sticky_401_out" ] || fail "the sticky 401 announced twice after malformed HTTP 200: $sticky_401_out"
 pass "a malformed HTTP success cannot clear a sticky 401"
+
+rejected_recovery_status=0
+rejected_recovery_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/rejected-response.json") \
+  || rejected_recovery_status=$?
+[ "$rejected_recovery_status" -ne 0 ] || fail "an ok-false HTTP 200 response was treated as recovery"
+[ -z "$rejected_recovery_out" ] || fail "an ok-false HTTP 200 response produced output: $rejected_recovery_out"
+invalid_update_status=0
+invalid_update_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/malformed-update.json") \
+  || invalid_update_status=$?
+[ "$invalid_update_status" -ne 0 ] || fail "an invalid update batch was treated as recovery"
+[ -z "$invalid_update_out" ] || fail "an invalid update batch produced output: $invalid_update_out"
+still_sticky_status=0
+still_sticky_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) \
+  || still_sticky_status=$?
+[ "$still_sticky_status" -ne 0 ] || fail "an unsuccessful batch cleared the sticky 401: $still_sticky_out"
+[ -z "$still_sticky_out" ] || fail "the sticky 401 repeated after an unsuccessful batch: $still_sticky_out"
+pass "rejected responses and invalid updates cannot clear a sticky 401"
 
 # A different permanent condition is its own announcement.
 switch_status=0

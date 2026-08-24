@@ -623,7 +623,10 @@ finally:
 
 try:
     with open(body_path, "r", encoding="utf-8") as fh:
-        updates = json.load(fh)["result"]
+        response = json.load(fh)
+    if not isinstance(response, dict) or response.get("ok") is not True:
+        raise ValueError("response is not a successful Telegram result")
+    updates = response.get("result")
     if not isinstance(updates, list):
         raise ValueError("result is not a list")
 except Exception:
@@ -747,7 +750,6 @@ print("MESSAGES=%d" % messages)
 print("ERROR=0")
 PY
   ) || exit 1
-  clear_blocked || exit 1
 
   highest=$(printf '%s\n' "$out" | sed -n 's/^HIGHEST=//p')
   messages=$(printf '%s\n' "$out" | sed -n 's/^MESSAGES=//p')
@@ -755,6 +757,7 @@ PY
   rmdir "$RECEIPT_DIR" 2>/dev/null || :
   case "$messages" in ''|*[!0-9]*) exit 1 ;; esac
   case "$batch_error" in 0|1) ;; *) exit 1 ;; esac
+  case "$highest" in *[!0-9]*) exit 1 ;; esac
 
   if [ "$batch_error" -eq 1 ]; then
     if [ "$messages" -gt 0 ]; then
@@ -763,10 +766,10 @@ PY
     exit 1
   fi
 
+  clear_blocked || exit 1
   if [ -z "$highest" ]; then
     exit 1
   fi
-  case "$highest" in *[!0-9]*) exit 1 ;; esac
   new_offset=$((highest + 1))
 
   if [ "$messages" -gt 0 ]; then
