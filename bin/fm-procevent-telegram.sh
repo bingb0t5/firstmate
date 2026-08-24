@@ -313,8 +313,15 @@ for u in updates:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as out_fh:
             json.dump(payload, out_fh)
-        os.chmod(tmp, 0o600)
+            out_fh.flush()
+            os.fchmod(out_fh.fileno(), 0o600)
+            os.fsync(out_fh.fileno())
         os.replace(tmp, dest)
+        dir_fd = os.open(inbox, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     except OSError:
         try:
             os.unlink(tmp)
