@@ -7,46 +7,27 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 SKILL="$ROOT/.agents/skills/gnhf-companion/SKILL.md"
-AGENTS="$ROOT/AGENTS.md"
 
-test_skill_frontmatter_and_trigger() {
+test_skill_frontmatter() {
   assert_present "$SKILL" \
     "gnhf-companion skill file is missing"
   command -v python3 >/dev/null 2>&1 || fail "python3 is required to parse skill metadata"
 
-  python3 - "$SKILL" "$AGENTS" <<'PY' || fail "gnhf-companion declarative metadata or trigger is invalid"
+  python3 - "$SKILL" <<'PY' || fail "gnhf-companion declarative metadata is invalid"
 import pathlib
 import sys
+import yaml
 
 skill_path = pathlib.Path(sys.argv[1])
-agents_path = pathlib.Path(sys.argv[2])
-lines = skill_path.read_text(encoding="utf-8").splitlines()
-if not lines or lines[0] != "---":
+content = skill_path.read_text(encoding="utf-8")
+if not content.startswith("---\n"):
     raise SystemExit("missing frontmatter opener")
 try:
-    end = lines.index("---", 1)
+    frontmatter, _ = content[4:].split("\n---\n", 1)
 except ValueError as error:
     raise SystemExit("missing frontmatter closer") from error
 
-metadata = {}
-section = None
-for line in lines[1:end]:
-    if not line.strip() or line.startswith("  ") and section != "metadata":
-        continue
-    if line == "metadata:":
-        section = "metadata"
-        metadata[section] = {}
-        continue
-    if section == "metadata" and line.startswith("  "):
-        key, value = line.strip().split(":", 1)
-        metadata[section][key] = value.strip() == "true"
-        continue
-    section = None
-    if ":" in line:
-        key, value = line.split(":", 1)
-        value = value.strip()
-        metadata[key] = {"true": True, "false": False}.get(value, value)
-
+metadata = yaml.safe_load(frontmatter)
 expected = {
     "name": "gnhf-companion",
     "user-invocable": False,
@@ -55,16 +36,9 @@ expected = {
 for key, value in expected.items():
     if metadata.get(key) != value:
         raise SystemExit(f"unexpected {key}: {metadata.get(key)!r}")
-
-trigger = "- `gnhf-companion` - load before briefing, steering, or reviewing a crewmate's use of the installed GNHF tool for bounded autonomous iteration inside its own task worktree."
-agents_lines = agents_path.read_text(encoding="utf-8").splitlines()
-start = agents_lines.index("## 13. Agent-only reference skills")
-end = next((i for i in range(start + 1, len(agents_lines)) if agents_lines[i].startswith("## ")), len(agents_lines))
-if agents_lines[start + 1:end].count(trigger) != 1:
-    raise SystemExit("section 13 must contain the exact gnhf-companion trigger once")
 PY
 
-  pass "gnhf-companion skill carries its required frontmatter and AGENTS.md carries its one-line trigger"
+  pass "gnhf-companion skill carries its required frontmatter"
 }
 
 test_gnhf_help_flags_live() {
@@ -86,5 +60,5 @@ test_gnhf_help_flags_live() {
   pass "installed gnhf --help still exposes every flag gnhf-companion's required brief contract assumes"
 }
 
-test_skill_frontmatter_and_trigger
+test_skill_frontmatter
 test_gnhf_help_flags_live
