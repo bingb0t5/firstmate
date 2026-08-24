@@ -1,0 +1,5 @@
+adapter=telegram
+argc=2
+argv:
+/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M0S6T96ETMF926A1WP1K4XK7/bin/fm-procevent-telegram.sh
+poll

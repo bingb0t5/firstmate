@@ -1,0 +1,20 @@
+END-TO-END TELEGRAM DELIVERY EVIDENCE
+
+Published wake:
+1787554293	1	check	procevent:telegram:1	check: procevent telegram telegram 1
+
+Durable inbox message (mode 600):
+{"update_id": 4101, "date": 1700000200, "chat_id": 555, "text": "captain says test the fast Telegram wake"}
+
+Advanced offset:
+4102
+
+Runner-captured result:
+message: 1
+
+Classification:
+message
+
+Source remains armed after delivery:
+SOURCE                       ADAPTER      OWNER      PENDING
+telegram                     telegram     none       1

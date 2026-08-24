@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -u
+out=
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do [ "${args[$i]}" = -o ] && out=${args[$((i+1))]}; done
+cat >/dev/null
+cp "$CURL_STUB_BODY" "$out"
+printf 200
