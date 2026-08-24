@@ -76,6 +76,9 @@ JSON
 cat > "$FIXTURES/empty.json" <<JSON
 {"ok":true,"result":[]}
 JSON
+cat > "$FIXTURES/overlap-batch.json" <<JSON
+{"ok":true,"result":[{"update_id":4001,"message":{"date":1,"chat":{"id":555},"text":"already delivered by the legacy script"}},{"update_id":4002,"message":{"date":2,"chat":{"id":555},"text":"genuinely new in this batch"}}]}
+JSON
 
 new_home() { mkdir -p "$1/state"; }
 
@@ -213,7 +216,7 @@ pass "an empty long-poll result is silent and advances nothing"
 # --- write-before-offset-advance: a mid-batch write failure is recoverable --
 # Requirement: a message is durably on disk BEFORE the offset advances past
 # it, and a write failure leaves the offset untouched so the whole batch is
-# safely re-delivered. The obstruction here is a real filesystem failure - a
+# safely retried. The obstruction here is a real filesystem failure - a
 # directory already occupies the second message's own target path - not a
 # stubbed helper, so the write really does fail the way a full disk or a
 # permissions problem would.
@@ -233,10 +236,99 @@ rmdir "$H_FAIL/state/telegram-inbox/3002.json"
 recover_status=0
 recover_out=$(poll_once "$H_FAIL" "$FAIL_ENV" "$FIXTURES/two-text.json") || recover_status=$?
 [ "$recover_status" -eq 0 ] || fail "the retried batch did not succeed once the obstruction was removed: $recover_out"
-assert_contains "$recover_out" "message: 2" "the retried batch redelivers both messages, including the already-written first one"
+assert_contains "$recover_out" "message: 1" \
+  "the retried batch delivers only the genuinely new second message - the already-claimed first one is not recounted"
 assert_present "$H_FAIL/state/telegram-inbox/3002.json" "the second message is written once the obstruction clears"
 [ "$(cat "$H_FAIL/state/.telegram-offset")" = 3003 ] || fail "the offset advances only after the retried batch fully succeeds"
 pass "a mid-batch write failure leaves the offset untouched and the batch safely redelivers"
+
+# --- HANDOFF: the atomic claim survives a legacy producer mid-write --------
+# state/telegram-watch.check.sh (out of scope to modify) writes its own copy
+# of an inbox file with a plain in-place `open(path, "w")` - no temp file, no
+# rename - so a reader can observe it truncated or partially written. This
+# reproduces exactly that shape: a legacy-style writer leaves an update's
+# inbox file existing but not yet valid JSON for that update, overlapping
+# with this adapter's own poll for a batch that also contains a genuinely new
+# update. The whole batch must block (same as any other write failure) rather
+# than either fabricating a duplicate delivery or corrupting the legacy
+# write, and the genuinely new update must not be lost either.
+legacy_write_incomplete() {  # <path>
+  printf '{"update_id":' > "$1"  # mid-write: not yet valid JSON
+}
+
+legacy_write_complete() {  # <path> <update_id> <text>
+  printf '{"update_id": %s, "date": 1, "chat_id": 555, "text": "%s"}' "$2" "$3" > "$1"
+}
+
+H_OVERLAP="$TMP_ROOT/overlap"; new_home "$H_OVERLAP"
+OVERLAP_ENV="$TMP_ROOT/overlap.env"; write_env_file "$OVERLAP_ENV" "$TOKEN"
+mkdir -p "$H_OVERLAP/state/telegram-inbox"
+legacy_write_incomplete "$H_OVERLAP/state/telegram-inbox/4001.json"
+overlap_status=0
+overlap_out=$(poll_once "$H_OVERLAP" "$OVERLAP_ENV" "$FIXTURES/overlap-batch.json") || overlap_status=$?
+[ "$overlap_status" -ne 0 ] || fail "a batch overlapping a legacy mid-write exited 0 and would have woken firstmate: $overlap_out"
+[ -z "$overlap_out" ] || fail "a batch overlapping a legacy mid-write produced output: $overlap_out"
+assert_absent "$H_OVERLAP/state/.telegram-offset" \
+  "the offset must not advance while a legacy write for this batch is still incomplete"
+assert_absent "$H_OVERLAP/state/telegram-inbox/4002.json" \
+  "this adapter must never hardlink over or otherwise disturb a legacy claim it cannot yet trust"
+legacy_content_before=$(cat "$H_OVERLAP/state/telegram-inbox/4001.json")
+[ "$legacy_content_before" = '{"update_id":' ] \
+  || fail "the adapter mutated the legacy producer's still-mid-write file"
+
+# The legacy script finishes its own write. A retried poll must now recognize
+# that update as already delivered - no duplicate captain-visible wake for
+# it - while still delivering the genuinely new update in the same batch.
+legacy_write_complete "$H_OVERLAP/state/telegram-inbox/4001.json" 4001 "already delivered by the legacy script"
+overlap_retry_status=0
+overlap_retry_out=$(poll_once "$H_OVERLAP" "$OVERLAP_ENV" "$FIXTURES/overlap-batch.json") || overlap_retry_status=$?
+[ "$overlap_retry_status" -eq 0 ] || fail "the retried batch did not succeed once the legacy write finished: $overlap_retry_out"
+assert_contains "$overlap_retry_out" "message: 1" \
+  "only the genuinely new update counts once the legacy-delivered one is recognized"
+assert_present "$H_OVERLAP/state/telegram-inbox/4002.json" "the genuinely new update was still delivered"
+[ "$(cat "$H_OVERLAP/state/.telegram-offset")" = 4003 ] || fail "the offset advances past the whole resolved batch"
+assert_grep 'already delivered by the legacy script' "$H_OVERLAP/state/telegram-inbox/4001.json" \
+  "the legacy producer's own completed content survives untouched"
+pass "a legacy mid-write blocks the batch without corrupting or duplicating, and resolves once it finishes"
+
+# handled/ takes precedence over the live inbox: an update already archived
+# as handled must never be redelivered, even though its live inbox copy is
+# gone (the ordinary case once firstmate has processed and moved it).
+H_HANDLED="$TMP_ROOT/handled-precedence"; new_home "$H_HANDLED"
+HANDLED_ENV="$TMP_ROOT/handled-precedence.env"; write_env_file "$HANDLED_ENV" "$TOKEN"
+mkdir -p "$H_HANDLED/state/telegram-inbox/handled"
+legacy_write_complete "$H_HANDLED/state/telegram-inbox/handled/4001.json" 4001 "already handled"
+handled_status=0
+handled_out=$(poll_once "$H_HANDLED" "$HANDLED_ENV" "$FIXTURES/overlap-batch.json") || handled_status=$?
+[ "$handled_status" -eq 0 ] || fail "a batch with one already-handled update failed entirely: $handled_out"
+assert_contains "$handled_out" "message: 1" "an already-handled update is never redelivered"
+assert_absent "$H_HANDLED/state/telegram-inbox/4001.json" \
+  "an already-handled update must not be recreated in the live inbox"
+assert_present "$H_HANDLED/state/telegram-inbox/4002.json" "the genuinely new update is still delivered"
+pass "a handled update is never redelivered even after its live inbox copy is gone"
+
+# --- offset-write failure recovers its wake, even without credentials ------
+H_PEND="$TMP_ROOT/pending"; new_home "$H_PEND"
+PEND_ENV="$TMP_ROOT/pending.env"; write_env_file "$PEND_ENV" "$TOKEN"
+mkdir -p "$H_PEND/state/.telegram-offset"  # obstruct: the offset path is a directory
+pend_status=0
+pend_out=$(poll_once "$H_PEND" "$PEND_ENV" "$FIXTURES/one-text.json") || pend_status=$?
+[ "$pend_status" -ne 0 ] || fail "a poll that could not persist its offset exited 0: $pend_out"
+[ -z "$pend_out" ] || fail "a poll that could not persist its offset produced output: $pend_out"
+assert_present "$H_PEND/state/telegram-inbox/1001.json" \
+  "the message is durably written even though the offset could not be persisted yet"
+assert_present "$H_PEND/state/.telegram-pending-delivery" \
+  "a pending-delivery record bridges the inbox write and the stalled offset"
+rmdir "$H_PEND/state/.telegram-offset"
+rm -f -- "$PEND_ENV"  # credentials disappear before the retry
+pend_recover_status=0
+pend_recover_out=$(poll_once "$H_PEND" "$PEND_ENV" "$FIXTURES/one-text.json") || pend_recover_status=$?
+[ "$pend_recover_status" -eq 0 ] || fail "pending-delivery recovery without credentials did not exit 0: $pend_recover_out"
+assert_contains "$pend_recover_out" "message: 1" \
+  "the previously-written message is still reported even though credentials are now gone"
+[ "$(cat "$H_PEND/state/.telegram-offset")" = 1002 ] || fail "the offset advances once persistence recovers"
+assert_absent "$H_PEND/state/.telegram-pending-delivery" "the pending record clears once reported"
+pass "an offset-write failure recovers its wake on retry, even after credentials are removed"
 
 # --- the bot token never reaches durable output -----------------------------
 H_TOKEN="$TMP_ROOT/tokenleak"; new_home "$H_TOKEN"
