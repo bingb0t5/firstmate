@@ -62,6 +62,9 @@ help_out=$("$ADAPTER" --help) || help_status=$?
 [ "$help_status" -ne 0 ] || fail "help unexpectedly reported command success"
 assert_contains "$help_out" "deregister" "help omits the old check-sweep retirement prerequisite"
 assert_contains "$help_out" "Before \`arm\`" "help does not place retirement before arm"
+assert_contains "$help_out" "before the runner's" "help omits the residual pre-capture crash window"
+assert_contains "$help_out" "power loss" "help omits the pending-marker resurrection risk"
+assert_contains "$help_out" "Never describe" "help overstates the source-side delivery guarantee"
 pass "help requires retiring the old check-sweep before arm"
 
 FIXTURES="$TMP_ROOT/fixtures"

@@ -69,11 +69,20 @@
 # including messages already written earlier in that same batch, is fetched
 # again next time. Persistence checks both the live inbox and its handled/
 # archive before creating a file, so a refetched update is never counted or
-# delivered twice. A durable pending-delivery record bridges inbox persistence,
-# offset advancement, and the capturable result; recovery reports that record
-# before polling again, so a failed offset write or interrupted result cannot
-# strand an already-written message without a wake. A lost message from the captain is not
-# recoverable at all. Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID and non-text
+# delivered twice. A durable pending-delivery record bridges inbox persistence
+# and offset advancement, and recovery reports it before polling again after a
+# failed offset write.
+#
+# LOSS LIMITATION, stated plainly. The poll prints its result and clears the
+# pending record before it exits, while the parent runner can durably capture
+# output only after that exit. A crash after the clear but before the runner's
+# capture can therefore strand an already-offset message without a wake. The
+# unlink is not directory-fsynced, so power loss before the filesystem commits
+# it can instead resurrect the marker and repeat a captured wake. No adapter-
+# local transaction can close this source-side handoff window. Never describe
+# this path as at-least-once, no-loss, or lossless.
+#
+# A lost message from the captain is not recoverable at all. Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID and non-text
 # updates (a photo, a sticker, a chat-membership change) are consumed the same
 # way - their ids are folded into the advanced offset - but produce no inbox
 # file and never count toward "message" below.
@@ -139,7 +148,7 @@ POLL_TIMEOUT=${FM_TELEGRAM_POLL_TIMEOUT:-25}
 CURL_MAX_TIME=${FM_TELEGRAM_CURL_MAX_TIME:-$((POLL_TIMEOUT + 15))}
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-usage() { sed -n '2,126p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,135p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
 
 env_file_path() {
   printf '%s\n' "${FM_TELEGRAM_ENV_FILE:-$HOME/.config/beanz/telegram.env}"
