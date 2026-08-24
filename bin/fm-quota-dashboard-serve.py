@@ -140,32 +140,63 @@ function fmtSecs(s) {
   if (h > 0) return h + 'h ' + m + 'm';
   return m + 'm';
 }
-function paceClass(p) { return 'pace-' + (p && p.status ? p.status : 'unknown'); }
+// quota-axi's own liveness predicate: a provider is live iff its state is
+// fresh or stale; every other status (unavailable, rate_limited, error,
+// auth_required) means there is nothing to plot, only a message to show.
+const LIVE_STATUSES = ['fresh', 'stale'];
+const PACE_STATUSES = ['ahead', 'on_pace', 'behind', 'unknown'];
+function paceClass(p) {
+  const s = p && p.status;
+  return 'pace-' + (PACE_STATUSES.indexOf(s) >= 0 ? s : 'unknown');
+}
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text != null) node.textContent = text;
+  return node;
+}
+function windowNode(w) {
+  const pct = typeof w.percentRemaining === 'number' ? w.percentRemaining : null;
+  const wrap = el('div', 'window');
+  const row = el('div', 'row1');
+  row.appendChild(el('span', null, w.label == null ? '' : w.label));
+  const right = [];
+  if (pct != null) right.push(pct + '%');
+  if (w.resetsAt) right.push(fmtSecs((new Date(w.resetsAt) - new Date()) / 1000));
+  row.appendChild(el('span', null, right.join(' \\u00b7 ')));
+  wrap.appendChild(row);
+  const bar = el('div', 'bar');
+  const fill = el('div', pct == null ? 'pace-unknown' : paceClass(w.pace));
+  fill.style.width = (pct == null ? 0 : pct) + '%';
+  bar.appendChild(fill);
+  wrap.appendChild(bar);
+  return wrap;
+}
 function render(data) {
   const cards = document.getElementById('cards');
-  cards.innerHTML = '';
+  cards.textContent = '';
   let live = 0, dead = 0, err = 0;
   for (const p of data.providers) {
-    const div = document.createElement('div');
-    const dead_ = p.state.status === 'auth_required';
-    const error_ = p.state.status === 'error';
-    if (dead_) dead++; else if (error_) err++; else live++;
-    div.className = 'card' + (dead_ || error_ ? ' dead' : '');
-    const dotClass = error_ ? 'err' : (dead_ ? 'dead' : 'live');
-    let html = '<h2><span class="dot ' + dotClass + '"></span>' + p.provider +
-      (p.plan ? ' <span class="sub" style="margin:0">&middot; ' + p.plan + '</span>' : '') + '</h2>';
-    if (dead_ || error_) {
-      html += '<div class="msg">' + (p.state.error || 'unavailable') + '</div>';
-    } else {
-      for (const w of p.windows) {
-        const pct = w.percentRemaining;
-        html += '<div class="window"><div class="row1">' +
-          '<span>' + w.label + '</span>' +
-          '<span>' + pct + '%' + (w.resetsAt ? ' &middot; ' + fmtSecs((new Date(w.resetsAt) - new Date())/1000) : '') + '</span>' +
-          '</div><div class="bar"><div class="' + paceClass(w.pace) + '" style="width:' + pct + '%"></div></div></div>';
-      }
+    const state = p.state || {};
+    const isLive = LIVE_STATUSES.indexOf(state.status) >= 0;
+    const signedOut = state.status === 'auth_required';
+    if (isLive) live++; else if (signedOut) dead++; else err++;
+    const div = el('div', 'card' + (isLive ? '' : ' dead'));
+    const h2 = el('h2');
+    h2.appendChild(el('span', 'dot ' + (isLive ? 'live' : signedOut ? 'dead' : 'err')));
+    h2.appendChild(document.createTextNode(p.provider == null ? '' : p.provider));
+    if (p.plan) {
+      const plan = el('span', 'sub', '\\u00b7 ' + p.plan);
+      plan.style.margin = '0';
+      h2.appendChild(plan);
     }
-    div.innerHTML = html;
+    div.appendChild(h2);
+    if (isLive) {
+      for (const w of p.windows || []) div.appendChild(windowNode(w));
+      if (state.error) div.appendChild(el('div', 'msg', state.error));
+    } else {
+      div.appendChild(el('div', 'msg', state.error || state.status || 'unavailable'));
+    }
     cards.appendChild(div);
   }
   document.getElementById('summary').textContent =
@@ -176,7 +207,13 @@ function render(data) {
 async function tick() {
   try {
     const r = await fetch('/data.json', {cache: 'no-store'});
-    render(await r.json());
+    const data = await r.json();
+    if (!r.ok || !data || !Array.isArray(data.providers)) {
+      document.getElementById('summary').textContent =
+        data && data.error ? String(data.error) : 'quota unavailable (HTTP ' + r.status + ')';
+      return;
+    }
+    render(data);
   } catch (e) {
     document.getElementById('summary').textContent = 'fetch failed: ' + e;
   }
@@ -209,13 +246,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             out = subprocess.run(
                 ["quota-axi", "--json"],
-                capture_output=True, text=True,
+                capture_output=True,
                 timeout=QUOTA_AXI_TIMEOUT_SECS, check=True,
             ).stdout
         except Exception as exc:
             self._write(502, "application/json", json.dumps({"error": str(exc)}).encode("utf-8"))
             return
-        self._write(200, "application/json", out.encode("utf-8"), no_store=True)
+        self._write(200, "application/json", out, no_store=True)
 
     def _serve_page(self):
         self._write(200, "text/html; charset=utf-8", PAGE.encode("utf-8"))

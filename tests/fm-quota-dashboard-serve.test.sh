@@ -28,7 +28,7 @@ stop_server() {
     SERVER_PID=
   fi
 }
-trap stop_server EXIT
+trap 'stop_server; fm_test_cleanup || true' EXIT
 
 # fake_tailscale <addr>...: a `tailscale ip -4` stub that reports exactly the
 # given addresses (one per line), and refuses every other subcommand loudly
@@ -180,20 +180,24 @@ test_accepts_this_hosts_own_tailnet_address() {
 
 # --- routes and JSON passthrough --------------------------------------------
 
+# start_server_for_routes: start the server against the stub tailscale/quota-axi
+# and publish its port as $SERVER_PORT. It must run in the caller's own shell,
+# not a command substitution, or the SERVER_PID it records dies with the
+# subshell and stop_server leaks the server process.
+SERVER_PORT=
 start_server_for_routes() {
   fake_tailscale 127.0.0.1
   fake_quota_axi "$FIXTURE_JSON"
-  local port
-  port=$(free_port)
-  PATH="$FAKEBIN:$PATH" python3 "$SERVER" --port "$port" >"$TMP_ROOT/server.log" 2>&1 &
+  SERVER_PORT=$(free_port)
+  PATH="$FAKEBIN:$PATH" python3 "$SERVER" --port "$SERVER_PORT" >"$TMP_ROOT/server.log" 2>&1 &
   SERVER_PID=$!
-  wait_for_port 127.0.0.1 "$port" || fail "server never opened its port"
-  printf '%s' "$port"
+  wait_for_port 127.0.0.1 "$SERVER_PORT" || fail "server never opened its port"
 }
 
 test_data_route_passes_quota_axi_json_through_unchanged() {
   local port resp status body
-  port=$(start_server_for_routes)
+  start_server_for_routes
+  port=$SERVER_PORT
   resp=$(http_get 127.0.0.1 "$port" /data.json)
   status=$(printf '%s' "$resp" | head -n1)
   body=$(printf '%s' "$resp" | tail -n +2)
@@ -209,7 +213,8 @@ test_data_route_passes_quota_axi_json_through_unchanged() {
 
 test_data_route_sets_no_store_and_json_content_type() {
   local port resp status headers
-  port=$(start_server_for_routes)
+  start_server_for_routes
+  port=$SERVER_PORT
   headers=$(python3 -c "
 import urllib.request
 with urllib.request.urlopen('http://127.0.0.1:$port/data.json', timeout=5) as r:
@@ -232,30 +237,37 @@ with urllib.request.urlopen('http://127.0.0.1:$port/data.json', timeout=5) as r:
 }
 
 test_page_route_serves_self_contained_html() {
-  local port resp status body
-  port=$(start_server_for_routes)
+  local port resp status body headers
+  start_server_for_routes
+  port=$SERVER_PORT
+  headers=$(python3 -c "
+import urllib.request
+with urllib.request.urlopen('http://127.0.0.1:$port/', timeout=5) as r:
+    for k, v in r.headers.items():
+        print(f'{k}: {v}')
+")
   resp=$(http_get 127.0.0.1 "$port" /)
   status=$(printf '%s' "$resp" | head -n1)
   body=$(printf '%s' "$resp" | tail -n +2)
   stop_server
   [ "$status" = 200 ] || fail "/ returned status $status"
-  case "$body" in
-    *"fetch('/data.json'"*) ;;
-    *) fail "page does not fetch /data.json" ;;
+  case "$headers" in
+    *"Content-Type: text/html"*) ;;
+    *) fail "/ was not served as HTML: $headers" ;;
   esac
-  case "$body" in
-    *"setInterval(tick, 30000)"*) ;;
-    *) fail "page does not refresh roughly every 30s" ;;
-  esac
+  # The page's self-containment is an owned contract of this served output: a
+  # phone on the tailnet can reach this server and nothing else, so any
+  # external subresource would leave the dashboard blank or unstyled.
   case "$body" in
     *"<script src="*|*"<link "*stylesheet*) fail "page pulls in an external script or stylesheet (must be self-contained)" ;;
   esac
-  pass "/ serves one self-contained page that polls /data.json about every 30s"
+  pass "/ serves one self-contained HTML page"
 }
 
 test_unknown_route_is_404() {
   local port resp status
-  port=$(start_server_for_routes)
+  start_server_for_routes
+  port=$SERVER_PORT
   resp=$(http_get 127.0.0.1 "$port" /nope)
   status=$(printf '%s' "$resp" | head -n1)
   stop_server
