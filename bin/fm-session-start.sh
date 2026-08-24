@@ -361,7 +361,14 @@ BACKLOG_FIELDS=blocked_by,hold_kind,hold_reason
 # heartbeat-handling check in AGENTS.md section 8 rule 4, which reads the same
 # marker against the same interval.
 STOW_INTERVAL=${FM_AUTO_STOW_INTERVAL_SECS:-86400}
-case "$STOW_INTERVAL" in ''|*[!0-9]*|0) STOW_INTERVAL=86400 ;; esac
+if [[ "$STOW_INTERVAL" =~ ^0*([1-9][0-9]{0,7})$ ]]; then
+  STOW_INTERVAL=${BASH_REMATCH[1]}
+else
+  STOW_INTERVAL=86400
+fi
+if [ "${#STOW_INTERVAL}" -eq 8 ] && [[ "$STOW_INTERVAL" > 31536000 ]]; then
+  STOW_INTERVAL=86400
+fi
 
 # stow_due_line: one "STOW DUE: ..." line when state/.last-stow-attempt is
 # missing, unreadable, or at least STOW_INTERVAL seconds old, silent (prints

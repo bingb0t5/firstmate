@@ -2197,6 +2197,26 @@ EOF
   pass "a missing marker is due under any configured interval"
 }
 
+test_stow_due_huge_interval_falls_back_to_default() {
+  local rec root home fakebin out
+  rec=$(new_world stow-due-huge-interval)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  set_stow_marker_mtime "$(( $(date +%s) - 90000 ))" "$home/state/.last-stow-attempt"
+
+  out=$(FM_AUTO_STOW_INTERVAL_SECS=999999999999999999999 run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "STOW DUE:" \
+    "an oversized FM_AUTO_STOW_INTERVAL_SECS value silently suppressed a due stale marker"
+  assert_contains "$out" "ago (over the 86400s interval" \
+    "an oversized FM_AUTO_STOW_INTERVAL_SECS value did not fall back to the default interval"
+
+  pass "an oversized automatic stow interval falls back safely to the default"
+}
+
 # /stow mutates this home's memory files, so a re-emit that could not verify
 # fleet-lock ownership must not be ordered to run one alongside the session
 # that does own the lock.
@@ -2741,6 +2761,7 @@ test_stow_due_when_marker_older_than_interval
 test_stow_due_throttles_on_the_attempt_marker_not_the_reset_safe_one
 test_stow_due_respects_custom_interval_env_var
 test_stow_due_missing_marker_is_due_under_any_interval
+test_stow_due_huge_interval_falls_back_to_default
 test_stow_due_silent_on_a_read_only_reemit
 test_stow_due_never_appears_on_ordinary_startup
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
