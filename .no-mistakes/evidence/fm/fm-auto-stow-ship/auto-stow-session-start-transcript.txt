@@ -1,0 +1,9 @@
+SCENARIO 1 - missing attempt marker, lock-owning clear re-emit
+STOW DUE: no recorded /stow pass (source=clear); run /stow before other work.
+BOOTSTRAP
+
+SCENARIO 2 - fresh attempt marker, same re-emit
+STOW DUE lines: 0
+
+SCENARIO 3 - stale attempt marker (90000 seconds), default interval
+STOW DUE: last /stow pass was 90000s ago (over the 86400s interval, source=compact); run /stow before other work.
