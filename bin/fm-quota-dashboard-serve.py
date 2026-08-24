@@ -46,7 +46,10 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_PORT = 8787
-QUOTA_AXI_TIMEOUT_SECS = 15
+# quota-axi's own per-provider HTTP budget is 15s, and some providers chain
+# two of those sequentially, so 45s lets a partial report reach the page
+# instead of killing the whole sweep.
+QUOTA_AXI_TIMEOUT_SECS = 45
 TAILSCALE_IP_TIMEOUT_SECS = 10
 
 

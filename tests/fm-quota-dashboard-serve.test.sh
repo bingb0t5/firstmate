@@ -84,11 +84,14 @@ SH
 FIXTURE_JSON='{"generatedAt":"2026-08-24T00:00:00Z","schemaVersion":5,"providers":[{"provider":"claude","plan":"max","windows":[{"id":"five_hour","label":"session","resetsAt":"2026-08-24T05:00:00Z","percentRemaining":68,"pace":{"status":"behind"}}],"state":{"status":"fresh","stale":false}}]}'
 
 free_port() {
-  python3 -c 'import socket
+  local host=${1:-127.0.0.1}
+  python3 -c "
+import socket
 s = socket.socket()
-s.bind(("127.0.0.1", 0))
+s.bind(('$host', 0))
 print(s.getsockname()[1])
-s.close()'
+s.close()
+"
 }
 
 wait_for_port() {
@@ -167,15 +170,33 @@ test_refuses_when_tailscale_address_unconfirmed() {
 }
 
 test_accepts_this_hosts_own_tailnet_address() {
-  fake_tailscale 127.0.0.1
+  # Bind a different loopback than 127.0.0.1 so a wildcard listener cannot
+  # pass this test: the server must answer on the confirmed address and
+  # refuse the other loopback.
+  fake_tailscale 127.0.0.2
   fake_quota_axi "$FIXTURE_JSON"
   local port
-  port=$(free_port)
+  port=$(free_port 127.0.0.2)
   PATH="$FAKEBIN:$PATH" python3 "$SERVER" --port "$port" >"$TMP_ROOT/server.log" 2>&1 &
   SERVER_PID=$!
-  wait_for_port 127.0.0.1 "$port" || fail "server never opened its port after accepting its own tailnet address"
+  wait_for_port 127.0.0.2 "$port" || fail "server never opened its port after accepting its own tailnet address"
+  python3 -c "
+import socket, sys
+s = socket.socket()
+s.settimeout(0.5)
+try:
+    s.connect(('127.0.0.1', $port))
+except OSError:
+    sys.exit(0)
+s.close()
+sys.exit(1)
+" || fail "server accepted a connection on 127.0.0.1 while bound to 127.0.0.2 (listener is not address-scoped)"
+  local resp status
+  resp=$(http_get 127.0.0.2 "$port" /)
+  status=$(printf '%s' "$resp" | head -n1)
   stop_server
-  pass "starts once the requested bind host matches this host's own tailnet address"
+  [ "$status" = 200 ] || fail "bound address 127.0.0.2:$port returned status $status"
+  pass "starts once the requested bind host matches this host's own tailnet address, and the listener is not a wildcard"
 }
 
 # --- routes and JSON passthrough --------------------------------------------
