@@ -118,9 +118,16 @@ there is no dedicated `fm-brief.sh` flag for this and none is needed.
   repository paths, and branch names are not included. Set `GNHF_TELEMETRY=0` in the
   environment for firstmate-driven invocations (`GNHF_TELEMETRY=0 gnhf ...`, or export it
   before the crewmate's invocation) rather than relying on GNHF's default-on behavior.
-- **Clean starting state.** GNHF itself refuses a dirty working tree; a freshly spawned
-  task worktree already starts clean, so this is satisfied by the ordinary spawn contract
-  as long as GNHF is the first thing the crewmate runs there.
+- **Clean tree before every invocation.** GNHF refuses to start on a dirty working tree,
+  on both its resume and its fresh-run path, and its check is `git status --porcelain` with
+  default untracked reporting - so an untracked build artifact or coverage file blocks it
+  exactly as an uncommitted edit does. A freshly spawned task worktree satisfies this for
+  the first invocation, but the precondition applies to every later one too: Companion
+  mode's own between-slice review runs the task's real verification and may hand off to
+  ordinary manual work, either of which can leave scratch notes or interim artifacts
+  behind. Commit or discard everything so `git status --porcelain` is empty before invoking
+  GNHF again, or the next slice dies with "Working tree is not clean" on a self-inflicted
+  precondition rather than on anything about the task.
 - **`--current-branch`, never `--worktree`.** The crewmate's task worktree from `fm-spawn`
   is already the isolated worker copy; GNHF's own `--worktree` mode exists to isolate
   *multiple* GNHF runs inside one shared checkout, which would nest a second, redundant
@@ -143,14 +150,18 @@ there is no dedicated `fm-brief.sh` flag for this and none is needed.
 
 ## Agent selection
 
-Pick GNHF's own `--agent` (the inner coding agent GNHF repeatedly invokes) under the same
-standing preference that already governs crewmate harness/model selection - never a model
-as strong as firstmate's own primary (`data/captain.md`, "Model and runtime"; standing
-routing in `config/crew-dispatch.json`, resolved through `quota-array-dispatch` when more
-than one candidate matches). Do not default to GNHF's own `~/.gnhf/config.yml` agent
-without checking it agrees with that preference, and do not hard-code which agents GNHF
-supports - its `--agent` roster comes from the installed `gnhf --help` and its own README
-"Agents" table, discovered live as shown above, never a roster pinned in this file.
+GNHF's own `--agent` (the inner coding agent GNHF repeatedly invokes) is a crewmate
+harness/model choice like any other, so resolve it through the routing precedence AGENTS.md
+section 4 already defines: an explicit per-task captain override, then the best-fit
+configured rule in `config/crew-dispatch.json` (resolved through `quota-array-dispatch`
+when more than one candidate matches), then this home's own current standing preference,
+then the static crewmate harness. Section 4's own boundary applies unchanged at every step:
+preserve the captain's strongest-reasoning class rather than silently downgrading it solely
+to conserve quota, and stop and report if that class cannot proceed. Do not default to
+GNHF's own `~/.gnhf/config.yml` agent without checking it agrees with what that precedence
+resolves to, and do not hard-code which agents GNHF supports - its `--agent` roster comes
+from the installed `gnhf --help` and its own README "Agents" table, discovered live as
+shown above, never a roster pinned in this file.
 
 ## No new supervision surface
 
