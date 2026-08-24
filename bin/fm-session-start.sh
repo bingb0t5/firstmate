@@ -366,7 +366,7 @@ if [[ "$STOW_INTERVAL" =~ ^0*([1-9][0-9]{0,7})$ ]]; then
 else
   STOW_INTERVAL=86400
 fi
-if [ "${#STOW_INTERVAL}" -eq 8 ] && [[ "$STOW_INTERVAL" > 31536000 ]]; then
+if [ "${#STOW_INTERVAL}" -eq 8 ] && [ "$STOW_INTERVAL" -gt 31536000 ]; then
   STOW_INTERVAL=86400
 fi
 
