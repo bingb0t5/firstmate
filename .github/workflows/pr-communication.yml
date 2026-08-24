@@ -1,0 +1,52 @@
+# Immediate PR communication gate (CEO overview, Decision needed,
+# Module-boundary decision, Validation). Re-runs on description edits.
+#
+# Assessor is vendored from lalo-admin; drift check fails if the copies diverge.
+# Kept separate from CI so body-only edits do not re-run the full matrix.
+#
+# This repo has no package.json, so the job uses Node directly plus npx tsx
+# rather than npm ci. The assessor and drift check are the same files as
+# bingb0t5/mrbeanz-brains, not a rewritten copy of the rules.
+
+name: pr-communication
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-communication-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-communication:
+    name: pr-communication
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Drift check against lalo-admin SoT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Fine-scoped token with contents:read on private lalo-admin.
+          # When set, remote SoT comparison runs; REQUIRE=1 is a later decision.
+          PR_COMMUNICATION_SOT_TOKEN: ${{ secrets.PR_COMMUNICATION_SOT_TOKEN }}
+          PR_COMMUNICATION_REQUIRE_REMOTE_SOT: ${{ vars.PR_COMMUNICATION_REQUIRE_REMOTE_SOT }}
+        run: node scripts/pr-communication/check-drift.mjs
+
+      - name: Assess PR communication
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: npx --yes tsx scripts/check-pr-communication.ts

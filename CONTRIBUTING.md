@@ -13,6 +13,11 @@ A GitHub Actions check (`Require no-mistakes`) runs on PRs targeting `main` and 
 It evaluates every PR opening and body edit independently, so a later edit cannot replace an earlier pending compliance check.
 GitHub Actions and Dependabot are exempt so their automation keeps working, but regular contributor PRs without the signature will not be reviewed or merged.
 
+A second check (`pr-communication`) requires the same CEO-overview pull request description that the Lalo repos already enforce.
+The required sections live in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
+The assessment rules are vendored from `lalo-admin` (`scripts/pr-communication/prCommunication.ts`) and are not forked here.
+
+
 ## Workflow
 
 1. Fork the repo, then clone the parent repo or set your local `origin` back to the parent (`git@github.com:kunchenguid/firstmate.git`).
