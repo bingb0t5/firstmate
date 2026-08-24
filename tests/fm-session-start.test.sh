@@ -2144,8 +2144,10 @@ EOF
 
   out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
 
-  assert_contains "$out" "STOW DUE: last /stow attempt marker is future-dated" \
+  assert_contains "$out" "STOW DUE: last /stow pass was ${FM_AUTO_STOW_INTERVAL_SECS:-86400}s ago" \
     "a future-dated state/.last-stow-attempt marker suppressed automatic /stow"
+  assert_contains "$out" "over the ${FM_AUTO_STOW_INTERVAL_SECS:-86400}s interval" \
+    "a future-dated marker did not use the configured staleness threshold"
 
   pass "a future-dated attempt marker fails open and surfaces a STOW DUE line"
 }
