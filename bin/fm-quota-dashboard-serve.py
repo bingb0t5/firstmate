@@ -103,7 +103,8 @@ PAGE = """<!doctype html>
   body { font-family: -apple-system, system-ui, sans-serif; margin: 0;
          background: #111318; color: #e8e8ea; }
   header { padding: 12px 16px; display: flex; justify-content: space-between;
-           align-items: baseline; border-bottom: 1px solid #2a2d36; }
+           align-items: baseline; flex-wrap: wrap; gap: 2px 12px;
+           border-bottom: 1px solid #2a2d36; }
   header h1 { font-size: 15px; margin: 0; font-weight: 600; }
   #summary { font-size: 12px; color: #9aa0ac; }
   main { padding: 10px; display: grid; gap: 10px;
@@ -111,13 +112,18 @@ PAGE = """<!doctype html>
   .card { background: #191c22; border: 1px solid #2a2d36; border-radius: 10px;
           padding: 12px 14px; }
   .card.dead { opacity: 0.55; }
+  .card.stale { border-color: #4a4326; }
   .card h2 { margin: 0 0 6px; font-size: 14px; display: flex; gap: 6px;
              align-items: center; }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .dot.live { background: #37d67a; }
+  .dot.stale { background: #c8b23a; }
   .dot.dead { background: #5a5f6b; }
   .dot.err { background: #e5534b; }
+  .tag { font-size: 10px; color: #c8b23a; border: 1px solid #4a4326;
+         border-radius: 4px; padding: 0 4px; font-weight: 500; }
   .sub { font-size: 11px; color: #9aa0ac; margin-bottom: 8px; }
+  .refreshed { font-size: 11px; color: #9aa0ac; margin-top: 6px; }
   .window { margin: 6px 0; }
   .window .row1 { display: flex; justify-content: space-between;
                   font-size: 12px; margin-bottom: 3px; }
@@ -145,9 +151,11 @@ function fmtSecs(s) {
   if (h > 0) return h + 'h ' + m + 'm';
   return m + 'm';
 }
-// quota-axi's own liveness predicate: a provider is live iff its state is
-// fresh or stale; every other status (unavailable, rate_limited, error,
-// auth_required) means there is nothing to plot, only a message to show.
+// quota-axi's own liveness predicate: only fresh and stale carry windows to
+// plot, and every other status (unavailable, rate_limited, error,
+// auth_required) means there is nothing but a message to show. Stale numbers
+// come from quota-axi's cache, so they are plotted but counted and marked
+// apart from fresh ones.
 const LIVE_STATUSES = ['fresh', 'stale'];
 const PACE_STATUSES = ['ahead', 'on_pace', 'behind', 'unknown'];
 function paceClass(p) {
@@ -166,7 +174,7 @@ function windowNode(w) {
   const row = el('div', 'row1');
   row.appendChild(el('span', null, w.label == null ? '' : w.label));
   const right = [];
-  if (pct != null) right.push(pct + '%');
+  if (pct != null) right.push(Math.round(pct) + '%');
   const secs = w.resetsAt ? (new Date(w.resetsAt) - new Date()) / 1000 : null;
   if (Number.isFinite(secs)) right.push(fmtSecs(secs));
   row.appendChild(el('span', null, right.join(' \\u00b7 ')));
@@ -181,32 +189,40 @@ function windowNode(w) {
 function render(data) {
   const cards = document.getElementById('cards');
   cards.textContent = '';
-  let live = 0, dead = 0, err = 0;
+  let live = 0, stale = 0, dead = 0, err = 0;
   for (const p of data.providers) {
     const state = p.state || {};
     const isLive = LIVE_STATUSES.indexOf(state.status) >= 0;
+    const isStale = isLive && (state.status === 'stale' || state.stale === true);
     const signedOut = state.status === 'auth_required';
-    if (isLive) live++; else if (signedOut) dead++; else err++;
-    const div = el('div', 'card' + (isLive ? '' : ' dead'));
+    if (isStale) stale++; else if (isLive) live++; else if (signedOut) dead++; else err++;
+    const div = el('div', 'card' + (isStale ? ' stale' : isLive ? '' : ' dead'));
     const h2 = el('h2');
-    h2.appendChild(el('span', 'dot ' + (isLive ? 'live' : signedOut ? 'dead' : 'err')));
+    h2.appendChild(el('span', 'dot ' + (isStale ? 'stale' : isLive ? 'live' : signedOut ? 'dead' : 'err')));
     h2.appendChild(document.createTextNode(p.provider == null ? '' : p.provider));
     if (p.plan) {
       const plan = el('span', 'sub', '\\u00b7 ' + p.plan);
       plan.style.margin = '0';
       h2.appendChild(plan);
     }
+    if (isStale) h2.appendChild(el('span', 'tag', 'stale'));
     div.appendChild(h2);
     if (isLive) {
       for (const w of p.windows || []) div.appendChild(windowNode(w));
       if (state.error) div.appendChild(el('div', 'msg', state.error));
+      if (isStale) {
+        div.appendChild(el('div', 'refreshed',
+          'last refreshed ' + (state.refreshedAt || 'unknown')));
+      }
     } else {
       div.appendChild(el('div', 'msg', state.error || state.status || 'unavailable'));
     }
     cards.appendChild(div);
   }
-  document.getElementById('summary').textContent =
-    live + ' live \\u00b7 ' + dead + ' signed out \\u00b7 ' + err + ' unavailable';
+  const parts = [live + ' live'];
+  if (stale) parts.push(stale + ' stale');
+  parts.push(dead + ' signed out', err + ' unavailable');
+  document.getElementById('summary').textContent = parts.join(' \\u00b7 ');
   document.getElementById('updated').textContent =
     'updated ' + new Date(data.generatedAt).toLocaleTimeString();
 }
