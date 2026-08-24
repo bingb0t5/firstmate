@@ -40,10 +40,11 @@
 # applies a message on the captain's behalf, so the runner's default
 # publish-and-leave-for-the-handler order is exactly right.
 #
-# CREDENTIAL. The bot token lives at ~/.config/beanz/telegram.env (mode 600,
+# CREDENTIAL. The bot token and captain chat id live as TELEGRAM_BOT_TOKEN and
+# TELEGRAM_CAPTAIN_CHAT_ID in ~/.config/beanz/telegram.env (mode 600,
 # gitignored, outside this repo; override the path with FM_TELEGRAM_ENV_FILE
-# for tests). It is read into memory for the one curl call that needs it and
-# is never echoed, logged, or written anywhere else: the token reaches curl
+# for tests). Both must be nonempty or the credential is unavailable. They are
+# read into memory only; the token reaches curl
 # through an inline `-K -` config fed over a pipe (never as a literal argv
 # element, so it does not appear in a process listing either), and every
 # result this adapter produces is a fixed marker line plus a message count -
@@ -65,9 +66,10 @@
 # including messages already written earlier in that same batch, is fetched
 # again next time. A duplicate inbox file (same update id, same content) is
 # harmless and idempotent; a lost message from the captain is not recoverable
-# at all. A non-text update (a photo, a sticker, a chat-membership change) is
-# consumed the same way - its id is folded into the advanced offset - but
-# produces no inbox file and never counts toward "message" below.
+# at all. Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID and non-text
+# updates (a photo, a sticker, a chat-membership change) are consumed the same
+# way - their ids are folded into the advanced offset - but produce no inbox
+# file and never count toward "message" below.
 #
 # EXIT-CODE CONTRACT for `poll`, precise because the generic runner's own
 # capture rule is precise: exit 0 always captures and publishes a wake
@@ -149,6 +151,17 @@ telegram_bot_token() {  # <env-file>
   )
 }
 
+telegram_captain_chat_id() {  # <env-file>
+  (
+    TELEGRAM_CAPTAIN_CHAT_ID=
+    set -a
+    # shellcheck disable=SC1090
+    . "$1" >/dev/null 2>&1
+    set +a
+    printf '%s' "${TELEGRAM_CAPTAIN_CHAT_ID:-}"
+  )
+}
+
 credential_readable() {
   local f; f=$(env_file_path)
   [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ]
@@ -156,8 +169,11 @@ credential_readable() {
 
 credential_available() {
   credential_readable || return 1
-  local token; token=$(telegram_bot_token "$(env_file_path)")
-  [ -n "$token" ]
+  local env_file token captain_chat_id
+  env_file=$(env_file_path)
+  token=$(telegram_bot_token "$env_file")
+  captain_chat_id=$(telegram_captain_chat_id "$env_file")
+  [ -n "$token" ] && [ -n "$captain_chat_id" ]
 }
 
 cmd_source_id() {
@@ -217,12 +233,14 @@ write_offset() {  # <value>
 # EXIT-CODE CONTRACT for exactly what each outcome means.
 cmd_poll() {
   [ "$#" -eq 0 ] || usage
-  local env_file token offset body_file rc http_code out highest messages new_offset
+  local env_file token captain_chat_id offset body_file rc http_code out highest messages new_offset
 
   env_file=$(env_file_path)
   credential_readable || exit 0
   token=$(telegram_bot_token "$env_file")
   [ -n "$token" ] || exit 0
+  captain_chat_id=$(telegram_captain_chat_id "$env_file")
+  [ -n "$captain_chat_id" ] || exit 0
 
   mkdir -p "$INBOX" 2>/dev/null || exit 1
   [ -d "$INBOX" ] && [ ! -L "$INBOX" ] || exit 1
@@ -242,12 +260,12 @@ cmd_poll() {
   [ "$rc" -eq 0 ] || exit 1
   [ "$http_code" = 200 ] || exit 1
 
-  out=$(python3 - "$INBOX" "$body_file" <<'PY'
+  out=$(python3 - "$INBOX" "$body_file" "$captain_chat_id" <<'PY'
 import json
 import os
 import sys
 
-inbox, body_path = sys.argv[1], sys.argv[2]
+inbox, body_path, captain_chat_id = sys.argv[1], sys.argv[2], sys.argv[3]
 os.umask(0o077)
 
 try:
@@ -273,12 +291,13 @@ for u in updates:
         highest = uid
     msg = u.get("message") or u.get("edited_message") or {}
     text = msg.get("text")
-    if not text:
+    chat_id = (msg.get("chat") or {}).get("id")
+    if not text or str(chat_id) != captain_chat_id:
         continue
     payload = {
         "update_id": uid,
         "date": msg.get("date"),
-        "chat_id": (msg.get("chat") or {}).get("id"),
+        "chat_id": chat_id,
         "text": text,
     }
     dest = os.path.join(inbox, "%d.json" % uid)
