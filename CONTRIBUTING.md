@@ -14,8 +14,8 @@ It evaluates every PR opening and body edit independently, so a later edit canno
 GitHub Actions and Dependabot are exempt so their automation keeps working, but regular contributor PRs without the signature will not be reviewed or merged.
 
 A second check (`pr-communication`) enforces the pull request communication structure shared with the Lalo repos.
-The authoritative required sections live in [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
-The assessment rules are vendored from `lalo-admin`; the local pin and remote source-of-truth comparison guard that copy against drift.
+Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) for the required CEO overview, validation, module-boundary decision, and decision-needed sections.
+The assessment rules are vendored from `lalo-admin`; the local pin always guards that copy against unreviewed changes, and CI also compares it with the remote source of truth when credentials and availability permit.
 
 ## Workflow
 
