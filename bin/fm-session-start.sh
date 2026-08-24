@@ -335,6 +335,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-line-cap-lib.sh
 . "$SCRIPT_DIR/fm-line-cap-lib.sh"
+# shellcheck source=bin/fm-supervision-lib.sh
+. "$SCRIPT_DIR/fm-supervision-lib.sh"
 
 # One tasks-axi compatibility verdict per session start. The probe costs three
 # tasks-axi subprocesses and this digest needs the same answer twice - here for
@@ -350,6 +352,40 @@ case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
 QUEUED_LIMIT=${FM_SESSION_START_QUEUED_LIMIT:-20}
 case "$QUEUED_LIMIT" in ''|*[!0-9]*|0) QUEUED_LIMIT=20 ;; esac
 BACKLOG_FIELDS=blocked_by,hold_kind,hold_reason
+
+# Automatic /stow, trigger 1 (the compact/clear re-emit path below): a
+# staleness gate on state/.last-stow, touched only by the stow skill itself at
+# the end of a reset-safe pass (mirrors state/.last-heartbeat's bare-mtime
+# marker, bin/fm-watch.sh). Read only here, never written by this script.
+# Trigger 2 is the heartbeat-handling check in AGENTS.md section 8 rule 4,
+# which reads the same marker against the same interval.
+STOW_INTERVAL=${FM_AUTO_STOW_INTERVAL_SECS:-86400}
+case "$STOW_INTERVAL" in ''|*[!0-9]*|0) STOW_INTERVAL=86400 ;; esac
+
+# stow_due_line: one "STOW DUE: ..." line when state/.last-stow is missing or
+# at least STOW_INTERVAL seconds old, silent (prints nothing, exit 0) when
+# current. Detect-only and cheap - a single mtime stat - matching the "always
+# check, only speak up when it matters" idiom the bootstrap stage already uses.
+stow_due_line() {
+  local marker="$STATE/.last-stow" m age
+  if [ -e "$marker" ]; then
+    m=$(fm_sup_stat_mtime "$marker" 2>/dev/null)
+    if [ -n "$m" ]; then
+      age=$(( $(date +%s) - m ))
+    else
+      age=999999
+    fi
+  else
+    age=999999
+  fi
+  [ "$age" -ge "$STOW_INTERVAL" ] || return 0
+  if [ -e "$marker" ]; then
+    printf 'STOW DUE: last /stow pass was %ss ago (over the %ss interval, source=%s); run /stow before other work.\n' \
+      "$age" "$STOW_INTERVAL" "${SESSION_SOURCE:-unknown}"
+  else
+    printf 'STOW DUE: no recorded /stow pass (source=%s); run /stow before other work.\n' "${SESSION_SOURCE:-unknown}"
+  fi
+}
 
 RULE='================================================================================'
 SUBRULE='--------------------------------------------------------------------------------'
@@ -606,6 +642,7 @@ if [ "$REEMIT" -eq 0 ] && [ "$SESSION_SOURCE" = startup ]; then
 fi
 
 if [ "$REEMIT" -eq 1 ]; then
+  stow_due_line
   section "SESSION START (CONTEXT RE-EMIT) - $FM_HOME"
   printf 'This session already took the helm at its own startup and has only lost its\n'
   printf 'context. Lock ownership is re-verified and the durable records below are\n'

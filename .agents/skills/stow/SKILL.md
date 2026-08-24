@@ -300,6 +300,9 @@ Extend the completion receipt with one entry per secondmate alongside the primar
 Keep those entries in the same plain captain-facing language the rest of the receipt uses.
 The session is reset-safe only when every home is within its own budget with no unresolved exception.
 
+When, and only when, the whole pass for this home - including the cascade above in a primary home - is reset-safe, touch `state/.last-stow` (`touch state/.last-stow`) as its true final step.
+That bare-mtime marker mirrors `state/.last-heartbeat` (`bin/fm-watch.sh`) and is the single durable record the automatic `/stow` triggers in `AGENTS.md` read to decide whether a pass is due; never touch it when reset-safe cannot be claimed.
+
 ## Scope exclusion: no skill storage by the pass
 
 The stow pass itself must never store, create, or edit a skill as a destination for any finding.
