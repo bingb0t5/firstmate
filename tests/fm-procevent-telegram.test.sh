@@ -147,6 +147,27 @@ assert_grep '"chat_id": 555' "$H_MSG/state/telegram-inbox/1001.json" "the inbox 
 [ "$(cat "$H_MSG/state/.telegram-offset")" = 1002 ] || fail "the offset did not advance past the delivered update"
 pass "a new text message is written to the inbox, and the offset advances past it"
 
+# --- overlap with the retiring check-sweep producer is idempotent ----------
+# Represent the home-local producer through its persisted public contract: an
+# update-id-keyed inbox file and the shared offset advanced past that update.
+# A stale batch reaching the new adapter during handoff must not create a
+# second delivery or wake.
+H_HANDOFF="$TMP_ROOT/handoff"; new_home "$H_HANDOFF"
+HANDOFF_ENV="$TMP_ROOT/handoff.env"; write_env_file "$HANDOFF_ENV" "$TOKEN"
+mkdir -p "$H_HANDOFF/state/telegram-inbox"
+printf '%s\n' '{"update_id":1001,"date":1700000000,"chat_id":555,"text":"ahoy from the captain"}' \
+  > "$H_HANDOFF/state/telegram-inbox/1001.json"
+chmod 0600 "$H_HANDOFF/state/telegram-inbox/1001.json"
+printf '1002\n' > "$H_HANDOFF/state/.telegram-offset"
+handoff_status=0
+handoff_out=$(poll_once "$H_HANDOFF" "$HANDOFF_ENV" "$FIXTURES/one-text.json") || handoff_status=$?
+[ "$handoff_status" -ne 0 ] || fail "an update already delivered by the legacy producer would have woken firstmate twice"
+[ -z "$handoff_out" ] || fail "an update already delivered by the legacy producer produced another result: $handoff_out"
+[ "$(find "$H_HANDOFF/state/telegram-inbox" -maxdepth 1 -name '1001.json' -type f | wc -l | tr -d ' ')" = 1 ] || \
+  fail "overlapping consumers produced more than one inbox delivery for one update id"
+[ "$(cat "$H_HANDOFF/state/.telegram-offset")" = 1002 ] || fail "the adapter regressed the shared handoff offset"
+pass "the legacy producer and adapter overlap without duplicate delivery"
+
 # --- a handled update is never delivered or counted again ------------------
 mkdir -p "$H_MSG/state/telegram-inbox/handled"
 mv "$H_MSG/state/telegram-inbox/1001.json" "$H_MSG/state/telegram-inbox/handled/1001.json"

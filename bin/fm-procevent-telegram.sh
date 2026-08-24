@@ -11,10 +11,10 @@
 # arm         Register this home's single Telegram source with the runner.
 #             Refuses when no readable credential file exists (see below), so
 #             an unconfigured home never gets a registered source and never
-#             sees a Telegram-shaped wake at all. Before arming, deregister
-#             state/telegram-watch.check.sh from the old check sweep and stop
-#             invoking it. The two consumers must never overlap because that
-#             home-local script does not share this adapter's delivery state.
+#             sees a Telegram-shaped wake at all. It is safe to arm while the
+#             retiring state/telegram-watch.check.sh still runs because both
+#             consumers share the offset and update-id-keyed inbox described
+#             below; retire the old check after this adapter is established.
 # source-id   The canonical id: always the constant "telegram". This home has
 #             at most one Telegram channel, so there is nothing to derive an
 #             id from.
@@ -128,11 +128,12 @@
 #
 # OFFSET FILE. state/.telegram-offset - the same file and convention the
 # home-local state/telegram-watch.check.sh check-sweep script already uses.
-# Before `arm`, deregister that old check and ensure the check sweep has
-# stopped invoking it. The home-local producer does not participate in this
-# adapter's delivery boundary, so concurrent handoff is unsafe. Once it is
-# stopped, retaining the offset preserves continuity, and ids already present
-# in either the live inbox or handled archive are not delivered again.
+# Sharing it makes the handoff safe while the old check and this adapter
+# overlap: every inbox file is keyed by Telegram's update id, so either
+# consumer may repeat the same idempotent write without losing or duplicating
+# a delivered message. Retaining the offset preserves continuity, and ids
+# already present in either the live inbox or handled archive are not
+# delivered again.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
