@@ -5,7 +5,7 @@
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-import { assessPullRequestCommunication } from './pr-communication/prCommunication.js';
+import { assessPullRequestCommunication } from './pr-communication/prCommunication.ts';
 
 export function runPrCommunicationCheck(input: {
   title: string;
