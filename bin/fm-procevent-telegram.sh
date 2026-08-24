@@ -163,8 +163,15 @@ telegram_captain_chat_id() {  # <env-file>
 }
 
 credential_readable() {
-  local f; f=$(env_file_path)
-  [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ]
+  local f mode
+  f=$(env_file_path)
+  [ -f "$f" ] && [ ! -L "$f" ] && [ -r "$f" ] || return 1
+  if [ "$(uname)" = Darwin ]; then
+    mode=$(stat -f %Lp "$f" 2>/dev/null) || return 1
+  else
+    mode=$(stat -c %a "$f" 2>/dev/null) || return 1
+  fi
+  [ "$mode" = 600 ]
 }
 
 credential_available() {
