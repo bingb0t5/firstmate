@@ -109,7 +109,15 @@ there is no dedicated `fm-brief.sh` flag for this and none is needed.
 - **Explicit caps.** Pass `--max-iterations <n>` and `--max-tokens <n>` sized to the task.
   GNHF has no direct wall-clock flag; treat the iteration and token caps as the runtime
   bound, and pass an explicit task-sized `--max-rate-limit-wait <duration>` on every
-  invocation rather than leaving its 24-hour default in effect.
+  invocation rather than leaving its 24-hour default in effect. When re-invoking to resume
+  an existing run, see "No new supervision surface" below: `--max-iterations` is cumulative
+  across a resume and must be raised each call, while `--max-tokens` is not.
+- **`GNHF_TELEMETRY=0`.** By default GNHF reports aggregate usage telemetry to a hard-coded
+  third-party host on every run: the agent name, run mode, final status, iteration, success,
+  failure and commit counts, token totals, duration, and which flags were set. Prompt text,
+  repository paths, and branch names are not included. Set `GNHF_TELEMETRY=0` in the
+  environment for firstmate-driven invocations (`GNHF_TELEMETRY=0 gnhf ...`, or export it
+  before the crewmate's invocation) rather than relying on GNHF's default-on behavior.
 - **Clean starting state.** GNHF itself refuses a dirty working tree; a freshly spawned
   task worktree already starts clean, so this is satisfied by the ordinary spawn contract
   as long as GNHF is the first thing the crewmate runs there.
@@ -178,11 +186,21 @@ the accumulated `notes.md` context, and reports no error when it does. To get a 
 across a crewmate's own turns, re-invoke with the exact same prompt string, unchanged. A
 crewmate that cannot guarantee a byte-identical re-invocation must instead treat each
 invocation as its own fresh bounded run and account for cumulative iterations and tokens
-across those calls itself, because gnhf's own caps only ever bound one invocation. In
-Companion mode this is not a defect: each steered slice is already intentionally a fresh
-bounded run by design, since new instructions mean a new bounded scope, so firstmate should
-size each slice's caps knowing that slice receives its own full budget rather than a
-continuously draining shared one.
+across those calls itself. In Companion mode this is not a defect: each steered slice is
+already intentionally a fresh bounded run by design, since new instructions mean a new
+bounded scope, so firstmate should size each slice's caps knowing that slice receives its
+own full budget rather than a continuously draining shared one.
+
+The two caps behave differently across a true resume, so a resuming crewmate must raise one
+of them by hand. `--max-iterations` carries forward cumulatively: gnhf restores the prior
+run's last iteration number as the starting count and checks it against whatever
+`--max-iterations` the new invocation passes, before doing any work. So re-issuing a
+byte-identical command with an unchanged cap aborts instantly with the same
+`max iterations reached (n)` summary, zero new iterations, and zero tokens - output that is
+indistinguishable from a legitimate cap stop, forever. When resuming to make further
+progress, raise `--max-iterations` on each successive call above the count the prior call
+already reached. `--max-tokens` needs no such adjustment: token totals reset to a fresh
+zero-based per-invocation budget on every call, resume or not.
 
 ## Companion review before delivery
 
