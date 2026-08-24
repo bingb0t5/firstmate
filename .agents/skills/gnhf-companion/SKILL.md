@@ -142,11 +142,18 @@ there is no dedicated `fm-brief.sh` flag for this and none is needed.
   this is sufficient and required.
 - **A reviewable branch.** GNHF's incremental per-iteration commits already produce one;
   nothing extra is required beyond the crewmate's own normal report of branch state.
-- **Stops must actually stop.** GNHF already treats a complete no-op iteration as a failure
-  counting toward its own consecutive-failure abort, and aborts immediately on a permanent
-  agent error. The crewmate must never relaunch GNHF with a raised failure tolerance or a
-  reworded prompt to push through a real abort; a GNHF abort is the crewmate's own
-  `blocked:` or `needs-decision:` trigger, carrying the printed run log path as evidence.
+- **Stops must actually stop.** GNHF aborts immediately on a permanent agent error, and
+  that abort is mechanical. Its no-op handling is not: GNHF only *asks* its inner agent, in
+  the iteration prompt, to report a no-op iteration as `success=false` so the run can halt,
+  and never verifies the claim. If the agent instead reports success with nothing staged,
+  GNHF's commit step finds no staged diff and silently makes no commit, yet still counts the
+  iteration as good and resets the consecutive-failure counter to zero - so a misreporting
+  agent can quietly burn the entire `--max-iterations` budget doing nothing and still exit
+  0. Treat the iteration and token caps, plus the crewmate's own diff inspection, as the
+  only mechanical bound on a no-op spin. The crewmate must never relaunch GNHF with a raised
+  failure tolerance or a reworded prompt to push through a real abort; a GNHF abort is the
+  crewmate's own `blocked:` or `needs-decision:` trigger, carrying the printed run log path
+  as evidence.
 
 ## Agent selection
 
@@ -162,6 +169,17 @@ GNHF's own `~/.gnhf/config.yml` agent without checking it agrees with what that 
 resolves to, and do not hard-code which agents GNHF supports - its `--agent` roster comes
 from the installed `gnhf --help` and its own README "Agents" table, discovered live as
 shown above, never a roster pinned in this file.
+
+That precedence names a firstmate harness, which is not the same set as GNHF's `--agent`
+roster, so the value it resolves to is a candidate rather than the flag's value. Pass
+`--agent` only a name present in GNHF's own live-discovered roster: GNHF validates the flag
+fail-closed and exits non-zero on an unknown name, so a firstmate-verified harness GNHF does
+not implement natively makes the run die on a configuration mismatch rather than on anything
+about the task. When the resolved candidate has no direct match in that roster, do not
+invent or assume an `acp:<target>` mapping for it. Fall back instead to the highest-precedence
+candidate from that same resolution which is both a firstmate-verified harness and present
+in GNHF's discovered roster, under the same anti-downgrade boundary; if no candidate
+satisfies both, stop and report rather than guessing.
 
 ## No new supervision surface
 
@@ -219,6 +237,10 @@ Before treating any GNHF-driven branch as ready, whether reviewing between Compa
 or at a Hands-Off task's own `done:`:
 
 1. Inspect branch, status, commits, changed files, and diff - never GNHF's summary alone.
+   Check the run's commit count and branch diff stats against its reported good/failed
+   iteration tally rather than trusting the tally itself: "N good iterations" with fewer
+   than N new commits means iterations were counted good without committing anything, which
+   is a stop-and-investigate signal rather than evidence of progress.
 2. Read GNHF's `notes.md` and debug log as claims, not evidence.
 3. Run the task's own real verification: tests, lint, build, or domain-specific checks.
 4. Compare the result against current intent and the task's stop condition.
