@@ -300,8 +300,10 @@ Extend the completion receipt with one entry per secondmate alongside the primar
 Keep those entries in the same plain captain-facing language the rest of the receipt uses.
 The session is reset-safe only when every home is within its own budget with no unresolved exception.
 
-When, and only when, the whole pass for this home - including the cascade above in a primary home - is reset-safe, touch `state/.last-stow` (`touch state/.last-stow`) as its true final step.
-That bare-mtime marker mirrors `state/.last-heartbeat` (`bin/fm-watch.sh`) and is the single durable record the automatic `/stow` triggers in `AGENTS.md` read to decide whether a pass is due; never touch it when reset-safe cannot be claimed.
+When, and only when, the whole pass for this home - including the cascade above in a primary home - is reset-safe, touch `state/.last-stow` (`touch state/.last-stow`); never touch it when reset-safe cannot be claimed.
+Then touch `state/.last-stow-attempt` (`touch state/.last-stow-attempt`) as the pass's true final step, unconditionally, on every `/stow` invocation - reset-safe or not, and whatever exceptions stayed unresolved.
+Both are bare-mtime markers mirroring `state/.last-heartbeat` (`bin/fm-watch.sh`): `state/.last-stow` records the last fully reset-safe pass, while `state/.last-stow-attempt` records that a pass ran at all and is the marker the automatic `/stow` triggers in `AGENTS.md` read to decide whether another pass is due.
+A home carrying a sticky exception it cannot clear on its own - a `deferred` secondmate, an unresolved over-budget home, a shared preference still routing to the primary - therefore stays throttled to one automatic pass per interval instead of re-running on every heartbeat.
 
 ## Scope exclusion: no skill storage by the pass
 

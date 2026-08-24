@@ -134,7 +134,8 @@ state/               runtime records and signals; gitignored
   .hash-* .count-* .stale-* .stale-since-* .paused-* .wedge-escalations-* .writing-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak   watcher internals; never touch
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
   .last-watcher-beat watcher liveness beacon, touched every poll (including while absorbing benign wakes); guard scripts read it
-  .last-stow         bare-mtime marker touched only by the stow skill, only at the end of a reset-safe pass; read by fm-session-start.sh's compact/clear re-emit and by section 8 rule 4's heartbeat check to gate automatic /stow
+  .last-stow         bare-mtime marker touched only by the stow skill, only at the end of a reset-safe pass; the durable record of the last clean /stow
+  .last-stow-attempt bare-mtime marker touched by the stow skill at the end of every /stow pass, reset-safe or not; read by fm-session-start.sh's compact/clear re-emit and by section 8 rule 4's heartbeat check to gate automatic /stow
   .subsuper-* .supervise-daemon.*   sub-supervisor internals; never touch
 .no-mistakes/        local validation state and evidence; gitignored
 ```
@@ -410,7 +411,7 @@ Handle actionable wakes as follows:
 2. For `stale:`, inspect the recorded endpoint and load `stuck-crewmate-recovery` for a stopped, looping, confused, or unresponsive worker; a deep-inspection reason also requires current-state and validation-log inspection.
 3. For `check:`, act on the named poll result, including merges, Relay events, process-to-event source results, and captain inbox notes; a handled inbox note is also acknowledged with `bin/fm-inbox.sh drain --ack <id>`, or it stays counted as still waiting for firstmate.
 4. For `heartbeat:`, review the whole fleet from the structured fleet view, reconcile suspicious tasks and PR state, update the backlog, and never report an unchanged fleet as progress.
-   Also check `state/.last-stow`'s age against `FM_AUTO_STOW_INTERVAL_SECS` (default ~24h, a separate and larger clock than the heartbeat's own cadence); when due, run `/stow` first, before the rest of this review, so an automatic pass does not run on every heartbeat.
+   Also check `state/.last-stow-attempt`'s age against `FM_AUTO_STOW_INTERVAL_SECS` (default ~24h, a separate and larger clock than the heartbeat's own cadence); when due, run `/stow` first, before the rest of this review, so an automatic pass does not run on every heartbeat. That marker records an attempted pass rather than a reset-safe one, so a home holding an exception `/stow` cannot clear still waits out the full interval before the next automatic pass.
 
 When any wake reports a merged PR for a project cloned in this home, refresh that clone through the guarded fleet-sync path.
 When Relay-linked work reaches a milestone or terminal state, load `fmx-respond`; before terminal teardown, use its promised-final reconciliation when a typed public commitment exists, otherwise post the final completion follow-up so the link clears even if earlier follow-ups were spent.
