@@ -8,7 +8,7 @@ on:
   pull_request_target:
     branches:
       - main
-    types: [opened, synchronize, reopened]
+    types: [opened, edited, synchronize, reopened]
 
 permissions:
   contents: read
@@ -45,3 +45,9 @@ jobs:
           PR_COMMUNICATION_CANDIDATE_ROOT: .pr-head
           PR_COMMUNICATION_SOT_TOKEN: ${{ secrets.PR_COMMUNICATION_SOT_TOKEN }}
         run: node scripts/pr-communication/check-drift.mjs
+
+      - name: Assess PR communication with verified code
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node --experimental-strip-types .pr-head/scripts/check-pr-communication.ts

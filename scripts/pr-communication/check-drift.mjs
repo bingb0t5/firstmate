@@ -19,7 +19,7 @@ const ROOT = process.env.PR_COMMUNICATION_CANDIDATE_ROOT
   ? join(TRUSTED_ROOT, process.env.PR_COMMUNICATION_CANDIDATE_ROOT)
   : TRUSTED_ROOT;
 const VENDORED_PATH = join(ROOT, 'scripts/pr-communication/prCommunication.ts');
-const PIN_PATH = join(ROOT, 'scripts/pr-communication/SOURCE.sha256');
+const PIN_PATH = join(TRUSTED_ROOT, 'scripts/pr-communication/SOURCE.sha256');
 const ENTRYPOINT_PATH = join(ROOT, 'scripts/check-pr-communication.ts');
 const ENTRYPOINT_PIN_PATH = join(TRUSTED_ROOT, 'scripts/pr-communication/ENTRYPOINT.sha256');
 const SOURCE_REPO = 'bingb0t5/lalo-admin';

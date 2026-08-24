@@ -203,6 +203,31 @@ test_tampered_entrypoint_fails_closed() {
   pass "tampered entrypoint fails closed"
 }
 
+test_candidate_pin_cannot_authorize_tampered_assessor() {
+  local candidate out rc
+  candidate=$(mktemp -d "$ROOT/.pr-communication-candidate.XXXXXX")
+  mkdir -p "$candidate/scripts/pr-communication"
+  cp "$CHECK" "$candidate/scripts/check-pr-communication.ts"
+  cp "$ROOT/scripts/pr-communication/prCommunication.ts" \
+    "$candidate/scripts/pr-communication/prCommunication.ts"
+  printf '\n// tampered\n' >> "$candidate/scripts/pr-communication/prCommunication.ts"
+  node -e \
+    'const fs=require("node:fs"),c=require("node:crypto"); const p=process.argv[1]; const s=fs.readFileSync(p,"utf8"); const b=s.slice(s.indexOf("\n\n")+2); process.stdout.write(c.createHash("sha256").update(b).digest("hex")+"\n")' \
+    "$candidate/scripts/pr-communication/prCommunication.ts" \
+    > "$candidate/scripts/pr-communication/SOURCE.sha256"
+  set +e
+  out=$(PR_COMMUNICATION_CANDIDATE_ROOT="${candidate#"$ROOT"/}" \
+    PR_COMMUNICATION_FETCH_FAILURE=503 PR_COMMUNICATION_SOT_TOKEN=test-token \
+    node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
+  rc=$?
+  set -e
+  rm -rf "$candidate"
+  expect_code 1 "$rc" "candidate-controlled assessor pin"
+  assert_contains "$out" "does not match SOURCE.sha256" \
+    "candidate-controlled pin authorized a tampered assessor"
+  pass "candidate pin cannot authorize a tampered assessor"
+}
+
 test_cli_accepts_complete_description() {
   local out rc
   set +e
@@ -229,3 +254,4 @@ test_required_remote_failure_fails_closed
 test_auth_remote_failure_fails_closed
 test_invalid_token_header_fails_closed
 test_tampered_entrypoint_fails_closed
+test_candidate_pin_cannot_authorize_tampered_assessor
