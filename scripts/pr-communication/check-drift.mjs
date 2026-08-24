@@ -3,10 +3,11 @@
  * Fail if the vendored assessor drifts from the pinned SoT hash, or (when
  * reachable) from bingb0t5/lalo-admin@main:src/shared/prCommunication.ts.
  *
- * Default GITHUB_TOKEN cannot read private sibling repos. Set repo secret
- * PR_COMMUNICATION_SOT_TOKEN (fine-scoped PAT or GitHub App token with
- * contents:read on lalo-admin) to enable the remote comparison. Until then
- * SOURCE.sha256 is the hard local pin.
+ * Remote comparison requires PR_COMMUNICATION_SOT_TOKEN. GITHUB_TOKEN and
+ * GH_TOKEN are not substitutes. A missing or unusable token fails closed so
+ * a PR cannot compare the vendored file against SOURCE.sha256 alone.
+ * Local-pin fallback is only for network errors, HTTP 408, 429, and 5xx.
+ * HTTP 401, 403, and 404 fail closed.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -70,12 +71,7 @@ if (actualHash !== pinnedHash) {
 
 console.log(`Local pin OK (${actualHash}).`);
 
-const token = (
-  process.env.PR_COMMUNICATION_SOT_TOKEN ||
-  process.env.GITHUB_TOKEN ||
-  process.env.GH_TOKEN ||
-  ''
-).trim();
+const token = String(process.env.PR_COMMUNICATION_SOT_TOKEN || '').trim();
 const requireRemote = String(process.env.PR_COMMUNICATION_REQUIRE_REMOTE_SOT || '').trim() === '1';
 
 if (!token) {

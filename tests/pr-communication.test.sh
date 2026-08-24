@@ -56,8 +56,9 @@ test_missing_remote_token_fails_closed() {
   local out rc
   set +e
   out=$(
-    env -u PR_COMMUNICATION_SOT_TOKEN -u GITHUB_TOKEN -u GH_TOKEN \
+    env -u PR_COMMUNICATION_SOT_TOKEN \
       -u PR_COMMUNICATION_REQUIRE_REMOTE_SOT \
+      GITHUB_TOKEN=ghs_not_a_sot_token GH_TOKEN=ghs_not_a_sot_token \
       node "$DRIFT" 2>&1
   )
   rc=$?
@@ -66,7 +67,7 @@ test_missing_remote_token_fails_closed() {
   assert_contains "$out" "Local pin OK" "drift check did not confirm the local SoT pin"
   assert_contains "$out" "PR_COMMUNICATION_SOT_TOKEN is required" \
     "missing remote credential did not explain the fail-closed result"
-  pass "missing remote credential fails closed after verifying the local pin"
+  pass "missing SOT token fails closed even when GITHUB_TOKEN is set"
 }
 
 test_vendored_unit_suite() {
@@ -125,7 +126,7 @@ test_cli_rejects_untouched_module_boundary_template() {
 
 test_transient_remote_failure_uses_local_pin() {
   local mode out rc
-  for mode in network 503; do
+  for mode in network 408 429 503; do
     set +e
     out=$(PR_COMMUNICATION_FETCH_FAILURE="$mode" PR_COMMUNICATION_SOT_TOKEN=test-token \
       node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
@@ -154,15 +155,18 @@ test_required_remote_failure_fails_closed() {
 }
 
 test_auth_remote_failure_fails_closed() {
-  local out rc
-  set +e
-  out=$(PR_COMMUNICATION_FETCH_FAILURE=401 PR_COMMUNICATION_SOT_TOKEN=invalid \
-    node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
-  rc=$?
-  set -e
-  expect_code 1 "$rc" "remote authentication failure"
-  assert_contains "$out" "401" "remote authentication failure did not report its status"
-  pass "remote authentication failures fail closed"
+  local mode out rc
+  for mode in 401 403 404; do
+    set +e
+    out=$(PR_COMMUNICATION_FETCH_FAILURE="$mode" PR_COMMUNICATION_SOT_TOKEN=invalid \
+      node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "remote authentication failure ($mode)"
+    assert_contains "$out" "$mode" \
+      "remote authentication failure ($mode) did not report its status"
+  done
+  pass "401, 403, and 404 remote failures fail closed"
 }
 
 test_cli_accepts_complete_description() {
