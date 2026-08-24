@@ -300,6 +300,11 @@ Extend the completion receipt with one entry per secondmate alongside the primar
 Keep those entries in the same plain captain-facing language the rest of the receipt uses.
 The session is reset-safe only when every home is within its own budget with no unresolved exception.
 
+## Automatic /stow markers
+
+Every `/stow` invocation in every home - primary or secondmate - updates the staleness markers below after that home's own pass (and, in a primary home, after the cascade above).
+A secondmate home still performs this step even though it never cascades further.
+
 When, and only when, the whole pass for this home - including the cascade above in a primary home - is reset-safe, touch `state/.last-stow` (`touch state/.last-stow`); never touch it when reset-safe cannot be claimed.
 Then touch `state/.last-stow-attempt` (`touch state/.last-stow-attempt`) as the pass's true final step, unconditionally, on every `/stow` invocation - reset-safe or not, and whatever exceptions stayed unresolved.
 Both are bare-mtime markers mirroring `state/.last-heartbeat` (`bin/fm-watch.sh`): `state/.last-stow` records the last fully reset-safe pass, while `state/.last-stow-attempt` records that a pass ran at all and is the marker the automatic `/stow` triggers in `AGENTS.md` read to decide whether another pass is due.

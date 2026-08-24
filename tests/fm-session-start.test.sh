@@ -2120,8 +2120,12 @@ EOF
 
   out=$(run_reemit_for_stow "$home" "$root" "$fakebin:$BASE_PATH")
 
-  assert_contains "$out" "STOW DUE: last /stow pass was 900" \
-    "a state/.last-stow-attempt marker older than the interval did not surface a STOW DUE line naming its measured age"
+  # Age is measured at digest time, so a 90000s-old marker can print 90000
+  # through ~90120 on a loaded host (SESSION_START_BUDGET defaults to 120s).
+  # Pin the five-digit 9xxxx band rather than the prefix "900", which flips
+  # once the age leaves 90000-90099.
+  printf '%s\n' "$out" | grep -Eq 'STOW DUE: last /stow pass was 9[0-9]{4}s ago' || \
+    fail "a state/.last-stow-attempt marker older than the interval did not surface a STOW DUE line naming a measured five-digit age in the 9xxxx range"$'\n'"--- output ---"$'\n'"$out"
   assert_contains "$out" "ago (over the 86400s interval" \
     "the STOW DUE line did not disclose the interval it compared against"
 

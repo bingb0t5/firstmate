@@ -187,6 +187,18 @@ The flag is per home and is not inherited by secondmate homes, because stow cade
 Only the file's presence is read, so its contents are ignored; remove it to return to the default contract on the next pass.
 The skill text owns the marker spelling, the tick order, and the reinforcement rule.
 
+## Automatic /stow
+
+Two existing turns already reach the agent, and both now decide whether to run the internal [`/stow` skill](../.agents/skills/stow/SKILL.md) instead of waiting for the captain to type it.
+
+1. A lock-owning compact/clear session-start re-emit prepends one `STOW DUE:` line when `state/.last-stow-attempt` is missing or older than `FM_AUTO_STOW_INTERVAL_SECS` (default 86400), and stays silent when the marker is current or the session could not verify fleet-lock ownership (`bin/fm-session-start.sh`).
+2. Heartbeat handling in `AGENTS.md` section 8 rule 4 runs `/stow` first when the same marker is due, using that same larger interval so a pass does not run on every heartbeat wake.
+
+The stow skill touches `state/.last-stow-attempt` at the end of every pass, reset-safe or not, and touches `state/.last-stow` only when the pass is reset-safe.
+The automatic triggers read the attempt marker, so a home holding an exception `/stow` cannot clear still waits out the full interval.
+Away-mode heartbeats stay bash-only and never run `/stow`.
+On a default Pi primary, heartbeat wakes go to the supervision branch, which does not currently run the `AGENTS.md` check; compact/clear re-emit remains the automatic path there ([Pi supervision branch](pi-supervision-branch.md#heartbeat-routing)).
+
 ## Secondmate routes (data/secondmates.md)
 
 Persistent secondmate routes live locally in `data/secondmates.md`.
@@ -649,7 +661,7 @@ FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops
 CMUX_SOCKET_PASSWORD=   # cmux-only: socket password fallback when config/cmux-socket-password is absent (docs/cmux-backend.md)
 FM_SESSION_START_STATUS_TAIL=5   # state/*.status lines printed per task in the session-start digest; each line is capped by bin/fm-line-cap-lib.sh
 FM_SESSION_START_QUEUED_LIMIT=20   # plain queued backlog rows in the session-start digest; in-flight, held, and blocked rows are never bounded and done rows are never listed
-FM_AUTO_STOW_INTERVAL_SECS=86400   # staleness interval for automatic /stow: gates the STOW DUE line on a lock-owning compact/clear session-start re-emit and the heartbeat-handling stow check in AGENTS.md section 8; measured against state/.last-stow-attempt's mtime, touched by the stow skill at the end of every pass whether or not it reached reset-safe (state/.last-stow, its reset-safe-only sibling, is not what these triggers read)
+FM_AUTO_STOW_INTERVAL_SECS=86400   # staleness interval for automatic /stow (see "Automatic /stow" above): gates the STOW DUE line on a lock-owning compact/clear session-start re-emit and the heartbeat-handling stow check in AGENTS.md section 8; measured against state/.last-stow-attempt's mtime
 FM_BOOTSTRAP_DETECT_ONLY=0   # internal/read-only session-start mode: skip bootstrap's mutating sweeps and print advisory TANGLE wording
 FM_BOOTSTRAP_NETWORK=all   # internal session-start phase split: all, skip (local steps only), or only (network steps only); see bin/fm-bootstrap.sh
 FM_STARTUP_NETWORK_TIMEOUT=120   # seconds bounding the whole deferred network stage; hitting it prints an actionable NETWORK_CHECKS line
