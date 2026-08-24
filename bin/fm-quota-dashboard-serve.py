@@ -21,12 +21,17 @@ Usage:
 Optional user-level systemd unit, so it survives logout/reboot (run
 `loginctl enable-linger $USER` once, save this as
 ~/.config/systemd/user/fm-quota-dashboard.service, then
-`systemctl --user enable --now fm-quota-dashboard`):
+`systemctl --user enable --now fm-quota-dashboard`). The user manager does
+not inherit your shell's PATH, and quota-axi usually lives in an nvm or
+npm-global bin directory that is not on the default one, so the unit has to
+name that directory or every /data.json request 502s with "No such file or
+directory: 'quota-axi'"; `dirname "$(command -v quota-axi)"` prints it:
 
     [Unit]
     Description=Firstmate quota dashboard
 
     [Service]
+    Environment=PATH=<quota-axi-dir>:/usr/local/bin:/usr/bin:/bin
     ExecStart=/usr/bin/python3 /path/to/bin/fm-quota-dashboard-serve.py
     Restart=on-failure
 
@@ -118,9 +123,9 @@ PAGE = """<!doctype html>
                   font-size: 12px; margin-bottom: 3px; }
   .bar { height: 6px; border-radius: 3px; background: #2a2d36; overflow: hidden; }
   .bar > div { height: 100%; }
-  .pace-behind { background: #37d67a; }
+  .pace-behind, .pace-on_pace { background: #37d67a; }
   .pace-ahead  { background: #e5534b; }
-  .pace-on_pace, .pace-unknown { background: #9aa0ac; }
+  .pace-unknown { background: #9aa0ac; }
   .msg { font-size: 12px; color: #c8b23a; }
   footer { padding: 8px 16px; font-size: 11px; color: #5a5f6b; }
 </style>
@@ -162,7 +167,8 @@ function windowNode(w) {
   row.appendChild(el('span', null, w.label == null ? '' : w.label));
   const right = [];
   if (pct != null) right.push(pct + '%');
-  if (w.resetsAt) right.push(fmtSecs((new Date(w.resetsAt) - new Date()) / 1000));
+  const secs = w.resetsAt ? (new Date(w.resetsAt) - new Date()) / 1000 : null;
+  if (Number.isFinite(secs)) right.push(fmtSecs(secs));
   row.appendChild(el('span', null, right.join(' \\u00b7 ')));
   wrap.appendChild(row);
   const bar = el('div', 'bar');

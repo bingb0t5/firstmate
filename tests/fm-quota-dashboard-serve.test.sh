@@ -259,6 +259,10 @@ with urllib.request.urlopen('http://127.0.0.1:$port/', timeout=5) as r:
   # phone on the tailnet can reach this server and nothing else, so any
   # external subresource would leave the dashboard blank or unstyled.
   case "$body" in
+    '<!doctype html'*) ;;
+    *) fail "/ did not serve an HTML document: ${body:0:80}" ;;
+  esac
+  case "$body" in
     *"<script src="*|*"<link "*stylesheet*) fail "page pulls in an external script or stylesheet (must be self-contained)" ;;
   esac
   pass "/ serves one self-contained HTML page"
