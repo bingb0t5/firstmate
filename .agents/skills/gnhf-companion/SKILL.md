@@ -125,9 +125,10 @@ there is no dedicated `fm-brief.sh` flag for this and none is needed.
   the first invocation, but the precondition applies to every later one too: Companion
   mode's own between-slice review runs the task's real verification and may hand off to
   ordinary manual work, either of which can leave scratch notes or interim artifacts
-  behind. Commit or discard everything so `git status --porcelain` is empty before invoking
-  GNHF again, or the next slice dies with "Working tree is not clean" on a self-inflicted
-  precondition rather than on anything about the task.
+  behind. Preserve user changes, commit intentional task changes, and safely remove only
+  disposable artifacts so `git status --porcelain` is empty before invoking GNHF again,
+  or the next slice dies with "Working tree is not clean" on a self-inflicted precondition
+  rather than on anything about the task.
 - **`--current-branch`, never `--worktree`.** The crewmate's task worktree from `fm-spawn`
   is already the isolated worker copy; GNHF's own `--worktree` mode exists to isolate
   *multiple* GNHF runs inside one shared checkout, which would nest a second, redundant
@@ -141,7 +142,8 @@ there is no dedicated `fm-brief.sh` flag for this and none is needed.
   command inside the crewmate's own turn. See "No new supervision surface" below for why
   this is sufficient and required.
 - **A reviewable branch.** GNHF's incremental per-iteration commits already produce one;
-  nothing extra is required beyond the crewmate's own normal report of branch state.
+  preserve all branch history that predates the invocation, and do not rewrite or drop it.
+  Nothing else is required beyond the crewmate's own normal report of branch state.
 - **Stops must actually stop.** GNHF aborts immediately on a permanent agent error, and
   that abort is mechanical. Its no-op handling is not: GNHF only *asks* its inner agent, in
   the iteration prompt, to report a no-op iteration as `success=false` so the run can halt,
