@@ -1,0 +1,15 @@
+Target commit: 503b615d0db7bf83630c7ff76f682ae1c92a8ccf
+
+=== NON-COMPLIANT PR DESCRIPTION ===
+Clarity check: The PR title is very short. State the user or business outcome.
+Cannot enter staging until completed: CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+::error::Cannot enter staging until completed: CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+exit_code=1
+
+=== COMPLIANT PR DESCRIPTION ===
+PR communication is complete.
+exit_code=0
+
+=== REAL CI PROOF ON FORK PR #4 ===
+Failing run: https://github.com/bingb0t5/firstmate/actions/runs/32720666105
+Passing run: https://github.com/bingb0t5/firstmate/actions/runs/32721072427
