@@ -79,19 +79,19 @@
 # proven by accident while wiring up the original check-sweep version of this
 # channel. So every text message is durably written under
 # state/telegram-inbox/ BEFORE the offset file advances past it, and if any
-# update in a batch cannot be resolved (a write fails, or an existing claim
-# for it is not yet a complete payload - see HANDOFF), the whole batch's
-# offset does not advance: every update in it, including ones already
-# written, is fetched again next time. A per-update durable delivery receipt
-# is reserved before its inbox claim is published and is only ever relinked
-# into the live inbox after the same `handled/` check the claim path makes,
-# so recovery can never resurrect a message firstmate already handled. An
-# aggregate pending-delivery record bridges those claims to reporting and
-# offset advancement. This keeps a published claim discoverable even if the
-# aggregate record or offset cannot yet be written; see LOSS LIMITATION for
-# the one window this cannot close. Text from any chat other than
-# TELEGRAM_CAPTAIN_CHAT_ID, text from any sender other than
-# TELEGRAM_CAPTAIN_USER_ID, non-text updates (a photo, a sticker, a
+# update in a batch cannot be resolved (a write fails, an update carries an
+# identifier Telegram could not have issued, or an existing claim for it is
+# not yet a complete payload - see HANDOFF), the whole batch's offset does not
+# advance: every update in it, including ones already written, is fetched
+# again next time. A per-update durable delivery receipt is reserved before
+# its inbox claim is published and is only ever relinked into the live inbox
+# after the same `handled/` check the claim path makes, so recovery can never
+# resurrect a message firstmate already handled. An aggregate pending-delivery
+# record bridges those claims to reporting and offset advancement. This keeps
+# a published claim discoverable even if the aggregate record or offset cannot
+# yet be written; see LOSS LIMITATION for the one window this cannot close.
+# Text from any chat other than TELEGRAM_CAPTAIN_CHAT_ID, text from any sender
+# other than TELEGRAM_CAPTAIN_USER_ID, non-text updates (a photo, a sticker, a
 # chat-membership change), and updates whose message, chat, or sender is not
 # shaped like the documented API are consumed the same way - their ids are
 # folded into the advanced offset - but produce no inbox file and never count
@@ -134,23 +134,24 @@
 # that window; deregister the check, then let one full check-sweep interval
 # pass (or confirm no such process is running) before arming.
 #
-# LOSS LIMITATION, stated plainly. The poll prints its result and clears the
-# pending-delivery record before it exits, while the parent runner can
-# durably capture output only after that exit. A crash after the clear but
-# before the runner's capture can therefore strand an already-offset message
-# without a wake. The unlink is not directory-fsynced, so power loss before
-# the filesystem commits it can instead resurrect the marker and repeat a
-# captured wake. No adapter-local transaction can close this source-side
-# handoff window, and closing it would mean changing bin/fm-procevent.sh's
-# own capture boundary, which is out of scope here. A partial-batch result
-# deliberately leaves the offset unchanged so Telegram returns the batch
-# again. On that retry, firstmate can move an inbox file into `handled/`
-# after this adapter checks that archive path but before it links the retried
-# claim into the now-vacant inbox path. That race recreates the same update,
-# counts it as new, and can produce a duplicate wake. Closing it requires a
-# shared acknowledgement-and-claim boundary that this adapter does not have.
-# Never describe this path as exactly-once, at-least-once, no-loss, or
-# lossless.
+# LOSS LIMITATION, stated plainly. The poll finishes its own cleanup - the
+# offset advanced, the receipts gone, the pending-delivery record removed -
+# BEFORE it prints the result line, so a cleanup failure can never announce a
+# message twice; but the parent runner can durably capture that line only
+# after this child exits. A crash after the clear but before the runner's
+# capture can therefore strand an already-offset message without a wake. The
+# unlink is not directory-fsynced, so power loss before the filesystem commits
+# it can instead resurrect the marker and repeat a captured wake. No
+# adapter-local transaction can close this source-side handoff window, and
+# closing it would mean changing bin/fm-procevent.sh's own capture boundary,
+# which is out of scope here. A partial-batch result deliberately leaves the
+# offset unchanged so Telegram returns the batch again. On that retry,
+# firstmate can move an inbox file into `handled/` after this adapter checks
+# that archive path but before it links the retried claim into the now-vacant
+# inbox path. That race recreates the same update, counts it as new, and can
+# produce a duplicate wake. Closing it requires a shared
+# acknowledgement-and-claim boundary that this adapter does not have. Never
+# describe this path as exactly-once, at-least-once, no-loss, or lossless.
 #
 # A lost message from the captain is not recoverable at all.
 #
@@ -190,10 +191,12 @@
 #     see PERMANENT FAILURE): exit 0, stdout is exactly `blocked: <code>`.
 #     This wakes firstmate exactly once per occurrence of the condition.
 #   - no updates at all, only non-text or unauthorized updates, an already-
-#     announced permanent failure, or a transient network or API error (any
-#     other non-200): exit 1, no stdout. Silent, no capture, no wake - the
-#     runner restarts this poll on its next reconcile pass, which is what
-#     keeps latency down to that pass's cadence instead of the check sweep.
+#     announced permanent failure, a transient network or API error (any
+#     other non-200), or a 200 body this adapter refuses - unparseable, not
+#     `ok: true`, or carrying an update identifier Telegram could not have
+#     issued: exit 1, no stdout. Silent, no capture, no wake - the runner
+#     restarts this poll on its next reconcile pass, which is what keeps
+#     latency down to that pass's cadence instead of the check sweep.
 #   - the credential file is absent, unreadable, incomplete, or not exactly
 #     mode 600: exit 0, no stdout. This is a deliberate, narrow exception to
 #     "nonzero for nothing to report": an unconfigured home never reaches
@@ -414,10 +417,12 @@ report_blocked() {  # <http-code>
 
 # A durable bridge between "messages are on disk" and "the offset advanced
 # past them": written after a complete batch or after any partial delivery,
-# read and reported after credential validation on the next poll, and cleared only
-# once its count and target offset have both been produced as this poll's
-# result. Per-update receipts recover this record if its write fails. See LOSS
-# LIMITATION for the one crash window this cannot close.
+# read and reported after credential validation on the next poll, and cleared
+# only once its target offset is durably written and its receipts are gone -
+# all of that ahead of the printed result line, so a cleanup that fails cannot
+# leave the record behind to announce the same messages again. Per-update
+# receipts recover this record if its write fails. See LOSS LIMITATION for the
+# one crash window this cannot close.
 read_pending() {
   local count target extra
   [ -f "$PENDING_FILE" ] && [ ! -L "$PENDING_FILE" ] || return 1
