@@ -455,7 +455,7 @@ A reread that settles the state also names the head it settled for, so a branch 
 A sweep that finds more conflicts than one line can carry reports the ones that fit and discloses the rest as `N more omitted (line cap)`; an omitted conflict is not marked as reported, so it wakes on a later sweep instead of being lost.
 The dedupe record is cut back to the conflicts each sweep still observes, so it stays the size of the live conflict set rather than growing one entry per head forever.
 A repository the sweep never reached, or whose open list was cut short by `FM_PR_CONFLICT_PR_LIMIT`, keeps its recorded keys instead: unread is not the same as resolved, and dropping those keys would re-report every one of them.
-A sweep whose repository discovery was incomplete keeps the whole record for the same reason: a registered project whose clone or `origin` remote could not be read this sweep names no repository at all, so the repositories discovery did name are not the full set this home works in.
+A sweep whose repository discovery was incomplete keeps the whole record for the same reason: an unreadable `data/projects.md`, or a registered project whose clone or `origin` remote could not be read this sweep, names no repository at all, so the repositories discovery did name are not the full set this home works in.
 That covers the degenerate case where discovery reads nothing as well as the partial case where it reads some clones and fails on others.
 
 This is a safety net, not a cure: conflicts happen because pull requests wait unmerged while the default branch moves underneath them.
