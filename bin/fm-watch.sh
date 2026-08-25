@@ -438,21 +438,23 @@ EOF
     age=$((now - epoch))
     [ "$age" -ge "$threshold" ] || continue
     row_key="$epoch-$seq"
-    # A quiet manager supervising live child work in its registered home is
-    # healthy even when its foreign wake queue still holds an aged row: the
-    # manager has nothing to append while workers run. Skip only when the
-    # manager's own instruction inbox is also empty so unread steers still
-    # surface.
-    if mate_home_has_active_child_work "$home" \
-      && ! fm_task_inbox_oldest_unhandled "$STATE" "$task" >/dev/null 2>&1; then
-      continue
-    fi
     receipt="$receipt_dir/$row_key"
     if [ -e "$marker" ] || [ -L "$marker" ]; then
       [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
     fi
     [ "$(cat "$marker" 2>/dev/null || true)" = "$row_key" ] && continue
     [ "$(cat "$receipt" 2>/dev/null || true)" = "$row_key" ] && continue
+    # A quiet manager supervising live child work in its registered home is
+    # healthy even when its foreign wake queue still holds an aged row: the
+    # manager has nothing to append while workers run. Skip only when the
+    # manager's own instruction inbox is also empty so unread steers still
+    # surface. Placed below the marker/receipt dedup because the child probe
+    # forks one fm-crew-state read per child: an already-notified row must keep
+    # short-circuiting for free instead of paying for it on every poll.
+    if mate_home_has_active_child_work "$home" \
+      && ! fm_task_inbox_oldest_unhandled "$STATE" "$task" >/dev/null 2>&1; then
+      continue
+    fi
     notify_key="secondmate-wake-loop-$task-$row_key"
     reason="check: secondmate wake-loop stalled: mate=$task row=$seq age=${age}s"
     queued=$(fm_wake_queued_keys check)
@@ -1352,12 +1354,12 @@ EOF
     # gate reads the shared predicate rather than the pause verb alone. Narrowing
     # it to `paused` would leave a mate's captain hold rotting invisibly: the
     # clear above already spares its pause tracking, but nothing would ever
-    # re-surface it.
-    # An idle manager with live child work in its registered home is healthy
-    # even when the manager pane itself is quiet (and even when a declared pause
-    # was recorded only to silence a false wedge alarm).
-    if [ "$kind" = secondmate ] && { ! status_is_paused_or_captain_held "$last" \
-      || manager_has_active_child_work "$task" "$STATE"; }; then
+    # re-surface it. Active child work is deliberately NOT a bypass here either:
+    # a manager supervising workers is already healthy on this path (an
+    # undeclared idle mate never reaches it), so the only thing a bypass could
+    # reach is a declared wait's bounded recheck, and silencing that for the
+    # whole length of a child run is the same invisible rot.
+    if [ "$kind" = secondmate ] && ! status_is_paused_or_captain_held "$last"; then
       continue
     fi
     tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || continue
@@ -1385,10 +1387,11 @@ EOF
           case "$(pause_state_class "$w" "$task")" in
             paused) handle_paused_stale "$w" "$task" "$h" ;;
             working)
+              # Authoritative state overrode the mate's own declared wait, so
+              # neither the pause cadence nor a wedge timer owns this hash.
               clear_pause_tracking "$key"
               printf '%s' "$h" > "$sf"
-              rm -f "$ssf" "$ewf"
-              triage_log "absorbed stale (idle manager supervising active child work): $w"
+              triage_log "absorbed stale (provably working, overriding a declared wait): $w"
               ;;
             *)      clear_pause_tracking "$key" ;;
           esac

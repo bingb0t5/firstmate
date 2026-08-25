@@ -2808,8 +2808,15 @@ EOF
   pass "idle kind=secondmate pane is healthy and not stale"
 }
 
+# An idle kind=secondmate parent pane whose own home still holds a busy child is
+# supervising, not stalled. The teeth of this case are the manager's bare
+# turn-ended ping: that is the escalation an idle manager actually gets, because
+# an undeclared idle mate pane is already exempt from the pane-stale path. Before
+# the classification fix the manager reported `unknown`, so the ping was not
+# provably working and the watcher queued a wake and exited; it must now be
+# absorbed, with the primed stale/wedge fixtures left unescalated.
 test_secondmate_idle_manager_with_busy_child_is_not_stale() {
-  local home subhome fakebin out pid window key pane_hash capture
+  local home subhome fakebin out pid window key pane_hash capture seen i
   home="$TMP_ROOT/watch-busy-child-home"
   subhome="$TMP_ROOT/watch-busy-child-subhome"
   mkdir -p "$home/state" "$subhome/state"
@@ -2853,6 +2860,8 @@ SH
   printf '%s' "$pane_hash" > "$home/state/.stale-$key"
   printf '%s\n' $(( $(date +%s) - 500 )) > "$home/state/.stale-since-$key"
   printf '1\n' > "$home/state/.wedge-escalations-$key"
+  : > "$home/state/platform.turn-ended"
+  seen="$home/state/.seen-platform_turn-ended"
   out="$TMP_ROOT/watch-busy-child-fake/watch.out"
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_WINDOW="$window" \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/watch-busy-child-fake/tmux.log" FM_FAKE_TMUX_CAPTURE="$capture" \
@@ -2862,13 +2871,22 @@ SH
     FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     "$ROOT/bin/fm-watch.sh" > "$out" &
   pid=$!
-  if ! wait_live "$pid" 25; then
+  # The suppressor is written by BOTH triage outcomes, and the durable queue
+  # append happens before it, so waiting on it makes the assertions below
+  # race-free rather than timing-dependent.
+  i=0
+  while [ "$i" -lt 200 ] && [ ! -s "$seen" ]; do sleep 0.1; i=$((i + 1)); done
+  [ -s "$seen" ] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
+    fail "watcher never classified the idle manager's turn-end: $(cat "$out")"; }
+  [ ! -s "$home/state/.wake-queue" ] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
+    fail "idle manager with busy child queued a wake: $(cat "$home/state/.wake-queue")"; }
+  if ! wait_live "$pid" 10; then
     wait "$pid" || true
-    grep -F "stale: $window" "$out" >/dev/null && fail "idle manager with busy child triggered stale wake"
-    fail "watcher exited unexpectedly while supervising idle manager with busy child"
+    fail "watcher exited for an idle manager supervising busy child work: $(cat "$out")"
   fi
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
+  [ ! -s "$out" ] || fail "idle manager with busy child printed a wake: $(cat "$out")"
   grep -F "stale: $window" "$out" >/dev/null && fail "idle manager with busy child triggered stale wake"
   grep -F "possible wedge" "$out" >/dev/null && fail "idle manager with busy child was mislabeled a wedge"
   pass "idle kind=secondmate manager with busy child crew is not stale"

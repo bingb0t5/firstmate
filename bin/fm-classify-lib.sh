@@ -1188,11 +1188,8 @@ signal_reason_is_actionable() {  # <file> ...
 # found, so callers run it only at classification time, never every poll.
 mate_home_has_active_child_work() {  # <home>
   local home=$1 child_meta child_id child_kind child_state class
-  local _restore_state_override _had_state_override=0
   [ -n "$home" ] && [ -d "$home/state" ] || return 1
   child_state="$home/state"
-  [ -n "${FM_STATE_OVERRIDE+x}" ] && _had_state_override=1
-  _restore_state_override=${FM_STATE_OVERRIDE-}
   for child_meta in "$child_state"/*.meta; do
     [ -e "$child_meta" ] || continue
     child_id=${child_meta##*/}
@@ -1200,20 +1197,8 @@ mate_home_has_active_child_work() {  # <home>
     child_kind=$(grep '^kind=' "$child_meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
     [ "$child_kind" = secondmate ] && continue
     class=$(FM_STATE_OVERRIDE="$child_state" crew_absorb_class "$child_id")
-    if [ "$class" = working ]; then
-      if [ "$_had_state_override" -eq 1 ]; then
-        FM_STATE_OVERRIDE=$_restore_state_override
-      else
-        unset FM_STATE_OVERRIDE
-      fi
-      return 0
-    fi
+    [ "$class" = working ] && return 0
   done
-  if [ "$_had_state_override" -eq 1 ]; then
-    FM_STATE_OVERRIDE=$_restore_state_override
-  else
-    unset FM_STATE_OVERRIDE
-  fi
   return 1
 }
 
@@ -1235,7 +1220,8 @@ manager_has_active_child_work() {  # <id> <state-dir>
 # ("state: <s> · source: <src> · <detail>"). Prints exactly one token:
 #   working - an actively-running no-mistakes step (running/fixing/ci) or a busy
 #             pane; the crew is legitimately mid-work on a static-looking pane
-#             (e.g. waiting on CI);
+#             (e.g. waiting on CI), or is a manager whose home still holds a
+#             working child (see the inheritance rule below);
 #   paused  - the crew's authoritative current state is a declared external-wait
 #             pause (paused:), which is EXPECTED to idle;
 #   none    - neither, so the wake must surface (a stopped/finished/parked/failed/
@@ -1246,20 +1232,20 @@ manager_has_active_child_work() {  # <id> <state-dir>
 # NOT a pure read: fm-crew-state.sh may make a bounded no-mistakes call, so callers
 # run it only on no-verb signal and first-sighting stale paths, never every wake.
 # FM_CREW_STATE_BIN lets tests stub the verdict.
+#
+# A kind=secondmate manager gets ONE extra inheritance rule, applied strictly
+# AFTER its own verdict: `unknown` is a manager's quiet endpoint state (an idle
+# mate pane is healthy by design), and a manager whose home still holds a working
+# child crew is demonstrably mid-work rather than wedged, so it inherits that
+# child's `working`. The manager's own verdict always wins first - failed/parked/
+# blocked/done/paused are the manager's own answer and must keep surfacing - and
+# the inheritance is skipped while the manager's log still holds something
+# addressed to the captain (a verified captain-held transfer, an unanswered
+# decision, a legacy captain-relevant line), so a hold cannot rot behind a child
+# that happens to be busy.
 crew_absorb_class() {  # <id>
-  local id=$1 line state src meta_dir kind home
+  local id=$1 line state src
   [ -n "$id" ] || { printf 'none'; return; }
-  meta_dir="${FM_STATE_OVERRIDE:-${STATE:-}}"
-  if [ -n "$meta_dir" ] && [ -f "$meta_dir/$id.meta" ]; then
-    kind=$(grep '^kind=' "$meta_dir/$id.meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-    if [ "$kind" = secondmate ]; then
-      home=$(grep '^home=' "$meta_dir/$id.meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
-      if [ -n "$home" ] && mate_home_has_active_child_work "$home"; then
-        printf 'working'
-        return
-      fi
-    fi
-  fi
   line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}
@@ -1267,8 +1253,27 @@ crew_absorb_class() {  # <id>
   if [ "$state" = working ]; then
     src=${line#*source: }; src=${src%% *}
     case "$src" in run-step|pane) printf 'working'; return ;; esac
+    printf 'none'; return
+  fi
+  if [ "$state" = unknown ] && manager_inherits_child_work "$id"; then
+    printf 'working'
+    return
   fi
   printf 'none'
+}
+
+# 0 when task <id> is a kind=secondmate manager that may inherit `working` from a
+# child crew: it has active child work AND its own status log holds nothing the
+# captain still owes an answer to. Split out of crew_absorb_class so the two
+# conditions that make the inheritance safe stay stated in one place.
+manager_inherits_child_work() {  # <id>
+  local id=$1 meta_dir last
+  meta_dir="${FM_STATE_OVERRIDE:-${STATE:-}}"
+  [ -n "$meta_dir" ] || return 1
+  last=$(last_status_line "$meta_dir/$id.status")
+  status_is_captain_relevant "$last" && return 1
+  status_is_captain_held "$last" && return 1
+  manager_has_active_child_work "$id" "$meta_dir"
 }
 
 # 0 if crew <id> shows POSITIVE evidence it is still working (crew_absorb_class
