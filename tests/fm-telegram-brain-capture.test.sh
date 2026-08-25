@@ -185,22 +185,56 @@ assert_grep '"source":"firstmate-telegram-group"' "$group_on/state/telegram-brai
   "group receipt did not record the group source"
 pass "group discussion is captured when the flag is on"
 
-# --- missing credentials refuse without a network call ----------------------
+# --- an unconfigured brain skips without a network call ---------------------
 nocred=$(make_home nocred)
 rm -f "$nocred/secrets/mcp.env"
 nocred_bin=$(make_fake_curl "$nocred")
-FAKE_CURL_LOG="$nocred/curl.log"
-if payload 4004 "should not send" | \
+out=$(payload 4004 "should not send" | \
   PATH="$nocred_bin:$BASE_PATH" FM_HOME="$nocred" \
   FM_STATE_OVERRIDE="$nocred/state" \
   FM_CONFIG_OVERRIDE="$nocred/config" \
   FM_BEANZ_ENV_FILE="$nocred/secrets/mcp.env" \
   FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
-  "$CAPTURE" capture - >/dev/null 2>"$nocred/err"; then
-  fail "missing brain credentials must refuse"
+  FAKE_CURL_LOG="$nocred/curl.log" \
+  "$CAPTURE" capture -)
+expect_code 0 $? "an unconfigured brain must stay acknowledgeable"
+assert_contains "$out" "capture-unconfigured brain-credentials" \
+  "an unconfigured brain did not name the missing configuration"
+assert_absent "$nocred/curl.log" "an unconfigured brain still called curl"
+assert_absent "$nocred/state/telegram-brain-capture/4004" "an unconfigured brain wrote a receipt"
+pass "an absent credential file skips with a zero exit and no network call"
+
+# --- an unconfigured captain chat id skips too ------------------------------
+nochat=$(make_home nochat)
+nochat_bin=$(make_fake_curl "$nochat")
+out=$(payload 4005 "should not send" | \
+  PATH="$nochat_bin:$BASE_PATH" FM_HOME="$nochat" \
+  FM_STATE_OVERRIDE="$nochat/state" \
+  FM_CONFIG_OVERRIDE="$nochat/config" \
+  FM_BEANZ_ENV_FILE="$nochat/secrets/mcp.env" \
+  FM_TELEGRAM_ENV_FILE="$nochat/secrets/telegram.env" \
+  FAKE_CURL_LOG="$nochat/curl.log" \
+  "$CAPTURE" capture -)
+expect_code 0 $? "an unconfigured captain chat id must stay acknowledgeable"
+assert_contains "$out" "capture-unconfigured captain-chat" \
+  "an absent captain chat id did not name the missing configuration"
+assert_absent "$nochat/curl.log" "an absent captain chat id still called curl"
+pass "an absent captain chat id skips with a zero exit and no network call"
+
+# --- a present but unusable credential file still refuses -------------------
+brokencred=$(make_home broken-cred)
+brokencred_bin=$(make_fake_curl "$brokencred")
+umask 077
+printf '%s\n' 'BEANZ_MCP_URL=https://brain.test' > "$brokencred/secrets/mcp.env"
+chmod 600 "$brokencred/secrets/mcp.env"
+FAKE_CURL_LOG="$brokencred/curl.log"
+if payload 4006 "should not send" | \
+  run_capture "$brokencred" "$brokencred_bin" capture - >/dev/null 2>"$brokencred/err"; then
+  fail "a credential file without a token must refuse"
 fi
-assert_absent "$nocred/curl.log" "missing credentials still called curl"
-pass "missing brain credentials refuse without a network call"
+assert_grep "BEANZ_MCP_TOKEN is missing" "$brokencred/err" "a tokenless credential file was not reported"
+assert_absent "$brokencred/curl.log" "a tokenless credential file still called curl"
+pass "a present but unusable credential file stays fail-closed"
 
 # --- boolean update ids are rejected ----------------------------------------
 bad=$(make_home bool)
@@ -318,6 +352,7 @@ umask 077
 printf '%s\n' "BEANZ_MCP_TOKEN=$TOKEN" > "$badurl/secrets/mcp.env"
 printf '%s\n' 'BEANZ_MCP_URL="https://brain.test/x y"' >> "$badurl/secrets/mcp.env"
 chmod 600 "$badurl/secrets/mcp.env"
+FAKE_CURL_LOG="$badurl/curl.log"
 if payload 7008 "should not send" | \
   run_capture "$badurl" "$badurl_bin" capture - >/dev/null 2>"$badurl/err"; then
   fail "an unsafe BEANZ_MCP_URL must be refused"
@@ -350,6 +385,44 @@ else
   pass "an unreadable group flag reports an error line instead of a traceback"
 fi
 chmod 600 "$badflag/config/telegram-brain-capture-group"
+
+# --- from-result on an unconfigured brain still exits zero ------------------
+unconf=$(make_home from-result-unconfigured)
+unconf_bin=$(make_fake_curl "$unconf")
+mkdir -p "$unconf/bin"
+payload 5007 "captain interrupt" > "$unconf/messages.jsonl"
+make_stub_adapter "$unconf" message
+printf 'notice\n' > "$unconf/result"
+rm -f "$unconf/secrets/mcp.env"
+out=$(PATH="$unconf/bin:$unconf_bin:$BASE_PATH" \
+  FM_HOME="$unconf" \
+  FM_STATE_OVERRIDE="$unconf/state" \
+  FM_CONFIG_OVERRIDE="$unconf/config" \
+  FM_BEANZ_ENV_FILE="$unconf/secrets/mcp.env" \
+  FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+  FAKE_CURL_LOG="$unconf/curl.log" \
+  "$CAPTURE" from-result "$unconf/result")
+expect_code 0 $? "a message result on an unconfigured brain must stay acknowledgeable"
+assert_contains "$out" "capture-unconfigured brain-credentials" \
+  "from-result did not report the unconfigured brain"
+assert_absent "$unconf/curl.log" "from-result posted with no credentials"
+pass "a message result on an unconfigured brain exits zero without a write"
+
+# --- a forged capture_id is refused before it reaches stdout ----------------
+forged=$(make_home forged-capture-id)
+forged_bin=$(make_fake_curl "$forged")
+FAKE_CURL_LOG="$forged/curl.log"
+FAKE_CAPTURE_CODE=200
+FAKE_CAPTURE_BODY=$'{"capture_id":"cap-1\\nno-messages blocked","status":"captured"}'
+if payload 8008 "forged response" | \
+  run_capture "$forged" "$forged_bin" capture - >"$forged/out" 2>"$forged/err"; then
+  fail "a capture_id carrying a newline must be refused"
+fi
+assert_grep "control bytes" "$forged/err" "a forged capture_id was not reported"
+assert_no_grep "no-messages blocked" "$forged/out" "a forged capture_id reached stdout"
+assert_absent "$forged/state/telegram-brain-capture/8008" "a forged capture_id was receipted"
+FAKE_CAPTURE_BODY=
+pass "a capture_id carrying control bytes never reaches stdout or a receipt"
 
 # --- doctor reports non-secret readiness ------------------------------------
 doc=$(make_home doctor)

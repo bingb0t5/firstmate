@@ -22,7 +22,8 @@
 # For a `message` result it asks `fm-procevent-telegram.sh messages` for the
 # still-unhandled payloads, then takes the capture path.
 # A zero exit means every payload is captured, already captured, skipped as
-# group discussion while that flag is off, or that the result named no payloads.
+# group discussion while that flag is off, skipped because this home never
+# configured capture, or that the result named no payloads.
 # A failed brain write must stop before Telegram ack and before treating the
 # texts as interrupt.
 # doctor reports non-secret readiness.
@@ -57,6 +58,12 @@
 # Captain-chat identity for the group filter is read from:
 #   ~/.config/beanz/telegram.env     override FM_TELEGRAM_ENV_FILE
 #   TELEGRAM_CAPTAIN_CHAT_ID         required unless FM_TELEGRAM_CAPTAIN_CHAT_ID
+# A home with no credential file, and no captain chat id from either source, has
+# never configured capture: capture and from-result print
+# `capture-unconfigured brain-credentials` or `capture-unconfigured captain-chat`
+# and exit 0 without a brain write, so the Telegram result stays acknowledgeable.
+# A credential file that exists but is unusable is an operator fault, not an
+# unconfigured home, and still exits non-zero, as does any failed brain write.
 # Files are opened without following symlinks.
 # The brain token reaches curl only through stdin config and never appears in
 # argv, receipts, or printed output.
