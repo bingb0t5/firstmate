@@ -928,8 +928,8 @@ pr_list_records() {
   owner=${repo%%/*}
   name=${repo#*/}
   LAST_READ_CAUSE=
-  gh_api "${GQL_GUARD}elif (.data.repository.pullRequests.nodes | type) != \"array\" then error(\"no repository\") else ([.data.repository.pullRequests.nodes[] | {number, headRefOid: (.headRefOid // \"\"), isDraft, mergeable: (.mergeable // \"UNKNOWN\"), url: (.url // \"\"), title: (.title // \"\")}]) | tojson end" \
-    POST /graphql --field "query={ repository(owner:\"$owner\", name:\"$name\") { pullRequests(states:OPEN, first:$PR_LIMIT) { nodes { number mergeable isDraft title url headRefOid } } } }"
+  gh_api "${GQL_GUARD}elif (.data.repository.pullRequests.nodes | type) != \"array\" or (.data.repository.pullRequests.pageInfo.hasNextPage | type) != \"boolean\" then error(\"incomplete repository result\") else ({records: [.data.repository.pullRequests.nodes[] | {number, headRefOid: (.headRefOid // \"\"), isDraft, mergeable: (.mergeable // \"UNKNOWN\"), url: (.url // \"\"), title: (.title // \"\")}], hasNextPage: .data.repository.pullRequests.pageInfo.hasNextPage}) | tojson end" \
+    POST /graphql --field "query={ repository(owner:\"$owner\", name:\"$name\") { pullRequests(states:OPEN, first:$PR_LIMIT) { nodes { number mergeable isDraft title url headRefOid } pageInfo { hasNextPage } } } }"
 }
 
 # Mergeability, head SHA and draft flag for one pull request, used only to
@@ -1015,7 +1015,7 @@ format_finding() {
 }
 
 evaluate_repo() {
-  local repo=$1 owner_team=$2 records count=0 n i
+  local repo=$1 owner_team=$2 result records has_next n i
   local number head draft mergeable url title key state
   ATTEMPT_CAUSE=
   budget_exhausted && { ATTEMPT_CAUSE=budget; return 1; }
@@ -1024,11 +1024,12 @@ evaluate_repo() {
     ATTEMPT_CAUSE=${LAST_READ_CAUSE:-github}
     return 1
   fi
-  records=$GH_API_BODY
+  result=$GH_API_BODY
+  records=$(printf '%s' "$result" | jq -c '.records' 2>/dev/null) || { ATTEMPT_CAUSE=github; return 1; }
+  has_next=$(printf '%s' "$result" | jq -r '.hasNextPage' 2>/dev/null) || { ATTEMPT_CAUSE=github; return 1; }
   n=$(printf '%s' "$records" | jq 'length' 2>/dev/null) || { ATTEMPT_CAUSE=github; return 1; }
   i=0
   while [ "$i" -lt "$n" ]; do
-    count=$((count + 1))
     budget_exhausted && { ATTEMPT_CAUSE=budget; return 1; }
     number=$(printf '%s' "$records" | jq -r --argjson i "$i" '.[$i].number | tostring')
     head=$(printf '%s' "$records" | jq -r --argjson i "$i" '.[$i].headRefOid // ""')
@@ -1071,10 +1072,12 @@ evaluate_repo() {
     queue_item conflict "$key" "$(format_finding "$owner_team" "$repo" "$number" "$head" "$draft" "$url" "$title")" "$key"
   done
   budget_exhausted && { ATTEMPT_CAUSE=budget; return 1; }
-  mark_observed "repo:$repo"
-  if [ "$count" -lt "$PR_LIMIT" ]; then
-    SWEPT_REPOS="$SWEPT_REPOS $repo"
+  if [ "$has_next" = true ]; then
+    ATTEMPT_CAUSE=truncated
+    return 1
   fi
+  mark_observed "repo:$repo"
+  SWEPT_REPOS="$SWEPT_REPOS $repo"
   return 0
 }
 

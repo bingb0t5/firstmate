@@ -171,7 +171,7 @@ esac
 if [ "$mode" = list ]; then
   file="$fixture/pulls/${slug}.json"
   [ -f "$file" ] || printf '[]\n' > "$file"
-  jq -c "{data:{repository:{pullRequests:{nodes:(.[:$first])}}}}" "$file" > "$doc" || exit 1
+  jq -c "{data:{repository:{pullRequests:{nodes:(.[:$first]),pageInfo:{hasNextPage:(length > $first)}}}}}" "$file" > "$doc" || exit 1
 else
   file="$fixture/pull/${slug}-${number}.json"
   seqfile="$fixture/pull/${slug}-${number}.seq"
@@ -867,6 +867,60 @@ SH
   pass "one read per repository carries mergeability for every open pull request"
 }
 
+test_exact_limit_is_observed_as_complete() {
+  local home out i
+  home=$(make_home exact-limit)
+  i=1
+  while [ "$i" -le 3 ]; do
+    add_pr "$home" "$REPO_A" "$i" "$HEAD_ONE" false MERGEABLE "Clean $i"
+    i=$((i + 1))
+  done
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_PR_CONFLICT_PR_LIMIT=3 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  [ ! -s "$out" ] || fail "an exactly full complete page must be observed: $(cat "$out")"
+  pass "an exactly full GraphQL page is observed when pageInfo is complete"
+}
+
+test_conflict_beyond_limit_opens_and_recovers_coverage_gap() {
+  local home out i
+  home=$(make_home limit-overflow)
+  i=1
+  while [ "$i" -le 3 ]; do
+    add_pr "$home" "$REPO_A" "$i" "$HEAD_ONE" false MERGEABLE "Clean $i"
+    i=$((i + 1))
+  done
+  add_pr "$home" "$REPO_A" 4 "$HEAD_TWO" false CONFLICTING "Beyond page"
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_PR_CONFLICT_PR_LIMIT=3 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_A" \
+    "a repository with another page must be unobserved"
+  assert_contains "$(cat "$out")" "latest-cause=truncated" \
+    "a bounded open set must report incomplete coverage without blaming GitHub"
+  assert_not_contains "$(cat "$out")" "number=4" \
+    "a conflict beyond the bounded page must not be claimed as observed"
+
+  reset_repo "$home" "$REPO_A"
+  i=1
+  while [ "$i" -le 3 ]; do
+    add_pr "$home" "$REPO_A" "$i" "$HEAD_ONE" false MERGEABLE "Clean $i"
+    i=$((i + 1))
+  done
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_PR_LIMIT=3 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  [ ! -s "$out" ] || fail "complete-set recovery must close the gap silently: $(cat "$out")"
+
+  add_pr "$home" "$REPO_A" 4 "$HEAD_TWO" false CONFLICTING "Beyond page again"
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_PR_LIMIT=3 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_A" \
+    "a later incomplete set must open a new coverage gap"
+  pass "an incomplete bounded set opens, recovers, and reopens coverage"
+}
+
 # Only a pull request GitHub has not judged yet costs a further read.
 test_only_unknown_pull_requests_are_reread() {
   local home out calls
@@ -1373,6 +1427,8 @@ test_read_failure_inside_the_grace_stays_silent
 test_truncated_read_is_not_read_as_clean
 test_read_failure_does_not_prune_another_repository
 test_one_read_per_repository_carries_mergeability
+test_exact_limit_is_observed_as_complete
+test_conflict_beyond_limit_opens_and_recovers_coverage_gap
 test_only_unknown_pull_requests_are_reread
 test_unresolvable_repository_is_not_read_as_clean
 test_untrustworthy_slug_is_refused_not_swept
