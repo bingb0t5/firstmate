@@ -38,6 +38,7 @@
 #   task_id=                task id in the parent home
 #   target_kind=            secondmate | crew; absent legacy records derive
 #                           from current metadata, defaulting to secondmate
+#   task_incarnation=       spawn_gen from task metadata when available
 #   parent_home=            absolute parent FM_HOME
 #   parent_status=          absolute path of parent state/<task_id>.status
 #   parent_status_scan_signature=
@@ -268,7 +269,7 @@ fm_pending_reply_embed_corr() {  # <message> <corr_id> <result-var> [plain]
 fm_pending_reply_create() {  # <parent-home> <state-dir> <task_id> <request-text> [secondmate|crew]
   local parent_home=$1 state=$2 task_id=$3 request_text=$4
   local target_kind=${5:-secondmate}
-  local dir rec corr now summary status_path status_signature status_lines tmp
+  local dir rec corr now summary status_path status_signature status_lines task_incarnation tmp
   [ -n "$parent_home" ] && [ -n "$state" ] && [ -n "$task_id" ] || return 2
   case "$target_kind" in secondmate|crew) ;; *) return 2 ;; esac
   dir=$(fm_pending_reply_dir "$state")
@@ -297,9 +298,11 @@ fm_pending_reply_create() {  # <parent-home> <state-dir> <task_id> <request-text
   esac
   status_signature=
   status_lines=
+  task_incarnation=
   if [ "$target_kind" = crew ]; then
     status_signature=$(fm_pending_reply_file_signature "$status_path")
     status_lines=$(awk 'END { print NR + 0 }' "$status_path" 2>/dev/null || printf '0')
+    task_incarnation=$(fm_meta_get "$state/${task_id}.meta" spawn_gen)
   fi
   tmp="$dir/.${corr}.tmp.$$"
   cat > "$tmp" <<EOF
@@ -307,6 +310,7 @@ schema=$FM_PENDING_REPLY_SCHEMA
 corr_id=$corr
 task_id=$task_id
 target_kind=$target_kind
+task_incarnation=$task_incarnation
 parent_home=$parent_home
 parent_status=$status_path
 parent_status_scan_signature=$status_signature
@@ -583,8 +587,8 @@ fm_pending_reply_find_crew_terminal_line() {  # <state-dir> <record-path> <statu
 
 fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-file> <corr-id> <signature>
   local state=$1 rec=$2 status_file=$3 corr=$4 signature=$5
-  local task_id dir lock claim claim_path claim_identity status_identity current_identity claimed candidate candidate_corr candidate_created
-  local other other_task other_phase other_created other_corr baseline line line_no matched_line tmp
+  local task_id dir lock claim claim_path claim_identity claim_incarnation status_identity current_identity claimed candidate candidate_corr candidate_created candidate_incarnation
+  local other other_task other_phase other_created other_corr other_incarnation baseline line line_no matched_line tmp
   task_id=$(fm_pending_reply_get "$rec" task_id)
   case "$task_id" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
   dir=$(fm_pending_reply_dir "$state")
@@ -598,13 +602,20 @@ fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-fi
     fm_pending_reply_crew_line_is_terminal "$line" || continue
     claim_path="$dir/.crew-terminal-$task_id-$line_no"
     if [ -f "$claim_path" ] && [ ! -L "$claim_path" ]; then
-      claim_identity=$(fm_pending_reply_get "$claim_path" status_identity)
-      if [ -z "$claim_identity" ]; then
-        claim_identity=$(fm_pending_reply_signature_identity \
-          "$(fm_pending_reply_get "$claim_path" signature)")
-        current_identity=$(fm_pending_reply_signature_identity "$signature")
+      claim_incarnation=$(fm_pending_reply_get "$claim_path" task_incarnation)
+      candidate_incarnation=$(fm_pending_reply_get "$rec" task_incarnation)
+      if [ -n "$claim_incarnation" ] && [ -n "$candidate_incarnation" ]; then
+        claim_identity=$claim_incarnation
+        current_identity=$candidate_incarnation
       else
-        current_identity=$status_identity
+        claim_identity=$(fm_pending_reply_get "$claim_path" status_identity)
+        if [ -z "$claim_identity" ]; then
+          claim_identity=$(fm_pending_reply_signature_identity \
+            "$(fm_pending_reply_get "$claim_path" signature)")
+          current_identity=$(fm_pending_reply_signature_identity "$signature")
+        else
+          current_identity=$status_identity
+        fi
       fi
       if [ -n "$claim_identity" ] && [ "$claim_identity" = "$current_identity" ]; then
         [ "$(fm_pending_reply_get "$claim_path" corr_id)" = "$corr" ] && matched_line=$line
@@ -619,6 +630,7 @@ fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-fi
     candidate=''
     candidate_corr=''
     candidate_created=''
+    candidate_incarnation=''
     for other in "$dir"/*; do
       [ -f "$other" ] || continue
       other_task=$(fm_pending_reply_get "$other" task_id)
@@ -633,6 +645,7 @@ fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-fi
       other_created=$(fm_pending_reply_get "$other" created_epoch)
       case "$other_created" in ''|*[!0-9]*) continue ;; esac
       other_corr=$(fm_pending_reply_get "$other" corr_id)
+      other_incarnation=$(fm_pending_reply_get "$other" task_incarnation)
       printf '%s' "$other_corr" | grep -Eq '^[A-Fa-f0-9]{16}$' || continue
       claimed=0
       for claim in "$dir"/.crew-terminal-"$task_id"-*; do
@@ -649,12 +662,13 @@ fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-fi
         candidate=$other
         candidate_corr=$other_corr
         candidate_created=$other_created
+        candidate_incarnation=$other_incarnation
       fi
     done
     [ -n "$candidate_corr" ] || continue
     tmp="$dir/.crew-terminal-$task_id-$line_no.tmp.$$"
-    if ! printf 'signature=%s\nstatus_identity=%s\ncorr_id=%s\n' \
-      "$signature" "$status_identity" "$candidate_corr" > "$tmp" \
+    if ! printf 'signature=%s\nstatus_identity=%s\ntask_incarnation=%s\ncorr_id=%s\n' \
+      "$signature" "$status_identity" "$candidate_incarnation" "$candidate_corr" > "$tmp" \
       || ! chmod 600 "$tmp" 2>/dev/null \
       || ! mv -f "$tmp" "$claim_path"; then
       rm -f "$tmp"

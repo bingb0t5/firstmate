@@ -945,13 +945,13 @@ test_crew_terminal_resolves_only_oldest_obligation() {
 }
 
 test_reused_crew_task_does_not_inherit_terminal_claims() {
-  local dir fb log home rc first second listed
+  local dir fb log home rc first second listed claim
   dir="$TMP_ROOT/crew-task-reuse"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_parent crew-task-reuse)
   fm_write_meta "$home/state/build.meta" \
     "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
-    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off" "spawn_gen=first-generation"
   run_send "$fb" "$home" "$log" build "finish the first incarnation"; rc=$?
   expect_code 0 "$rc" "first task incarnation send should succeed"
   first=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
@@ -962,11 +962,18 @@ test_reused_crew_task_does_not_inherit_terminal_claims() {
   rm -f "$home/state/build.meta" "$home/state/build.status"
   fm_write_meta "$home/state/build.meta" \
     "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
-    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off" "spawn_gen=second-generation"
   run_send "$fb" "$home" "$log" build "finish the reused incarnation"; rc=$?
   expect_code 0 "$rc" "reused task incarnation send should succeed"
   second=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
   printf 'done: reused incarnation complete\n' > "$home/state/build.status"
+  # Model the filesystem collision from the regression: the recreated status
+  # file has the same identity and signature as the retired incarnation.
+  claim="$home/state/pending-replies/.crew-terminal-build-1"
+  fm_pending_reply_set "$claim" status_identity \
+    "$(fm_pending_reply_file_identity "$home/state/build.status")"
+  fm_pending_reply_set "$claim" signature \
+    "$(fm_pending_reply_file_signature "$home/state/build.status")"
   fm_pending_reply_try_resolve "$home/state" "$second" \
     || fail "reused task must not inherit the retired incarnation's terminal claim"
   listed=$(list_open "$home")
