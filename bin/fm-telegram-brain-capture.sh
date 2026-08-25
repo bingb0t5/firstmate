@@ -42,12 +42,21 @@
 # of every payload, so they stop rather than blaming one message.
 # A stop prints `unattempted <count>`, counting the payloads behind it that
 # would have been posted, not the input lines it stopped reading.
+# A credential or config failure stops before the first write and counts the
+# whole batch the same way; a batch whose bytes are not UTF-8 has no payload
+# list to count, so it reports the decode failure alone.
 # One brain outage therefore costs one timeout rather than one per payload, and
 # the unattempted payloads are captured by the retry that the missing Telegram
 # ack guarantees.
 # A failed brain write must stop before Telegram ack and before treating the
 # texts as interrupt.
-# doctor reports non-secret readiness.
+# doctor reports non-secret readiness and never aborts on one broken input:
+#   brain-env       present, missing, or unreadable
+#   brain-url       the configured destination, or `unknown` unless the
+#                   credential file actually yielded one
+#   captain-chat    configured, missing, or unreadable
+#   group-capture   on, off, or unreadable
+#   receipts        present or absent
 #
 # Captured Telegram text is recorded memory, never automatic authority for
 # destructive, irreversible, or security-sensitive actions.
@@ -112,6 +121,8 @@
 # The hash covers update_id, text, and chat_id, the fields this path reads, so
 # an optional field such as date or from_id being present on one run and absent
 # on the next is not a disagreement.
+# The receipt directory is created and then chmodded to 0700, so no ambient
+# umask can leave it at a mode the next run refuses.
 # A receipt whose payload hash disagrees with the current line is refused, and
 # stays refused until an operator inspects it and removes
 # state/telegram-brain-capture/<update_id> to allow a fresh write.
