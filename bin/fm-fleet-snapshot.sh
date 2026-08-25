@@ -645,8 +645,8 @@ task_json_lines() {
   done | jq -s 'sort_by(.id)'
 }
 
-attention_json() {  # <backlog-json> <tasks-json>
-  jq -n --argjson backlog "$1" --argjson tasks "$2" '
+attention_json() {  # <backlog-json> <tasks-json> <inventory-valid>
+  jq -n --argjson backlog "$1" --argjson tasks "$2" --argjson inventory_valid "$3" '
     def attention_class($task):
       ($task.current_state.state // "unknown") as $state
       | ($task.current_state.source // "none") as $source
@@ -670,7 +670,7 @@ attention_json() {  # <backlog-json> <tasks-json>
        | {id,kind,state:"in_flight",source:"backlog",class:"unknown_reservation",counts:true} ]) as $reservations
     | ($task_rows + $reservations) as $all
     | ([ $all[] | select(.counts == true) ]) as $workers
-    | {limit:4,count:($workers | length),remaining:(4 - ($workers | length)),valid:true,
+    | {limit:4,count:($workers | length),remaining:(4 - ($workers | length)),valid:$inventory_valid,
        workers:$workers,reservations:$reservations,
        reported:([ $all[] | select(.counts != true) ])}
   '
@@ -1458,7 +1458,24 @@ scout_report_lines() {
 }
 
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
-TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
+INVENTORY_VALID=true
+if [ ! -d "$STATE" ] || [ ! -r "$STATE" ] || [ ! -x "$STATE" ] ||
+   ! find "$STATE" -maxdepth 1 -name '*.meta' -print >/dev/null 2>&1; then
+  INVENTORY_VALID=false
+else
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || continue
+    if [ ! -f "$meta" ] || [ ! -r "$meta" ]; then
+      INVENTORY_VALID=false
+      break
+    fi
+  done
+fi
+if [ "$INVENTORY_VALID" = true ]; then
+  TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
+else
+  TASKS_JSON='[]'
+fi
 
 if [ "$OUTPUT_MODE" = secondmate-home-summary ]; then
   secondmate_home_summary_json "$BACKLOG_JSON" "$TASKS_JSON" \
@@ -1466,7 +1483,7 @@ if [ "$OUTPUT_MODE" = secondmate-home-summary ]; then
   exit 0
 fi
 
-ATTENTION_JSON=$(attention_json "$BACKLOG_JSON" "$TASKS_JSON") \
+ATTENTION_JSON=$(attention_json "$BACKLOG_JSON" "$TASKS_JSON" "$INVENTORY_VALID") \
   || { echo "fm-fleet-snapshot: local attention summary failed" >&2; exit 1; }
 PULL_JSON=$(pull_json "$BACKLOG_JSON") \
   || { echo "fm-fleet-snapshot: pull summary failed" >&2; exit 1; }

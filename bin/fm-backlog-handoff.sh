@@ -610,21 +610,21 @@ remove_interrupted_source_duplicates() { # <outbox> <keys...>
   done
 }
 
-validate_handoff_priorities() { # <queued-key>...
+validate_handoff_priorities() { # <backlog-path> <queued-key>...
+  local backlog=$1 key priority
+  shift
   [ "$#" -gt 0 ] || return 0
-  local snapshot key priority config projects
-  config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
-  projects=${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}
-  snapshot=$(FM_ROOT_OVERRIDE="$FM_ROOT" FM_HOME="$FM_HOME" \
-    FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
-    FM_CONFIG_OVERRIDE="$config" FM_PROJECTS_OVERRIDE="$projects" \
-    "$SCRIPT_DIR/fm-fleet-snapshot.sh" --local-json 2>/dev/null) || {
-    echo "error: local pull facts could not be read; refusing handoff before any backlog or receiver mutation" >&2
-    return 1
-  }
   for key in "$@"; do
-    priority=$(printf '%s' "$snapshot" | jq -r --arg id "$key" \
-      '[.pull.rows[]? | select(.id == $id) | .priority][0] // ""')
+    priority=$(awk -v key="$key" '
+      /^- \[[ x]\] / {
+        line=$0; id=$0
+        sub(/^- \[[ x]\] +/, "", id); sub(/[ \t].*/, "", id)
+        if (id == key) {
+          if (match(line, /\(priority: [0-4]\)/)) print substr(line, RSTART + 11, 1)
+          exit
+        }
+      }
+    ' "$backlog")
     case "$priority" in
       0|1|2|3|4) ;;
       *)
@@ -684,7 +684,8 @@ remote_handoff() { # <secondmate-id> <keys...>
     echo "       nothing new was staged." >&2
     return 1
   fi
-  validate_handoff_priorities "${to_move[@]}" || return 1
+  validate_handoff_priorities "$MAIN_BACKLOG" "${to_move[@]}" || return 1
+  validate_handoff_priorities "$outbox" "${already[@]}" || return 1
   for key in "${to_move[@]}"; do
     while IFS= read -r line; do
       printf 'error: refusing to hand off %s: non-2-space continuation line: %s\n' "$key" "$line" >&2
@@ -832,7 +833,11 @@ if [ "$FAILED" -ne 0 ]; then
   echo "       nothing was moved." >&2
   exit 1
 fi
-validate_handoff_priorities "${TO_MOVE[@]}" || {
+validate_handoff_priorities "$MAIN_BACKLOG" "${TO_MOVE[@]}" || {
+  echo "       nothing was moved." >&2
+  exit 1
+}
+validate_handoff_priorities "$SUB_BACKLOG" "${ALREADY[@]}" || {
   echo "       nothing was moved." >&2
   exit 1
 }

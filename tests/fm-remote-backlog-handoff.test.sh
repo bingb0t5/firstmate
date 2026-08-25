@@ -238,6 +238,7 @@ if ! grep -F ios-a "$REMOTE/data/backlog.md" >/dev/null; then
   fail "remote atomic receipt did not deliver ios-a before the dropped acknowledgement"
 fi
 assert_grep 'ios-b' "$REMOTE/data/backlog.md" "remote atomic receipt did not deliver ios-b before the dropped acknowledgement"
+assert_grep 'ios-a - first iOS task (repo: alpha) (priority: 2)' "$REMOTE/data/backlog.md" "remote receipt did not preserve structured priority"
 [ "$(cat "$SSH_COUNT")" -eq 2 ] || fail "transport retried an ambiguously completed command"
 pass "ambiguous receipt leaves one durable outbox and no duplicate dispatchable source"
 

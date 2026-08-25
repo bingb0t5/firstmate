@@ -73,6 +73,67 @@ test_snapshot_attention_and_local_mode() {
   pass "local snapshot reports attention without cross-home aggregation"
 }
 
+test_unreadable_inventory_fails_closed() {
+  local home out rc=0
+  home=$(make_home unreadable)
+  mkfifo "$home/state/broken.meta"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
+  printf '%s' "$out" | jq -e '.attention.valid == false' >/dev/null \
+    || fail "incomplete worker inventory was reported valid: $out"
+  mkdir -p "$home/data/direct" "$home/data/batch"
+  printf '# brief\n' > "$home/data/direct/brief.md"
+  printf '# brief\n' > "$home/data/batch/brief.md"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-spawn.sh" direct "$ROOT" \
+    --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "direct spawn admitted an incomplete worker inventory"
+  assert_contains "$out" 'attention facts are invalid' "direct spawn did not fail closed on inventory"
+  rc=0
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-spawn.sh" \
+    "batch=$ROOT" --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "batch spawn admitted an incomplete worker inventory"
+  assert_contains "$out" 'attention facts are invalid' "batch child bypassed the inventory guard"
+  pass "snapshot, direct spawn, and batch spawn fail closed on incomplete inventory"
+}
+
+test_same_id_reservation_retry() {
+  local home out rc=0
+  home=$(make_home retry)
+  write_reservations "$home" 3
+  mkdir -p "$home/data/retry-task"
+  printf '# brief\n' > "$home/data/retry-task/brief.md"
+  add_task "$home" retry-task 1
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start retry-task \
+    "$home/missing-project" --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "fixture spawn unexpectedly succeeded"
+  assert_grep 'retry-task' "$home/data/backlog.md" "failed spawn did not retain its reservation"
+  rc=0
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start retry-task \
+    "$home/missing-project" --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "retry fixture spawn unexpectedly succeeded"
+  assert_contains "$out" 'resuming unknown reservation retry-task' "same-id retry was refused as a fifth worker"
+  pass "same-id retries resume their visible reservation"
+}
+
+test_two_concurrent_starts_at_three() {
+  local home pid_a pid_b inflight
+  home=$(make_home concurrent)
+  write_reservations "$home" 3
+  for id in a-task b-task; do
+    mkdir -p "$home/data/$id"
+    printf '# brief\n' > "$home/data/$id/brief.md"
+    add_task "$home" "$id" 1
+  done
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start a-task \
+    "$home/missing-project" --mode no-mistakes --yolo off --harness pi >"$home/a.out" 2>&1 & pid_a=$!
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start b-task \
+    "$home/missing-project" --mode no-mistakes --yolo off --harness pi >"$home/b.out" 2>&1 & pid_b=$!
+  wait "$pid_a" 2>/dev/null || true
+  wait "$pid_b" 2>/dev/null || true
+  inflight=$(awk '/^## In flight/{inside=1;next}/^## /{inside=0} inside && /^- \[ \] (a-task|b-task) /{n++} END{print n+0}' "$home/data/backlog.md")
+  [ "$inflight" -eq 1 ] || fail "concurrent starts created $inflight reservations instead of one"
+  pass "two concurrent starts at count three reserve only one slot"
+}
+
 test_nested_secondmate_refusals() {
   local home peer out rc=0
   home=$(make_home nested)
@@ -94,6 +155,9 @@ test_nested_secondmate_refusals() {
 test_ready_priority_and_reasons
 test_start_refuses_at_four_before_mutation
 test_snapshot_attention_and_local_mode
+test_unreadable_inventory_fails_closed
+test_same_id_reservation_retry
+test_two_concurrent_starts_at_three
 test_nested_secondmate_refusals
 
 echo "ALL TESTS PASSED"
