@@ -1,0 +1,21 @@
+Firstmate idle-manager classification - end-to-end evidence
+Target: 587e85e1765e2116ff59f2aafe6ab4546a3f6c0f
+
+Executed public watcher/supervision test interfaces:
+  bash tests/fm-watch-triage.test.sh
+  bash tests/fm-wake-queue.test.sh
+  bash tests/fm-secondmate-safety.test.sh
+
+Observed product behavior:
+  PASS: idle kind=secondmate manager with busy child crew is not stale
+  PASS: idle manager whose own log says working is absorbed while its child crew runs
+  PASS: secondmate wake-loop stall stays quiet when manager supervises active child work
+
+Retained true escalation behavior:
+  PASS: unanswered captain hold still re-surfaces while the manager's children run
+  PASS: secondmate wake-loop stall still fires when the manager has unread instructions
+  PASS: secondmate wake-loop stall still fires when the manager holds an unanswered decision
+  PASS: secondmate wake-loop stall still fires when a later line masks a captain hold
+  PASS: classifier does not let active child work mask manager failed, parked, blocked, paused, open-decision, or captain-held state
+
+All three commands exited 0.
