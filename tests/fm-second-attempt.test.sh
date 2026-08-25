@@ -266,7 +266,8 @@ test_nm_third_fix_round_marker_refuses_through_fm_control() {
 }
 
 # The no-mistakes side owns the marker payload, so a `touch`-style marker with
-# no parseable round must still refuse rather than standing the gate down.
+# no parseable round must still refuse rather than standing the gate down - and
+# must report what it observed instead of asserting a round it never read.
 test_nm_third_fix_round_marker_with_no_payload_refuses() {
   local dir out rc
   dir=$(new_case nm-round-empty sa7)
@@ -274,9 +275,30 @@ test_nm_third_fix_round_marker_with_no_payload_refuses() {
   : > "$dir/home/state/sa7.nm-third-fix-round"
   out=$(run_control "$dir" sa7 relaunch --note "try again"); rc=$?
   expect_code 1 "$rc" "an unparseable third fix-round marker should refuse"
-  assert_contains "$out" "fix round 3" "empty marker refusal did not name the third fix round"
+  assert_contains "$out" "$dir/home/state/sa7.nm-third-fix-round" \
+    "unreadable marker refusal did not name the marker it read"
+  assert_contains "$out" "could not be read" \
+    "unreadable marker refusal did not say the round was unreadable"
+  assert_not_contains "$out" "reached no-mistakes fix round 3" \
+    "an unreadable marker was reported as a round the gate never read"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "marker refusal stopped the running agent"
-  pass "fm-control: a third fix-round marker with no parseable round still refuses"
+  pass "fm-control: an unreadable third fix-round marker refuses without claiming a round"
+}
+
+# A payload naming a round below the threshold is read, not guessed at, so it
+# must not be reported as the unreadable case either.
+test_nm_non_numeric_marker_payload_refuses_without_claiming_a_round() {
+  local dir out rc
+  dir=$(new_case nm-round-json sa9)
+  add_ship_task "$dir" sa9
+  printf '{"round": 1}\n' > "$dir/home/state/sa9.nm-third-fix-round"
+  out=$(run_control "$dir" sa9 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "a non-numeric third fix-round marker should refuse"
+  assert_contains "$out" "could not be read" \
+    "non-numeric marker refusal did not say the round was unreadable"
+  assert_not_contains "$out" "reached no-mistakes fix round 3" \
+    "a non-numeric marker was reported as a round the gate never read"
+  pass "fm-control: a non-numeric fix-round payload refuses without claiming a round"
 }
 
 # A marker recording a round below the threshold is the one payload that stands
@@ -289,6 +311,7 @@ test_nm_first_fix_round_marker_does_not_claim_the_third_round() {
   out=$(run_control "$dir" sa8 relaunch --note "try again"); rc=$?
   expect_code 1 "$rc" "the relaunch still refuses without a spec"
   assert_not_contains "$out" "fix round 3" "a round-1 marker was reported as the third fix round"
+  assert_not_contains "$out" "could not be read" "a readable round-1 marker was reported as unreadable"
   assert_contains "$out" "relaunch of ship task sa8" "round-1 marker did not fall through to the relaunch reason"
   pass "fm-control: a marker below round 3 does not claim the third-fix-round reason"
 }
@@ -326,6 +349,7 @@ test_spawn_relaunch_refuses_without_a_spec
 test_secondmate_relaunch_is_unaffected_by_the_gate
 test_nm_third_fix_round_marker_refuses_through_fm_control
 test_nm_third_fix_round_marker_with_no_payload_refuses
+test_nm_non_numeric_marker_payload_refuses_without_claiming_a_round
 test_nm_first_fix_round_marker_does_not_claim_the_third_round
 test_nm_third_fix_round_marker_refuses_without_a_spec
 echo "# all fm-second-attempt tests passed"
