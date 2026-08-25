@@ -74,12 +74,17 @@ test_snapshot_attention_and_local_mode() {
 }
 
 test_unreadable_inventory_fails_closed() {
-  local home out rc=0
+  local home fifo_home out rc=0
   home=$(make_home unreadable)
-  mkfifo "$home/state/broken.meta"
+  ln -s "$home/state/missing-target" "$home/state/broken.meta"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
   printf '%s' "$out" | jq -e '.attention.valid == false' >/dev/null \
-    || fail "incomplete worker inventory was reported valid: $out"
+    || fail "dangling worker metadata was reported as a complete inventory: $out"
+  fifo_home=$(make_home unreadable-fifo)
+  mkfifo "$fifo_home/state/broken.meta"
+  out=$(FM_HOME="$fifo_home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
+  printf '%s' "$out" | jq -e '.attention.valid == false' >/dev/null \
+    || fail "non-regular worker metadata was reported as a complete inventory: $out"
   mkdir -p "$home/data/direct" "$home/data/batch"
   printf '# brief\n' > "$home/data/direct/brief.md"
   printf '# brief\n' > "$home/data/batch/brief.md"
@@ -93,6 +98,27 @@ test_unreadable_inventory_fails_closed() {
   [ "$rc" -ne 0 ] || fail "batch spawn admitted an incomplete worker inventory"
   assert_contains "$out" 'attention facts are invalid' "batch child bypassed the inventory guard"
   pass "snapshot, direct spawn, and batch spawn fail closed on incomplete inventory"
+}
+
+test_spawn_backstops_refuse_at_four() {
+  local home out rc=0
+  home=$(make_home spawn-cap)
+  write_reservations "$home" 4
+  mkdir -p "$home/data/direct-cap" "$home/data/batch-cap"
+  printf '# brief\n' > "$home/data/direct-cap/brief.md"
+  printf '# brief\n' > "$home/data/batch-cap/brief.md"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-spawn.sh" direct-cap "$ROOT" \
+    --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "direct fresh spawn admitted a fifth worker"
+  assert_contains "$out" 'attention limit reached' "direct fresh spawn did not enforce the hard-four backstop"
+  assert_absent "$home/state/direct-cap.meta" "direct cap refusal published task metadata"
+  rc=0
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-spawn.sh" \
+    "batch-cap=$ROOT" --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "batch fresh spawn admitted a fifth worker"
+  assert_contains "$out" 'attention limit reached' "batch fresh spawn did not enforce the hard-four backstop"
+  assert_absent "$home/state/batch-cap.meta" "batch cap refusal published task metadata"
+  pass "direct and batch fresh spawn enforce the hard-four backstop"
 }
 
 test_same_id_reservation_retry() {
@@ -115,7 +141,7 @@ test_same_id_reservation_retry() {
 }
 
 test_two_concurrent_starts_at_three() {
-  local home pid_a pid_b inflight
+  local home fakebin real_tasks pid_a pid_b inflight i
   home=$(make_home concurrent)
   write_reservations "$home" 3
   for id in a-task b-task; do
@@ -123,12 +149,31 @@ test_two_concurrent_starts_at_three() {
     printf '# brief\n' > "$home/data/$id/brief.md"
     add_task "$home" "$id" 1
   done
-  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start a-task \
+  fakebin=$(fm_fakebin "$home/fake")
+  real_tasks=$(command -v tasks-axi)
+  cat > "$fakebin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = start ] && [ "${2:-}" = a-task ]; then
+  "$FM_REAL_TASKS_AXI" "$@" || exit $?
+  touch "$FM_CONCURRENT_ENTERED"
+  while [ ! -f "$FM_CONCURRENT_RELEASE" ]; do sleep 0.01; done
+  exit 0
+fi
+exec "$FM_REAL_TASKS_AXI" "$@"
+SH
+  chmod +x "$fakebin/tasks-axi"
+  PATH="$fakebin:$PATH" FM_REAL_TASKS_AXI="$real_tasks" \
+    FM_CONCURRENT_ENTERED="$home/a.entered" FM_CONCURRENT_RELEASE="$home/a.release" \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start a-task \
     "$home/missing-project" --mode no-mistakes --yolo off --harness pi >"$home/a.out" 2>&1 & pid_a=$!
+  i=0
+  while [ ! -f "$home/a.entered" ] && [ "$i" -lt 500 ]; do sleep 0.01; i=$((i + 1)); done
+  [ -f "$home/a.entered" ] || fail "first concurrent start did not reserve while holding the task-set lock"
   FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start b-task \
     "$home/missing-project" --mode no-mistakes --yolo off --harness pi >"$home/b.out" 2>&1 & pid_b=$!
-  wait "$pid_a" 2>/dev/null || true
   wait "$pid_b" 2>/dev/null || true
+  touch "$home/a.release"
+  wait "$pid_a" 2>/dev/null || true
   inflight=$(awk '/^## In flight/{inside=1;next}/^## /{inside=0} inside && /^- \[ \] (a-task|b-task) /{n++} END{print n+0}' "$home/data/backlog.md")
   [ "$inflight" -eq 1 ] || fail "concurrent starts created $inflight reservations instead of one"
   pass "two concurrent starts at count three reserve only one slot"
@@ -156,6 +201,7 @@ test_ready_priority_and_reasons
 test_start_refuses_at_four_before_mutation
 test_snapshot_attention_and_local_mode
 test_unreadable_inventory_fails_closed
+test_spawn_backstops_refuse_at_four
 test_same_id_reservation_retry
 test_two_concurrent_starts_at_three
 test_nested_secondmate_refusals
