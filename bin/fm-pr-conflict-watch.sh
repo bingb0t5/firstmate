@@ -291,8 +291,11 @@ firstmate_repo_slug() {
   fm_repo_slug "$url"
 }
 
+# A registry that cannot be read enumerates nothing, which reads exactly like a
+# home that registered no projects. The difference matters to record pruning, so
+# the unreadable case is reported as a failure rather than as an empty list.
 project_names() {
-  [ -f "$DATA/projects.md" ] || return 0
+  [ -r "$DATA/projects.md" ] || return 1
   awk '$1 == "-" && $2 != "" { print $2 }' "$DATA/projects.md"
 }
 
@@ -364,13 +367,16 @@ owner_for_project() {
 # neither the origin remotes nor the registry are re-read per repository while
 # the same budget is paying for GitHub probes.
 discover_repos() {
-  local project slug owner
+  local project slug owner names
   DISCOVERED_REPOS=
   REPO_OWNER_MAP=
   DISCOVERY_COMPLETE=1
   load_project_owners
   FIRSTMATE_SLUG=$(firstmate_repo_slug 2>/dev/null) || FIRSTMATE_SLUG=
   [ -n "$FIRSTMATE_SLUG" ] || DISCOVERY_COMPLETE=0
+  # An unread registry leaves every project repository unnamed, so the firstmate
+  # origin still resolving does not make this discovery complete.
+  names=$(project_names 2>/dev/null) || { names=; DISCOVERY_COMPLETE=0; }
   while IFS= read -r project; do
     [ -n "$project" ] || continue
     # A project whose clone or origin cannot be read names no slug, so the sweep
@@ -389,7 +395,9 @@ discover_repos() {
     DISCOVERED_REPOS="$DISCOVERED_REPOS $slug"
     REPO_OWNER_MAP="$REPO_OWNER_MAP$slug $owner
 "
-  done < <(project_names)
+  done <<EOF
+$names
+EOF
   if [ -n "$FIRSTMATE_SLUG" ]; then
     case " $DISCOVERED_REPOS " in
       *" $FIRSTMATE_SLUG "*) ;;
@@ -490,12 +498,13 @@ record_remove_key() {
 # that page carried; a repository the sweep did not finish keeps all of its
 # keys, because absence there means unread rather than resolved. Keys for
 # repositories this fleet no longer works in are dropped only when discovery
-# resolved every project it enumerated and the sweep then reached every
-# repository discovery named. A discovery that skipped a project whose clone or
-# origin could not be read - including the degenerate case where it resolved
-# nothing at all - left behind an unread repository it cannot even name, so
-# absence from its repository set is a failed read rather than proof the fleet
-# stopped working in those repositories.
+# read the project registry, resolved every project it enumerated, and the sweep
+# then reached every repository discovery named. A discovery that could not read
+# the registry, or that skipped a project whose clone or origin could not be
+# read - including the degenerate case where it resolved nothing at all - left
+# behind an unread repository it cannot even name, so absence from its
+# repository set is a failed read rather than proof the fleet stopped working in
+# those repositories.
 seen_key() {
   local key=$1
   case ";$SEEN_KEYS;" in

@@ -387,6 +387,31 @@ test_partial_discovery_keeps_the_record() {
   pass "a partial discovery sweep does not erase the unread repository's record"
 }
 
+# A registry that cannot be read this sweep enumerates no projects, which is
+# indistinguishable from a home that registered none. The firstmate origin still
+# resolving does not make that a complete discovery: every project repository
+# went unread, so pruning their keys would re-wake each unchanged conflict as
+# soon as the registry returned.
+test_unreadable_registry_keeps_the_record() {
+  local home out
+  home=$(make_home discovery-registry-gone)
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken A\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "repo=$REPO_A" "first poll should wake for alpha"
+  # The project registry goes away while the firstmate checkout keeps resolving
+  # its origin, exactly as a transient unreadable data directory would leave it.
+  mv "$home/data/projects.md" "$home/data/projects.md.away"
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "a sweep with no readable registry must stay silent: $(cat "$out")"
+  mv "$home/data/projects.md.away" "$home/data/projects.md"
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "the unchanged alpha conflict must not wake again after the registry returns: $(cat "$out")"
+  pass "a sweep with an unreadable project registry does not erase the record"
+}
+
 # The other side of the same rule: when discovery resolved every project it
 # enumerated, a repository missing from the result is one this home genuinely
 # stopped working in, and its keys are dropped so the record stays the size of
@@ -489,6 +514,7 @@ test_conflicts_past_the_line_cap_wake_on_a_later_sweep
 test_resolved_conflicts_leave_the_record
 test_empty_discovery_keeps_the_record
 test_partial_discovery_keeps_the_record
+test_unreadable_registry_keeps_the_record
 test_deregistered_project_leaves_the_record
 test_unknown_rereads_stop_at_the_sweep_deadline
 test_clean_fleet_is_silent
