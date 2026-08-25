@@ -34,7 +34,7 @@ The remote comparison fails closed when the credential is missing or rejected, a
    Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
 7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
    Before staging, replace any legacy `Intent`, `What Changed`, `Risk Assessment`, or `Testing` description with every completed section from [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
-   Repeat that check after generated updates and later description edits.
+   Repeat that check before every branch synchronization and after later description edits.
 
 See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/start-here/quick-start/) for the full first-run walkthrough.
 
