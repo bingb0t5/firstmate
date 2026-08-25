@@ -58,6 +58,10 @@
 #   already filled and to run the exemption gate. FM_TASK is refused on --scout and
 #   --secondmate scaffolds: they are outside the Sol exemption contract, and a
 #   silently dropped task body would be believed recorded.
+#   A filled task body is also refused when it forges a scaffold-owned
+#   machine-readable line ("Delivery contract:" or "Sol exemption:"): those lines
+#   are read back by bin/fm-spawn.sh, and a forged one above the generated line
+#   would win.
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
 # --mode is refused on scout and secondmate scaffolds: a scout's deliverable is a
 # report rather than a merge, and a charter is not a delivery contract.
@@ -208,33 +212,48 @@ fm_brief_wait_is_bounded() {
 }
 
 # One acceptance-command line, and every wait mention bounded with an escape.
-# Prints each missing requirement on stdout; returns 0 only when the text qualifies.
-fm_brief_sol_exemption_errors() {
+# One walk classifies every line, so the validator and the auditable evidence block
+# can never disagree about what counts as evidence. Fills FM_BRIEF_SOL_ERRORS and
+# FM_BRIEF_SOL_EVIDENCE; returns 0 only when the text qualifies.
+fm_brief_sol_line_kind() {
+  FM_BRIEF_SOL_KIND=
+  case "$1" in
+    'Acceptance command: '*) FM_BRIEF_SOL_KIND=acceptance ;;
+    Wait:*) FM_BRIEF_SOL_KIND='wait' ;;
+  esac
+}
+
+# Scaffold-owned machine-readable lines. A filled task body that forges one would
+# be read back by bin/fm-spawn.sh ahead of the line this scaffold actually wrote.
+FM_BRIEF_RESERVED_PREFIXES=('Delivery contract:' 'Sol exemption:')
+
+fm_brief_sol_scan() {
   local text=$1
-  local errors=() acc_lines acc_count line prose saw_unbounded=0
-  # shellcheck disable=SC2016 # Backticks in the grep pattern are literal evidence syntax.
-  acc_lines=$(printf '%s\n' "$text" | grep -E '^Acceptance command: `[^`]+`' || true)
-  acc_count=0
-  if [ -n "$acc_lines" ]; then
-    acc_count=$(printf '%s\n' "$acc_lines" | grep -c . || true)
-  fi
-  if [ "$acc_count" -ne 1 ]; then
-    # shellcheck disable=SC2016 # Backticks in the message document the required syntax.
-    errors+=('missing exactly one Acceptance command: `...` line')
-  fi
+  local line prose prefix acc_count=0 saw_unbounded=0
+  FM_BRIEF_SOL_ERRORS=()
+  FM_BRIEF_SOL_EVIDENCE=()
   while IFS= read -r line || [ -n "$line" ]; do
     [ -z "$line" ] && continue
-    case "$line" in
-      'Acceptance command: '*)
+    for prefix in "${FM_BRIEF_RESERVED_PREFIXES[@]}"; do
+      case "$line" in
+        "$prefix"*)
+          FM_BRIEF_SOL_ERRORS+=("task body must not contain a scaffold-owned '$prefix' line")
+          ;;
+      esac
+    done
+    fm_brief_sol_line_kind "$line"
+    case "$FM_BRIEF_SOL_KIND" in
+      acceptance)
         case "$line" in
-          Acceptance\ command:\ \`*) ;;
-          *) errors+=('Acceptance command must use backticks around the command') ;;
+          Acceptance\ command:\ \`?*\`*) acc_count=$((acc_count + 1)) ;;
+          *) FM_BRIEF_SOL_ERRORS+=('Acceptance command must use backticks around the command') ;;
         esac
+        FM_BRIEF_SOL_EVIDENCE+=("$line")
         ;;
-      Wait:*)
-        if ! fm_brief_wait_is_bounded "$line"; then
-          errors+=('Wait: lines must include non-empty bound=... and escape=... values')
-        fi
+      wait)
+        fm_brief_wait_is_bounded "$line" \
+          || FM_BRIEF_SOL_ERRORS+=('Wait: lines must include non-empty bound=... and escape=... values')
+        FM_BRIEF_SOL_EVIDENCE+=("$line")
         ;;
       *)
         # Backticked spans are literal code, not prose: `wait-for-ci.sh` names a
@@ -243,7 +262,7 @@ fm_brief_sol_exemption_errors() {
         prose=$(printf '%s' "$line" | sed 's/`[^`]*`//g')
         if [ "$saw_unbounded" -eq 0 ] \
            && printf '%s\n' "$prose" | grep -qiE '(^|[^a-z])a?wait(s|ed|ing)?([^a-z]|$)'; then
-          errors+=('unbounded wait mention requires a Wait: line with bound= and escape=')
+          FM_BRIEF_SOL_ERRORS+=('unbounded wait mention requires a Wait: line with bound= and escape=')
           saw_unbounded=1
         fi
         ;;
@@ -251,20 +270,11 @@ fm_brief_sol_exemption_errors() {
   done <<EOF
 $text
 EOF
-  if [ "${#errors[@]}" -gt 0 ]; then
-    printf '%s\n' "${errors[@]}" | sort -u
-    return 1
+  if [ "$acc_count" -ne 1 ]; then
+    # shellcheck disable=SC2016 # Backticks in the message document the required syntax.
+    FM_BRIEF_SOL_ERRORS+=('missing exactly one Acceptance command: `...` line')
   fi
-  return 0
-}
-
-fm_brief_sol_evidence_block() {
-  local text=$1
-  local block
-  # shellcheck disable=SC2016 # Backticks in the grep pattern are literal evidence syntax.
-  block=$(printf '%s\n' "$text" | grep -E '^(Acceptance command: `[^`]+`|Wait: .+)$' || true)
-  [ -n "$block" ] || return 1
-  printf '%s\n' '# Sol exemption evidence' "$block"
+  [ "${#FM_BRIEF_SOL_ERRORS[@]}" -eq 0 ]
 }
 
 # The exemption gate runs before anything is written, so a refused scaffold leaves
@@ -280,15 +290,13 @@ if [ -n "${FM_TASK:-}" ]; then
     exit 1
   }
   SHIP_TASK_BODY=$FM_TASK
-  missing=$(fm_brief_sol_exemption_errors "$SHIP_TASK_BODY" || true)
-  if [ -n "$missing" ]; then
+  if ! fm_brief_sol_scan "$SHIP_TASK_BODY"; then
     echo "error: ship brief cannot earn Sol exemption without auditable evidence:" >&2
-    printf '%s\n' "$missing" | sed 's/^/  - /' >&2
+    printf '%s\n' "${FM_BRIEF_SOL_ERRORS[@]}" | sort -u | sed 's/^/  - /' >&2
     exit 1
   fi
   SOL_EXEMPTION_LINE='Sol exemption: earned'
-  SOL_EXEMPTION_BLOCK=$(fm_brief_sol_evidence_block "$SHIP_TASK_BODY")
-  [ -z "$SOL_EXEMPTION_BLOCK" ] || SOL_EXEMPTION_BLOCK="$SOL_EXEMPTION_BLOCK"$'\n\n'
+  SOL_EXEMPTION_BLOCK=$(printf '%s\n' '# Sol exemption evidence' "${FM_BRIEF_SOL_EVIDENCE[@]}")$'\n\n'
 fi
 
 BRIEF="$DATA/$ID/brief.md"
