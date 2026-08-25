@@ -438,6 +438,13 @@ test_v2_validation_preserves_stable_board_and_disables_secondmate_start() {
       and (.charted | any(.id == "mate-card" and .owner == "ops-mate" and .pull_eligible == false and .dispatchable == false))
       and (.charted | any(.id == "main-card" and .pull_eligible == true))
   ' >/dev/null || fail "v2 payload lost domain validity or local claim authority"
+  jq '.charted[1].id = "main-card"' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  run_board "$home" build "$data" >/dev/null || fail "owner-local task ids were treated as globally unique"
+  extract_payload "$board" | jq -e '
+    [.charted[] | select(.id == "main-card") | [.owner, .id]]
+      | sort == [["main", "main-card"], ["ops-mate", "main-card"]]
+  ' >/dev/null || fail "owner-local task identities were not preserved"
+  after=$(sha256sum "$board" | awk '{print $1}')
   jq '.charted[1].dispatchable = true' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
   set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
   [ "$rc" -ne 0 ] || fail "a secondmate direct-start action was accepted"

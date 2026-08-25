@@ -164,7 +164,7 @@ validate_payload() {  # <data.json>
       and (([.domains[].owner] | unique | length) == (.domains | length))
       and (([.captains_call[], .underway[], .landed[], .charted[] | .owner] - [.domains[].owner] | length) == 0)
       and ([.captains_call[], .underway[], .landed[], .charted[] | v2_row] | all)
-      and (([.captains_call[], .underway[], .landed[], .charted[] | .id] | unique | length)
+      and (([.captains_call[], .underway[], .landed[], .charted[] | [.owner, .id]] | unique | length)
         == ([.captains_call[], .underway[], .landed[], .charted[]] | length))
       and ([.captains_call[] | v2_call] | all)
       and ([.underway[] | v2_underway] | all)
