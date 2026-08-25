@@ -1,0 +1,72 @@
+Regression: a poll killed mid-write must not leave a complete captain payload
+in the directory the handler is told to scan.
+
+.agents/skills/process-event-sources/SKILL.md tells the handler to "read every
+new file under state/telegram-inbox/" and act on it "exactly as if the captain
+had typed it in the terminal". bin/fm-procevent.sh sends kill -TERM to the
+child's whole process group on retire/stop. If that lands between the temp
+payload write and the hardlink claim, the pre-fix adapter left the temp INSIDE
+state/telegram-inbox - a complete captain order for an update whose offset
+never advanced, so Telegram redelivers it later and the order runs twice.
+
+Method (killed-poll-inbox-regression.sh): a real poll is started in its own
+process group against a 40-message captain backlog and SIGKILLed the instant
+its first temp payload appears. Then the handler's documented scan is run.
+
+--- BEFORE the fix (parent commit 3a9b507), run 1 ---
+poll killed mid-write: yes
+offset file: (absent - nothing was ever acknowledged to Telegram)
+what the handler sees when it scans state/telegram-inbox:
+  .7003.json.tmp.3276699
+  7001.json
+  7002.json
+unclaimed temp payloads visible to the handler: 1
+  contents of .7003.json.tmp.3276699:
+    
+
+--- BEFORE the fix (parent commit 3a9b507), run 2 ---
+poll killed mid-write: yes
+offset file: (absent - nothing was ever acknowledged to Telegram)
+what the handler sees when it scans state/telegram-inbox:
+  .7001.json.tmp.3276841
+unclaimed temp payloads visible to the handler: 1
+  contents of .7001.json.tmp.3276841:
+    
+
+--- BEFORE the fix (parent commit 3a9b507), run 3 ---
+poll killed mid-write: yes
+offset file: (absent - nothing was ever acknowledged to Telegram)
+what the handler sees when it scans state/telegram-inbox:
+  .7002.json.tmp.3276969
+  7001.json
+unclaimed temp payloads visible to the handler: 1
+  contents of .7002.json.tmp.3276969:
+    {"update_id": 7002, "date": 2, "chat_id": 555, "from_id": 909, "text": "captain order 2: deploy now"}
+
+--- AFTER the fix (commit b1466ac), run 1 ---
+poll killed mid-write: yes
+offset file: (absent - nothing was ever acknowledged to Telegram)
+what the handler sees when it scans state/telegram-inbox:
+  7001.json
+  7002.json
+  7003.json
+unclaimed temp payloads visible to the handler: 0
+
+--- AFTER the fix (commit b1466ac), run 2 ---
+poll killed mid-write: yes
+offset file: (absent - nothing was ever acknowledged to Telegram)
+what the handler sees when it scans state/telegram-inbox:
+  7001.json
+  7002.json
+  7003.json
+  7004.json
+unclaimed temp payloads visible to the handler: 0
+
+--- AFTER the fix (commit b1466ac), run 3 ---
+poll killed mid-write: yes
+offset file: (absent - nothing was ever acknowledged to Telegram)
+what the handler sees when it scans state/telegram-inbox:
+  7001.json
+  7002.json
+  7003.json
+unclaimed temp payloads visible to the handler: 0

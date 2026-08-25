@@ -1,0 +1,132 @@
+
+== 1. The operator arms the Telegram channel
+  credential file is the existing external mode-600 file, read at runtime:
+$ ls -l '$FM_HOME/secrets/telegram.env'
+  -rw------- 1 rich rich 126 Aug 25 07:30 $FM_HOME/secrets/telegram.env
+$ bin/fm-procevent-telegram.sh source-id
+  telegram
+$ bin/fm-procevent-telegram.sh arm
+  registered: telegram (telegram)
+  armed: telegram
+$ bin/fm-procevent.sh list
+  SOURCE                       ADAPTER      OWNER      PENDING
+  telegram                     telegram     none       0
+
+== 2. The captain texts the bot from their phone
+  Telegram getUpdates would return:
+  | {"ok":true,"result":[{"update_id":1001,"message":{"message_id":5,"date":1700000000,
+  |  "chat":{"id":555,"type":"private"},"from":{"id":909,"first_name":"Rich"},
+  |  "text":"ship the release branch once CI is green"}}]}
+  
+  the real runner polls, captures, and publishes the wake:
+$ bin/fm-procevent.sh reconcile
+  reconciled: published=0 started=1 stopped=0 uncertain=0
+  
+  firstmate is woken - the queue entry the daemon consumes:
+$ cat '$FM_HOME/home/state/.wake-queue'
+  1787617832	1	check	procevent:telegram:1	check: procevent telegram telegram 1
+  
+  the durably captured result, and how the adapter classifies it:
+$ cat '$FM_HOME/home/state/procevent-inbox/telegram.1.result'
+  message: 1
+$ bin/fm-procevent-telegram.sh classify '$FM_HOME/home/state/procevent-inbox/telegram.1.result'
+  message
+  
+  the captain message itself, durably on disk under state/telegram-inbox
+  before the shared offset moved past it:
+$ ls -l '$FM_HOME/home/state/telegram-inbox'
+  total 4
+  -rw------- 1 rich rich 123 Aug 25 07:30 1001.json
+$ cat '$FM_HOME/home/state/telegram-inbox/1001.json'
+  {"update_id": 1001, "date": 1700000000, "chat_id": 555, "from_id": 909, "text": "ship the release branch once CI is green"}$ cat '$FM_HOME/home/state/.telegram-offset'
+  1002
+  
+  terminal is never terminal - the channel stays armed forever:
+  terminal -> not terminal (exit 1), source still registered:
+$ bin/fm-procevent.sh list
+  SOURCE                       ADAPTER      OWNER      PENDING
+  telegram                     telegram     none       1
+  
+  the handler acknowledges the delivered result, exactly as the skill
+  documents, which clears it from pending:
+$ bin/fm-procevent.sh handled telegram 1
+  handled: telegram 1
+$ bin/fm-procevent.sh list
+  SOURCE                       ADAPTER      OWNER      PENDING
+  telegram                     telegram     none       0
+
+== 3. The bot token never leaks into anything durable
+  positive control - the token IS in what curl was handed:
+$ sed 's/7719004431:AAF-REAL-LOOKING-BOT-TOKEN-do-not-log/<<<TOKEN PRESENT>>>/' '$FM_HOME/curl-config.txt'
+  url = "https://api.telegram.org/bot<<<TOKEN PRESENT>>>/getUpdates?offset=1002&timeout=25"
+  
+  and it is absent from every file the run produced, and from the results:
+  grep -r for the token across the whole firstmate home: no matches
+
+== 4. Noise is consumed without waking the captain's crew
+  a sticker (non-text) was polled above; a group message from an imposter
+  in the captain-configured chat follows. Neither may wake firstmate.
+$ bin/fm-procevent-telegram.sh poll || echo '  (exit '$?' - nothing to report)'
+    (exit 1 - nothing to report)
+$ ls -l '$FM_HOME/home/state/telegram-inbox'
+  total 4
+  -rw------- 1 rich rich 123 Aug 25 07:30 1001.json
+  offset advanced past both, so Telegram will not redeliver them:
+$ cat '$FM_HOME/home/state/.telegram-offset'
+  1004
+  no wake published
+
+== 5. A revoked token is a sticky block, announced exactly once
+  Telegram answers HTTP 401 Unauthorized:
+$ bin/fm-procevent.sh reconcile
+  reconciled: published=0 started=1 stopped=0 uncertain=0
+  
+  firstmate is woken with the blocked announcement, and the captured
+  result tells the handler the channel is blocked, not merely quiet:
+$ cat '$FM_HOME/home/state/.wake-queue'
+  1787617833	2	check	procevent:telegram:2	check: procevent telegram telegram 2
+$ cat '$FM_HOME/home/state/procevent-inbox/telegram.2.result'
+  blocked: 401
+$ bin/fm-procevent-telegram.sh classify '$FM_HOME/home/state/procevent-inbox/telegram.2.result'
+  blocked
+  the channel is NOT retired - a blocked Telegram channel keeps trying:
+$ bin/fm-procevent.sh list
+  SOURCE                       ADAPTER      OWNER      PENDING
+  telegram                     telegram     none       1
+$ bin/fm-procevent.sh handled telegram 2
+  handled: telegram 2
+  
+  the very next 401 poll says nothing - one announcement per episode:
+$ bin/fm-procevent-telegram.sh poll || echo '  (exit '$?' - silent, already announced)'
+    (exit 1 - silent, already announced)
+  
+  a malformed HTTP 200 does not end the block either (no valid ok:true result):
+$ bin/fm-procevent-telegram.sh poll || echo '  (exit '$?' - still blocked, nothing announced)'
+    (exit 1 - still blocked, nothing announced)
+  
+  and a Telegram-level rejection (ok:false on HTTP 200) does not either:
+$ bin/fm-procevent-telegram.sh poll || echo '  (exit '$?' - still blocked, nothing announced)'
+    (exit 1 - still blocked, nothing announced)
+
+== 6. Rotating the token ends the block and delivery resumes
+$ bin/fm-procevent-telegram.sh poll
+  message: 1
+$ cat '$FM_HOME/home/state/telegram-inbox/1004.json'
+  {"update_id": 1004, "date": 1700000180, "chat_id": 555, "from_id": 909, "text": "token rotated, are you back?"}  
+  that valid success closed the episode, so a LATER revocation is a new
+  episode and is announced again:
+$ bin/fm-procevent-telegram.sh poll || true
+  blocked: 401
+
+== 7. Credentials removed: silent, inert, zero
+  exit status: 0
+  stdout+stderr: ''
+  no wake published
+
+== 8. The operator retires the channel
+$ bin/fm-procevent.sh retire telegram
+  retired: telegram
+$ bin/fm-procevent.sh list
+  no sources registered
+
+== walkthrough complete
