@@ -12,6 +12,21 @@ set -u
 SPAWN="$ROOT/bin/fm-spawn.sh"
 CONTROL="$ROOT/bin/fm-control.sh"
 TMP_ROOT=$(fm_test_tmproot fm-second-attempt)
+# A completed relaunch reaches bin/fm-spawn.sh's per-task scratch, which is a
+# fixed /tmp/fm-<id> path outside this suite's root, so track and remove every
+# one the fixtures can produce (same contract as tests/fm-control-relaunch.sh).
+TASK_TMPS=()
+
+second_attempt_cleanup() {
+  local d
+  for d in "${TASK_TMPS[@]:-}"; do
+    [ -n "$d" ] && rm -rf "$d"
+  done
+  fm_test_cleanup
+}
+trap second_attempt_cleanup EXIT
+trap 'second_attempt_cleanup; exit 130' INT
+trap 'second_attempt_cleanup; exit 143' TERM
 
 make_home() {
   local name=$1 home projects fakebin
@@ -116,6 +131,7 @@ add_ship_task() {
     echo "effort=default"
     echo "spawn_gen=s1.fixture"
   } > "$home/state/$id.meta"
+  TASK_TMPS+=("/tmp/fm-$id")
   printf '%s\n' "fm-$id" > "$dir/fake/windows"
   printf '%s' "$wt" > "$dir/fake/cwd"
   printf 'claude' > "$dir/fake/command"
@@ -249,6 +265,34 @@ test_nm_third_fix_round_marker_refuses_through_fm_control() {
   pass "fm-control: a recorded third fix round refuses the relaunch by name"
 }
 
+# The no-mistakes side owns the marker payload, so a `touch`-style marker with
+# no parseable round must still refuse rather than standing the gate down.
+test_nm_third_fix_round_marker_with_no_payload_refuses() {
+  local dir out rc
+  dir=$(new_case nm-round-empty sa7)
+  add_ship_task "$dir" sa7
+  : > "$dir/home/state/sa7.nm-third-fix-round"
+  out=$(run_control "$dir" sa7 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "an unparseable third fix-round marker should refuse"
+  assert_contains "$out" "fix round 3" "empty marker refusal did not name the third fix round"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "marker refusal stopped the running agent"
+  pass "fm-control: a third fix-round marker with no parseable round still refuses"
+}
+
+# A marker recording a round below the threshold is the one payload that stands
+# the marker gate down; the plain relaunch reason then owns the refusal.
+test_nm_first_fix_round_marker_does_not_claim_the_third_round() {
+  local dir out rc
+  dir=$(new_case nm-round-first sa8)
+  add_ship_task "$dir" sa8
+  printf '1\n' > "$dir/home/state/sa8.nm-third-fix-round"
+  out=$(run_control "$dir" sa8 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "the relaunch still refuses without a spec"
+  assert_not_contains "$out" "fix round 3" "a round-1 marker was reported as the third fix round"
+  assert_contains "$out" "relaunch of ship task sa8" "round-1 marker did not fall through to the relaunch reason"
+  pass "fm-control: a marker below round 3 does not claim the third-fix-round reason"
+}
+
 test_nm_third_fix_round_marker_refuses_without_a_spec() {
   local home meta out rc marker
   home="$TMP_ROOT/nm-fix/home"
@@ -261,10 +305,9 @@ test_nm_third_fix_round_marker_refuses_without_a_spec() {
   } > "$meta"
   marker=$(fm_second_attempt_nm_third_fix_round_marker "$home/state" task-nm)
   printf '3\n' > "$marker"
-  set +e
-  fm_second_attempt_refuse_if_needed "$home/state" "$home/data" task-nm "$meta" relaunch >"$home/out" 2>"$home/err"
+  fm_second_attempt_refuse_if_needed "$home/state" "$home/data" task-nm "$meta" relaunch \
+    >"$home/out" 2>"$home/err"
   rc=$?
-  set -e
   expect_code 1 "$rc" "third fix-round marker should refuse without a spec"
   out=$(cat "$home/err")
   assert_contains "$out" "fix round 3" "marker refusal did not name the third fix round"
@@ -282,5 +325,7 @@ test_promoted_scout_report_does_not_clear_the_gate
 test_spawn_relaunch_refuses_without_a_spec
 test_secondmate_relaunch_is_unaffected_by_the_gate
 test_nm_third_fix_round_marker_refuses_through_fm_control
+test_nm_third_fix_round_marker_with_no_payload_refuses
+test_nm_first_fix_round_marker_does_not_claim_the_third_round
 test_nm_third_fix_round_marker_refuses_without_a_spec
 echo "# all fm-second-attempt tests passed"
