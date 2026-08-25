@@ -97,6 +97,8 @@ if [ -n "$ofile" ]; then
       python3 -c 'import json; print(json.dumps({"padding": "x" * (1024 * 1024)}))' > "$ofile"
     elif [ "$FAKE_CAPTURE_OVERSIZED" = json-with-id ]; then
       python3 -c 'import json; print(json.dumps({"capture_id": "cap-large", "padding": "x" * (1024 * 1024)}))' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = json-number ]; then
+      python3 -c 'import sys; sys.stdout.write(" " * (1024 * 1024) + "1")' > "$ofile"
     else
       python3 -c 'import sys; sys.stdout.write("<" * (1024 * 1024 + 1))' > "$ofile"
     fi
@@ -940,6 +942,31 @@ oversized_json_posts=$(grep -c '^url=' "$oversized_json/curl.log")
 expect_code 2 "$oversized_json_posts" \
   "an oversized valid JSON response blocked the later POST"
 pass "oversized valid JSON without capture_id fails its payload and keeps walking"
+
+# --- oversized top-level JSON number stays per-payload ---------------------
+oversized_number=$(make_home oversized-json-number)
+oversized_number_bin=$(make_fake_curl "$oversized_number")
+FAKE_CURL_LOG="$oversized_number/curl.log"
+FAKE_CAPTURE_OVERSIZED=json-number
+FAKE_CAPTURE_OVERSIZED_MATCH="the brain sends a top-level number"
+{
+  payload 9940 "the brain sends a top-level number"
+  payload 9941 "a later thought"
+} > "$oversized_number/batch.jsonl"
+if run_capture "$oversized_number" "$oversized_number_bin" capture - \
+  < "$oversized_number/batch.jsonl" \
+  >"$oversized_number/out" 2>"$oversized_number/err"; then
+  fail "an oversized top-level JSON number must stay fail-closed"
+fi
+FAKE_CAPTURE_OVERSIZED=
+FAKE_CAPTURE_OVERSIZED_MATCH=
+assert_grep "9940 brain capture response is too large" "$oversized_number/err" \
+  "the oversized JSON number was not blamed on its update_id"
+assert_not_contains "$(cat "$oversized_number/out")" "unattempted" \
+  "an oversized top-level JSON number stopped the batch"
+assert_present "$oversized_number/state/telegram-brain-capture/9941" \
+  "an oversized top-level JSON number blocked a later payload"
+pass "an oversized top-level JSON number fails its payload and keeps walking"
 
 # --- oversized valid JSON with capture_id succeeds -------------------------
 oversized_success=$(make_home oversized-json-success)

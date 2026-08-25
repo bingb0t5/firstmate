@@ -492,9 +492,9 @@ class JsonResponseReader:
                 raise ValueError("invalid JSON number")
             while char.isdigit():
                 char = self.take()
-        if char in "eE":
+        if char and char in "eE":
             char = self.take()
-            if char in "+-":
+            if char and char in "+-":
                 char = self.take()
             if not char.isdigit():
                 raise ValueError("invalid JSON number")
