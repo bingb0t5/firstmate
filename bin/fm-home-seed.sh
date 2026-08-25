@@ -9,9 +9,10 @@
 #       no live process and is never recycled until the lease is released with
 #       "treehouse return". Projects are cloned
 #       from the active home into the secondmate home's projects/ directory.
-#       That project list is non-exclusive provisioning data. Pass --no-projects
-#       instead of a project list to seed a project-less home for a domain whose
-#       subject is the firstmate repo itself; it is mutually exclusive with a
+#       That project list also claims spawn ownership: fm-spawn.sh refuses a
+#       fresh primary-home crewmate or scout into a listed project by default.
+#       Pass --no-projects instead of a project list to seed a project-less home
+#       for a domain whose subject is the firstmate repo itself; it is mutually exclusive with a
 #       project list, and omitting both still fails loudly. A project-less seed
 #       refuses a home with project clones or project-registry entries, so it
 #       never converts populated homes in place. The charter brief

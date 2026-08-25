@@ -214,7 +214,7 @@ if [ "$NO_PROJECTS" -eq 1 ]; then
   PROJECT_CLONES_NOTE="This domain has no separate project clones: its subject is the firstmate repo this home lives in, and its crews take pooled worktrees of that repo."
 else
   PROJECT_CLONES_BODY=$(printf '%s\n' "$SECONDMATE_PROJECTS" | tr ' ' '\n' | sed 's/^/- /')
-  PROJECT_CLONES_NOTE="The projects above are local clones for work you supervise; they are not an exclusive ownership claim."
+  PROJECT_CLONES_NOTE="The projects above are local clones for work you supervise, and the main firstmate refuses to spawn its own crewmates or scouts into them without a deliberate override."
 fi
 cat > "$BRIEF" <<EOF
 You are a persistent second mate managed by the main firstmate. Work on your own; do not wait for a human.

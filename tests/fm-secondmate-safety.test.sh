@@ -646,7 +646,7 @@ test_home_seed_refuses_projectful_reused_charter_for_projectless_home() {
 
   scaffold_secondmate_charter "$home" stale 'firstmate self-development. None. This is a project-less domain.' alpha \
     || fail "projectful charter scaffold failed"
-  sed 's/The projects above are local clones for work you supervise; they are not an exclusive ownership claim./Project clone details are customized for this domain./' \
+  sed 's/The projects above are local clones for work you supervise, and the main firstmate refuses to spawn its own crewmates or scouts into them without a deliberate override./Project clone details are customized for this domain./' \
     "$stale_brief" > "$stale_brief_before"
   mv "$stale_brief_before" "$stale_brief"
   cp "$stale_brief" "$stale_brief_before"

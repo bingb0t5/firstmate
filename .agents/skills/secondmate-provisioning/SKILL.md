@@ -30,7 +30,7 @@ A whole-home remote route uses:
 - <id> - <one-sentence charter summary> (host: <ssh-alias>; root: <absolute-remote-code-root>; home: <absolute-remote-home>; scope: <natural-language responsibility>; projects: <project-a>, <project-b>; added <date>)
 ```
 
-Each registry entry stays concise and single-line: the summary is one sentence naming the durable charter, `scope:` is the natural-language intake responsibility, `projects:` is the non-exclusive clone list, and any extra prose is limited to genuinely domain-specific hard rules that change routing or safety for that secondmate.
+Each registry entry stays concise and single-line: the summary is one sentence naming the durable charter, `scope:` is the natural-language intake responsibility, `projects:` is the clone list that also claims spawn ownership of those projects, and any extra prose is limited to genuinely domain-specific hard rules that change routing or safety for that secondmate.
 Natural-language summary and `scope:` text may contain parentheses and semicolons; keep the generated `(home: ...; scope: ...; projects: ...; added ...)` suffix intact so operational consumers resolve its explicit field markers.
 The `home:` path points to the seeded home containing `data/charter.md`; no extra registry pointer field is needed.
 For a remote route, `host:` is an OpenSSH config alias and `root:` is that host's separate tracked Firstmate code root.
@@ -39,7 +39,7 @@ This release places whole secondmate homes remotely and never individual workers
 [`docs/remote-secondmates.md`](../../../docs/remote-secondmates.md) owns current operator setup and transport behavior.
 The home-seeded `data/charter.md` is the sole owner of boilerplate idle-by-default behavior, the normal delegation lifecycle, and standard escalation contracts, so point to that charter rather than restating those contracts in the registry entry.
 The `scope:` field is used during intake.
-The `projects:` field is a non-exclusive clone list, not ownership.
+The `projects:` field is the clone list and the spawn-ownership claim: [`fm-spawn.sh`](../../../bin/fm-spawn.sh) refuses a fresh primary-home crewmate or scout into a listed project unless `--allow-primary-spawn` states a deliberate exception, while scope text is never matched at spawn time.
 
 ## Charter and seed
 
