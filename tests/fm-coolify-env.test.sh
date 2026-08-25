@@ -5,6 +5,8 @@ set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/../bin/fm-timeout-lib.sh"
 
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-coolify-env-tests)
@@ -32,6 +34,12 @@ make_fakebin() {
   cat > "$fakebin/curl" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$log"
+method=GET
+prev=
+for arg in "\$@"; do
+  [ "\$prev" = -X ] && method=\$arg
+  prev=\$arg
+done
 case "\${FM_FAKE_CURL_MODE:-$mode}" in
   ok)
     printf '{"uuid":"env-1"}\n200'
@@ -48,6 +56,19 @@ case "\${FM_FAKE_CURL_MODE:-$mode}" in
     printf '{"message":"Not found"}\n404'
     exit 0
     ;;
+  create)
+    if [ "\$method" = POST ]; then
+      printf '{"uuid":"env-1"}\n201'
+    else
+      printf '{"message":"Not found"}\n404'
+    fi
+    exit 0
+    ;;
+  hang)
+    sleep 30
+    printf '{"uuid":"env-1"}\n200'
+    exit 0
+    ;;
   *)
     printf 'error\n500'
     exit 0
@@ -58,18 +79,25 @@ SH
   printf '%s\n' "$fakebin"
 }
 
+# Every run gets its own TMPDIR so a case can assert what the tool left behind,
+# and a hard outer bound so an argument-parsing regression fails the suite
+# instead of hanging it.
 capture_run() {
   local case_dir=$1
   shift
-  local fakebin out rc=0
+  local fakebin out rc=0 run_tmp="$case_dir/tmp"
+  mkdir -p "$run_tmp"
   fakebin=$(make_fakebin "$case_dir" "$case_dir/curl.log" "${FM_FAKE_CURL_MODE:-ok}")
   out=$(
-    env FM_BEANZ_CONFIG_DIR="$case_dir/config" \
+    fm_run_timed 20 env FM_BEANZ_CONFIG_DIR="$case_dir/config" \
+      TMPDIR="$run_tmp" \
+      FM_COOLIFY_TIMEOUT="${FM_COOLIFY_TIMEOUT:-30}" \
       PATH="$fakebin:$BASE_PATH" \
       bash -x "$SCRIPT" "$@" 2>&1
   ) || rc=$?
   CAPTURE_OUT=$out
   CAPTURE_RC=$rc
+  CAPTURE_TMPDIR=$run_tmp
 }
 
 assert_no_secret() {
@@ -135,10 +163,115 @@ test_brain_identity_lookup() {
   pass "brain identity lookup succeeds without leaking the token"
 }
 
+
+test_creates_env_var_when_coolify_reports_404() {
+  local case_dir="$TMP_ROOT/create"
+  setup_config "$case_dir/config"
+  FM_FAKE_CURL_MODE=create capture_run "$case_dir" set brain NEW_KEY --value-from "env:posthog.env:POSTHOG_API_KEY"
+  expect_code 0 "$CAPTURE_RC" "a 404 from PATCH should fall through to a create"
+  assert_contains "$CAPTURE_OUT" 'ok: brain NEW_KEY set' "create path should print ok"
+  assert_grep '-X POST' "$case_dir/curl.log" "a 404 from PATCH must be followed by a POST create"
+  assert_no_secret "create path"
+  pass "a missing env var is created via POST after PATCH returns 404"
+}
+
+test_timeout_fails_closed() {
+  local case_dir="$TMP_ROOT/timeout"
+  setup_config "$case_dir/config"
+  FM_FAKE_CURL_MODE=hang FM_COOLIFY_TIMEOUT=1 capture_run "$case_dir" \
+    set brain POSTHOG_API_KEY --value-from "env:posthog.env:POSTHOG_API_KEY"
+  expect_code 1 "$CAPTURE_RC" "a bounded call that hits its bound should exit non-zero"
+  assert_contains "$CAPTURE_OUT" 'Coolify API request timed out' "a bound hit should be reported as a timeout"
+  assert_not_contains "$CAPTURE_OUT" 'ok:' "a timeout must not print ok"
+  assert_no_secret "timeout"
+  pass "a network bound hit fails closed and is reported as a timeout"
+}
+
+test_auth_failure_names_the_credential_rejection() {
+  local case_dir="$TMP_ROOT/auth-reason"
+  setup_config "$case_dir/config"
+  FM_FAKE_CURL_MODE=auth capture_run "$case_dir" set brain POSTHOG_API_KEY --value-from "env:posthog.env:POSTHOG_API_KEY"
+  assert_contains "$CAPTURE_OUT" 'Coolify API rejected credentials' "a 401 should be reported as a credential rejection"
+  assert_no_secret "auth failure reason"
+  pass "a 401 is reported as a credential rejection, not a generic failure"
+}
+
+test_missing_option_operand_fails_closed() {
+  local case_dir="$TMP_ROOT/no-operand"
+  setup_config "$case_dir/config"
+  capture_run "$case_dir" set brain POSTHOG_API_KEY --value-from
+  expect_code 2 "$CAPTURE_RC" "a missing --value-from operand should exit 2, not spin"
+  assert_contains "$CAPTURE_OUT" '--value-from requires a source' "missing operand should say what is missing"
+  assert_absent "$case_dir/curl.log" "a missing operand must not reach the Coolify API"
+  pass "a missing option operand fails closed instead of looping forever"
+}
+
+test_missing_set_operands_fail_closed() {
+  local case_dir="$TMP_ROOT/no-set-operands"
+  setup_config "$case_dir/config"
+  capture_run "$case_dir" set brain --value-from "env:posthog.env:POSTHOG_API_KEY"
+  expect_code 2 "$CAPTURE_RC" "set without a KEY should exit 2"
+  assert_absent "$case_dir/curl.log" "an incomplete set must not reach the Coolify API"
+  pass "set without both operands fails closed"
+}
+
+test_literal_source_is_not_redacted() {
+  local case_dir="$TMP_ROOT/literal"
+  setup_config "$case_dir/config"
+  capture_run "$case_dir" set brain APP_NAME --value-from 'literal:brain'
+  expect_code 0 "$CAPTURE_RC" "a literal non-secret value should succeed"
+  assert_contains "$CAPTURE_OUT" 'ok: brain APP_NAME set' "the ok line must name the service verbatim"
+  assert_not_contains "$CAPTURE_OUT" '[redacted]' "a declared non-secret literal must not be redacted"
+  pass "a literal non-secret value leaves the contracted ok line intact"
+}
+
+test_quoted_credential_value_fails_closed() {
+  local case_dir="$TMP_ROOT/quoted"
+  setup_config "$case_dir/config"
+  printf 'QUOTED_KEY="%s"\n' "$SECRET" >> "$case_dir/config/posthog.env"
+  capture_run "$case_dir" set brain QUOTED_KEY --value-from 'env:posthog.env:QUOTED_KEY'
+  expect_code 1 "$CAPTURE_RC" "a quoted assignment is ambiguous and should exit non-zero"
+  assert_not_contains "$CAPTURE_OUT" 'ok:' "an ambiguous read must not report success"
+  assert_absent "$case_dir/curl.log" "an ambiguous value must not be transmitted"
+  assert_no_secret "quoted credential value"
+  pass "a quoted credential value fails closed instead of transmitting the quotes"
+}
+
+test_crlf_credential_value_fails_closed() {
+  local case_dir="$TMP_ROOT/crlf"
+  setup_config "$case_dir/config"
+  printf 'CR_KEY=%s\r\n' "$SECRET" >> "$case_dir/config/posthog.env"
+  capture_run "$case_dir" set brain CR_KEY --value-from 'env:posthog.env:CR_KEY'
+  expect_code 1 "$CAPTURE_RC" "a CRLF assignment is ambiguous and should exit non-zero"
+  assert_not_contains "$CAPTURE_OUT" 'ok:' "an ambiguous read must not report success"
+  assert_absent "$case_dir/curl.log" "an ambiguous value must not be transmitted"
+  assert_no_secret "CRLF credential value"
+  pass "a CRLF-terminated credential value fails closed instead of transmitting the CR"
+}
+
+test_leaves_no_secret_scratch_behind() {
+  local case_dir="$TMP_ROOT/scratch" leftovers
+  setup_config "$case_dir/config"
+  capture_run "$case_dir" set brain POSTHOG_API_KEY --value-from "env:posthog.env:POSTHOG_API_KEY"
+  expect_code 0 "$CAPTURE_RC" "success path should exit 0"
+  leftovers=$(find "$CAPTURE_TMPDIR" -mindepth 1 2>/dev/null)
+  [ -z "$leftovers" ] || fail "the tool left scratch state behind:"$'\n'"$leftovers"
+  pass "a successful run leaves no scratch state holding secret material"
+}
+
 test_success_from_env_file
 test_auth_failure
 test_malformed_value_from
 test_network_failure
 test_missing_key
 test_brain_identity_lookup
+test_creates_env_var_when_coolify_reports_404
+test_timeout_fails_closed
+test_auth_failure_names_the_credential_rejection
+test_missing_option_operand_fails_closed
+test_missing_set_operands_fail_closed
+test_literal_source_is_not_redacted
+test_quoted_credential_value_fails_closed
+test_crlf_credential_value_fails_closed
+test_leaves_no_secret_scratch_behind
 echo "# fm-coolify-env.test.sh: all assertions passed"

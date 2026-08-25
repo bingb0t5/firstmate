@@ -225,7 +225,8 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --output)
-      OUTPUT=${2:-}
+      [ $# -ge 2 ] || die "--output requires a path" 2
+      OUTPUT=$2
       shift 2
       ;;
     *)

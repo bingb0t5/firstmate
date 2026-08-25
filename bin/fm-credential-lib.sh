@@ -13,6 +13,11 @@
 #   fm_credential_redact_register <value>
 #       Registers a literal substring that must never appear on stdout, stderr,
 #       or in fm_credential_safe_* output on any later path in this process.
+#       The register is an in-process shell variable: no secret is ever written
+#       to disk, so nothing survives the process and nothing needs cleaning up.
+#       A registration made inside a command substitution dies with that
+#       subshell, so callers must register in the shell that will do the
+#       printing.
 #
 #   fm_credential_safe_print <stream> <text>
 #       Writes redacted text to stream 1 (stdout) or 2 (stderr).
@@ -24,7 +29,11 @@
 #       Reads exactly one KEY=value assignment from a credential file using
 #       line-at-a-time parsing (never source/dot). Exit 0 and prints the value
 #       on success; exit 1 when the key is missing or duplicated; exit 2 when
-#       the file contains an ambiguous non-assignment line.
+#       the file contains an ambiguous non-assignment line, or when the
+#       assignment itself is ambiguous (quoted value, embedded carriage
+#       return). Quoted and CRLF forms are rejected rather than guessed: this
+#       library does not implement shell dequoting, so passing them through
+#       would silently transmit the wrong credential.
 #
 #   fm_credential_brain_token_for_identity <BRAIN_TOKENS> <identity>
 #       Returns the token for identity from a comma-separated token:identity
@@ -36,7 +45,17 @@
 #         literal:<text>          non-secret literal (may contain colons)
 #         env:<file>:<KEY>        KEY from $BEANZ_CONFIG/<file>
 #         brain:<identity>        token from BRAIN_TOKENS in brain.env
-#       Prints the resolved value on stdout and registers it for redaction.
+#       Prints the resolved value on stdout. Redaction is the caller's job:
+#       this runs inside a command substitution, so it cannot register anything
+#       in the caller's shell. Pair it with fm_credential_source_is_secret.
+#       Exit 1 when the value cannot be found, 2 when the source spec itself is
+#       malformed, 3 when the credential file was readable but its content is
+#       ambiguous (see fm_credential_env_get).
+#
+#   fm_credential_source_is_secret <source>
+#       Exit 0 when a --value-from source yields secret material that must be
+#       redacted, exit 1 for literal:<text>, which the contract defines as a
+#       non-secret value and which must stay printable.
 #
 #   fm_credential_json_object <key> <value>
 #       Prints a JSON object {"key":...,"value":...} with proper escaping.
@@ -50,7 +69,7 @@ if [ -n "${FM_CREDENTIAL_LIB_SOURCED:-}" ]; then
 fi
 FM_CREDENTIAL_LIB_SOURCED=1
 
-FM_CREDENTIAL_REDACT_FILE=${FM_CREDENTIAL_REDACT_FILE:-}
+FM_CREDENTIAL_REDACT_PATTERNS=
 
 fm_credential_xtrace_off() {
   { set +x; } 2>/dev/null
@@ -65,49 +84,39 @@ fm_credential_config_dir() {
 }
 
 fm_credential_redact_init() {
-  FM_CREDENTIAL_REDACT_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-credential-redact.XXXXXX") || return 1
-  chmod 600 "$FM_CREDENTIAL_REDACT_FILE"
-  : > "$FM_CREDENTIAL_REDACT_FILE"
+  FM_CREDENTIAL_REDACT_PATTERNS=
 }
 
 fm_credential_redact_register() {
   fm_credential_xtrace_off
   local value=$1
   [ -n "$value" ] || return 0
-  [ -n "${FM_CREDENTIAL_REDACT_FILE:-}" ] || fm_credential_redact_init || return 1
-  printf '%s\n' "$value" >> "$FM_CREDENTIAL_REDACT_FILE"
+  FM_CREDENTIAL_REDACT_PATTERNS="${FM_CREDENTIAL_REDACT_PATTERNS:-}$value"$'\n'
 }
 
 fm_credential_redact_apply() {
   fm_credential_xtrace_off
   local text=$1
-  [ -n "${FM_CREDENTIAL_REDACT_FILE:-}" ] && [ -f "$FM_CREDENTIAL_REDACT_FILE" ] || {
+  [ -n "${FM_CREDENTIAL_REDACT_PATTERNS:-}" ] || {
     printf '%s' "$text"
     return 0
   }
-  FM_CREDENTIAL_REDACT_INPUT=$text FM_CREDENTIAL_REDACT_FILE=${FM_CREDENTIAL_REDACT_FILE:-} python3 - <<'PY'
+  FM_CREDENTIAL_REDACT_INPUT=$text \
+    FM_CREDENTIAL_REDACT_LIST=$FM_CREDENTIAL_REDACT_PATTERNS python3 - <<'PY'
 import os
 
 text = os.environ.get("FM_CREDENTIAL_REDACT_INPUT", "")
-path = os.environ.get("FM_CREDENTIAL_REDACT_FILE", "")
-patterns = []
-if path and os.path.isfile(path):
-    with open(path, encoding="utf-8") as handle:
-        for line in handle:
-            line = line.rstrip("\n")
-            if line:
-                patterns.append(line)
+raw = os.environ.get("FM_CREDENTIAL_REDACT_LIST", "")
+patterns = [line for line in raw.split("\n") if line]
 for pattern in sorted(patterns, key=len, reverse=True):
-    if pattern:
-        text = text.replace(pattern, "[redacted]")
+    text = text.replace(pattern, "[redacted]")
 print(text, end="")
 PY
 }
 
 fm_credential_safe_print() {
   local stream=$1 text=$2 redacted
-  redacted=$(FM_CREDENTIAL_REDACT_FILE=${FM_CREDENTIAL_REDACT_FILE:-} \
-    fm_credential_redact_apply "$text")
+  redacted=$(fm_credential_redact_apply "$text")
   if [ "$stream" = 2 ]; then
     printf '%s\n' "$redacted" >&2
   else
@@ -138,6 +147,9 @@ fm_credential_env_get() {
       ''|'#'*) continue ;;
       "$key"=*)
         value=${line#"$key="}
+        case "$value" in
+          '"'* | "'"* | *$'\r'*) return 2 ;;
+        esac
         count=$((count + 1))
         ;;
       [A-Za-z_][A-Za-z0-9_]*=*)
@@ -185,6 +197,13 @@ fm_credential_brain_token_for_identity() {
   printf '%s' "$found"
 }
 
+fm_credential_read_rc() {
+  case "$1" in
+    2) return 3 ;;
+    *) return 1 ;;
+  esac
+}
+
 fm_credential_resolve_value_from() {
   fm_credential_xtrace_off
   local source=$1 config_dir file_path key raw token
@@ -193,7 +212,6 @@ fm_credential_resolve_value_from() {
     literal:*)
       raw=${source#literal:}
       [ -n "$raw" ] || return 2
-      fm_credential_redact_register "$raw"
       printf '%s' "$raw"
       return 0
       ;;
@@ -204,8 +222,10 @@ fm_credential_resolve_value_from() {
       fm_credential_basename_ok "$file_path" || return 2
       [ -n "$key" ] || return 2
       file_path="$config_dir/$file_path"
-      raw=$(fm_credential_env_get "$file_path" "$key") || return 1
-      fm_credential_redact_register "$raw"
+      raw=$(fm_credential_env_get "$file_path" "$key") || {
+        fm_credential_read_rc "$?"
+        return
+      }
       printf '%s' "$raw"
       return 0
       ;;
@@ -213,15 +233,24 @@ fm_credential_resolve_value_from() {
       key=${source#brain:}
       [ -n "$key" ] || return 2
       file_path="$config_dir/brain.env"
-      raw=$(fm_credential_env_get "$file_path" BRAIN_TOKENS) || return 1
+      raw=$(fm_credential_env_get "$file_path" BRAIN_TOKENS) || {
+        fm_credential_read_rc "$?"
+        return
+      }
       token=$(fm_credential_brain_token_for_identity "$raw" "$key") || return 1
-      fm_credential_redact_register "$token"
       printf '%s' "$token"
       return 0
       ;;
     *)
       return 2
       ;;
+  esac
+}
+
+fm_credential_source_is_secret() {
+  case "$1" in
+    literal:*) return 1 ;;
+    *) return 0 ;;
   esac
 }
 

@@ -4,6 +4,8 @@ set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/../bin/fm-timeout-lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-beanz-manifest-tests)
 SCRIPT="$ROOT/bin/fm-beanz-manifest.sh"
@@ -49,6 +51,19 @@ test_manifest_default_output_path() {
   pass "manifest writes default README.md under the config dir"
 }
 
+test_missing_output_operand_fails_closed() {
+  local case_dir="$TMP_ROOT/no-operand" out rc=0
+  setup_config "$case_dir/config"
+  out=$(
+    fm_run_timed 20 env FM_BEANZ_CONFIG_DIR="$case_dir/config" \
+      bash "$SCRIPT" write --output 2>&1
+  ) || rc=$?
+  expect_code 2 "$rc" "a missing --output operand should exit 2, not spin"
+  assert_contains "$out" '--output requires a path' "missing operand should say what is missing"
+  pass "a missing --output operand fails closed instead of looping forever"
+}
+
 test_manifest_lists_services_without_secrets
 test_manifest_default_output_path
+test_missing_output_operand_fails_closed
 echo "# fm-beanz-manifest.test.sh: all assertions passed"

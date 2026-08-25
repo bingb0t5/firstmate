@@ -43,10 +43,22 @@ SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # Secrets must never appear in shell trace output (bash -x).
 { set +x; } 2>/dev/null
 
-fm_credential_redact_init || {
-  printf 'fm-coolify-env: internal setup failed\n' >&2
-  exit 1
+fm_credential_redact_init
+
+# The request scratch dir holds the Authorization header and the JSON body, so
+# it must not outlive this process on any path, including a signal mid-curl.
+COOLIFY_REQUEST_TMPDIR=
+
+coolify_cleanup() {
+  [ -n "${COOLIFY_REQUEST_TMPDIR:-}" ] || return 0
+  rm -rf "$COOLIFY_REQUEST_TMPDIR"
+  COOLIFY_REQUEST_TMPDIR=
 }
+
+trap coolify_cleanup EXIT
+trap 'coolify_cleanup; exit 130' INT
+trap 'coolify_cleanup; exit 143' TERM
+trap 'coolify_cleanup; exit 129' HUP
 
 usage() {
   cat <<'EOF'
@@ -102,26 +114,10 @@ coolify_services_file() {
 }
 
 service_uuid() {
-  local service=$1 registry key line count=0 uuid=
+  local service=$1 registry uuid
   registry=$(coolify_services_file)
-  key="COOLIFY_SERVICE_${service}"
-  [ -f "$registry" ] && [ -r "$registry" ] || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      ''|'#'*) continue ;;
-      "$key"=*)
-        uuid=${line#"$key="}
-        count=$((count + 1))
-        ;;
-      [A-Za-z_][A-Za-z0-9_]*=*)
-        continue
-        ;;
-      *)
-        return 2
-        ;;
-    esac
-  done < "$registry"
-  [ "$count" -eq 1 ] && [ -n "$uuid" ] || return 1
+  uuid=$(fm_credential_env_get "$registry" "COOLIFY_SERVICE_$service") || return
+  [ -n "$uuid" ] || return 1
   printf '%s' "$uuid"
 }
 
@@ -136,13 +132,14 @@ coolify_request() {
   local method=$1 base=$2 uuid=$3 env_key=$4 env_value=$5 token=$6
   local tmpdir header_file body_file response http_code rc=0
   tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/fm-coolify-env.XXXXXX") || return 1
+  COOLIFY_REQUEST_TMPDIR=$tmpdir
   chmod 700 "$tmpdir"
   header_file="$tmpdir/header"
   body_file="$tmpdir/body"
   printf 'Authorization: Bearer %s' "$token" > "$header_file"
   chmod 600 "$header_file"
   fm_credential_json_object "$env_key" "$env_value" > "$body_file" || {
-    rm -rf "$tmpdir"
+    coolify_cleanup
     return 1
   }
   chmod 600 "$body_file"
@@ -154,12 +151,9 @@ coolify_request() {
       -d "@$body_file" \
       -w $'\n%{http_code}' \
       "$(normalize_coolify_base "$base")/api/v1/applications/$uuid/envs" \
-      2>"$tmpdir/curl.err"
+      2>/dev/null
   ) || rc=$?
-  if [ -s "$tmpdir/curl.err" ]; then
-    : > "$tmpdir/curl.err"
-  fi
-  rm -rf "$tmpdir"
+  coolify_cleanup
   if [ "$rc" -eq 124 ]; then
     return 124
   fi
@@ -167,7 +161,6 @@ coolify_request() {
     return 1
   fi
   http_code=${response##*$'\n'}
-  response=${response%$'\n'*}
   case "$http_code" in
     2??) return 0 ;;
     401|403) return 3 ;;
@@ -192,21 +185,29 @@ cmd_set() {
   value=$(fm_credential_resolve_value_from "$value_source") || {
     case "$?" in
       2) die "malformed --value-from source" 1 ;;
+      3) die "credential file entry is ambiguous" 1 ;;
       *) die "could not read value source" 1 ;;
     esac
   }
+  # literal:<text> is a declared non-secret; registering it would blank the
+  # service name, the key, or this program's own name in every later line.
+  if fm_credential_source_is_secret "$value_source"; then
+    fm_credential_redact_register "$value"
+  fi
 
-  if coolify_request PATCH "$base" "$uuid" "$env_key" "$value" "$token"; then
+  coolify_request PATCH "$base" "$uuid" "$env_key" "$value" "$token"
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
     fm_credential_safe_print 1 "ok: $service $env_key set"
     return 0
   fi
-  rc=$?
   if [ "$rc" -eq 4 ]; then
-    if coolify_request POST "$base" "$uuid" "$env_key" "$value" "$token"; then
+    coolify_request POST "$base" "$uuid" "$env_key" "$value" "$token"
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
       fm_credential_safe_print 1 "ok: $service $env_key set"
       return 0
     fi
-    rc=$?
   fi
   case "$rc" in
     3) die "Coolify API rejected credentials" 1 ;;
@@ -227,12 +228,14 @@ while [ $# -gt 0 ]; do
       [ -z "$SUBCMD" ] || die "only one command may be given" 2
       SUBCMD='set'
       shift
-      SERVICE=${1:-}
-      ENV_KEY=${2:-}
+      [ $# -ge 2 ] || die "set requires <service> <KEY>" 2
+      SERVICE=$1
+      ENV_KEY=$2
       shift 2
       ;;
     --value-from)
-      VALUE_FROM=${2:-}
+      [ $# -ge 2 ] || die "--value-from requires a source" 2
+      VALUE_FROM=$2
       shift 2
       ;;
     *)
