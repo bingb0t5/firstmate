@@ -385,10 +385,13 @@ https://github.com/acme/alpha/|acme/alpha
 https://github.com/acme/alpha/pull/12|acme/alpha
 git@github.com:acme/alpha.git|acme/alpha
 ssh://git@github.com/acme/alpha.git|acme/alpha
+ssh://git@github.com:22/acme/alpha.git|acme/alpha
 https://gitlab.com/acme/alpha.git|
 https://notgithub.com/acme/alpha.git|
 https://github.com.evil.example/acme/alpha.git|
 git@notgithub.com:acme/alpha.git|
+ssh://git@github.com.evil.example:22/acme/alpha.git|
+ssh://git@github.com:notaport/acme/alpha.git|
 /home/example/projects/alpha|
 CASES
   pass "the shared remote parser resolves GitHub slugs and refuses to guess"

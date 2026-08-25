@@ -19,5 +19,6 @@ fm_repo_slug() {  # <url>
     -e 's#^https://github\.com/\([^/]*/[^/]*\)#\1#p' \
     -e 's#^git@github\.com:\([^/]*/[^/]*\)#\1#p' \
     -e 's#^ssh://git@github\.com/\([^/]*/[^/]*\)#\1#p' \
+    -e 's#^ssh://git@github\.com:[0-9][0-9]*/\([^/]*/[^/]*\)#\1#p' \
     | sed 's#\.git$##; s#/pull/.*$##; s#/$##'
 }
