@@ -231,19 +231,27 @@ fm_brief_wait_is_bounded() {
 }
 
 fm_brief_strip_backticked_names() {
-  local remaining=$1 result='' token normalized suffix
-  # shellcheck disable=SC2016 # Backticks in the expression are literal evidence delimiters.
-  local backtick_re='^([^`]*)`([^`[:space:]]*)`(.*)$'
-  while [[ $remaining =~ $backtick_re ]]; do
-    result+=${BASH_REMATCH[1]}
-    token=${BASH_REMATCH[2]}
-    suffix=${BASH_REMATCH[3]}
-    fm_brief_trim_surrounding_punctuation "$token"
-    normalized=${FM_BRIEF_NORMALIZED,,}
-    if [[ $normalized =~ ^a?wait(s|ed|ing)?$ ]]; then
-      result+=$token
+  local remaining=$1 result='' prefix after token normalized
+  while [[ $remaining == *\`* ]]; do
+    prefix=${remaining%%\`*}
+    after=${remaining#*\`}
+    if [[ $after != *\`* ]]; then
+      result+=$remaining
+      remaining=
+      break
     fi
-    remaining=$suffix
+    token=${after%%\`*}
+    remaining=${after#*\`}
+    result+=$prefix
+    if [[ $token == *[[:space:]]* ]]; then
+      result+="\`$token\`"
+    else
+      fm_brief_trim_surrounding_punctuation "$token"
+      normalized=${FM_BRIEF_NORMALIZED,,}
+      if [[ $normalized =~ ^a?wait(s|ed|ing)?$ ]]; then
+        result+=$token
+      fi
+    fi
   done
   printf '%s' "$result$remaining"
 }

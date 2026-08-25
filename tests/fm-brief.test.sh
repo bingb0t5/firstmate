@@ -890,7 +890,7 @@ test_ship_sol_exemption_ignores_backticked_command_names() {
   status=0
   # shellcheck disable=SC2016 # The task body is a literal fixture string.
   FM_HOME="$home" FM_TASK='Acceptance command: `make test`
-Run `wait-for-ci.sh`, then land `(await-queue.py)` and archive `wait-for-ci.sh,`.' \
+Run `wait-for-ci.sh`, then archive `artifact.zip`, land `(await-queue.py)`, and save `wait-for-ci.sh,`.' \
     "$ROOT/bin/fm-brief.sh" sol-backtick-1 firstmate --mode no-mistakes >/dev/null 2>&1 || status=$?
   expect_code 0 "$status" "backticked command names containing 'wait' must not refuse"
   brief="$home/data/sol-backtick-1/brief.md"
