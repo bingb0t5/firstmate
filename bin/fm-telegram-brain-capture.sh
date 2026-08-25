@@ -123,13 +123,19 @@
 # The hash covers update_id, text, and chat_id, the fields this path reads, so
 # an optional field such as date or from_id being present on one run and absent
 # on the next is not a disagreement.
-# The receipt directory is created and then chmodded to 0700, so no ambient
-# umask can leave it at a mode the next run refuses.
+# state/ and the receipt directory are created when absent and then chmodded to
+# 0700, so a home that has never bootstrapped captures without hand setup and no
+# ambient umask can leave either at a mode the next run refuses.
 # A store that is already a symlink, a non-directory, or not mode 0700 stops
 # every capture until an operator restores a real directory at `chmod 700`.
 # A receipt whose payload hash disagrees with the current line is refused, and
 # stays refused until an operator inspects it and removes
 # state/telegram-brain-capture/<update_id> to allow a fresh write.
+# A payload Mr Beanz keeps rejecting with a payload-scoped 4xx has no receipt to
+# remove, because none is written until the brain accepts the text.
+# There is no local override: the line keeps failing and the ack stays withheld
+# until Mr Beanz accepts that text or the interrupt adapter stops emitting that
+# update.
 # A crash after Mr Beanz returns a capture_id and before the receipt lands can
 # duplicate that thought on replay.
 # Never describe this path as exactly-once, at-least-once, no-loss, or lossless.
@@ -140,7 +146,8 @@
 #                              channels), only when group capture is on
 #
 # FM_BEANZ_CAPTURE_TIMEOUT is the whole-POST budget in seconds, an integer in
-# 1..120, and defaults to 30; anything else is refused before the write.
+# 1..120, and defaults to 30; anything else is refused in the same pre-flight as
+# the credentials, so a bad value counts the whole batch as unattempted.
 # FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT=before-receipt exists only for tests.
 set -u
 
