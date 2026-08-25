@@ -1,0 +1,65 @@
+======================================================================
+ BEFORE the fix (base 85d6c72): idle manager pane wakes the captain
+======================================================================
+--- [BEFORE] scenario: idle-manager
+    manager verdict: state: unknown · source: none · idle manager
+    child crew:      state: working · source: run-step · validating
+    watcher output to the captain:
+      signal: /tmp/fm-demo2.k0ddyg/state/platform.turn-ended
+    durable wake queue:
+      signal	signal: /tmp/fm-demo2.k0ddyg/state/platform.turn-ended
+      signal	signal: /tmp/fm-demo2.k0ddyg/state/platform.turn-ended
+
+--- [BEFORE] scenario: working-note
+    manager verdict: state: working · source: status-log · dispatched the alpha rollout
+    child crew:      state: working · source: run-step · validating
+    manager status log:
+      | working: dispatched the alpha rollout
+    watcher output to the captain:
+      signal: /tmp/fm-demo2.38uBVQ/state/platform.turn-ended
+    durable wake queue:
+      signal	signal: /tmp/fm-demo2.38uBVQ/state/platform.turn-ended
+      signal	signal: /tmp/fm-demo2.38uBVQ/state/platform.turn-ended
+
+======================================================================
+ AFTER the fix (4a5c1f5): the manager inherits its child's working verdict
+======================================================================
+--- [AFTER] scenario: idle-manager
+    manager verdict: state: unknown · source: none · idle manager
+    child crew:      state: working · source: run-step · validating
+    watcher output to the captain:
+      (none)
+    durable wake queue:
+      (empty - nothing escalated to the captain)
+
+--- [AFTER] scenario: working-note
+    manager verdict: state: working · source: status-log · dispatched the alpha rollout
+    child crew:      state: working · source: run-step · validating
+    manager status log:
+      | working: dispatched the alpha rollout
+    watcher output to the captain:
+      (none)
+    durable wake queue:
+      (empty - nothing escalated to the captain)
+
+======================================================================
+ AFTER the fix: the manager's own state and its captain hold are NOT masked
+======================================================================
+--- [AFTER] scenario: failed
+    manager verdict: state: failed · source: run-step · run failed
+    child crew:      state: working · source: run-step · validating
+    watcher output to the captain:
+      signal: /tmp/fm-demo2.NoVRh3/state/platform.turn-ended
+    durable wake queue:
+      signal	signal: /tmp/fm-demo2.NoVRh3/state/platform.turn-ended
+      signal	signal: /tmp/fm-demo2.NoVRh3/state/platform.turn-ended
+
+--- [AFTER] scenario: captain-held
+    manager verdict: state: unknown · source: none · idle manager
+    child crew:      state: working · source: run-step · validating
+    manager status log:
+      | captain-held [key=rollout]: awaiting the rollout decision
+    watcher output to the captain:
+      stale: firstmate:fm-platform (captain-held 501s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+    durable wake queue:
+      stale	stale: firstmate:fm-platform (captain-held 501s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)

@@ -1,0 +1,51 @@
+======================================================================
+ BEFORE the fix (base 85d6c72): the idle-manager false alarm
+======================================================================
+--- [BEFORE] scenario: quiet-manager
+    mate 'mate' pane: idle   |   child crew 'child': working (run-step)
+    watcher output:
+      check: secondmate wake-loop stalled: mate=mate row=7 age=10s
+    durable wake queue:
+      check	check: secondmate wake-loop stalled: mate=mate row=7 age=10s
+
+======================================================================
+ AFTER the fix (4a5c1f5): the same fleet state is recognised as healthy
+======================================================================
+--- [AFTER] scenario: quiet-manager
+    mate 'mate' pane: idle   |   child crew 'child': working (run-step)
+    watcher output:
+      checkpoint: no actionable wake within 3s
+      (no output - watcher stayed quiet)
+    durable wake queue: (empty)
+
+======================================================================
+ AFTER the fix: true wedges still escalate (no weakening)
+======================================================================
+--- [AFTER] scenario: unread-instruction
+    mate 'mate' pane: idle   |   child crew 'child': working (run-step)
+    manager inbox:   1 unread instruction
+    watcher output:
+      check: secondmate wake-loop stalled: mate=mate row=7 age=11s
+    durable wake queue:
+      check	check: secondmate wake-loop stalled: mate=mate row=7 age=11s
+
+--- [AFTER] scenario: open-decision
+    mate 'mate' pane: idle   |   child crew 'child': working (run-step)
+    manager status log:
+      | needs-decision [key=rollout]: ship v2 or hold?
+      | dispatched the alpha rollout
+    watcher output:
+      check: secondmate wake-loop stalled: mate=mate row=7 age=10s
+    durable wake queue:
+      check	check: secondmate wake-loop stalled: mate=mate row=7 age=10s
+
+--- [AFTER] scenario: masked-captain-hold
+    mate 'mate' pane: idle   |   child crew 'child': working (run-step)
+    manager status log:
+      | needs-decision [key=rollout]: ship v2 or hold?
+      | captain-held [key=rollout]: tracked by task-decision-route
+      | dispatched the alpha rollout
+    watcher output:
+      check: secondmate wake-loop stalled: mate=mate row=7 age=11s
+    durable wake queue:
+      check	check: secondmate wake-loop stalled: mate=mate row=7 age=11s

@@ -1,0 +1,33 @@
+Each new test was run in isolation against the base code (85d6c72, bin/ only) and
+against the branch tip (4a5c1f5), using an identical copy of the branch's tests/.
+
+TEST                                                             BASE   HEAD
+----------------------------------------------------------------------------
+test_manager_child_work_inheritance_classifier                   FAIL   PASS
+test_working_note_manager_with_busy_child_absorbs_turn_end       FAIL   PASS
+test_secondmate_wake_stall_skips_idle_manager_with_busy_children FAIL   PASS
+test_secondmate_supervising_skip_is_probe_bounded_and_expires    FAIL   PASS
+test_secondmate_idle_manager_with_busy_child_is_not_stale        FAIL   PASS
+test_captain_held_manager_with_busy_child_still_resurfaces       PASS   PASS
+test_secondmate_wake_stall_still_fires_with_unread_manager_inbox PASS   PASS
+test_secondmate_wake_stall_still_fires_with_open_manager_decision PASS  PASS
+test_secondmate_wake_stall_still_fires_with_masked_captain_hold  PASS   PASS
+
+The five FAIL->PASS rows are the reproduced false alarm. Base failure messages:
+
+  test_manager_child_work_inheritance_classifier
+    not ok - idle kind=secondmate manager with a busy child was not classified working
+
+  test_secondmate_wake_stall_skips_idle_manager_with_busy_children
+    not ok - aged foreign row woke while manager had a busy child and empty inbox:
+             check: secondmate wake-loop stalled: mate=mate row=7 age=10s
+
+  test_secondmate_idle_manager_with_busy_child_is_not_stale
+    not ok - idle manager with busy child queued a wake:
+             1787643270  1  signal  platform.turn-ended  signal: .../state/platform.turn-ended
+             1787643270  2  signal  platform.turn-ended  signal: .../state/platform.turn-ended
+
+The four PASS/PASS rows are the "keep true wedges" guards required by the intent:
+they pin that an unread manager instruction, an open manager decision, a
+captain-held transfer masked by a later status line, and the bounded captain-held
+re-surface all still escalate after the change.
