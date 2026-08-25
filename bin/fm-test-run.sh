@@ -1069,6 +1069,17 @@ families_for_changed_path() {
           || printf '%s\n' "__unmapped__:$path"
       fi
       ;;
+    bin/fm_procevent_telegram_state.py)
+      # The Telegram channel's state engine is never invoked directly: the
+      # adapter is its only caller, so no test names this file and the
+      # basename reference scan below would refuse it. Select whatever
+      # exercises that adapter instead of giving the engine a second mapping.
+      # Same deleted-file rule as the generic bin case.
+      if [ -e "$path" ]; then
+        families_for_test_reference fm-procevent-telegram.sh \
+          || printf '%s\n' "__unmapped__:$path"
+      fi
+      ;;
     bin/*)
       # A deleted script has no consuming suite left to select, the same rule
       # the fixture case above applies. Refusing on its absent mapping would

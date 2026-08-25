@@ -117,6 +117,13 @@ init_changed_fixture_repo() {
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
   : >"$repo/bin/fm-supervisor-target-lib.sh"
   : >"$repo/bin/unmapped-source.sh"
+  # A non-shell helper that only its own adapter ever names: no test mentions
+  # the helper itself, so its selection has to come from the adapter.
+  : >"$repo/bin/fm-procevent-telegram.sh"
+  : >"$repo/bin/fm_procevent_telegram_state.py"
+  printf '#!/usr/bin/env bash\n# bin/fm-procevent-telegram.sh\n' \
+    >"$repo/tests/fm-procevent-telegram.test.sh"
+  chmod +x "$repo/tests/fm-procevent-telegram.test.sh"
   printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
     >>"$repo/tests/fm-cd-pretool-check.test.sh"
   printf '# .pi/extensions/fm-primary-pi-watch.ts\n' >>"$repo/tests/fm-pi-watch-extension.test.sh"
@@ -158,6 +165,13 @@ test_changed_dependency_selection_and_unmapped_failure() {
   assert_contains "$listed" "tests/fm-afk-return.test.sh" "supervisor target selects afk coverage"
   git -C "$repo" add bin/fm-supervisor-target-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm supervisor-change
+
+  printf '\n' >>"$repo/bin/fm_procevent_telegram_state.py"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-procevent-telegram.test.sh" \
+    "a helper reachable only through its adapter must select that adapter's coverage"
+  git -C "$repo" add bin/fm_procevent_telegram_state.py
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm engine-change
 
   printf '\n' >>"$repo/.agents/skills/example/SKILL.md"
   printf '\n' >>"$repo/.claude/settings.json"
