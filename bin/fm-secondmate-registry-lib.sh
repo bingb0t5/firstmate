@@ -364,6 +364,7 @@ secondmate_registry_entries() {
   fi
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
+      ''|'#'*) continue ;;
       "- "*)
         if ! secondmate_registry_parse_line "$line"; then
           SECONDMATE_REGISTRY_ENTRIES=
@@ -379,6 +380,11 @@ secondmate_registry_entries() {
         esac
         SECONDMATE_REGISTRY_ENTRIES="${SECONDMATE_REGISTRY_ENTRIES}${SECONDMATE_REGISTRY_ID}${SECONDMATE_REGISTRY_FIELD_SEP}${SECONDMATE_REGISTRY_PROJECTS}${SECONDMATE_REGISTRY_FIELD_SEP}${SECONDMATE_REGISTRY_SCOPE}"$'\n'
         found=1
+        ;;
+      *)
+        SECONDMATE_REGISTRY_ENTRIES=
+        SECONDMATE_REGISTRY_ERROR="malformed secondmate registry entry: $line"
+        return 2
         ;;
     esac
   done < "$reg"

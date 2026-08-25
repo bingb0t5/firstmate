@@ -399,6 +399,25 @@ EOF
   pass "fm-spawn: an unparseable registry entry refuses rather than silently voiding its ownership claim"
 }
 
+test_nonrecord_registry_line_refuses_instead_of_looking_empty() {
+  local rec home proj fakebin out status
+  rec=$(make_home malformed-nonrecord "this is not a secondmate registry record")
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  write_brief "$home" own-malformed-m1 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" own-malformed-m1 "$proj/freeproj" claude --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a non-record registry line should exit non-zero"
+  assert_contains "$out" "malformed secondmate registry entry" \
+    "a non-record registry line was silently treated as an empty registry"
+  assert_not_contains "$out" "$BACKEND_REACHED" \
+    "a non-record registry line reached the backend instead of failing closed"
+  assert_absent "$home/state/own-malformed-m1.meta" \
+    "spawn against a non-record registry line wrote task metadata"
+  pass "fm-spawn: every non-empty malformed registry line fails closed"
+}
+
 test_unreadable_registry_symlink_refuses_the_spawn() {
   local rec home proj fakebin out status
   rec=$(make_home symlinked)
@@ -473,6 +492,7 @@ test_override_spawn_records_every_bypassed_owner_on_the_task_record
 test_unowned_project_or_missing_registry_spawns_past_the_guard
 test_project_less_secondmate_never_claims_ownership_through_its_scope_text
 test_unparseable_registry_entry_refuses_instead_of_voiding_ownership
+test_nonrecord_registry_line_refuses_instead_of_looking_empty
 test_unreadable_registry_symlink_refuses_the_spawn
 test_batch_dispatch_carries_the_deliberate_override_to_every_pair
 echo "# all fm-spawn-secondmate-ownership tests passed"
