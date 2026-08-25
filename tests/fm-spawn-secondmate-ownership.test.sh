@@ -157,6 +157,38 @@ EOF
   pass "fm-spawn: --allow-primary-spawn bypasses the ownership guard on an owned project"
 }
 
+test_allow_primary_spawn_is_refused_outside_a_fresh_ship_or_scout_spawn() {
+  local rec home proj fakebin smhome out status line
+  line="- design - design domain (home: $TMP_ROOT/misuse/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)"
+  rec=$(make_home misuse "$line")
+  IFS='|' read -r home proj fakebin smhome <<EOF
+$rec
+EOF
+  write_brief "$home" own-misuse-e1 no-mistakes
+  fm_write_meta "$home/state/own-misuse-e1.meta" \
+    "window=firstmate:fm-own-misuse-e1" \
+    "endpoint_task_id=own-misuse-e1" \
+    "worktree=$proj/ownedproj" \
+    "project=$proj/ownedproj" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  out=$(run_spawn "$home" "$fakebin" own-misuse-e1 --relaunch --allow-primary-spawn)
+  status=$?
+  [ "$status" -ne 0 ] || fail "--relaunch with --allow-primary-spawn should exit non-zero"
+  assert_contains "$out" "--allow-primary-spawn applies only to fresh ship or scout spawns" \
+    "relaunch did not refuse the misapplied override"
+
+  out=$(run_spawn "$home" "$fakebin" design "$smhome" --secondmate --allow-primary-spawn)
+  status=$?
+  [ "$status" -ne 0 ] || fail "--secondmate with --allow-primary-spawn should exit non-zero"
+  assert_contains "$out" "--allow-primary-spawn applies only to fresh ship or scout spawns" \
+    "secondmate spawn did not refuse the misapplied override"
+  assert_not_contains "$out" "$BACKEND_REACHED" "the misapplied override still reached the backend"
+  pass "fm-spawn: --allow-primary-spawn is refused on --relaunch and --secondmate spawns"
+}
+
 test_secondmate_spawn_is_unaffected_by_the_ownership_guard() {
   local rec home proj fakebin smhome out line
   # The home directory's basename is itself on the registry's projects list, so
@@ -350,6 +382,7 @@ EOF
 test_fresh_spawn_into_owned_project_refuses_and_writes_no_meta
 test_refusal_names_every_owner_when_several_claim_the_project
 test_allow_primary_spawn_override_passes_the_ownership_guard
+test_allow_primary_spawn_is_refused_outside_a_fresh_ship_or_scout_spawn
 test_secondmate_spawn_is_unaffected_by_the_ownership_guard
 test_relaunch_is_unaffected_by_the_ownership_guard
 test_override_spawn_records_every_bypassed_owner_on_the_task_record
