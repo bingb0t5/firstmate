@@ -1,0 +1,12 @@
+ok - fm-spawn: first ship spawn is not blocked without a Sol spec
+ok - fm-control: relaunch refuses without a Sol spec and does not replace the agent
+ok - fm-control: relaunch proceeds once data/<id>/spec.md exists
+ok - fm-control: a pre-implementation data/<id>/report.md does not satisfy the gate
+ok - fm-spawn: --relaunch refuses without a Sol spec
+ok - fm-spawn: a secondmate relaunch is exempt from the second-attempt gate
+ok - fm-control: a recorded third fix round refuses the relaunch by name
+ok - fm-control: an unreadable third fix-round marker refuses without claiming a round
+ok - fm-control: a non-numeric fix-round payload refuses without claiming a round
+ok - fm-control: a marker below round 3 does not claim the third-fix-round reason
+ok - fm-second-attempt-lib: third fix-round marker refuses until a spec exists
+# all fm-second-attempt tests passed
