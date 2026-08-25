@@ -4,13 +4,19 @@
 # When fm-send delivers inbox-plane text to a task recorded in this home, this
 # library records a durable parent-owned pending-reply expectation BEFORE
 # delivery, embeds a privacy-safe correlation id in the outbound message, and
-# later resolves that expectation only from a correlated parent status line or
-# status-pointed document - never from transport success, chat content, a grep
-# of another task's journal, or unrelated status activity. bin/fm-pending-reply.sh
-# list is the authoritative open-obligation listing for this home.
+# later resolves it from worker-kind-specific status evidence - a correlated
+# parent status line or status-pointed document for a secondmate, or the next
+# terminal status transition for the oldest eligible crewmate/scout obligation.
+# One uncorrelated crew terminal transition closes at most one obligation.
+# Transport success, chat content, a grep of another task's journal, and
+# unrelated or pre-request status activity never resolve an obligation.
+# bin/fm-pending-reply.sh list is the authoritative open-obligation listing for
+# this home.
 #
-# Secondmate requests still also receive the from-firstmate marker; crewmate
-# and scout requests receive the corr token without that marker.
+# Secondmate requests still also receive the from-firstmate marker and retain
+# the missing-report recovery and escalation ladder. Crewmate and scout
+# requests receive the corr token without that marker and do not enter that
+# ladder; their normal terminal status transition closes the obligation.
 #
 # Safety property (captain direction 2026-07-22): a secondmate agent may ignore
 # the marker and answer only in its visible conversation. The parent must notice
