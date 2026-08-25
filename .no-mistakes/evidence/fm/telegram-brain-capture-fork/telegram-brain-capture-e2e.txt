@@ -1,0 +1,71 @@
+ok - a captain Telegram payload is posted to Mr Beanz and receipted
+ok - a matching receipt skips a second brain write
+ok - HTTP 200 without capture_id writes no receipt
+ok - group discussion is skipped while the flag is off
+ok - group discussion is captured when the flag is on
+ok - an absent credential file skips with a zero exit and no network call
+ok - an absent captain chat id skips with a zero exit and no network call
+ok - a credential lookup error stops and counts the batch
+ok - a present but unusable credential file stays fail-closed
+ok - boolean update ids are skipped as unsupported
+ok - from-result captures payloads from the interrupt adapter
+ok - from-result refuses when the interrupt adapter is absent
+ok - a crash before the receipt can still write on retry
+ok - a result naming no message payloads is a zero-exit no-op
+ok - an ambient BEANZ_MCP_URL cannot redirect a token-bearing write
+ok - an unsafe credential BEANZ_MCP_URL is refused before the write
+ok - a BEANZ_MCP_URL query is refused before endpoint construction
+ok - malformed credential URLs fail closed while doctor still reports
+ok - a group flag lookup error stops and counts the batch
+ok - an unreadable group flag reports an error line instead of a traceback
+ok - doctor degrades one field instead of aborting the readiness report
+ok - a message result on an unconfigured brain exits zero without a write
+ok - a capture_id carrying control bytes never reaches stdout or a receipt
+ok - a surrogate capture_id fails its payload without stopping the batch
+ok - an uncapturable payload is skipped without dropping later valid ones
+ok - a lone surrogate is skipped without blocking later payloads
+ok - a failed brain write stops the batch and reports the unattempted remainder
+ok - the retry a missing Telegram ack guarantees captures the whole batch
+ok - U+2028, U+2029 and U+0085 inside text do not end a record
+ok - payload text reaches the brain byte-exact whatever the ambient encoding says
+ok - a batch that is not UTF-8 is refused before any brain write
+ok - a dangling credential symlink is an operator fault, not an unconfigured home
+ok - the receipt digest survives the optional date appearing or disappearing
+ok - a refusal scoped to one update_id fails its line, keeps walking, and exits non-zero
+ok - fields this path never reads, including date, are ignored not typed
+ok - a 4xx confined to one message fails its line, keeps walking, and exits non-zero
+ok - a 2xx carrying no capture_id fails its line, keeps walking, and exits non-zero
+ok - a non-JSON 2xx response stops the batch after one POST
+ok - an oversized non-JSON 2xx response stops the batch after one POST
+ok - oversized valid JSON without capture_id fails its payload and keeps walking
+ok - an oversized top-level JSON number fails its payload and keeps walking
+ok - oversized valid JSON with capture_id is successful
+ok - escaped non-BMP capture_ids succeed below and above the size boundary
+ok - complete oversized JSON values without capture_id keep walking
+ok - malformed oversized responses stop after one POST
+ok - invalid UTF-8 responses stop before jq normalization
+ok - duplicate and composite capture_ids follow last-key semantics
+ok - a large ignored string keeps classifier output bounded
+ok - a 201 without capture_id fails its payload and keeps walking
+ok - jq tool and resource failures stop safely
+ok - an endpoint-level 404 stops the batch instead of blaming one message
+ok - any 2xx carrying a usable capture_id is a successful capture
+ok - a corrupt per-update receipt fails its line and keeps walking
+ok - a 401 is systemic and still stops the batch
+ok - a channel post that carries no sender is captured as group discussion
+ok - the receipt digest survives from_id appearing or disappearing
+ok - unattempted counts only the payloads that would have been posted
+ok - a private chat that is not the captain is never captured
+ok - an unrecognized adapter classification is refused instead of silently acked
+ok - an empty adapter classification is refused instead of silently acked
+ok - a transport failure names curl exit code for the operator
+ok - a systemic stop before the first write reports the payloads left behind
+ok - doctor reports an unknown destination rather than a default it never read
+ok - the receipt directory is 700 whatever the ambient umask says
+ok - doctor reports the receipt store exactly as capture judges it
+ok - an invalid capture timeout counts the whole batch as unattempted
+ok - a home with no state directory bootstraps its own receipt store
+ok - a state path that is not a directory is refused, not created over
+ok - an unusable receipt store stops the batch and counts every payload
+ok - doctor reports non-secret readiness
+all fm-telegram-brain-capture tests passed
