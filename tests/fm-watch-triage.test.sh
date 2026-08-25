@@ -360,6 +360,26 @@ test_manager_child_work_inheritance_classifier() {
   printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$state/platform.status"
   [ "$(crew_absorb_class platform)" = none ] \
     || fail "a busy child masked the manager's unanswered captain hold"
+  # A transferred hold is durable the same way an open decision is: a later
+  # unrelated line scrolls it off the end of the log but does not answer it, so
+  # the manager keeps surfacing until the stream states the hold's next
+  # transition.
+  printf 'needs-decision [key=route]: ship v2 or hold?\ncaptain-held [key=route]: tracked by task-decision-route\nworking: dispatched the alpha rollout\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a later status line masked the manager's transferred captain hold"
+  printf 'captain-held [key=route]: tracked by task-decision-route\nresolved [key=other]: an unrelated call\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "resolving an unrelated key cleared the manager's transferred captain hold"
+  printf 'captain-held [key=route]: tracked by task-decision-route\nresolved [key=route]: the captain chose v2\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = working ] \
+    || fail "an answered captain hold kept the manager surfacing with a busy child"
+  printf 'captain-held [key=route]: tracked by task-decision-route\nneeds-decision [key=route]: the captain sent it back\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a hold reopened as a decision stopped surfacing"
   printf 'needs-decision [key=q1]: pick A or B\n' > "$state/platform.status"
   [ "$(crew_absorb_class platform)" = none ] \
     || fail "a busy child masked the manager's unanswered decision"
