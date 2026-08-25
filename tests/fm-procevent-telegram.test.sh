@@ -1829,22 +1829,31 @@ assert_equal "$(tr -d '\n' < "$H_EXPORT/state/.telegram-offset")" 3000 \
 pass "rollback preparation exports the transactional offset forward and never backward"
 
 # --- a state path carrying URI metacharacters opens the same way it was built -
-H_URI="$TMP_ROOT/uri%25pct#frag?query"
 URI_ENV="$TMP_ROOT/uri-metachars.env"
-arm_home "$H_URI" "$URI_ENV"
-uri_out=$(poll_once "$H_URI" "$URI_ENV" "$FIXTURES/one-text.json")
-assert_contains "$uri_out" "message:" \
-  "a state path with URI metacharacters could not be reopened after creation"
-assert_equal "$(db_query "$H_URI" "SELECT committed_offset FROM meta")" 1002 \
-  "a state path with URI metacharacters lost its committed offset"
-write_result "$uri_out"
-assert_contains \
-  "$(FM_HOME="$H_URI" FM_TELEGRAM_ENV_FILE="$URI_ENV" "$ADAPTER" messages "$RESULT_FILE")" \
-  "ahoy from the captain" \
-  "a state path with URI metacharacters hid the captain payload"
-assert_contains "$(FM_HOME="$H_URI" "$ADAPTER" doctor)" "integrity=ok" \
-  "doctor could not read a state path with URI metacharacters"
-pass "creation and reopen agree for state paths containing URI metacharacters"
+URI_HOMES=(
+  "$TMP_ROOT/uri%25pct#frag?query"
+  "/$TMP_ROOT/uri-double-slash-home"
+)
+for H_URI in "${URI_HOMES[@]}"; do
+  case "$H_URI" in
+    //*) uri_shape="a leading // authority" ;;
+    *)   uri_shape="URI metacharacters" ;;
+  esac
+  arm_home "$H_URI" "$URI_ENV"
+  uri_out=$(poll_once "$H_URI" "$URI_ENV" "$FIXTURES/one-text.json")
+  assert_contains "$uri_out" "message:" \
+    "a state path with $uri_shape could not be reopened after creation"
+  assert_equal "$(db_query "$H_URI" "SELECT committed_offset FROM meta")" 1002 \
+    "a state path with $uri_shape lost its committed offset"
+  write_result "$uri_out"
+  assert_contains \
+    "$(FM_HOME="$H_URI" FM_TELEGRAM_ENV_FILE="$URI_ENV" "$ADAPTER" messages "$RESULT_FILE")" \
+    "ahoy from the captain" \
+    "a state path with $uri_shape hid the captain payload"
+  assert_contains "$(FM_HOME="$H_URI" "$ADAPTER" doctor)" "integrity=ok" \
+    "doctor could not read a state path with $uri_shape"
+done
+pass "creation and reopen agree for state paths containing URI metacharacters or a // prefix"
 
 # --- a missing engine stays capturable, classifiable, and disposable ---------
 H_NO_ENGINE="$TMP_ROOT/engine-unavailable"
@@ -1878,7 +1887,26 @@ no_engine_ack=$(PATH="$NO_PYTHON_BIN" FM_HOME="$H_NO_ENGINE" \
 [ "$no_engine_ack_status" -eq 0 ] || fail "ack failed instead of reporting unacknowledgeable"
 assert_equal "$no_engine_ack" "unacknowledgeable: local-state" \
   "a missing engine muted the documented disposal path"
-pass "a missing engine still yields a blocked result the handler can classify and dispose"
+assert_present "$H_NO_ENGINE/state/procevent/telegram.source" \
+  "the engine-unavailable fixture was not armed before the cutover attempt"
+NO_ENGINE_BIN="$TMP_ROOT/bin-without-engine"
+cp -R "$ROOT/bin" "$NO_ENGINE_BIN"
+rm -f "$NO_ENGINE_BIN/fm_procevent_telegram_state.py"
+NO_ENGINE_ADAPTER="$NO_ENGINE_BIN/fm-procevent-telegram.sh"
+no_engine_migrate_status=0
+no_engine_migrate_err="$TMP_ROOT/engine-unavailable.migrate.err"
+no_engine_migrate=$(FM_HOME="$H_NO_ENGINE" FM_TELEGRAM_ENV_FILE="$NO_ENGINE_ENV" \
+  "$NO_ENGINE_ADAPTER" migrate 2>"$no_engine_migrate_err") \
+  || no_engine_migrate_status=$?
+[ "$no_engine_migrate_status" -ne 0 ] || fail "a missing engine reported migration success"
+assert_present "$H_NO_ENGINE/state/procevent/telegram.source" \
+  "a cutover refused for a missing engine still deregistered the captain's channel"
+assert_absent "$H_NO_ENGINE/state/telegram-migration-archive" \
+  "a cutover refused for a missing engine still archived legacy state"
+assert_equal "$no_engine_migrate" "" "a refused cutover printed a result on stdout"
+assert_contains "$(cat "$no_engine_migrate_err")" "Telegram state engine is unavailable" \
+  "a missing engine refused the cutover without an actionable message"
+pass "a missing engine still yields a blocked result the handler can classify and dispose, and refuses the cutover before deregistering the channel"
 
 # --- end to end message capture, adapter read/ack, and generic handled -------
 H_E2E="$TMP_ROOT/e2e-message"

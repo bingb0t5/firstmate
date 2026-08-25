@@ -521,7 +521,7 @@ def connect_existing(state: Path) -> sqlite3.Connection:
     ensure_telegram_directory(state, create=False)
     ensure_private_database(database)
     try:
-        uri = "file:%s?mode=rw" % urllib.parse.quote(database.as_posix())
+        uri = "file:%s?mode=rw" % urllib.parse.quote(database.as_posix(), safe="")
         conn = sqlite3.connect(uri, uri=True, isolation_level=None, timeout=5)
         configure_connection(conn)
         validate_store(conn)
