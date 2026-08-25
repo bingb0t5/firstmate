@@ -1,0 +1,31 @@
+PUBLIC ARM
+armed: demo-source (lavish)
+starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+
+REGISTERED SOURCE
+SOURCE                       ADAPTER      OWNER      PENDING
+demo-source                  lavish       none       0
+
+RUN SOURCE TO COMPLETION
+not-autohandled: demo-source (left for the handler; still unacknowledged)
+captured: /tmp/tmp.Gp5UUsdhMj/state/procevent-inbox/demo-source.1.result
+
+CAPTURED RESULT (DURABLE RESULT CONTRACT)
+captain-visible payload
+
+DURABLE NORMALIZED WAKE
+1787653273	1	check	procevent:demo-source:1	check: procevent lavish demo-source 1
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3891340.1787653273.VqjgWG
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 process-event source(s) registered, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  After draining queued wakes, repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+
+EXPLICIT HANDLED ACKNOWLEDGEMENT
+handled: demo-source 1
+SOURCE                       ADAPTER      OWNER      PENDING
+demo-source                  lavish       none       0
