@@ -475,6 +475,50 @@ close_answered() {  # <task-id> <release-0-or-1>
   fi
 }
 
+# Close status-side captain-held transfers once every durable task named by the
+# transfer has a recorded answer. command_complete deliberately records the
+# whole reviewed inventory on each transferred status key because a status key
+# and a modern captain-task id need not be the same. Keeping the transfer until
+# the whole named inventory is settled is conservative: one answered item can
+# never hide another item the captain still owes, while the final answer clears
+# the fold that manager quietness reads.
+settle_answered_status_holds() {
+  local status origin key _verb note tracked entry task show body all_settled append_rc
+  for status in "$STATE"/*.status; do
+    [ -f "$status" ] && [ ! -L "$status" ] || continue
+    origin=${status##*/}
+    origin=${origin%.status}
+    while IFS=$'\t' read -r key _verb note; do
+      [ -n "$key" ] || continue
+      case "$note" in
+        'tracked by '*) tracked=${note#tracked by } ;;
+        *) continue ;;
+      esac
+      all_settled=1
+      while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        task=$(resolve_entry "$origin" "$entry" 2>/dev/null) \
+          || { all_settled=0; break; }
+        show=$(task_show "$task" 2>/dev/null) \
+          || { all_settled=0; break; }
+        body=$(show_field "$show" body)
+        body_has_resolution_record "$body" \
+          || { all_settled=0; break; }
+      done <<EOF
+$(printf '%s\n' "$tracked" | tr ',' '\n')
+EOF
+      [ "$all_settled" = 1 ] || continue
+      append_rc=0
+      fm_wake_status_append_self_announced "$STATE" "$status" \
+        "resolved [key=$key]: captain-held inventory answered" || append_rc=$?
+      [ "$append_rc" -ne 2 ] \
+        || fail "cannot settle answered captain-held transfer for $origin/$key"
+    done <<EOF
+$(status_held_decisions "$status")
+EOF
+  done
+}
+
 command_answer() {
   local id=${1:-} decision_file='' release=0 show state hold_kind body outcome recorded_mode
   [ "$#" -ge 1 ] || { usage >&2; exit 2; }
@@ -506,6 +550,7 @@ command_answer() {
         || fail "task $id records this answer with mode released; a closed task cannot replay that release"
       [ "$release" = 0 ] \
         || fail "task $id records this answer with mode ${recorded_mode:-unknown}; --release cannot reopen a closed task"
+      settle_answered_status_holds
       printf 'answered: %s\n' "$id"
       return 0
     fi
@@ -520,6 +565,7 @@ command_answer() {
     [ "$(show_field "$show" state)" = "done" ] || fail "recording the answer reopened closed task $id"
     body_has_resolution_record "$(show_field "$show" body)" \
       || fail "captain-held task $id did not retain its durable resolution record"
+    settle_answered_status_holds
     printf 'repaired: %s\n' "$id"
     return 0
   fi
@@ -539,6 +585,7 @@ command_answer() {
         answered) [ "$release" = 0 ] || fail "task $id records this answer as a close; retry without --release" ;;
       esac
       close_answered "$id" "$release"
+      settle_answered_status_holds
       printf '%s: %s\n' "$outcome" "$id"
       return 0
     fi
@@ -547,6 +594,7 @@ command_answer() {
     show=$(task_show "$id") || fail "task $id disappeared after closing"
     body_has_resolution_record "$(show_field "$show" body)" \
       || fail "captain-held task $id did not retain its durable resolution record"
+    settle_answered_status_holds
     printf '%s: %s\n' "$outcome" "$id"
     return 0
   fi
@@ -558,6 +606,7 @@ command_answer() {
       || fail "task $id records a different captain decision with mode ${recorded_mode:-unknown}"
     [ "$recorded_mode" = released ] && [ "$release" = 1 ] \
       || fail "task $id records this answer with mode ${recorded_mode:-unknown}; replay requires matching --release"
+    settle_answered_status_holds
     printf 'released: %s\n' "$id"
     return 0
   fi

@@ -238,13 +238,17 @@ test_answer_records_and_closes() {
   tasks_in "$home" add "$id" "Guard the answer path" --kind scout --repo sample --start >/dev/null \
     || fail "could not create the answer-guard origin"
   write_origin_meta "$home" "$id"
-  printf 'done: report complete\n' > "$home/state/$id.status"
+  printf 'needs-decision [key=sample-guard-call]: choose the guard option\n' > "$home/state/$id.status"
   printf '# Guard review\n\nOne captain choice remains.\n' > "$home/data/$id/report.md"
   run_captain "$home" hold sample-guard-call \
     --title "Choose the guard option" --reason "captain guard choice pending" --repo sample >/dev/null \
     || fail "could not register the captain-held task"
   run_captain "$home" complete "$id" sample-guard-call >/dev/null \
     || fail "completion failed for the held inventory"
+  [ -n "$(FM_STATE_OVERRIDE="$home/state" bash -c \
+    'SCRIPT_DIR="$1/bin"; . "$SCRIPT_DIR/fm-classify-lib.sh"; status_held_decisions "$2"' \
+    bash "$ROOT" "$home/state/$id.status")" ] \
+    || fail "precondition: completion did not leave a transferred status hold"
   tasks_in "$home" add sample-guard-work "Apply the guard option" \
     --kind ship --repo sample --blocked-by sample-guard-call >/dev/null \
     || fail "could not route work behind the captain-held task"
@@ -273,6 +277,10 @@ test_answer_records_and_closes() {
   printf 'Captain chose the guard option.\n' > "$home/guard-decision.txt"
   run_captain "$home" answer sample-guard-call --decision-file "$home/guard-decision.txt" >/dev/null \
     || fail "answer could not close the captain-held task"
+  [ -z "$(FM_STATE_OVERRIDE="$home/state" bash -c \
+    'SCRIPT_DIR="$1/bin"; . "$SCRIPT_DIR/fm-classify-lib.sh"; status_held_decisions "$2"' \
+    bash "$ROOT" "$home/state/$id.status")" ] \
+    || fail "the answered captain task left its transferred status hold open"
   show=$(tasks_in "$home" show sample-guard-call --full)
   assert_contains "$show" "state: done" "an answered captain-held task did not close"
   assert_contains "$show" "Resolution recorded by fm-captain-hold" "the answered task lost the decision record"
