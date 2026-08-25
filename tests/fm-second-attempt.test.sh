@@ -96,7 +96,7 @@ SH
 }
 
 add_ship_task() {
-  local dir=$1 id=$2
+  local dir=$1 id=$2 kind=${3:-ship}
   local home="$dir/home" proj="$dir/proj" wt="$dir/wt"
   fm_git_worktree "$proj" "$wt" "task-$id"
   mkdir -p "$home/data/$id"
@@ -107,7 +107,8 @@ add_ship_task() {
     echo "worktree=$wt"
     echo "project=$proj"
     echo "harness=claude"
-    echo "kind=ship"
+    echo "kind=$kind"
+    [ "$kind" = secondmate ] && echo "home=$wt"
     echo "mode=no-mistakes"
     echo "yolo=off"
     echo "tasktmp=/tmp/fm-$id"
@@ -167,23 +168,43 @@ test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent() {
   add_ship_task "$dir" sa1
   out=$(run_control "$dir" sa1 relaunch --note "try again"); rc=$?
   expect_code 1 "$rc" "relaunch without a spec should refuse"
-  assert_contains "$out" "no Sol spec" "relaunch refusal did not name the missing spec"
+  assert_contains "$out" "no Sol spec at $dir/home/data/sa1/spec.md" \
+    "relaunch refusal did not name the owned spec path"
   assert_contains "$out" "commission a Sol spec scout" "relaunch refusal did not name the next legal action"
+  assert_contains "$out" "copy its report to $dir/home/data/sa1/spec.md" \
+    "relaunch refusal did not name a next action that can clear the gate"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "relaunch refusal stopped the running agent"
   [ -z "$(cat "$dir/fake/literal")" ] || fail "relaunch refusal sent lifecycle input"
   pass "fm-control: relaunch refuses without a Sol spec and does not replace the agent"
 }
 
-test_control_relaunch_proceeds_once_report_md_exists() {
+test_control_relaunch_proceeds_once_spec_md_exists() {
   local dir out rc
   dir=$(new_case relaunch-allow sa2)
   add_ship_task "$dir" sa2
   mkdir -p "$dir/home/data/sa2"
-  printf '# Sol spec\n\nShip it.\n' > "$dir/home/data/sa2/report.md"
+  printf '# Sol spec\n\nShip it.\n' > "$dir/home/data/sa2/spec.md"
   out=$(run_control "$dir" sa2 relaunch --note "continue with spec"); rc=$?
   expect_code 0 "$rc" "relaunch with a spec should succeed"$'\n'"$out"
   assert_contains "$out" "relaunched sa2" "relaunch with a spec did not complete"
-  pass "fm-control: relaunch proceeds once data/<id>/report.md exists"
+  pass "fm-control: relaunch proceeds once data/<id>/spec.md exists"
+}
+
+# A scout deliverable at data/<id>/report.md predates the first implementation
+# worker on the scout+promote path (bin/fm-promote.sh flips kind= in place), so
+# it must not clear the gate for the promoted ship's second worker.
+test_promoted_scout_report_does_not_clear_the_gate() {
+  local dir out rc
+  dir=$(new_case relaunch-promoted sa5)
+  add_ship_task "$dir" sa5
+  mkdir -p "$dir/home/data/sa5"
+  printf '# scout findings\n\nInvestigation only.\n' > "$dir/home/data/sa5/report.md"
+  out=$(run_control "$dir" sa5 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "a pre-implementation scout report should not clear the gate"
+  assert_contains "$out" "no Sol spec at $dir/home/data/sa5/spec.md" \
+    "promoted-scout relaunch refusal did not name the owned spec path"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "relaunch refusal stopped the running agent"
+  pass "fm-control: a pre-implementation data/<id>/report.md does not satisfy the gate"
 }
 
 test_spawn_relaunch_refuses_without_a_spec() {
@@ -197,36 +218,35 @@ test_spawn_relaunch_refuses_without_a_spec() {
   pass "fm-spawn: --relaunch refuses without a Sol spec"
 }
 
-test_secondmate_spawn_is_unaffected_by_the_gate() {
-  local home fakebin out status smhome
-  home="$TMP_ROOT/secondmate/home"
-  smhome="$TMP_ROOT/secondmate/smhome"
-  fakebin="$TMP_ROOT/secondmate/bin"
-  mkdir -p "$home/data" "$home/state" "$home/config" "$fakebin"
-  mkdir -p "$smhome/bin" "$smhome/data"
-  printf '#!/bin/sh\nexit 1\n' > "$fakebin/tmux"
-  chmod +x "$fakebin/tmux"
-  printf 'secondmate marker\n' > "$smhome/AGENTS.md"
-  mkdir -p "$smhome/bin"
-  printf '# charter\n' > "$smhome/data/charter.md"
-  printf '.fm-secondmate-home\n' > "$smhome/.fm-secondmate-home" 2>/dev/null || true
-  echo "sm-gate" > "$smhome/.fm-secondmate-home"
-  {
-    echo "window=fmses:fm-sm-gate"
-    echo "endpoint_task_id=sm-gate"
-    echo "worktree=$smhome"
-    echo "harness=claude"
-    echo "kind=secondmate"
-    echo "home=$smhome"
-    echo "spawn_gen=s1.prior"
-  } > "$home/state/sm-gate.meta"
-  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_SPAWN_NO_GUARD=1 FM_BACKEND=tmux PATH="$fakebin:$PATH" \
-    "$SPAWN" sm-gate "$smhome" --secondmate 2>&1)
-  status=$?
-  assert_not_contains "$out" "Sol spec" "secondmate spawn was blocked by the ship second-attempt gate"
-  [ "$status" -ne 0 ] || fail "secondmate spawn should still fail only at the fake backend, not the Sol gate"
-  pass "fm-spawn: --secondmate launch is unaffected by the second-attempt gate"
+# Same fixture as test_spawn_relaunch_refuses_without_a_spec, differing only in
+# kind=, so reaching the later agent-free refusal proves the gate was executed
+# and exempted this task rather than never being consulted.
+test_secondmate_relaunch_is_unaffected_by_the_gate() {
+  local dir out rc
+  dir=$(new_case secondmate-relaunch sa4)
+  add_ship_task "$dir" sa4 secondmate
+  out=$(run_spawn_case "$dir" sa4 --relaunch); rc=$?
+  expect_code 1 "$rc" "the fake endpoint should still refuse the secondmate relaunch"
+  assert_not_contains "$out" "Sol spec" "secondmate relaunch was blocked by the ship second-attempt gate"
+  assert_contains "$out" "positively agent-free" \
+    "secondmate relaunch never reached the gate, so the exemption is untested"
+  pass "fm-spawn: a secondmate relaunch is exempt from the second-attempt gate"
+}
+
+# Trigger 3 through a real executable: the marker outranks the plain relaunch
+# reason, so the refusal must name fix round 3.
+test_nm_third_fix_round_marker_refuses_through_fm_control() {
+  local dir out rc
+  dir=$(new_case nm-round-control sa6)
+  add_ship_task "$dir" sa6
+  printf '3\n' > "$dir/home/state/sa6.nm-third-fix-round"
+  out=$(run_control "$dir" sa6 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "a recorded third fix round should refuse the relaunch"
+  assert_contains "$out" "fix round 3" "fm-control refusal did not name the third fix round"
+  assert_contains "$out" "Sol spec at $dir/home/data/sa6/spec.md" \
+    "fm-control marker refusal did not name the owned spec path"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "marker refusal stopped the running agent"
+  pass "fm-control: a recorded third fix round refuses the relaunch by name"
 }
 
 test_nm_third_fix_round_marker_refuses_without_a_spec() {
@@ -249,16 +269,18 @@ test_nm_third_fix_round_marker_refuses_without_a_spec() {
   out=$(cat "$home/err")
   assert_contains "$out" "fix round 3" "marker refusal did not name the third fix round"
   assert_contains "$out" "commission a Sol spec scout" "marker refusal did not name the next legal action"
-  printf '# spec\n' > "$home/data/task-nm/report.md"
+  printf '# spec\n' > "$home/data/task-nm/spec.md"
   fm_second_attempt_refuse_if_needed "$home/state" "$home/data" task-nm "$meta" relaunch \
-    || fail "marker gate should clear once report.md exists"
+    || fail "marker gate should clear once spec.md exists"
   pass "fm-second-attempt-lib: third fix-round marker refuses until a spec exists"
 }
 
 test_first_ship_spawn_is_not_blocked_without_a_spec
 test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent
-test_control_relaunch_proceeds_once_report_md_exists
+test_control_relaunch_proceeds_once_spec_md_exists
+test_promoted_scout_report_does_not_clear_the_gate
 test_spawn_relaunch_refuses_without_a_spec
-test_secondmate_spawn_is_unaffected_by_the_gate
+test_secondmate_relaunch_is_unaffected_by_the_gate
+test_nm_third_fix_round_marker_refuses_through_fm_control
 test_nm_third_fix_round_marker_refuses_without_a_spec
 echo "# all fm-second-attempt tests passed"

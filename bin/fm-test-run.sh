@@ -411,7 +411,6 @@ tests/fm-cmux-claude-composer-live-e2e.test.sh 20
 tests/fm-codex-continuity-live-e2e.test.sh 19
 tests/fm-composer-matrix-live-e2e.test.sh 21
 tests/fm-control-relaunch.test.sh 31881
-tests/fm-second-attempt.test.sh 8000
 tests/fm-control.test.sh 36712
 tests/fm-cursor-harness.test.sh 30071
 tests/fm-cursor-primary-live-e2e.test.sh 20
