@@ -52,6 +52,26 @@ This is a quick change.
 EOF
 }
 
+legacy_body() {
+  cat <<'EOF'
+## Intent
+
+Centralize process-event registration and delivery-shim ownership.
+
+## What Changed
+
+- Reduced adapters to source-specific behavior.
+
+## Risk Assessment
+
+Low risk because executable process-event coverage passed.
+
+## Testing
+
+The focused process-event behavior suite passed.
+EOF
+}
+
 test_missing_remote_token_fails_closed() {
   local out rc
   set +e
@@ -106,6 +126,25 @@ test_cli_rejects_incomplete_description() {
   assert_contains "$out" "Validation: Checks passed" \
     "incomplete description did not require Validation: Checks passed"
   pass "CLI fails a non-compliant PR description"
+}
+
+test_cli_rejects_legacy_description() {
+  local out rc
+  set +e
+  out=$(
+    PR_TITLE='Centralize process-event ownership' PR_BODY="$(legacy_body)" \
+      node --experimental-strip-types "$CHECK" 2>&1
+  )
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "legacy PR description"
+  assert_contains "$out" "CEO overview: What is changing" \
+    "legacy description incorrectly satisfied the CEO overview"
+  assert_contains "$out" "Validation: Checks passed" \
+    "legacy Testing section incorrectly satisfied Validation"
+  assert_contains "$out" "Module-boundary decision" \
+    "legacy description incorrectly satisfied the module-boundary decision"
+  pass "CLI rejects the legacy PR description structure"
 }
 
 test_cli_rejects_untouched_module_boundary_template() {
@@ -272,6 +311,7 @@ test_cli_accepts_complete_description() {
 test_missing_remote_token_fails_closed
 test_vendored_unit_suite
 test_cli_rejects_incomplete_description
+test_cli_rejects_legacy_description
 test_cli_rejects_untouched_module_boundary_template
 test_cli_accepts_complete_description
 test_transient_remote_failure_uses_local_pin
