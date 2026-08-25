@@ -142,6 +142,24 @@ EOF
   pass "fm-spawn: a projects: entry claims its project as a bare name, projects/<name>, or absolute path"
 }
 
+test_project_name_whitespace_is_preserved_within_comma_delimited_entries() {
+  local rec home proj fakebin out status line
+  line="- design - design domain (home: $TMP_ROOT/whitespace/smhome; scope: design domain; projects: My Project, other; added 2026-06-22)"
+  rec=$(make_home whitespace "$line")
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  mkdir -p "$proj/My Project"
+  write_brief "$home" own-space-l1 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" own-space-l1 "$proj/My Project" claude --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a project with whitespace in its basename should refuse"
+  assert_contains "$out" "registered to secondmate(s) design" \
+    "whitespace within a comma-delimited project entry broke its ownership claim"
+  assert_absent "$home/state/own-space-l1.meta" "refused whitespace-project spawn wrote task metadata"
+  pass "fm-spawn: whitespace within a comma-delimited project name is preserved"
+}
+
 test_projects_field_metacharacter_is_never_expanded_against_the_working_directory() {
   local rec home proj fakebin cwd out status line
   line="- design - design domain (home: $TMP_ROOT/glob/smhome; scope: design domain; projects: owned*; added 2026-06-22)"
@@ -444,6 +462,7 @@ EOF
 test_fresh_spawn_into_owned_project_refuses_and_writes_no_meta
 test_refusal_names_every_owner_when_several_claim_the_project
 test_registry_entry_path_forms_state_the_same_ownership_claim
+test_project_name_whitespace_is_preserved_within_comma_delimited_entries
 test_projects_field_metacharacter_is_never_expanded_against_the_working_directory
 test_fresh_scout_spawn_is_guarded_and_overridable_like_a_ship_spawn
 test_allow_primary_spawn_override_passes_the_ownership_guard

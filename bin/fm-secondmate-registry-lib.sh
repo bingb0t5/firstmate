@@ -312,21 +312,23 @@ secondmate_registry_validate_bindings() {
   return 0
 }
 
-# The generated field is comma-joined, but a hand-edited list separated by
-# whitespace still states a claim, so both separators split it. Each entry is
-# then reduced to its path basename, so a bare `alpha`, a `projects/alpha`, and
-# an absolute clone path all state the same claim the spawn side derives from
-# its own project argument. The split reads into an array instead of
-# word-splitting an unquoted expansion: pathname expansion would otherwise
-# resolve a metacharacter in the field against the caller's working directory
-# and silently rewrite the ownership set in either direction.
+# The projects field is comma-delimited. Each complete entry is trimmed and
+# then reduced to its path basename, so whitespace within a project name is
+# preserved while a bare `alpha`, a `projects/alpha`, and an absolute clone path
+# all state the same claim the spawn side derives from its own project argument.
+# The split reads into an array instead of word-splitting an unquoted expansion:
+# pathname expansion would otherwise resolve a metacharacter in the field
+# against the caller's working directory and silently rewrite the ownership set
+# in either direction.
 secondmate_registry_projects_field_has() {
   local field=$1 project=$2 entry
   local -a entries=()
   [ -n "$project" ] || return 1
   [ -n "$field" ] || return 1
-  IFS=$', \t' read -ra entries <<< "$field"
+  IFS=, read -ra entries <<< "$field"
   for entry in "${entries[@]+"${entries[@]}"}"; do
+    entry=${entry#"${entry%%[![:space:]]*}"}
+    entry=${entry%"${entry##*[![:space:]]}"}
     while [ "$entry" != "${entry%/}" ]; do
       entry=${entry%/}
     done
