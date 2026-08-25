@@ -482,7 +482,8 @@ Raise `FM_PR_CONFLICT_BUDGET_SECS` with `FM_CHECK_TIMEOUT` when the fleet outgro
 `FM_PR_CONFLICT_PR_LIMIT` (default 30) caps open pull requests read per repository.
 `FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800) sets how long a target must stay unaccounted for before the resulting coverage gap is disclosed.
 The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a larger budget is cut to fit rather than refused, and the `UNKNOWN` reread loop stops at the sweep deadline too, because a run the watcher kills prints and records nothing at all.
-A cut budget is disclosed at the head of the line, and it is the one thing this check reports without a conflict behind it; because it describes a setting rather than an event, it repeats on every sweep until the two settings agree.
+A cut budget is disclosed at the head of the line and, like a matured coverage hole, can appear without a conflict behind it.
+Because the cut-budget disclosure describes a setting rather than an event, it repeats on every sweep until the two settings agree.
 
 ## Relay (.env)
 

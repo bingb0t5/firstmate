@@ -1070,6 +1070,35 @@ test_malformed_origin_round_trips_as_local_target() {
   pass "a malformed origin never reaches GraphQL and round-trips as a local target"
 }
 
+test_firstmate_origin_failure_causes_are_distinguished() {
+  local home root out
+  home=$(make_home firstmate-invalid-origin)
+  root="$home/firstmate"
+  mkdir -p "$root"
+  git -C "$root" init -q
+  git -C "$root" remote add origin https://gitlab.com/acme/firstmate.git
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_ROOT_OVERRIDE="$root" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=source:firstmate-origin" \
+    "a rejected firstmate origin must be a source coverage gap"
+  assert_contains "$(cat "$out")" "latest-cause=invalid-origin" \
+    "a present non-GitHub firstmate origin must be an identity refusal"
+
+  home=$(make_home firstmate-missing-origin)
+  root="$home/firstmate"
+  mkdir -p "$root"
+  git -C "$root" init -q
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_ROOT_OVERRIDE="$root" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=source:firstmate-origin" \
+    "a missing firstmate origin must be a source coverage gap"
+  assert_contains "$(cat "$out")" "latest-cause=discovery" \
+    "a failed firstmate origin lookup must remain a discovery failure"
+  pass "firstmate origin lookup and identity failures keep distinct causes"
+}
+
 # An unreadable projects registry is a source-level gap, not an unnamed sweep.
 test_unreadable_registry_is_a_source_coverage_gap() {
   local home out
@@ -1199,6 +1228,7 @@ test_budget_and_github_holes_are_worded_apart
 test_coverage_gap_retains_age_across_cause_flaps
 test_coverage_recovery_then_new_outage_notifies_again
 test_malformed_origin_round_trips_as_local_target
+test_firstmate_origin_failure_causes_are_distinguished
 test_unreadable_registry_is_a_source_coverage_gap
 test_mixed_sweep_does_not_cross_write_ledgers
 test_coverage_omitted_by_line_cap_is_emitted_later

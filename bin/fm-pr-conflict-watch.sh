@@ -461,11 +461,11 @@ discover_targets() {
   REPO_OWNER_MAP=
   DISCOVERY_COMPLETE=1
   load_project_owners
-  FIRSTMATE_SLUG=$(firstmate_repo_slug 2>/dev/null) || FIRSTMATE_SLUG=
-  if [ -z "$FIRSTMATE_SLUG" ]; then
+  if ! FIRSTMATE_SLUG=$(firstmate_repo_slug 2>/dev/null); then
+    FIRSTMATE_SLUG=
     DISCOVERY_COMPLETE=0
     add_target source:firstmate-origin '' '' discovery
-  elif ! valid_repo_slug "$FIRSTMATE_SLUG"; then
+  elif [ -z "$FIRSTMATE_SLUG" ] || ! valid_repo_slug "$FIRSTMATE_SLUG"; then
     DISCOVERY_COMPLETE=0
     add_target source:firstmate-origin '' '' invalid-origin
     FIRSTMATE_SLUG=
