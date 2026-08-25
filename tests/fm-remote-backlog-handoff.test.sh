@@ -215,6 +215,19 @@ $1
 EOF
 }
 
+write_backlog $'- [ ] remote-blocker - missing migration priority (repo: alpha) (kind: ship)\n- [ ] remote-dependent - routed work blocked-by: remote-blocker (repo: alpha) (kind: ship) (priority: 1)'
+remote_before=$(sha256_file "$PARENT/data/backlog.md")
+set +e
+handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios remote-dependent > "$TMP_ROOT/closure-priority.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || fail "remote dependency closure with an unprioritized blocker was staged"
+assert_contains "$(cat "$TMP_ROOT/closure-priority.out")" 'refusing to hand off remote-blocker' "remote closure priority refusal did not name the blocker"
+[ "$(sha256_file "$PARENT/data/backlog.md")" = "$remote_before" ] || fail "remote closure priority refusal mutated the source backlog"
+assert_absent "$PARENT/data/handoff/ios.outbox.md" "remote closure priority refusal created an outbox"
+[ ! -s "$WAKE_LOG" ] || fail "remote closure priority refusal notified the receiver"
+pass "dependency closure priorities are validated before remote staging or notification"
+
 # Completion can become unknown after the remote atomic move. The local outbox
 # remains the whole recovery record, the primary dispatch queue is already
 # empty, and a blind retry is not performed inside the transport call.
