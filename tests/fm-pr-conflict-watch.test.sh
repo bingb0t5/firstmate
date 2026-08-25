@@ -322,6 +322,15 @@ run_check() {
   expect_code 0 "$status" "check exit"
 }
 
+make_path_without_jq() {
+  local dir=$1 command source
+  mkdir -p "$dir"
+  for command in env bash dirname date tr mktemp chmod mv rm; do
+    source=$(command -v "$command") || fail "missing test prerequisite: $command"
+    ln -sf "$source" "$dir/$command"
+  done
+}
+
 # The fake gh-axi is only useful as a regression net if it refuses what the real
 # CLI refuses and answers in the shape the real CLI answers in. Both were
 # verified against gh-axi 0.1.32 directly.
@@ -1207,6 +1216,59 @@ test_title_backslash_is_literal() {
   pass "PR titles preserve a literal backslash and safe whitespace"
 }
 
+test_runtime_dependency_gaps_notify_dedupe_and_recover() {
+  local home out nojq status=0
+  home=$(make_home runtime-dependencies)
+  env FM_HOME="$home" FM_ROOT="$ROOT" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROJECTS_OVERRIDE="$home/projects" FM_STATE_OVERRIDE="$home/state" \
+    PATH="$home/fakebin:$BASE_PATH" "$WATCH" arm >"$home/arm.out" 2>&1 || status=$?
+  expect_code 0 "$status" "runtime dependency arm exit"
+
+  nojq="$home/nojq-bin"
+  make_path_without_jq "$nojq"
+  out="$home/out.txt"
+  env PATH="$nojq" FM_PR_CONFLICT_INTERVAL=0 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 \
+    "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  assert_contains "$(cat "$out")" "coverage-hole target=source:runtime-jq" \
+    "jq disappearance after arm must disclose a coverage gap"
+  assert_contains "$(cat "$out")" "latest-cause=dependency-missing"
+  : > "$out"
+  env PATH="$nojq" FM_PR_CONFLICT_INTERVAL=0 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 \
+    "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  [ ! -s "$out" ] || fail "the same missing-jq gap must disclose once: $(cat "$out")"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "restoring jq must close its gap silently: $(cat "$out")"
+  env PATH="$nojq" FM_PR_CONFLICT_INTERVAL=0 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 \
+    "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  assert_contains "$(cat "$out")" "coverage-hole target=source:runtime-jq" \
+    "a later jq disappearance must open a new gap"
+
+  run_check "$home" "$out"
+  : > "$out"
+  env FM_PR_CONFLICT_GH_AXI=missing-gh-axi FM_PR_CONFLICT_INTERVAL=0 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 PATH="$home/fakebin:$BASE_PATH" \
+    "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  assert_contains "$(cat "$out")" "coverage-hole target=source:runtime-gh-axi" \
+    "gh-axi disappearance after arm must disclose a coverage gap"
+  assert_contains "$(cat "$out")" "latest-cause=dependency-missing"
+  : > "$out"
+  env FM_PR_CONFLICT_GH_AXI=missing-gh-axi FM_PR_CONFLICT_INTERVAL=0 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 PATH="$home/fakebin:$BASE_PATH" \
+    "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  [ ! -s "$out" ] || fail "the same missing-gh-axi gap must disclose once: $(cat "$out")"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "restoring gh-axi must close its gap silently: $(cat "$out")"
+  env FM_PR_CONFLICT_GH_AXI=missing-gh-axi FM_PR_CONFLICT_INTERVAL=0 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 PATH="$home/fakebin:$BASE_PATH" \
+    "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  assert_contains "$(cat "$out")" "coverage-hole target=source:runtime-gh-axi" \
+    "a later gh-axi disappearance must open a new gap"
+  pass "runtime dependency gaps notify once and recover"
+}
+
 test_arm_registers_check() {
   local home out status=0
   home=$(make_home arm)
@@ -1260,4 +1322,5 @@ test_unreadable_registry_is_a_source_coverage_gap
 test_mixed_sweep_does_not_cross_write_ledgers
 test_coverage_omitted_by_line_cap_is_emitted_later
 test_title_backslash_is_literal
+test_runtime_dependency_gaps_notify_dedupe_and_recover
 test_arm_registers_check

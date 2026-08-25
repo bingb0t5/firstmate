@@ -245,6 +245,10 @@ DISCOVERY_COMPLETE=1
 RESOLVED_STATE=
 RESOLVED_HEAD=
 RESOLVED_DRAFT=
+RUNTIME_JQ_OPENED=0
+RUNTIME_JQ_DISCLOSED=0
+RUNTIME_GH_OPENED=0
+RUNTIME_GH_DISCLOSED=0
 
 # Split a delimited accumulator into one part per line. `read -r -a` is not used
 # anywhere here because expanding a declared-but-empty array under `set -u` is a
@@ -520,6 +524,10 @@ record_read() {
   RECORD_EPOCH=0
   REPORTED_KEYS=
   COVERAGE_JSON='[]'
+  RUNTIME_JQ_OPENED=0
+  RUNTIME_JQ_DISCLOSED=0
+  RUNTIME_GH_OPENED=0
+  RUNTIME_GH_DISCLOSED=0
   [ -f "$RECORD" ] || return 0
   while IFS= read -r line; do
     if [ "$first" = 1 ]; then
@@ -542,9 +550,21 @@ record_read() {
       reported=*) REPORTED_KEYS=${line#reported=} ;;
       coverage=*)
         line=${line#coverage=}
-        if printf '%s' "$line" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        if ! command -v jq >/dev/null 2>&1; then
+          COVERAGE_JSON=$line
+        elif printf '%s' "$line" | jq -e 'type == "array"' >/dev/null 2>&1; then
           COVERAGE_JSON=$line
         fi
+        ;;
+      runtime-jq=*)
+        line=${line#runtime-jq=}
+        RUNTIME_JQ_OPENED=${line%%,*}
+        RUNTIME_JQ_DISCLOSED=${line#*,}
+        ;;
+      runtime-gh-axi=*)
+        line=${line#runtime-gh-axi=}
+        RUNTIME_GH_OPENED=${line%%,*}
+        RUNTIME_GH_DISCLOSED=${line#*,}
         ;;
       unread=*) ;;
     esac
@@ -560,6 +580,8 @@ record_write() {
     printf 'epoch=%s\n' "$(record_epoch_now)"
     printf 'reported=%s\n' "$reported"
     printf 'coverage=%s\n' "$COVERAGE_JSON"
+    printf 'runtime-jq=%s,%s\n' "$RUNTIME_JQ_OPENED" "$RUNTIME_JQ_DISCLOSED"
+    printf 'runtime-gh-axi=%s,%s\n' "$RUNTIME_GH_OPENED" "$RUNTIME_GH_DISCLOSED"
   } > "$tmp" || { rm -f -- "$tmp"; return 1; }
   mv -f -- "$tmp" "$RECORD" || { rm -f -- "$tmp"; return 1; }
 }
@@ -667,6 +689,50 @@ coverage_mark_disclosed() {
   COVERAGE_JSON=$next
 }
 
+runtime_gap_touch() {
+  local tool=$1 now opened disclosed elapsed id
+  now=$(record_epoch_now)
+  case "$tool" in
+    jq)
+      opened=$RUNTIME_JQ_OPENED
+      disclosed=$RUNTIME_JQ_DISCLOSED
+      id=source:runtime-jq
+      ;;
+    gh-axi)
+      opened=$RUNTIME_GH_OPENED
+      disclosed=$RUNTIME_GH_DISCLOSED
+      id=source:runtime-gh-axi
+      ;;
+  esac
+  case "$opened" in ''|*[!0-9]*) opened=0 ;; esac
+  case "$disclosed" in 1) ;; *) disclosed=0 ;; esac
+  [ "$opened" -gt 0 ] || opened=$now
+  elapsed=0
+  [ "$now" -gt "$opened" ] && elapsed=$((now - opened))
+  case "$tool" in
+    jq) RUNTIME_JQ_OPENED=$opened ;;
+    gh-axi) RUNTIME_GH_OPENED=$opened ;;
+  esac
+  if [ "$disclosed" -eq 0 ] && [ "$elapsed" -ge "$UNREAD_GRACE" ]; then
+    queue_item dependency "$id" \
+      "$(coverage_text "$id" '' "$elapsed" dependency-missing)"
+  fi
+}
+
+runtime_gap_close() {
+  case "$1" in
+    jq) RUNTIME_JQ_OPENED=0; RUNTIME_JQ_DISCLOSED=0 ;;
+    gh-axi) RUNTIME_GH_OPENED=0; RUNTIME_GH_DISCLOSED=0 ;;
+  esac
+}
+
+runtime_mark_disclosed() {
+  case "$1" in
+    source:runtime-jq) RUNTIME_JQ_DISCLOSED=1 ;;
+    source:runtime-gh-axi) RUNTIME_GH_DISCLOSED=1 ;;
+  esac
+}
+
 # Gaps for targets complete discovery no longer expects are closed. Absence
 # from a partial discovery is a failed read, not proof the target was dropped.
 coverage_prune() {
@@ -686,10 +752,29 @@ ack_delivered() {
     case "$kind" in
       conflict) [ -z "$key" ] || record_add_key "$key" ;;
       coverage) coverage_mark_disclosed "$id" ;;
+      dependency) runtime_mark_disclosed "$id" ;;
     esac
   done <<EOF
 $FINDING_DELIVERED
 EOF
+}
+
+deliver_findings() {
+  local line= notice
+  if [ "${#FINDING_TEXTS[@]}" -gt 0 ]; then
+    build_finding_line 0
+    if [ "$FINDING_OMITTED" -gt 0 ]; then
+      notice="; ${#FINDING_TEXTS[@]} more omitted (line cap)"
+      build_finding_line "${#notice}"
+      if [ "$FINDING_OMITTED" -gt 0 ]; then
+        FINDING_LINE="$FINDING_LINE; $FINDING_OMITTED more omitted (line cap)"
+      fi
+    fi
+    fm_cap_line_var "$FINDING_LINE" "$MAX_LINE"
+    line=$FM_LINE_CAP_LINE
+  fi
+  [ -z "$line" ] || printf '%s\n' "$line" || return 1
+  ack_delivered
 }
 
 sweep_complete_from_outcomes() {
@@ -1001,15 +1086,31 @@ evaluate_repo() {
 }
 
 action_check() {
-  local id repo owner_team line now notice cut cause
-  if ! command -v jq >/dev/null 2>&1; then
-    return 0
-  fi
-  if ! command -v "$GH_AXI" >/dev/null 2>&1; then
-    return 0
-  fi
-
+  local id repo owner_team now cut cause jq_present=1 gh_present=1
   record_read
+  command -v jq >/dev/null 2>&1 || jq_present=0
+  command -v "$GH_AXI" >/dev/null 2>&1 || gh_present=0
+  FINDING_KINDS=()
+  FINDING_IDS=()
+  FINDING_TEXTS=()
+  FINDING_KEYS=()
+  if [ "$jq_present" -eq 0 ] || [ "$gh_present" -eq 0 ]; then
+    if [ "$jq_present" -eq 0 ]; then
+      runtime_gap_touch jq
+    else
+      runtime_gap_close jq
+    fi
+    if [ "$gh_present" -eq 0 ]; then
+      runtime_gap_touch gh-axi
+    else
+      runtime_gap_close gh-axi
+    fi
+    deliver_findings || { record_write "$REPORTED_KEYS" || true; return 1; }
+    record_write "$REPORTED_KEYS" || true
+    return 0
+  fi
+  runtime_gap_close jq
+  runtime_gap_close gh-axi
   now=$(record_epoch_now)
   if [ "$INTERVAL" -ne 0 ] && [ "$RECORD_EPOCH" -gt 0 ] \
     && [ "$now" -ge "$RECORD_EPOCH" ] && [ $((now - RECORD_EPOCH)) -lt "$INTERVAL" ]; then
@@ -1020,11 +1121,6 @@ action_check() {
   OBSERVED_TARGETS=
   SWEPT_REPOS=
   SEEN_KEYS=
-  FINDING_KINDS=()
-  FINDING_IDS=()
-  FINDING_TEXTS=()
-  FINDING_KEYS=()
-
   if [ -n "$BUDGET_CUT_FROM" ]; then
     queue_item notice budget-cut "sweep budget ${BUDGET_CUT_FROM}s cut to ${BUDGET_SECS}s to stay inside the watcher check timeout of ${CHECK_TIMEOUT}s"
   fi
@@ -1063,29 +1159,12 @@ EOF
     SWEEP_COMPLETE=0
   fi
 
-  line=
-  if [ "${#FINDING_TEXTS[@]}" -gt 0 ]; then
-    build_finding_line 0
-    if [ "$FINDING_OMITTED" -gt 0 ]; then
-      notice="; ${#FINDING_TEXTS[@]} more omitted (line cap)"
-      build_finding_line "${#notice}"
-      if [ "$FINDING_OMITTED" -gt 0 ]; then
-        FINDING_LINE="$FINDING_LINE; $FINDING_OMITTED more omitted (line cap)"
-      fi
-    fi
-    fm_cap_line_var "$FINDING_LINE" "$MAX_LINE"
-    line=$FM_LINE_CAP_LINE
+  if ! deliver_findings; then
+    record_prune
+    coverage_prune
+    record_write "$REPORTED_KEYS" || true
+    return 1
   fi
-
-  if [ -n "$line" ]; then
-    if ! printf '%s\n' "$line"; then
-      record_prune
-      coverage_prune
-      record_write "$REPORTED_KEYS" || true
-      return 1
-    fi
-  fi
-  ack_delivered
   record_prune
   coverage_prune
   record_write "$REPORTED_KEYS" || true
