@@ -10,7 +10,7 @@ set -u
 TMP_ROOT=$(fm_test_tmproot fm-beanz-manifest-tests)
 SCRIPT="$ROOT/bin/fm-beanz-manifest.sh"
 SECRET='manifest-secret-must-not-appear-554433'
-PEM_BODY='MIIEowIBAAKCAQEAsuperSECRETmaterial12345'
+PEM_BODY='QUJDREVGRw'
 
 setup_config() {
   local dir=$1

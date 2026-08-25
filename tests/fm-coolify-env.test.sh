@@ -289,13 +289,26 @@ test_crlf_credential_value_fails_closed() {
 test_identifier_shaped_continuation_fails_closed() {
   local case_dir="$TMP_ROOT/multiline"
   setup_config "$case_dir/config"
-  printf 'MULTILINE_KEY=first-part\ncGFydDJTRUNSRVQ==\n' >> "$case_dir/config/posthog.env"
+  printf 'MULTILINE_KEY=first-part\nQUJDREVGRw==\n' >> "$case_dir/config/posthog.env"
   capture_run "$case_dir" set brain MULTILINE_KEY --value-from 'env:posthog.env:MULTILINE_KEY'
   expect_code 1 "$CAPTURE_RC" "an identifier-shaped continuation is ambiguous and should exit non-zero"
   assert_not_contains "$CAPTURE_OUT" 'ok:' "an ambiguous multi-line read must not report success"
   assert_absent "$case_dir/curl.log" "an ambiguous multi-line value must not be transmitted"
   assert_no_secret "identifier-shaped continuation"
   pass "an identifier-shaped continuation fails closed"
+}
+
+test_unknown_argument_is_value_free() {
+  local case_dir="$TMP_ROOT/unknown-argument"
+  setup_config "$case_dir/config"
+  capture_run "$case_dir" set brain APP_NAME --value-from 'literal:firstmate' "$SECRET"
+  expect_code 2 "$CAPTURE_RC" "an unknown argument should exit 2"
+  assert_contains "$CAPTURE_OUT" 'fm-coolify-env: unknown argument' \
+    "an unknown argument should produce a generic diagnostic"
+  assert_not_contains "$CAPTURE_OUT" "$SECRET" \
+    "an unknown argument must not be echoed in combined output or shell trace"
+  assert_absent "$case_dir/curl.log" "an unknown argument must not reach the Coolify API"
+  pass "an unknown argument produces only a value-free error"
 }
 
 test_non_https_url_fails_closed() {
@@ -335,6 +348,7 @@ test_literal_source_is_not_redacted
 test_quoted_credential_value_fails_closed
 test_crlf_credential_value_fails_closed
 test_identifier_shaped_continuation_fails_closed
+test_unknown_argument_is_value_free
 test_non_https_url_fails_closed
 test_leaves_no_secret_scratch_behind
 echo "# fm-coolify-env.test.sh: all assertions passed"

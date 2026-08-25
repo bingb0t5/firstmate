@@ -146,8 +146,12 @@ fm_credential_basename_ok() {
 }
 
 fm_credential_assignment_key() {
-  local line=$1 key=${1%%=*} service
+  local line=$1 key=${1%%=*} value service
   [ "$key" != "$line" ] || return 1
+  value=${line#*=}
+  case "$value" in
+    ''|=*) return 1 ;;
+  esac
   case "$key" in
     COOLIFY_SERVICE_*)
       service=${key#COOLIFY_SERVICE_}

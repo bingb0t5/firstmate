@@ -246,7 +246,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     *)
-      die "unknown argument: $1" 2
+      die "unknown argument" 2
       ;;
   esac
 done
