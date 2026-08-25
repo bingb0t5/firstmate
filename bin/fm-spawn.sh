@@ -17,6 +17,17 @@
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
 #   refused as a flag value.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
+#   --allow-primary-spawn is a deliberate override for a fresh ship or scout spawn
+#   when data/secondmates.md lists the target project on a secondmate's projects:
+#   field. Without it, those spawns REFUSE rather than drift a secondmate-owned
+#   repository into the primary home. The refusal names every registered owner and
+#   is checked before any task metadata exists. With it, the spawn continues,
+#   prints a loud stderr notice naming the bypassed owner(s), and records
+#   primary_spawn_override=1 plus primary_spawn_override_owners=<ids> on the task.
+#   Scope text is never matched; when the project is on no projects: list but the
+#   registry is non-empty, a stderr warning names every registered secondmate and
+#   its scope for judgment, then the spawn continues. Missing or empty registries,
+#   --secondmate spawns, and --relaunch are unaffected.
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
 #   the launch half of the control plane (bin/fm-control.sh relaunch), which
@@ -283,6 +294,7 @@ MODE_SET=0
 YOLO_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
+ALLOW_PRIMARY_SPAWN=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -307,6 +319,7 @@ for a in "$@"; do
     --scout) KIND=scout; KIND_SET=1 ;;
     --secondmate) KIND=secondmate; KIND_SET=1 ;;
     --relaunch) RELAUNCH=1 ;;
+    --allow-primary-spawn) ALLOW_PRIMARY_SPAWN=1 ;;
     --harness) want_value=harness ;;
     --harness=*) HARNESS_ARG=${a#--harness=}; HARNESS_SET=1 ;;
     --model) want_value=model ;;
@@ -359,7 +372,15 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ "$KIND_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded kind; --scout/--secondmate cannot override it" >&2; exit 1; }
   [ "$MODE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded delivery mode; --mode cannot override it" >&2; exit 1; }
   [ "$YOLO_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded yolo posture; --yolo cannot override it" >&2; exit 1; }
+  [ "$ALLOW_PRIMARY_SPAWN" -eq 0 ] || {
+    echo "error: --allow-primary-spawn applies only to fresh ship or scout spawns" >&2
+    exit 1
+  }
 else
+  [ "$ALLOW_PRIMARY_SPAWN" -eq 0 ] || [ "$KIND" != secondmate ] || {
+    echo "error: --allow-primary-spawn applies only to fresh ship or scout spawns" >&2
+    exit 1
+  }
   # Delivery contract (AGENTS.md section 7). A ship task's mode and yolo are
   # firstmate's per-task decision, so they are required and closed-set validated
   # here rather than resolved from the project registry. Scouts deliver a report
@@ -1299,6 +1320,48 @@ secondmate_registry_value() {
   secondmate_registry_field "$DATA/secondmates.md" "$1" "$2"
 }
 
+spawn_secondmate_ownership_guard() {
+  local proj_abs=$1 proj_name reg=$DATA/secondmates.md owners owner scope_line line
+  local -a owner_ids=()
+  proj_name=$(secondmate_registry_project_basename "$proj_abs")
+  secondmate_registry_has_entries "$reg" || return 0
+  while IFS= read -r owner; do
+    [ -n "$owner" ] || continue
+    owner_ids+=("$owner")
+  done < <(secondmate_registry_project_owners "$reg" "$proj_name" && true)
+  if [ "${#owner_ids[@]}" -gt 0 ]; then
+    if [ "$ALLOW_PRIMARY_SPAWN" -eq 1 ]; then
+      owners=$(IFS=,; printf '%s' "${owner_ids[*]}")
+      echo "notice: --allow-primary-spawn bypasses secondmate ownership for $proj_name (registered owner(s): $owners); route future work to that secondmate unless this exception remains deliberate" >&2
+      PRIMARY_SPAWN_OVERRIDE=1
+      PRIMARY_SPAWN_OVERRIDE_OWNERS=$owners
+      return 0
+    fi
+    case "${#owner_ids[@]}" in
+      1) owners=${owner_ids[0]} ;;
+      2) owners="${owner_ids[0]} and ${owner_ids[1]}" ;;
+      *) owners=$(printf '%s, ' "${owner_ids[@]}" | sed 's/, $//') ;;
+    esac
+    echo "error: project $proj_name is registered to secondmate $owners; spawn the worker in that secondmate home or pass --allow-primary-spawn for a deliberate primary-home exception" >&2
+    return 1
+  fi
+  scope_line=
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "- "*)
+        secondmate_registry_parse_line "$line" || continue
+        if [ -n "$scope_line" ]; then
+          scope_line="$scope_line; $SECONDMATE_REGISTRY_ID (scope: $SECONDMATE_REGISTRY_SCOPE)"
+        else
+          scope_line="$SECONDMATE_REGISTRY_ID (scope: $SECONDMATE_REGISTRY_SCOPE)"
+        fi
+        ;;
+    esac
+  done < "$reg"
+  [ -n "$scope_line" ] || return 0
+  echo "warning: project $proj_name is not on any registered secondmate projects: list; confirm primary-home work or route in-scope work to a secondmate - registered: $scope_line" >&2
+}
+
 resolve_kimi_binary() {
   local candidate dir fallback
   candidate=$(command -v kimi 2>/dev/null || true)
@@ -1657,6 +1720,10 @@ else
   BRIEF="$DATA/$ID/brief.md"
 fi
 [ -f "$BRIEF" ] || { echo "error: no brief at $BRIEF" >&2; exit 1; }
+
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
+  spawn_secondmate_ownership_guard "$PROJ_ABS" || exit 1
+fi
 
 delivery_rigor_rank() {  # <mode> -> 3 (most rigor) .. 1 (least); 0 = not a task mode
   case "$1" in
@@ -2694,6 +2761,10 @@ preserve_relaunch_meta() {
   if [ "$KIND" = secondmate ]; then
     echo "home=$PROJ_ABS"
     echo "projects=$SECONDMATE_PROJECTS"
+  fi
+  if [ "${PRIMARY_SPAWN_OVERRIDE:-0}" = 1 ]; then
+    echo "primary_spawn_override=1"
+    echo "primary_spawn_override_owners=$PRIMARY_SPAWN_OVERRIDE_OWNERS"
   fi
   if [ "$RELAUNCH" -eq 1 ]; then
     preserve_relaunch_meta
