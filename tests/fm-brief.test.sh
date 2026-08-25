@@ -726,6 +726,14 @@ test_scout_and_secondmate_load_decision_hold_policy() {
 }
 
 # Scout and secondmate paths still scaffold well-formed briefs.
+# The "# Sol exemption evidence" block is a scaffold-owned generated section of the
+# brief. FM_TASK is also emitted verbatim into the "# Task" section above it, so a
+# whole-file grep cannot tell the two apart; assertions about the block must run
+# against the extracted block alone.
+sol_evidence_block() {
+  sed -n '/^# Sol exemption evidence$/,/^$/p' "$1"
+}
+
 test_ship_sol_exemption_refuses_without_evidence() {
   local home out status
   home="$TMP_ROOT/sol-refuse-home"
@@ -741,7 +749,7 @@ test_ship_sol_exemption_refuses_without_evidence() {
 }
 
 test_ship_sol_exemption_succeeds_with_evidence() {
-  local home brief status task
+  local home brief status task block
   home="$TMP_ROOT/sol-earn-home"
   mkdir -p "$home/data"
   # shellcheck disable=SC2016 # Backticks in the task body are literal evidence syntax.
@@ -755,12 +763,13 @@ Wait: CI green bound=30m escape=append blocked: CI timeout'
   assert_present "$brief" "Sol-exempt ship brief was not scaffolded"
   grep -qx "Sol exemption: earned" "$brief" \
     || fail "brief missing the machine-readable Sol exemption line"
-  assert_grep "# Sol exemption evidence" "$brief" \
+  block=$(sol_evidence_block "$brief")
+  assert_contains "$block" "# Sol exemption evidence" \
     "brief missing the scaffold-owned Sol exemption evidence block"
-  assert_grep "Acceptance command: \`bin/fm-lint.sh\`" "$brief" \
-    "brief did not carry the acceptance command in the evidence block"
-  assert_grep "Wait: CI green bound=30m escape=append blocked: CI timeout" "$brief" \
-    "brief did not carry bounded waits in the evidence block"
+  assert_contains "$block" "Acceptance command: \`bin/fm-lint.sh\`" \
+    "evidence block did not carry the acceptance command"
+  assert_contains "$block" "Wait: CI green bound=30m escape=append blocked: CI timeout" \
+    "evidence block did not carry the bounded wait"
   pass "fm-brief.sh: ship scaffold earns Sol exemption with auditable evidence"
 }
 
@@ -943,7 +952,7 @@ Acceptance command: `make test` (from the repo root)'; do
     assert_present "$brief" "trailing-text acceptance ship brief was not scaffolded"
     grep -qx "Sol exemption: earned" "$brief" \
       || fail "brief missing the machine-readable Sol exemption line"
-    assert_grep "Acceptance command: \`make test\`" "$brief" \
+    assert_contains "$(sol_evidence_block "$brief")" "Acceptance command: \`make test\`" \
       "evidence block dropped the acceptance command"
   done
   pass "fm-brief.sh: an acceptance line with trailing text earns exemption and is recorded"
@@ -1021,7 +1030,7 @@ Acceptance command: `make test`' \
 # the gate validated must appear in it, including one written without a space
 # after the colon.
 test_sol_evidence_block_records_every_validated_wait() {
-  local home brief status
+  local home brief status block
   home="$TMP_ROOT/sol-evidence-home"
   mkdir -p "$home/data"
   status=0
@@ -1032,11 +1041,82 @@ Wait: review bound=1h escape=ping firstmate' \
     "$ROOT/bin/fm-brief.sh" sol-evidence-1 firstmate --mode no-mistakes >/dev/null 2>&1 || status=$?
   expect_code 0 "$status" "bounded waits must scaffold"
   brief="$home/data/sol-evidence-1/brief.md"
-  assert_grep "Wait:CI green bound=30m escape=append blocked" "$brief" \
+  block=$(sol_evidence_block "$brief")
+  assert_contains "$block" "Wait:CI green bound=30m escape=append blocked" \
     "evidence block dropped a validated wait written without a space after the colon"
-  assert_grep "Wait: review bound=1h escape=ping firstmate" "$brief" \
+  assert_contains "$block" "Wait: review bound=1h escape=ping firstmate" \
     "evidence block dropped a validated wait"
   pass "fm-brief.sh: the evidence block records every wait the gate validated"
+}
+
+# Regression: the backtick strip removed any paired span, so an unbounded wait
+# written inside backticks earned the exemption. Only whitespace-free spans are
+# command/token names; prose inside backticks is still prose.
+test_ship_sol_exemption_refuses_backticked_prose_wait() {
+  local home out status body i=0
+  # shellcheck disable=SC2016 # The task bodies are literal fixture strings.
+  for body in 'Acceptance command: `make test`
+Then `wait forever for the human to approve` before shipping.' \
+              'Acceptance command: `make test`
+Do `await the captain sign-off` first.'; do
+    i=$((i + 1))
+    home="$TMP_ROOT/sol-btprose-home-$i"
+    mkdir -p "$home/data"
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="$body" \
+      "$ROOT/bin/fm-brief.sh" "sol-btprose-$i" firstmate --mode no-mistakes 2>&1) || status=$?
+    expect_code 1 "$status" "an unbounded wait inside backticks must not earn exemption"
+    assert_contains "$out" "unbounded wait" "refusal must name the unbounded wait"
+    assert_absent "$home/data/sol-btprose-$i/brief.md" \
+      "refused backticked-prose-wait scaffold must not write a brief"
+  done
+  pass "fm-brief.sh: a backticked prose wait cannot earn the exemption"
+}
+
+# A refusal must name the real cause: two conforming acceptance lines is a
+# too-many problem, not a missing-evidence one.
+test_duplicate_acceptance_refusal_names_the_real_cause() {
+  local home out status
+  home="$TMP_ROOT/sol-dup-home"
+  mkdir -p "$home/data"
+  status=0
+  # shellcheck disable=SC2016 # The task body is a literal fixture string.
+  out=$(FM_HOME="$home" FM_TASK='Acceptance command: `make test`
+Acceptance command: `make lint`' \
+    "$ROOT/bin/fm-brief.sh" sol-dup-1 firstmate --mode no-mistakes 2>&1) || status=$?
+  expect_code 1 "$status" "two acceptance command lines must refuse"
+  assert_contains "$out" "found 2 Acceptance command lines" \
+    "refusal must say how many acceptance lines were found"
+  assert_not_contains "$out" "missing exactly one" \
+    "refusal must not claim evidence is missing when two conforming lines are present"
+  pass "fm-brief.sh: a duplicate acceptance command refusal names the real cause"
+}
+
+# The unguarded Herdr gate is worker-facing generated text; it must not claim the
+# scaffold could not see a task body that was in fact supplied at scaffold time.
+test_herdr_gate_text_matches_scaffold_time_knowledge() {
+  local home unfilled filled
+  home="$TMP_ROOT/herdr-truth-home"
+  mkdir -p "$home/data"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" herdr-truth-plain firstmate --mode no-mistakes >/dev/null 2>&1 \
+    || fail "unfilled ship scaffold failed"
+  unfilled=$(cat "$home/data/herdr-truth-plain/brief.md")
+  assert_contains "$unfilled" "this scaffold cannot inspect the task text filled in above" \
+    "an unfilled {TASK} brief must keep its original hard safety gate wording"
+
+  # shellcheck disable=SC2016 # The task body is a literal fixture string.
+  FM_HOME="$home" FM_TASK='Fix the widget.
+Acceptance command: `make test`' \
+    "$ROOT/bin/fm-brief.sh" herdr-truth-filled firstmate --mode no-mistakes >/dev/null 2>&1 \
+    || fail "filled ship scaffold failed"
+  filled=$(cat "$home/data/herdr-truth-filled/brief.md")
+  assert_not_contains "$filled" "this scaffold cannot inspect the task text filled in above" \
+    "a brief scaffolded from FM_TASK must not claim the scaffold could not inspect the task"
+  assert_contains "$filled" "never inspects the task text above for Herdr lifecycle intent" \
+    "a filled brief must still carry a hard safety gate about Herdr lifecycle intent"
+  assert_contains "$filled" "regenerate the brief with \`--herdr-lab\` before dispatch" \
+    "a filled brief must keep the --herdr-lab remediation instruction"
+  pass "fm-brief.sh: the Herdr gate states only what the scaffold actually knows"
 }
 
 test_scout_and_secondmate_scaffold() {
@@ -1093,4 +1173,7 @@ test_ship_sol_exemption_accepts_trailing_acceptance_text
 test_ship_sol_exemption_refusals_are_never_silent
 test_fm_task_cannot_forge_scaffold_owned_contract_lines
 test_sol_evidence_block_records_every_validated_wait
+test_ship_sol_exemption_refuses_backticked_prose_wait
+test_duplicate_acceptance_refusal_names_the_real_cause
+test_herdr_gate_text_matches_scaffold_time_knowledge
 test_scout_and_secondmate_scaffold
