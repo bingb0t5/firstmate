@@ -255,6 +255,7 @@ fm_brief_sol_scan() {
           ;;
       esac
     done
+    prose=$line
     case "$line" in
       'Acceptance command: '*)
         if fm_brief_acceptance_is_executable "$line"; then
@@ -263,11 +264,18 @@ fm_brief_sol_scan() {
           FM_BRIEF_SOL_ERRORS+=('Acceptance command must use backticks around a concrete executable command')
         fi
         FM_BRIEF_SOL_EVIDENCE+=("$line")
+        case "$line" in
+          Acceptance\ command:\ \`*\`*)
+            prose=${line#Acceptance command: \`}
+            prose=${prose#*\`}
+            ;;
+        esac
         ;;
       Wait:*)
         fm_brief_wait_is_bounded "$line" \
           || FM_BRIEF_SOL_ERRORS+=('Wait: lines must include non-empty bound=... and escape=... values')
         FM_BRIEF_SOL_EVIDENCE+=("$line")
+        prose=
         ;;
       *)
         # A whitespace-free backticked span is a command or token name, not prose:
@@ -275,13 +283,13 @@ fm_brief_sol_scan() {
         # prose and stays in the scan, so `wait for review` cannot hide there.
         # shellcheck disable=SC2016 # Backticks in the sed script are literal evidence syntax.
         prose=$(printf '%s' "$line" | sed 's/`[^`[:space:]]*`//g')
-        if [ "$saw_unbounded" -eq 0 ] \
-           && printf '%s\n' "$prose" | grep -qiE '(^|[^a-z])a?wait(s|ed|ing)?([^a-z]|$)'; then
-          FM_BRIEF_SOL_ERRORS+=('unbounded wait mention requires a Wait: line with bound= and escape=')
-          saw_unbounded=1
-        fi
         ;;
     esac
+    if [ "$saw_unbounded" -eq 0 ] \
+       && printf '%s\n' "$prose" | grep -qiE '(^|[^a-z])a?wait(s|ed|ing)?([^a-z]|$)'; then
+      FM_BRIEF_SOL_ERRORS+=('unbounded wait mention requires a Wait: line with bound= and escape=')
+      saw_unbounded=1
+    fi
   done <<EOF
 $text
 EOF

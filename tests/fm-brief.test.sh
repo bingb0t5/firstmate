@@ -958,6 +958,22 @@ Acceptance command: `make test` (from the repo root)'; do
   pass "fm-brief.sh: an acceptance line with trailing text earns exemption and is recorded"
 }
 
+test_ship_sol_exemption_refuses_trailing_acceptance_wait() {
+  local home out status
+  home="$TMP_ROOT/sol-trailing-wait-home"
+  mkdir -p "$home/data"
+  status=0
+  # shellcheck disable=SC2016 # The task body is a literal fixture string.
+  out=$(FM_HOME="$home" FM_TASK='Acceptance command: `make test` then wait forever' \
+    "$ROOT/bin/fm-brief.sh" sol-trailing-wait firstmate --mode no-mistakes 2>&1) || status=$?
+  expect_code 1 "$status" "a trailing unbounded wait on the acceptance line must refuse"
+  assert_contains "$out" "unbounded wait" \
+    "refusal must name the trailing unbounded wait"
+  assert_absent "$home/data/sol-trailing-wait/brief.md" \
+    "refused trailing acceptance-line wait must not write a brief"
+  pass "fm-brief.sh: acceptance-line trailing waits cannot bypass the gate"
+}
+
 # Every refusal must name a cause on stderr; a bare non-zero exit tells the caller
 # nothing about what the scaffold rejected.
 test_ship_sol_exemption_refusals_are_never_silent() {
@@ -1189,6 +1205,7 @@ test_fm_task_refused_on_scout_and_secondmate
 test_refused_scaffold_leaves_no_task_directory
 test_sol_exemption_block_spacing_is_stable
 test_ship_sol_exemption_accepts_trailing_acceptance_text
+test_ship_sol_exemption_refuses_trailing_acceptance_wait
 test_ship_sol_exemption_refusals_are_never_silent
 test_ship_sol_exemption_refuses_non_command_acceptance_payloads
 test_fm_task_cannot_forge_scaffold_owned_contract_lines
