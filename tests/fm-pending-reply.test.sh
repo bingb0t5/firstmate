@@ -981,6 +981,36 @@ test_reused_crew_task_does_not_inherit_terminal_claims() {
   pass "reused crew task starts with fresh terminal claims"
 }
 
+test_reused_crew_task_does_not_resolve_retired_obligation() {
+  local dir fb log home rc retired current listed
+  dir="$TMP_ROOT/crew-task-open-reuse"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_parent crew-task-open-reuse)
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off" "spawn_gen=retired-generation"
+  run_send "$fb" "$home" "$log" build "unfinished retired work"; rc=$?
+  expect_code 0 "$rc" "retired task incarnation send should succeed"
+  retired=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+
+  rm -f "$home/state/build.meta" "$home/state/build.status"
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off" "spawn_gen=current-generation"
+  run_send "$fb" "$home" "$log" build "finish current work"; rc=$?
+  expect_code 0 "$rc" "current task incarnation send should succeed"
+  current=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  printf 'done: current incarnation complete\n' > "$home/state/build.status"
+  fm_pending_reply_try_resolve "$home/state" "$current" \
+    || fail "current terminal status should resolve the current obligation"
+  listed=$(list_open "$home")
+  assert_contains "$listed" "corr=$retired" "retired unfinished work must remain authoritative"
+  case "$listed" in
+    *"corr=$current"*) fail "current incarnation obligation should be closed" ;;
+  esac
+  pass "reused crew task cannot spend a current terminal on retired work"
+}
+
 test_crew_consumes_each_unseen_terminal_transition() {
   local dir fb log home rc older newer listed
   dir="$TMP_ROOT/crew-unseen-terminals"; mkdir -p "$dir"
@@ -1523,6 +1553,7 @@ test_answered_obligation_leaves_the_open_list
 test_crew_obligation_requires_a_new_terminal_status
 test_crew_terminal_resolves_only_oldest_obligation
 test_reused_crew_task_does_not_inherit_terminal_claims
+test_reused_crew_task_does_not_resolve_retired_obligation
 test_crew_consumes_each_unseen_terminal_transition
 test_quoted_corr_opens_a_distinct_obligation
 test_open_list_orders_by_epoch_and_surfaces_malformed_records
