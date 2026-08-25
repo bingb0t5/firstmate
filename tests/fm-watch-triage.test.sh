@@ -381,6 +381,23 @@ test_manager_child_work_inheritance_classifier() {
   printf 'working: dispatched the alpha rollout\n' > "$state/platform.status"
   [ "$(crew_absorb_class platform)" = working ] \
     || fail "a quiet manager with a busy child lost its inherited working verdict"
+  # The production pairing for that log: a mate has no run and no pane busy check
+  # of its own, so bin/fm-crew-state.sh reports its `working:` note as
+  # `working · source: status-log`. That is the verdict a supervising manager
+  # actually carries, and it must reach the inheritance rather than falling out
+  # as unprovable the way a ship's stale working: note does.
+  FM_FAKE_CREW_STATE_platform='state: working · source: status-log · dispatched the alpha rollout'
+  [ "$(crew_absorb_class platform)" = working ] \
+    || fail "a manager whose own log says working: was not classified working with a busy child"
+  FM_FAKE_CREW_STATE_child='state: done · source: run-step · landed'
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a working: status-log note stood as proof on its own once the child finished"
+  FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating'
+  printf 'working: dispatched the alpha rollout\nneeds-decision [key=q3]: which region first?\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a working: status-log manager masked its own unanswered decision"
+  printf 'working: dispatched the alpha rollout\n' > "$state/platform.status"
   # The home a manager may read children from is exactly the one fm-watch.sh's
   # wake-loop check admits: never a remote mate's path (a captain host with the
   # same layout would read unrelated local crews), and never a home that names
@@ -807,6 +824,46 @@ test_working_note_not_working_surfaced() {
   grep "$(printf '\tsignal\t')" "$drain_out" | grep -F "$status_file" >/dev/null || fail "surfaced working: note was not queued"
   [ -s "$state/.seen-task_status" ] || fail "surfaced working: note did not advance its .seen-* suppressor"
   pass "a no-verb working: note whose crew is idle with no running pipeline is surfaced"
+}
+
+# The production path a manager actually takes: it appends
+# `working: dispatched ...`, sends a child off into its own home, then goes idle
+# and its turn-end hook writes a bare .turn-ended ping. A mate drives no
+# no-mistakes run of its own and gets no pane busy check, so bin/fm-crew-state.sh
+# reports that note as `working · source: status-log` - not proof on its own (the
+# stale-note case above still surfaces), but its home holds a working child, so
+# this ping must be absorbed rather than waking firstmate with a false wedge.
+test_working_note_manager_with_busy_child_absorbs_turn_end() {
+  local dir state home fakebin out pid seen i
+  dir=$(make_case working-note-manager-busy-child); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; home="$dir/mate-home"
+  mkdir -p "$home/state"
+  printf 'platform\n' > "$home/.fm-secondmate-home"
+  printf 'window=test:fm-platform\nkind=secondmate\nhome=%s\n' "$home" > "$state/platform.meta"
+  printf 'window=test:fm-child\nkind=ship\n' > "$home/state/child.meta"
+  printf 'working: dispatched the alpha rollout\n' > "$state/platform.status"
+  printf '%s' "$(seen_sig "$state/platform.status")" > "$state/.seen-platform_status"
+  : > "$state/platform.turn-ended"
+  seen="$state/.seen-platform_turn-ended"
+  export FM_FAKE_CREW_STATE_platform='state: working · source: status-log · dispatched the alpha rollout'
+  export FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating'
+  watch_bg "$state" "$fakebin" "$out"
+  pid=$!
+  # The suppressor is advanced by BOTH triage outcomes and the durable queue
+  # append happens first, so waiting on it makes the assertions race-free.
+  i=0
+  while [ "$i" -lt 300 ] && [ ! -s "$seen" ]; do sleep 0.1; i=$((i + 1)); done
+  [ -s "$seen" ] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
+    fail "watcher never classified the working: manager's turn-end: $(cat "$out")"; }
+  [ ! -s "$state/.wake-queue" ] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
+    fail "a working: manager with a busy child queued a wake: $(cat "$state/.wake-queue")"; }
+  wait_live "$pid" 10 \
+    || fail "watcher exited for an idle manager whose own log says working: with a busy child: $(cat "$out")"
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ ! -s "$out" ] || fail "a working: manager with a busy child printed a wake: $(cat "$out")"
+  unset FM_FAKE_CREW_STATE_platform FM_FAKE_CREW_STATE_child
+  pass "an idle manager whose own log says working: is absorbed while its child crew runs"
 }
 
 test_secondmate_status_note_surfaced_despite_busy_agent() {
@@ -2764,6 +2821,7 @@ test_provably_working_signal_absorbed
 test_turn_ended_provably_working_absorbed
 test_turn_ended_not_working_surfaced
 test_working_note_not_working_surfaced
+test_working_note_manager_with_busy_child_absorbs_turn_end
 test_secondmate_status_note_surfaced_despite_busy_agent
 test_self_announced_close_does_not_rewake_but_next_note_does
 test_actionable_signal_surfaced
