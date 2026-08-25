@@ -4,6 +4,7 @@
 # durable wakes.
 #
 # Usage:
+#   fm-procevent.sh arm <adapter> <source-id> -- <argv>...
 #   fm-procevent.sh register <adapter> <source-id> -- <argv>...
 #   fm-procevent.sh start <source-id>
 #   fm-procevent.sh reconcile
@@ -12,10 +13,14 @@
 #   fm-procevent.sh sweep-home [--preflight]
 #   fm-procevent.sh list
 #
-# register   Record a source: its adapter, its canonical id, and the exact argv
-#            to execute. argv is stored one argument per line and executed
-#            directly, so there is no shell surface and no argument splitting.
-#            Adapters register sources; nothing here parses user text.
+# arm        Validate and publish one source registration through the shared arm
+#            seam. The watcher reconciles the registration and starts its runner;
+#            arm itself never blocks on the source.
+# register   Compatibility spelling for publishing a source registration. Its
+#            adapter, canonical id, and exact argv are stored one argument per
+#            line and executed directly, so there is no shell surface or
+#            argument splitting. Adapters register sources; nothing here parses
+#            user text.
 # start      Claim the source, run its child to completion, durably capture the
 #            output, publish normalized wakes for pending results, then release
 #            the claim. It blocks for as long as the source blocks and is meant
@@ -120,7 +125,7 @@ REG=$(fm_procevent_registry_dir "$STATE")
 MAX_OUTPUT_BYTES=${FM_PROCEVENT_MAX_OUTPUT_BYTES:-1048576}
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-usage() { sed -n '2,104p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,109p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
 
 adapter_script() { printf '%s/bin/fm-procevent-%s.sh\n' "$FM_ROOT" "$1"; }
 
@@ -211,25 +216,38 @@ read_argv() {  # <source-id>
   [ "${#ARGV[@]}" -eq "$n" ]
 }
 
-cmd_register() {
-  local adapter=${1-} id=${2-} sep=${3-}
+parse_arm_args() {
+  local verb=${1:-arm} adapter id sep
+  shift
+  adapter=${1-}; id=${2-}; sep=${3-}
   shift 3 2>/dev/null || usage
   fm_procevent_adapter_valid "$adapter" || die "adapter name must be lowercase alphanumeric or dash: $adapter"
   fm_procevent_source_id_valid "$id" || die "source id must be path-safe and at most 64 characters: $id"
   [ "$sep" = -- ] || usage
-  [ "$#" -ge 1 ] || die "register needs at least one argv element after --"
+  [ "$#" -ge 1 ] || die "$verb needs at least one argv element after --"
   local arg
   for arg in "$@"; do
     case "$arg" in *$'\n'*) die "argv elements cannot contain newlines" ;; esac
   done
   [ -f "$(adapter_script "$adapter")" ] || die "no installed adapter for: $adapter"
-  fm_procevent_source_lock_acquire "$id" || die "cannot lock the source"
-  if ! fm_procevent_registration_publish_locked "$STATE" "$adapter" "$id" "$@"; then
-    fm_procevent_source_lock_release "$id"
-    die "cannot publish the registration"
-  fi
-  fm_procevent_source_lock_release "$id"
-  printf 'registered: %s (%s)\n' "$id" "$adapter"
+  ARM_ADAPTER=$adapter
+  ARM_ID=$id
+  ARM_ARGV=("$@")
+}
+
+cmd_register() {
+  parse_arm_args register "$@"
+  fm_procevent_arm "$STATE" "$ARM_ADAPTER" "$ARM_ID" "${ARM_ARGV[@]}" \
+    || die "cannot publish the registration"
+  printf 'registered: %s (%s)\n' "$ARM_ID" "$ARM_ADAPTER"
+}
+
+cmd_arm() {
+  parse_arm_args arm "$@"
+  fm_procevent_arm "$STATE" "$ARM_ADAPTER" "$ARM_ID" "${ARM_ARGV[@]}" \
+    || die "cannot publish the registration"
+  printf 'armed: %s (%s)\n' "$ARM_ID" "$ARM_ADAPTER"
+  printf 'starts on the watcher'"'"'s next cycle; or run: bin/fm-procevent.sh reconcile\n'
 }
 
 # Publish every durably captured result with no handled acknowledgement yet.
@@ -843,6 +861,7 @@ cmd_list() {
 }
 
 case "${1-}" in
+  arm)       shift; cmd_arm "$@" ;;
   register)  shift; cmd_register "$@" ;;
   start)     shift; cmd_start_public "$@" ;;
   _start)    shift; cmd_start "$@" ;;
