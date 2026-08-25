@@ -455,27 +455,29 @@ EOF
     # manager's own failed/blocked/needs-decision state.
     #
     # Cost order matters as much as the outcome: this whole gate sits below the
-    # marker/receipt dedup, both quiet tests are pure file reads and run before
-    # the child probe, and the probe's verdict is then cached per row for one
-    # stall cadence. The probe forks one fm-crew-state read per child and this
-    # tick runs every FM_POLL, so without the cache a supervised row - the exact
-    # case this gate exists to serve, and the one case that never earns a
-    # marker - would re-fork for the whole length of a child run. The cache is
-    # deliberately bounded rather than a permanent skip: once it ages out the
-    # probe re-runs, so a row whose children have finished still escalates.
+    # marker/receipt dedup, and the two costly reads - the status fold and the
+    # child probe, which fork per status line and per child - are cached per row
+    # for one stall cadence, because this tick runs every FM_POLL and a
+    # supervised row is the one case that never earns a marker to short-circuit
+    # on. The cache is bounded rather than a permanent skip: once it ages out
+    # both re-run, so a row whose children have finished still escalates. The
+    # inbox read is a directory scan with no fork, so it stays OUTSIDE the cache
+    # and is re-read on every poll: an instruction that lands one second after a
+    # cache write must not wait out the cadence to reach a wedged mate.
     supervising="$STATE/.secondmate-supervising-$task"
     if [ -e "$supervising" ] || [ -L "$supervising" ]; then
       [ -f "$supervising" ] && [ ! -L "$supervising" ] || return 1
     fi
-    if [ "$(cat "$supervising" 2>/dev/null || true)" = "$row_key" ] \
-      && [ "$(age_of "$supervising")" -lt "$threshold" ]; then
-      continue
-    fi
-    if ! fm_task_inbox_oldest_unhandled "$STATE" "$task" >/dev/null 2>&1 \
-      && manager_owes_captain_nothing "$task" "$STATE" \
-      && mate_home_has_active_child_work "$home"; then
-      fm_wake_secondmate_supervising_marker_write "$task" "$row_key" || return 1
-      continue
+    if ! fm_task_inbox_oldest_unhandled "$STATE" "$task" >/dev/null 2>&1; then
+      if [ "$(cat "$supervising" 2>/dev/null || true)" = "$row_key" ] \
+        && [ "$(age_of "$supervising")" -lt "$threshold" ]; then
+        continue
+      fi
+      if manager_owes_captain_nothing "$task" "$STATE" \
+        && mate_home_has_active_child_work "$home"; then
+        fm_wake_secondmate_supervising_marker_write "$task" "$row_key" || return 1
+        continue
+      fi
     fi
     rm -f "$supervising"
     notify_key="secondmate-wake-loop-$task-$row_key"
@@ -1409,13 +1411,6 @@ EOF
         if [ "$kind" = secondmate ]; then
           case "$(pause_state_class "$w" "$task")" in
             paused) handle_paused_stale "$w" "$task" "$h" ;;
-            working)
-              # Authoritative state overrode the mate's own declared wait, so
-              # neither the pause cadence nor a wedge timer owns this hash.
-              clear_pause_tracking "$key"
-              printf '%s' "$h" > "$sf"
-              triage_log "absorbed stale (provably working, overriding a declared wait): $w"
-              ;;
             *)      clear_pause_tracking "$key" ;;
           esac
         elif afk_present; then

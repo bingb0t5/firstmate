@@ -1202,16 +1202,20 @@ mate_home_has_active_child_work() {  # <home>
   return 1
 }
 
-# 0 when task <id>'s recorded kind=secondmate home still has active child work.
+# Print the home directory whose child crews task <id> may inherit `working`
+# from, and nothing at all (nonzero) when <id> is not a manager this rule can
+# apply to. This is the CHEAP applicability test - a handful of metadata reads,
+# no fm-crew-state fork and no status fold - so callers run it FIRST and let an
+# ordinary crew fall out before paying for anything else.
 # What counts as "this manager's home" is exactly what bin/fm-watch.sh's
 # wake-loop check already requires before reading a mate's foreign state, so the
 # two callers cannot disagree: a mate recording remote_host= keeps its home on
 # the REMOTE host, where a captain host with the same absolute layout would
 # otherwise read unrelated local crews as that mate's children, and the home
 # must still name this task in its own .fm-secondmate-home ownership file.
-manager_has_active_child_work() {  # <id> <state-dir>
+manager_child_home() {  # <id> <state-dir>
   local id=$1 state=$2 meta kind home owner
-  [ -n "$id" ] || return 1
+  [ -n "$id" ] && [ -n "$state" ] || return 1
   meta="$state/$id.meta"
   [ -f "$meta" ] || return 1
   kind=$(grep '^kind=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
@@ -1222,7 +1226,7 @@ manager_has_active_child_work() {  # <id> <state-dir>
   owner="$home/.fm-secondmate-home"
   [ -f "$owner" ] && [ ! -L "$owner" ] || return 1
   [ "$(cat "$owner" 2>/dev/null || true)" = "$id" ] || return 1
-  mate_home_has_active_child_work "$home"
+  printf '%s' "$home"
 }
 
 # Classify WHY an idle/stale crew MIGHT be safely absorbed instead of surfaced,
@@ -1244,15 +1248,24 @@ manager_has_active_child_work() {  # <id> <state-dir>
 # FM_CREW_STATE_BIN lets tests stub the verdict.
 #
 # A kind=secondmate manager gets ONE extra inheritance rule, applied strictly
-# AFTER its own verdict: `unknown` is a manager's quiet endpoint state (an idle
-# mate pane is healthy by design), and a manager whose home still holds a working
-# child crew is demonstrably mid-work rather than wedged, so it inherits that
-# child's `working`. The manager's own verdict always wins first - failed/parked/
-# blocked/done/paused are the manager's own answer and must keep surfacing - and
-# the inheritance is skipped while the manager's log still holds something
-# addressed to the captain (a verified captain-held transfer, an unanswered
-# decision, a legacy captain-relevant line), so a hold cannot rot behind a child
-# that happens to be busy.
+# AFTER its own verdict: a manager whose home still holds a working child crew is
+# demonstrably mid-work rather than wedged, so it inherits that child's `working`.
+# Two of the manager's own verdicts are QUIET rather than answers, and only those
+# two admit the inheritance:
+#   unknown              - the idle mate endpoint (a mate has no run of its own and
+#                          bin/fm-crew-state.sh skips the pane busy check for it, so
+#                          an idle manager with an empty log lands here);
+#   working · status-log - the mate's own "I am working" note, which is the most
+#                          natural thing a manager appends before dispatching. It
+#                          is not run-step/pane evidence, so it cannot stand as
+#                          proof by itself, but it is also nothing the captain owes
+#                          an answer to, so a busy child may speak for it.
+# Every other verdict is the manager's own answer and must keep surfacing:
+# failed/parked/blocked/done/paused are never inherited past. The inheritance is
+# skipped while the manager's log still holds something addressed to the captain
+# (a verified captain-held transfer, an unanswered decision, a legacy
+# captain-relevant line), so a hold cannot rot behind a child that happens to be
+# busy.
 crew_absorb_class() {  # <id>
   local id=$1 line state src
   [ -n "$id" ] || { printf 'none'; return; }
@@ -1260,15 +1273,15 @@ crew_absorb_class() {  # <id>
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}
   if [ "$state" = paused ]; then printf 'paused'; return; fi
+  src=${line#*source: }; src=${src%% *}
   if [ "$state" = working ]; then
-    src=${line#*source: }; src=${src%% *}
     case "$src" in run-step|pane) printf 'working'; return ;; esac
-    printf 'none'; return
   fi
-  if [ "$state" = unknown ] && manager_inherits_child_work "$id"; then
-    printf 'working'
-    return
-  fi
+  case "$state $src" in
+    'unknown '*|'working status-log')
+      if manager_inherits_child_work "$id"; then printf 'working'; return; fi
+      ;;
+  esac
   printf 'none'
 }
 
@@ -1294,16 +1307,20 @@ manager_owes_captain_nothing() {  # <id> <state-dir>
 
 # 0 when task <id> is a kind=secondmate manager that may inherit `working` from a
 # child crew: it has active child work AND its own status log holds nothing the
-# captain still owes an answer to. Split out of crew_absorb_class so the two
-# conditions that make the inheritance safe stay stated in one place. The pure
-# status read runs first so a manager the captain still owes an answer never
-# pays for the forking child probe.
+# captain still owes an answer to. Split out of crew_absorb_class so the three
+# conditions that make the inheritance safe stay stated in one place, in strict
+# cost order: the metadata reads that reject every non-manager first, then the
+# status fold (which forks per status line), and only then the child probe
+# (which forks a fm-crew-state read per child). An ordinary crew reaching
+# crew_absorb_class must not pay for a rule that can never apply to it.
 manager_inherits_child_work() {  # <id>
-  local id=$1 meta_dir
+  local id=$1 meta_dir home
   meta_dir="${FM_STATE_OVERRIDE:-${STATE:-}}"
   [ -n "$meta_dir" ] || return 1
+  home=$(manager_child_home "$id" "$meta_dir") || return 1
+  [ -n "$home" ] || return 1
   manager_owes_captain_nothing "$id" "$meta_dir" || return 1
-  manager_has_active_child_work "$id" "$meta_dir"
+  mate_home_has_active_child_work "$home"
 }
 
 # 0 if crew <id> shows POSITIVE evidence it is still working (crew_absorb_class
