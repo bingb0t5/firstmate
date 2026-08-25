@@ -1,0 +1,13 @@
+ok - fm-spawn: a fresh crewmate spawn into a secondmate-owned project refuses before metadata exists
+COMMAND: fm-spawn.sh evidence-refusal /tmp/fm-spawn-secondmate-ownership.u9eGt3/evidence/projects/ownedproj claude --mode no-mistakes --yolo off
+error: project ownedproj is registered to secondmate(s) design; spawn the worker in a registered secondmate home or pass --allow-primary-spawn for a deliberate primary-home exception
+EXIT: 1
+METADATA_CREATED: no
+
+COMMAND: fm-spawn.sh evidence-override /tmp/fm-spawn-secondmate-ownership.u9eGt3/evidence-override/ownedproj claude --mode no-mistakes --yolo off --allow-primary-spawn
+notice: --allow-primary-spawn bypasses secondmate ownership for ownedproj (registered owner(s): design); route future work to that secondmate unless this exception remains deliberate
+spawned evidence-override harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-evidence-override worktree=/tmp/fm-spawn-secondmate-ownership.u9eGt3/evidence-override/wt
+EXIT: 0
+PERSISTED OVERRIDE METADATA:
+primary_spawn_override=1
+primary_spawn_override_owners=design
