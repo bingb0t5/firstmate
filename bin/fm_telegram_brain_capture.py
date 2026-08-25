@@ -47,6 +47,10 @@ class PayloadError(UserError):
         self.update_id = update_id
 
 
+class CaptureError(UserError):
+    pass
+
+
 def failpoint(name: str) -> None:
     if os.environ.get("FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT") == name:
         os._exit(91)
@@ -147,13 +151,13 @@ def telegram_env_path() -> Path:
     return Path.home() / ".config" / "beanz" / "telegram.env"
 
 
-def validated_capture_id(value: object, origin: str) -> str:
+def validated_capture_id(value: object, origin: str, error=UserError) -> str:
     if not isinstance(value, str) or not value:
-        raise UserError("%s has no capture_id" % origin)
+        raise error("%s has no capture_id" % origin)
     if len(value) > MAX_CAPTURE_ID_CHARS:
-        raise UserError("%s returned an oversized capture_id" % origin)
+        raise error("%s returned an oversized capture_id" % origin)
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
-        raise UserError("%s returned a capture_id with control bytes" % origin)
+        raise error("%s returned a capture_id with control bytes" % origin)
     return value
 
 
@@ -259,7 +263,7 @@ def ensure_receipt_dir(state: Path) -> Path:
 def receipt_path(receipts: Path, update_id: int) -> Path:
     name = str(update_id)
     if not UPDATE_ID_RE.fullmatch(name):
-        raise UserError("update_id is not a safe receipt name")
+        raise CaptureError("update_id is not a safe receipt name")
     return receipts / name
 
 
@@ -273,17 +277,17 @@ def read_receipt(path: Path) -> Dict[str, object]:
     try:
         info = path.lstat()
     except OSError as exc:
-        raise UserError("cannot read receipt: %s" % exc)
+        raise CaptureError("cannot read receipt: %s" % exc)
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-        raise UserError("receipt is not a regular file")
+        raise CaptureError("receipt is not a regular file")
     if stat.S_IMODE(info.st_mode) != 0o600:
-        raise UserError("receipt mode is not 600")
+        raise CaptureError("receipt mode is not 600")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise UserError("receipt is not valid JSON: %s" % exc)
+        raise CaptureError("receipt is not valid JSON: %s" % exc)
     if not isinstance(data, dict):
-        raise UserError("receipt is not an object")
+        raise CaptureError("receipt is not an object")
     return data
 
 
@@ -325,15 +329,11 @@ def parse_payload(line: str) -> Dict[str, object]:
         raise PayloadError("chat_id is not an integer", update_id)
     if type(from_id) is not int or isinstance(from_id, bool):
         raise PayloadError("from_id is not an integer", update_id)
-    date = payload.get("date")
-    if date is not None and (type(date) is not int or isinstance(date, bool)):
-        raise PayloadError("date is not an integer", update_id)
     return {
         "update_id": update_id,
         "text": text,
         "chat_id": chat_id,
         "from_id": from_id,
-        "date": date,
     }
 
 
@@ -429,6 +429,18 @@ def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Pa
                 pass
 
 
+def classify_chat(
+    chat_id: int, captain_chat: int, group_on: bool
+) -> Tuple[Optional[str], Optional[str]]:
+    if chat_id == captain_chat:
+        return CAPTAIN_SOURCE, None
+    if chat_id >= 0:
+        return None, "private"
+    if not group_on:
+        return None, "group"
+    return GROUP_SOURCE, None
+
+
 def capture_line(
     line: str,
     state: Path,
@@ -440,23 +452,22 @@ def capture_line(
     payload = parse_payload(line)
     update_id = int(payload["update_id"])
     chat_id = int(payload["chat_id"])
-    if chat_id == captain_chat:
-        source = CAPTAIN_SOURCE
-    elif chat_id >= 0:
-        return "skipped:private %d" % update_id
-    elif not group_on:
-        return "skipped:group %d" % update_id
-    else:
-        source = GROUP_SOURCE
+    source, skipped = classify_chat(chat_id, captain_chat, group_on)
+    if source is None:
+        return "skipped:%s %d" % (skipped, update_id)
     digest = payload_hash(payload)
     receipts = ensure_receipt_dir(state)
     path = receipt_path(receipts, update_id)
     if path.exists() or path.is_symlink():
         existing = read_receipt(path)
         if existing.get("payload_sha256") != digest:
-            raise UserError("receipt for update %d disagrees with the payload" % update_id)
+            raise CaptureError(
+                "receipt for update %d disagrees with the payload" % update_id
+            )
         capture_id = validated_capture_id(
-            existing.get("capture_id"), "receipt for update %d" % update_id
+            existing.get("capture_id"),
+            "receipt for update %d" % update_id,
+            CaptureError,
         )
         return "already-captured %d %s" % (update_id, capture_id)
     capture_id = post_capture(token, brain_url, str(payload["text"]), source, receipts)
@@ -481,6 +492,26 @@ def iter_payload_lines(raw: str) -> Iterable[str]:
             yield record
 
 
+def pending_post_count(
+    lines: list, state: Path, captain_chat: int, group_on: bool
+) -> int:
+    receipts = state / "telegram-brain-capture"
+    count = 0
+    for line in lines:
+        try:
+            payload = parse_payload(line)
+        except PayloadError:
+            continue
+        source, _ = classify_chat(int(payload["chat_id"]), captain_chat, group_on)
+        if source is None:
+            continue
+        path = receipts / str(int(payload["update_id"]))
+        if path.exists() or path.is_symlink():
+            continue
+        count += 1
+    return count
+
+
 def command_capture(state: Path, config: Path) -> int:
     raw = sys.stdin.read()
     missing = unconfigured_reason()
@@ -498,10 +529,15 @@ def command_capture(state: Path, config: Path) -> int:
         except PayloadError as exc:
             marker = "-" if exc.update_id is None else str(exc.update_id)
             print("skipped:unsupported %s %s" % (marker, exc))
+        except CaptureError as exc:
+            print("error: %s" % exc, file=sys.stderr)
+            failed = True
         except UserError as exc:
             print("error: %s" % exc, file=sys.stderr)
             failed = True
-            remaining = len(lines) - index - 1
+            remaining = pending_post_count(
+                lines[index + 1:], state, captain_chat, group_on
+            )
             if remaining:
                 print("unattempted %d" % remaining)
             break
