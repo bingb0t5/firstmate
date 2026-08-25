@@ -30,9 +30,10 @@
 # A line the canonical shape rejects never blocks another: it is reported as
 # `skipped:unsupported <update_id> <reason>` and the batch keeps walking.
 # A refusal already scoped to one update_id fails that line, keeps walking, and
-# exits non-zero without acking: a receipt whose content disagrees with the
-# payload, a brain that rejects this one message with a 4xx other than 401,
-# 403, 404, 405, or 429, or a JSON 2xx whose body carries no usable capture_id.
+# exits non-zero without acking: an individual receipt that is corrupt or whose
+# content disagrees with the payload, a brain that rejects this one message with
+# a 4xx other than 401, 403, 404, 405, or 429, or a JSON 2xx whose body carries
+# no usable capture_id.
 # Every such refusal names its update_id first, as `error: <update_id> <reason>`,
 # so the failing payload stays attributable when the batch walks past it.
 # Only a systemic failure stops the batch: a transport failure, any 3xx or 5xx,
@@ -138,6 +139,8 @@
 # ambient umask can leave either at a mode the next run refuses.
 # A store that is already a symlink, a non-directory, or not mode 0700 stops
 # every capture until an operator restores a real directory at `chmod 700`.
+# An individual receipt that is unreadable, unsafe, malformed, or carries no
+# usable capture_id fails only that update and does not stop later payloads.
 # A receipt whose payload hash disagrees with the current line is refused, and
 # stays refused until an operator inspects it and removes
 # state/telegram-brain-capture/<update_id> to allow a fresh write.
