@@ -957,6 +957,13 @@ families_for_changed_path() {
       printf '%s\n' secondmate
       printf '%s\n' session-bootstrap
       ;;
+    bin/fm-secondmate-registry-lib.sh)
+      # The registry parser behind both the secondmate route surface and
+      # fm-spawn's primary-home ownership guard, whose only coverage is the
+      # pure-contract-unit ownership suite.
+      printf '%s\n' secondmate
+      printf '%s\n' pure-contract-unit
+      ;;
     bin/fm-secondmate*|bin/fm-remote*|bin/fm-on.sh|bin/fm-home-seed.sh|\
     bin/fm-backlog-handoff.sh|bin/fm-backlog-receive.sh|bin/fm-procevent-remote-reply.sh|\
     bin/fm-config-inherit-lib.sh|bin/fm-config-push.sh|bin/fm-shared*|\
