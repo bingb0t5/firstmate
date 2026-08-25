@@ -269,6 +269,35 @@ fm_brief_count_wait_mentions() {
   done
 }
 
+fm_brief_shift_shell_word() {
+  local input=$1 length=${#1} i=0 char quote='' escaped=0
+  FM_BRIEF_SHELL_WORD=
+  while [ "$i" -lt "$length" ]; do
+    char=${input:i:1}
+    if [ "$escaped" -eq 1 ]; then
+      escaped=0
+    elif [ "$quote" = "'" ]; then
+      [ "$char" = "'" ] && quote=
+    elif [ "$quote" = '"' ]; then
+      case "$char" in
+        '"') quote= ;;
+        \\) escaped=1 ;;
+      esac
+    else
+      case "$char" in
+        [[:space:]]) break ;;
+        "'") quote="'" ;;
+        '"') quote='"' ;;
+        \\) escaped=1 ;;
+      esac
+    fi
+    FM_BRIEF_SHELL_WORD+=$char
+    i=$((i + 1))
+  done
+  FM_BRIEF_SHELL_REMAINDER=${input:i}
+  FM_BRIEF_SHELL_REMAINDER=${FM_BRIEF_SHELL_REMAINDER#"${FM_BRIEF_SHELL_REMAINDER%%[![:space:]]*}"}
+}
+
 fm_brief_acceptance_is_executable() {
   local line=$1 command first remaining
   case "$line" in
@@ -281,13 +310,14 @@ fm_brief_acceptance_is_executable() {
   case "$command" in
     ''|\#*) return 1 ;;
   esac
+  bash -n -c "$command" >/dev/null 2>&1 || return 1
   remaining=$command
   while :; do
-    first=${remaining%%[[:space:]]*}
+    fm_brief_shift_shell_word "$remaining"
+    first=$FM_BRIEF_SHELL_WORD
     if [[ $first =~ ^[[:alpha:]_][[:alnum:]_]*=.*$ ]]; then
-      [ "$remaining" != "$first" ] || return 1
-      remaining=${remaining#"$first"}
-      remaining=${remaining#"${remaining%%[![:space:]]*}"}
+      [ -n "$FM_BRIEF_SHELL_REMAINDER" ] || return 1
+      remaining=$FM_BRIEF_SHELL_REMAINDER
       continue
     fi
     break
@@ -295,7 +325,10 @@ fm_brief_acceptance_is_executable() {
   case "$first" in
     ''|*[![:alnum:]_./-]*) return 1 ;;
   esac
-  bash -n -c "$command" >/dev/null 2>&1 || return 1
+  case "$first" in
+    *[[:alnum:]_]*) ;;
+    *) return 1 ;;
+  esac
   return 0
 }
 

@@ -1109,7 +1109,8 @@ Acceptance command: `b`' \
 test_ship_sol_exemption_refuses_non_command_acceptance_payloads() {
   local home out status payload i=0
   for payload in ' ' '&&' '>' '# tests not implemented' '   # tests not implemented' \
-                 'FOO=bar' 'make test &&'; do
+                 'FOO=bar' "NODE_OPTIONS='--trace warnings'" 'make test &&' \
+                 '/' './' '//' '///' '../' '../../'; do
     i=$((i + 1))
     home="$TMP_ROOT/sol-non-command-home-$i"
     mkdir -p "$home/data"
@@ -1129,7 +1130,9 @@ test_ship_sol_exemption_accepts_env_prefixed_commands() {
   local home brief status command i=0
   for command in 'NODE_ENV=test npm test' \
                  'CI=1 NODE_ENV=test ./bin/test.sh' \
-                 '_TRACE= ./scripts/check'; do
+                 '_TRACE= ./scripts/check' \
+                 "NODE_OPTIONS='--trace warnings' npm test" \
+                 'FLAGS="one two" MODE=ci ./scripts/check'; do
     i=$((i + 1))
     home="$TMP_ROOT/sol-env-command-home-$i"
     mkdir -p "$home/data"
