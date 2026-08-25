@@ -232,6 +232,25 @@ test_forecast_refuses_incomplete_git_evidence() {
   pass "fm-pr-merge forecast refuses an incomplete fetched-ref set"
 }
 
+test_forecast_refuses_extra_arguments() {
+  local case_dir rc
+  case_dir=$(make_case forecast-extra-arguments)
+  set +e
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+    "$PR_MERGE" task-x1 https://github.com/example/repo/pull/10 \
+    --forecast --merge --delete-branch --admin \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "forecast-extra-arguments: unsupported arguments should refuse"
+  assert_grep 'forecast accepts only one merge method' "$case_dir/stderr" \
+    "forecast-extra-arguments: refusal did not explain the accepted arguments"
+  [ ! -s "$case_dir/stdout" ] \
+    || fail "forecast-extra-arguments: invalid invocation emitted an authoritative forecast"
+  pass "fm-pr-merge forecast refuses extra arguments"
+}
+
 # glab mock recording every invocation together with the GITLAB_HOST it was
 # given, so a test can prove the instance came from the URL. `mr view` answers
 # from the case's JSON payload; marker files in the case dir drive the failure
@@ -962,3 +981,4 @@ test_gitlab_missing_tool_refuses_before_recording
 test_gitlab_head_override_args_refuse_before_recording
 test_forecast_classifies_open_prs_with_git_merge_semantics
 test_forecast_refuses_incomplete_git_evidence
+test_forecast_refuses_extra_arguments

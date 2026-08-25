@@ -172,6 +172,10 @@ if [ "$FORECAST" -eq 1 ]; then
           ;;
       esac
       ;;
+    *)
+      echo "error: forecast accepts only one merge method: --squash, --merge, or --rebase" >&2
+      exit 2
+      ;;
   esac
   if [ -n "$forecast_method" ]; then
     "$SCRIPT_DIR/fm-pr-forecast.sh" "$URL" "$forecast_method"
