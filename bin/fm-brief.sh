@@ -207,6 +207,10 @@ fm_brief_trim_surrounding_punctuation() {
   done
 }
 
+fm_brief_lowercase() {
+  FM_BRIEF_LOWERCASE=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+}
+
 fm_brief_wait_is_bounded() {
   local line=$1 field value normalized field_tail duplicate_re
   for field in bound escape; do
@@ -224,7 +228,8 @@ fm_brief_wait_is_bounded() {
       bound=*|escape=*) return 1 ;;
     esac
     fm_brief_trim_surrounding_punctuation "$value"
-    normalized=${FM_BRIEF_NORMALIZED,,}
+    fm_brief_lowercase "$FM_BRIEF_NORMALIZED"
+    normalized=$FM_BRIEF_LOWERCASE
     [ -n "$normalized" ] || return 1
     case "$normalized" in
       forever|none|unbounded|never|n/a|infinite|inf) return 1 ;;
@@ -250,7 +255,8 @@ fm_brief_strip_backticked_names() {
       result+="\`$token\`"
     else
       fm_brief_trim_surrounding_punctuation "$token"
-      normalized=${FM_BRIEF_NORMALIZED,,}
+      fm_brief_lowercase "$FM_BRIEF_NORMALIZED"
+      normalized=$FM_BRIEF_LOWERCASE
       if [[ $normalized =~ ^a?wait(s|ed|ing)?$ ]]; then
         result+=$token
       fi
@@ -260,7 +266,9 @@ fm_brief_strip_backticked_names() {
 }
 
 fm_brief_count_wait_mentions() {
-  local remaining=${1,,} match
+  local remaining match
+  fm_brief_lowercase "$1"
+  remaining=$FM_BRIEF_LOWERCASE
   FM_BRIEF_WAIT_MENTIONS=0
   while [[ $remaining =~ (^|[^a-z])a?wait(s|ed|ing)?([^a-z]|$) ]]; do
     match=${BASH_REMATCH[0]}
