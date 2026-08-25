@@ -45,6 +45,8 @@ elif mode.name == "missing-owner-pointer":
     }
 elif mode.name == "shrink-scope":
     data["scope"]["trackedPatterns"] = ["README.md"]
+elif mode.name == "widen-exclusions":
+    data["scope"]["excludedPaths"] = [".github/pr-bodies/*.md", "docs/*.md"]
 else:
     raise SystemExit(f"unknown mode: {mode.name}")
 destination.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -65,15 +67,19 @@ test_duplicate_and_setup_classification_fail() {
   local duplicate="$TMP_ROOT/duplicate.json"
   local bad_setup="$TMP_ROOT/bad-setup.json"
   local shrink_scope="$TMP_ROOT/shrink-scope.json"
+  local widen_exclusions="$TMP_ROOT/widen-exclusions.json"
   mutate_inventory "$INVENTORY" "$duplicate" duplicate
   mutate_inventory "$INVENTORY" "$bad_setup" bad-setup-audience
   mutate_inventory "$INVENTORY" "$shrink_scope" shrink-scope
+  mutate_inventory "$INVENTORY" "$widen_exclusions" widen-exclusions
   run_expect_failure "surfaces classified more than once" \
     "$CHECK" --inventory "$duplicate"
   run_expect_failure "README setup target docs/tmux-backend.md has disallowed audience" \
     "$CHECK" --inventory "$bad_setup"
   run_expect_failure "scope.trackedPatterns must match the fixed maintained-prose scope" \
     "$CHECK" --inventory "$shrink_scope"
+  run_expect_failure "scope.excludedPaths must match the fixed machine-managed prose exclusions" \
+    "$CHECK" --inventory "$widen_exclusions"
   pass "classification, setup routing, and maintained-prose scope fail safely"
 }
 
@@ -90,7 +96,10 @@ write_fixture_inventory() {
   cat > "$repo/docs/documentation-audiences.json" <<'JSON'
 {
   "version": 1,
-  "scope": {"trackedPatterns": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/examples/*"]},
+  "scope": {
+    "trackedPatterns": ["*.md", "*.mdx", "*.rst", "*.txt", "docs/examples/*"],
+    "excludedPaths": [".github/pr-bodies/*.md"]
+  },
   "allowedAudiences": ["public-product", "operator-current", "maintainer-verification"],
   "setupAudiences": ["public-product", "operator-current"],
   "readmeSetupTargets": ["docs/setup.md"],
@@ -135,7 +144,28 @@ MD
   pass "local links resolve while dates, versions, commands, and incident prose remain semantically reviewed"
 }
 
+test_machine_managed_pr_body_is_outside_documentation_scope() {
+  local repo="$TMP_ROOT/pr-body-fixture"
+  mkdir -p "$repo/docs" "$repo/.github/pr-bodies"
+  git -C "$repo" init -q
+  printf '%s\n' '[Setup](docs/setup.md) [Policy](docs/policy.md)' > "$repo/README.md"
+  printf '%s\n' '# Setup' > "$repo/docs/setup.md"
+  printf '%s\n' '# Policy' > "$repo/docs/policy.md"
+  printf '%s\n' '# Evidence' > "$repo/docs/evidence.md"
+  printf '%s\n' '# Generated PR body' > "$repo/.github/pr-bodies/8.md"
+  write_fixture_inventory "$repo"
+  git -C "$repo" add README.md docs .github/pr-bodies/8.md
+  "$CHECK" --root "$repo" >/dev/null \
+    || fail "checker classified a machine-managed PR body as maintained documentation"
+
+  printf '%s\n' '# Unclassified maintained prose' > "$repo/.github/operator-notes.md"
+  git -C "$repo" add .github/operator-notes.md
+  run_expect_failure "unclassified: .github/operator-notes.md" "$CHECK" --root "$repo"
+  pass "machine-managed PR bodies are excluded without hiding other maintained prose"
+}
+
 test_repository_inventory_passes
 test_duplicate_and_setup_classification_fail
 test_required_pointer_fails
 test_local_links_and_no_keyword_heuristic
+test_machine_managed_pr_body_is_outside_documentation_scope
