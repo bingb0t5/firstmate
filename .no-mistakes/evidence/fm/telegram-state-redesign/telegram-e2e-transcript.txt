@@ -1,0 +1,191 @@
+
+== 1. Fresh home: one explicit arm publishes the transactional store ==
+$ fm-procevent-telegram.sh arm
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent.sh list
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 35: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent.sh: No such file or directory
+$ ls -ld state/telegram state/telegram/channel.db
+ls: cannot access '/tmp/telegram-e2e.yutPc9/live/state/telegram': No such file or directory
+ls: cannot access '/tmp/telegram-e2e.yutPc9/live/state/telegram/channel.db': No such file or directory
+$ ls state/    # no offset/blocked/pending/receipt/inbox files anywhere
+$ fm-procevent-telegram.sh doctor
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+
+== 2. Real runner captures a captain message; handler reads, acks, handles it ==
+$ fm-procevent.sh reconcile    # the generic runner spawns the poll child
+$ cat state/.wake-queue
+sed: can't read /tmp/telegram-e2e.yutPc9/live/state/.wake-queue: No such file or directory
+$ cat state/procevent-inbox/telegram.1.result
+sed: can't read /tmp/telegram-e2e.yutPc9/live/state/procevent-inbox/telegram.1.result: No such file or directory
+$ fm-procevent-telegram.sh classify '/tmp/telegram-e2e.yutPc9/live/state/procevent-inbox/telegram.1.result'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh messages '/tmp/telegram-e2e.yutPc9/live/state/procevent-inbox/telegram.1.result'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh ack '/tmp/telegram-e2e.yutPc9/live/state/procevent-inbox/telegram.1.result'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent.sh handled telegram 1
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 35: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent.sh: No such file or directory
+$ fm-procevent-telegram.sh classify <the same result, after ack>
+/home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 85: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+      <- one stable notice cannot authorize the message twice
+
+== 3. Token secrecy: the bot token is in no durable state, result, or payload ==
+$ grep -rl SEKRIT-TEST-TOKEN state/
+  (no match, grep exit 1)  <- the token reaches curl only through its stdin config
+
+== 4. A rejected batch never advances the irreversible Telegram offset ==
+/home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 53: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  committed_offset before = 
+$ fm-procevent-telegram.sh poll    # batch = one valid captain text + one update_id:true
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+/home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 53: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  committed_offset after  =    <- unchanged; the valid half was not committed either
+$ fm-procevent-telegram.sh ack '/tmp/telegram-e2e.yutPc9/r.mixed'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+
+== 5. 401 and 409 are independent sticky episodes cleared only by a validated success ==
+$ fm-procevent-telegram.sh poll    # Telegram answers HTTP 401
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh ack '/tmp/telegram-e2e.yutPc9/r.401'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh poll    # Telegram answers HTTP 409 - a separate episode
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh ack '/tmp/telegram-e2e.yutPc9/r.409'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh doctor | grep -E 'committed_offset|active_conditions'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  ^ both API episodes plus the protocol episode are still active after acknowledgement
+$ fm-procevent-telegram.sh poll    # one validated typed success (exit 1 = nothing to report)
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh doctor | grep -E 'committed_offset|active_conditions'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  ^ all three episodes cleared in the same transaction as the accepted batch
+
+== 5b. Transport failure is silent for a bounded budget, then announced once ==
+$ fm-procevent-telegram.sh poll    # curl fails (exit 7) - inside the budget, stays silent
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh poll    # second consecutive failure - still silent
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh poll    # third consecutive failure - announced once
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh poll    # the episode does not re-announce
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh doctor | grep -E 'consecutive_failures|active_conditions'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh ack '/tmp/telegram-e2e.yutPc9/t.3'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh poll    # transport recovers
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh doctor | grep -E 'consecutive_failures|active_conditions'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+
+== 6. Corrupt authoritative state announces an actionable block through the real runner ==
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/telegram-e2e.yutPc9/live/state/telegram/channel.db'
+$ printf not-a-sqlite-file >> state/telegram/channel.db   # simulated corruption
+$ cat state/procevent-inbox/    # what the runner durably captured
+sed: can't read : No such file or directory
+$ fm-procevent-telegram.sh classify <that result>
+/home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 136: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+     <- an actionable blocked result, not the silent nonzero-empty path
+$ fm-procevent.sh list
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 35: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent.sh: No such file or directory
+  ^ the source stays permanently registered through corruption
+$ fm-procevent-telegram.sh doctor
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+
+== 7. One-time offline migration of coherent legacy state ==
+$ find state -mindepth 1    # the old scattered file format
+  state/.telegram-blocked
+  state/.telegram-delivery-receipts
+  state/.telegram-delivery-receipts/1002.json
+  state/.telegram-offset
+  state/.telegram-offset.staged
+  state/.telegram-pending-delivery
+  state/telegram-inbox
+  state/telegram-inbox/1002.json
+  state/telegram-inbox/handled
+  state/telegram-inbox/handled/900.json
+  state/telegram-watch.check.sh   <- the legacy producer, still registered
+$ :> state/telegram-watch.check.sh    # legacy watcher check present
+$ fm-procevent-telegram.sh migrate    # while the legacy producer is still live
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 161: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (migrate exit 127)
+$ ls state/telegram/channel.db 2>&1    # a refused cutover leaves no database
+  ls: cannot access 'telegram/channel.db': No such file or directory
+$ rm state/telegram-watch.check.sh     # operator deregisters the legacy check
+$ fm-procevent-telegram.sh migrate
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh doctor
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+/home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 170: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ ls -ld state/ ; find state/ -type f
+  drwxrwxr-x    
+  .telegram-blocked
+  .telegram-delivery-receipts/1002.json
+  .telegram-offset
+  .telegram-offset.staged
+  .telegram-pending-delivery
+  telegram-inbox/1002.json
+  telegram-inbox/handled/900.json
+$ find state -mindepth 1 -not -path "*migration-archive*"    # nothing was deleted
+  state/.telegram-blocked
+  state/.telegram-delivery-receipts
+  state/.telegram-delivery-receipts/1002.json
+  state/.telegram-offset
+  state/.telegram-offset.staged
+  state/.telegram-pending-delivery
+  state/telegram-inbox
+  state/telegram-inbox/1002.json
+  state/telegram-inbox/handled
+  state/telegram-inbox/handled/900.json
+$ fm-procevent-telegram.sh poll    # imported notices drain before any network call
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh messages '/tmp/telegram-e2e.yutPc9/m.1'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh ack '/tmp/telegram-e2e.yutPc9/m.1'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh poll    # next imported notice
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh ack '/tmp/telegram-e2e.yutPc9/m.2'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh poll    # next imported notice
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+  ^ the imported 401 and 409 episodes survived the cutover as separate notices
+$ fm-procevent.sh list
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 35: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent.sh: No such file or directory
+  ^ migrate retired the legacy source; the operator re-arms after verifying the cutover
+$ fm-procevent-telegram.sh arm
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh doctor | grep -E 'migration_status|committed_offset'
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+
+== 8. Ambiguous legacy state blocks visibly and guesses no offset ==
+$ ls -l state/telegram-inbox/1002.json    # zero-byte torn legacy payload
+  -rw-rw-r--  0 bytes    telegram-inbox/1002.json
+$ fm-procevent-telegram.sh migrate
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 198: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (migrate exit 127)
+$ fm-procevent-telegram.sh doctor
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 34: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+$ fm-procevent-telegram.sh poll    # a blocked cutover stays blocked instead of polling
+  /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 48: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  (poll exit 127)
+$ fm-procevent-telegram.sh classify <that result>
+/home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/telegram-e2e-transcript.sh: line 203: /home/rich/.no-mistakes/evidence/01M0V873ZZT0B63TPHC7XHYAGJ/bin/fm-procevent-telegram.sh: No such file or directory
+  
+
+== transcript complete ==

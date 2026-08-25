@@ -1,0 +1,49 @@
+FM_TEST_BEGIN 2026-08-25T04:54:47Z tests/fm-procevent-telegram.test.sh family=unclassified expected_gate_skip=none
+ok - arm accepts only one strict, private, complete credential snapshot
+ok - credential replacement during read is detected as one rejected snapshot
+ok - credential files are parsed as data and never executed
+ok - arm creates private durable state, registers one source, and retire preserves state
+ok - an interrupted fresh arm reconciles its own staging and refuses ambiguous leftovers
+ok - a message, offset, and stable notice commit together and deduplicate until acknowledgement
+ok - the token reaches curl through stdin and never durable state or results
+ok - only the configured sender is authorized, gaps are legal, and the current Bot API id range is enforced
+ok - all rejected envelopes, identifiers, shapes, duplicates, and stale batches preserve offset and message state
+ok - 401 and 409 remain independent and clear only with one fully validated success transaction
+ok - transient failures are silent only for an explicit bounded budget and announce once per episode
+ok - credential loss is actionable, inert, sticky, and automatically recoverable
+ok - fault injection at every validation, write, commit, and output boundary exposes only complete transactions
+ok - notice acknowledgement is atomic across its own crash boundaries
+ok - missing, corrupt, impossible, unsafe, and unreadable state repeats a stable blocked result without polling
+ok - the real runner durably announces internal corruption and keeps the source permanent
+ok - a response body carrying trailer-like bytes is framed by its exact status suffix
+ok - only the exact final status suffix frames the response, never body content
+ok - an absent, partial, or interrupted status frame is a transport failure, never a batch
+ok - an oversized response is bounded, blocked, and leaves no response state
+ok - migration refuses until both the source and legacy producer are stopped
+ok - an unhandled legacy capture refuses migration identically and without side effects until handled
+ok - an archive that cannot be completed refuses before cutover and leaves no database
+ok - a crash on either side of archive publication or sealing reruns to one archive and one database
+ok - an interrupt during database construction leaves no unmanaged payload copy and reruns clean
+ok - a cutover's meta, messages, notices, and offset commit as one transaction whose journal is reaped
+ok - a rollback journal orphaned by an uncatchable termination is reaped, not refused forever
+ok - a failure after database publication preserves both the database and its sealed archive
+ok - unmarked, symlinked, misnamed, and world-readable leftovers each refuse at their own check
+ok - staged evidence mutated before verification publishes neither archive nor database
+ok - coherent migration archives every old byte, imports exact state, and drains notices before polling
+ok - ambiguous migration preserves evidence, guesses nothing, and remains visibly blocked
+ok - a blocked cutover retains a bounded non-secret cause that doctor reports
+ok - every malformed legacy artifact shape blocks with a printable state-relative cause
+ok - a receipt whose update is already handled migrates without a phantom pending message
+ok - an already-handled legacy row deduplicates a later replay without delivering it again
+ok - a legacy row still awaiting delivery must carry coherent identity or block the cutover
+ok - an undelivered legacy payload needs an exact integer date or the cutover blocks
+ok - a malformed update identifier can never become a dedup tombstone
+ok - a legacy read failure that is not a UserError still publishes an actionable blocked migration
+ok - a torn legacy claim is archived, visibly blocked, and never advances the irreversible offset
+ok - rollback preparation exports the transactional offset forward and never backward
+ok - the real runner captures a stable notice whose payload and two acknowledgements complete end to end
+all fm-procevent-telegram tests passed
+FM_TEST_END 2026-08-25T04:55:36Z tests/fm-procevent-telegram.test.sh exit=0 duration_ms=49061 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=49103
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=49061 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-procevent-telegram.test.sh duration_ms=49061
