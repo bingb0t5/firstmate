@@ -184,8 +184,8 @@ test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent() {
   add_ship_task "$dir" sa1
   out=$(run_control "$dir" sa1 relaunch --note "try again"); rc=$?
   expect_code 1 "$rc" "relaunch without a spec should refuse"
-  assert_contains "$out" "no Sol spec at $dir/home/data/sa1/report.md or $dir/home/data/sa1/spec.md" \
-    "relaunch refusal did not name the accepted spec paths"
+  assert_contains "$out" "no Sol spec at $dir/home/data/sa1/spec.md" \
+    "relaunch refusal did not name the accepted spec path"
   assert_contains "$out" "commission a Sol spec scout" "relaunch refusal did not name the next legal action"
   assert_contains "$out" "do not guess a model" \
     "relaunch refusal did not prohibit guessing the Sol scout model"
@@ -206,18 +206,20 @@ test_control_relaunch_proceeds_once_spec_md_exists() {
   pass "fm-control: relaunch proceeds once data/<id>/spec.md exists"
 }
 
-# The existing scout deliverable is an accepted Sol-spec artifact, allowing the
-# scout+promote path without introducing another control-plane operation.
-test_scout_report_clears_the_gate() {
+# A scout report can survive promotion, but only the task-owned spec artifact
+# clears the implementation gate.
+test_scout_report_does_not_clear_the_gate() {
   local dir out rc
   dir=$(new_case relaunch-promoted sa5)
   add_ship_task "$dir" sa5
   mkdir -p "$dir/home/data/sa5"
   printf '# Sol spec\n\nImplementation constraints.\n' > "$dir/home/data/sa5/report.md"
   out=$(run_control "$dir" sa5 relaunch --note "try again"); rc=$?
-  expect_code 0 "$rc" "a Sol scout report should clear the gate"$'\n'"$out"
-  assert_contains "$out" "relaunched sa5" "relaunch with report.md did not complete"
-  pass "fm-control: data/<id>/report.md satisfies the Sol-spec gate"
+  expect_code 1 "$rc" "a scout report must not clear the ship gate"
+  assert_contains "$out" "no Sol spec at $dir/home/data/sa5/spec.md" \
+    "relaunch with only report.md did not identify the required spec artifact"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "report-only refusal stopped the running agent"
+  pass "fm-control: data/<id>/report.md does not satisfy the Sol-spec gate"
 }
 
 test_spawn_relaunch_refuses_without_a_spec() {
@@ -231,18 +233,15 @@ test_spawn_relaunch_refuses_without_a_spec() {
   pass "fm-spawn: --relaunch refuses without a Sol spec"
 }
 
-test_scout_relaunch_refuses_after_an_existing_attempt() {
+test_scout_relaunch_is_ungated_after_an_existing_attempt() {
   local dir out rc
   dir=$(new_case scout-relaunch-refuse sa10)
   add_ship_task "$dir" sa10 scout
   out=$(run_control "$dir" sa10 relaunch --note "replace implementation attempt"); rc=$?
-  expect_code 1 "$rc" "scout relaunch after an existing attempt should refuse without a spec"
-  assert_contains "$out" "relaunch of scout task sa10 refused" \
-    "scout relaunch refusal did not identify the gated task kind"
-  assert_contains "$out" "commission a Sol spec scout" \
-    "scout relaunch refusal did not name the next legal action"
-  [ "$(cat "$dir/fake/command")" = claude ] || fail "scout relaunch refusal stopped the running agent"
-  pass "fm-control: scout relaunch after an existing attempt refuses without a Sol spec"
+  expect_code 0 "$rc" "scout relaunch should remain ungated"$'\n'"$out"
+  assert_contains "$out" "relaunched sa10" "ungated scout relaunch did not complete"
+  assert_not_contains "$out" "Sol spec" "scout relaunch was blocked by the ship-only gate"
+  pass "fm-control: scout relaunch after an existing attempt remains ungated"
 }
 
 # Same fixture as test_spawn_relaunch_refuses_without_a_spec, differing only in
@@ -270,8 +269,8 @@ test_nm_third_fix_round_marker_refuses_through_fm_control() {
   out=$(run_control "$dir" sa6 relaunch --note "try again"); rc=$?
   expect_code 1 "$rc" "a recorded third fix round should refuse the relaunch"
   assert_contains "$out" "fix round 3" "fm-control refusal did not name the third fix round"
-  assert_contains "$out" "$dir/home/data/sa6/report.md or $dir/home/data/sa6/spec.md" \
-    "fm-control marker refusal did not name the accepted spec paths"
+  assert_contains "$out" "$dir/home/data/sa6/spec.md" \
+    "fm-control marker refusal did not name the accepted spec path"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "marker refusal stopped the running agent"
   pass "fm-control: a recorded third fix round refuses the relaunch by name"
 }
@@ -355,9 +354,9 @@ test_nm_third_fix_round_marker_refuses_without_a_spec() {
 test_first_ship_spawn_is_not_blocked_without_a_spec
 test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent
 test_control_relaunch_proceeds_once_spec_md_exists
-test_scout_report_clears_the_gate
+test_scout_report_does_not_clear_the_gate
 test_spawn_relaunch_refuses_without_a_spec
-test_scout_relaunch_refuses_after_an_existing_attempt
+test_scout_relaunch_is_ungated_after_an_existing_attempt
 test_secondmate_relaunch_is_unaffected_by_the_gate
 test_nm_third_fix_round_marker_refuses_through_fm_control
 test_nm_third_fix_round_marker_with_no_payload_refuses

@@ -5,13 +5,12 @@
 # later one, must not start until a Sol spec artifact exists for that task.
 # Prose in AGENTS.md is not the safeguard; these entrypoints refuse mechanically.
 #
-# Accepted Sol-spec artifacts:
-#   data/<id>/report.md (the existing scout deliverable)
+# Accepted Sol-spec artifact:
 #   data/<id>/spec.md   (the task's owned spec path)
 # The gate reuses scout+promote and introduces no new control plane.
 #
 # Triggers (any one with a missing spec refuses):
-#   1. bin/fm-control.sh <id> relaunch on a ship or scout that already published
+#   1. bin/fm-control.sh <id> relaunch on a ship that already published
 #      spawn_gen=
 #   2. bin/fm-spawn.sh <id> --relaunch on the same condition (replacement worker)
 #   3. state/<id>.nm-third-fix-round present before another implementation
@@ -44,10 +43,9 @@ fm_second_attempt_spec_path() {
 
 # fm_second_attempt_spec_present <data-dir> <task-id>
 fm_second_attempt_spec_present() {
-  local spec report
+  local spec
   spec=$(fm_second_attempt_spec_path "$1" "$2")
-  report="${1%/}/$2/report.md"
-  [ -f "$report" ] || [ -f "$spec" ]
+  [ -f "$spec" ]
 }
 
 # fm_second_attempt_meta_had_implementation <meta-path>
@@ -105,10 +103,7 @@ fm_second_attempt_gate_reason() {
   FM_SECOND_ATTEMPT_GATE_REASON=none
   kind=$(fm_meta_get "$meta" kind)
   [ -n "$kind" ] || kind=ship
-  case "$kind" in
-    ship|scout) ;;
-    *) return 0 ;;
-  esac
+  [ "$kind" = ship ] || return 0
   fm_second_attempt_nm_fix_round_state "$state" "$id"
   case "$FM_SECOND_ATTEMPT_NM_MARKER_STATE" in
     reached)
@@ -134,33 +129,32 @@ fm_second_attempt_gate_reason() {
 # and the spec is absent; returns 0 otherwise. Callers own the exit.
 fm_second_attempt_refuse_if_needed() {
   local state=$1 data=$2 id=$3 meta=$4 trigger=$5
-  local reason spec report next marker kind task_kind
+  local reason spec next marker kind task_kind
   fm_second_attempt_gate_reason "$state" "$data" "$id" "$meta" "$trigger"
   reason=$FM_SECOND_ATTEMPT_GATE_REASON
   [ "$reason" != none ] || return 0
   fm_second_attempt_spec_present "$data" "$id" && return 0
   spec=$(fm_second_attempt_spec_path "$data" "$id")
-  report="${data%/}/$id/report.md"
   kind=$(fm_meta_get "$meta" kind)
   [ -n "$kind" ] || kind=ship
   task_kind="$kind task"
   next="commission a Sol spec scout for this task before starting another implementation worker; do not guess a model"
   case "$reason" in
     relaunch)
-      echo "error: relaunch of $task_kind $id refused - no Sol spec at $report or $spec; $next" >&2
+      echo "error: relaunch of $task_kind $id refused - no Sol spec at $spec; $next" >&2
       ;;
     replacement_spawn)
-      echo "error: replacement spawn for $task_kind $id refused - no Sol spec at $report or $spec; $next" >&2
+      echo "error: replacement spawn for $task_kind $id refused - no Sol spec at $spec; $next" >&2
       ;;
     nm_third_fix_round)
-      echo "error: $task_kind $id reached no-mistakes fix round 3 without a Sol spec at $report or $spec; $next" >&2
+      echo "error: $task_kind $id reached no-mistakes fix round 3 without a Sol spec at $spec; $next" >&2
       ;;
     nm_fix_round_unreadable)
       marker=$(fm_second_attempt_nm_third_fix_round_marker "$state" "$id")
-      echo "error: $task_kind $id has a no-mistakes fix-round marker at $marker whose round could not be read, and no Sol spec at $report or $spec; $next" >&2
+      echo "error: $task_kind $id has a no-mistakes fix-round marker at $marker whose round could not be read, and no Sol spec at $spec; $next" >&2
       ;;
     *)
-      echo "error: $task_kind $id refused - no Sol spec at $report or $spec; $next" >&2
+      echo "error: $task_kind $id refused - no Sol spec at $spec; $next" >&2
       ;;
   esac
   return 1
