@@ -186,6 +186,20 @@ The flag is per home and is not inherited by secondmate homes, because stow cade
 Only the file's presence is read, so its contents are ignored; remove it to return to the default contract on the next pass.
 The skill text owns the marker spelling, the tick order, and the reinforcement rule.
 
+## Automatic /stow
+
+Create the home-local, gitignored `config/auto-stow` file to grant automatic memory curation for that home; its contents are ignored, and removing it disables both triggers.
+This explicit captain opt-in satisfies `VISION.md`'s authority boundary while letting two existing turns decide whether to run the internal [`/stow` skill](../.agents/skills/stow/SKILL.md) instead of waiting for the captain to type it.
+
+1. An enabled, lock-owning compact/clear session-start re-emit prepends one `STOW DUE:` line when `state/.last-stow-attempt` is missing or older than `FM_AUTO_STOW_INTERVAL_SECS` (default 86400), and stays silent when the marker is current, automatic stow is disabled, or the session could not verify fleet-lock ownership (`bin/fm-session-start.sh`).
+2. Enabled heartbeat handling in `AGENTS.md` section 8 rule 4 runs `/stow` first when the same marker is due, using that same larger interval so a pass does not run on every heartbeat wake.
+
+`FM_AUTO_STOW_INTERVAL_SECS` accepts whole seconds from 1 through 31536000 (365 days); empty, non-numeric, zero, or larger values fall back to 86400.
+The stow skill touches `state/.last-stow-attempt` at the end of every pass, reset-safe or not, and touches `state/.last-stow` only when the pass is reset-safe.
+The automatic triggers read the attempt marker, so a home holding an exception `/stow` cannot clear still waits out the full interval.
+Away-mode heartbeats stay bash-only and never run `/stow`.
+On a default Pi primary, heartbeat wakes go to the supervision branch, which does not currently run the `AGENTS.md` check; compact/clear re-emit remains the automatic path there ([Pi supervision branch](pi-supervision-branch.md#heartbeat-routing)).
+
 ## Secondmate routes (data/secondmates.md)
 
 Persistent secondmate routes live locally in `data/secondmates.md`.
@@ -418,6 +432,63 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the 
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
 
+## PR merge conflict watch
+
+`bin/fm-pr-conflict-watch.sh` polls open GitHub pull requests for merge conflicts across the repositories this home works in.
+It is detection and routing only: it never resolves conflicts, rebases branches, or calls GitHub's update-branch API.
+
+Repositories are derived from `data/projects.md` by reading each registered project's clone under `projects/` and parsing its `origin` remote into an `owner/repo` slug.
+The firstmate checkout's own `origin` remote is included too, so the captain's firstmate fork is covered without hardcoding its name.
+The `owner-team` a wake is routed to comes from `data/secondmates.md`: a registered project named in a secondmate's `projects:` list routes to that secondmate's id, the firstmate repository routes to `main`, and anything unmapped falls back to `main`.
+That list stays the non-exclusive clone list the [`secondmate-provisioning` skill](../.agents/skills/secondmate-provisioning/SKILL.md#routing-table) defines; it decides where a conflict wake is delivered first, not who exclusively owns the work.
+
+Arm once per home with `bin/fm-pr-conflict-watch.sh arm`.
+That writes `state/pr-conflict-watch.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence and turns a newly conflicted pull request into one `check:` wake line.
+`bin/fm-pr-conflict-watch.sh disarm` removes the shim, trust binding, and dedupe record.
+The check prints nothing when no new conflict exists, apart from the cut-budget disclosure described below and a coverage-hole when a target has stayed unaccounted for longer than the grace period.
+Draft pull requests are included; a conflicted draft is reported with `draft=yes`.
+
+Each wake line begins with `pr-conflict:` and carries `owner-team`, `repo`, `number`, `head`, `draft`, `url`, and `title` so firstmate can route without re-deriving ownership.
+Dedupe keys are repository, pull request number, and head SHA: the same conflict on the same head is reported once, while a force-updated head that conflicts again is a new event.
+GitHub is read through `gh-axi api`, whose replies arrive as an axi envelope rather than as raw JSON.
+One GraphQL read per repository carries the bounded open-pull-request page together with mergeability and `pageInfo.hasNextPage`, so sweep cost scales with the number of repositories rather than with the number of pull requests.
+When `hasNextPage` is true, the repository is an unobserved coverage gap rather than a complete open set.
+GitHub computes mergeability lazily; a pull request that comes back `UNKNOWN` is reread on its own, and a persistently unknown state is treated as unknown rather than clean or conflicted.
+A GraphQL read of a repository that cannot be resolved answers with a null repository rather than an error, which would otherwise be indistinguishable from a repository with no open pull requests, so the query refuses that shape and the repository is an unobserved GitHub coverage gap instead.
+A reread that settles the state also names the head it settled for, so a branch force-updated between the listing and the reread is reported and deduped under the SHA that was actually judged.
+A sweep that finds more conflicts than one line can carry reports the ones that fit and discloses the rest as `N more omitted (line cap)`; an omitted conflict is not marked as reported, so it wakes on a later sweep instead of being lost.
+For a repository whose complete open set was observed, the dedupe record is cut back to the conflicts that sweep still observes instead of retaining resolved or superseded heads.
+A repository the sweep never reached, or whose open list was cut short by `FM_PR_CONFLICT_PR_LIMIT`, keeps its recorded keys instead: unread is not the same as resolved, and dropping those keys would re-report every one of them.
+A sweep whose repository discovery was incomplete keeps the whole record for the same reason: an unreadable `data/projects.md`, or a registered project whose clone or `origin` remote could not be read this sweep, names no repository at all, so the repositories discovery did name are not the full set this home works in.
+That covers the degenerate case where discovery reads nothing as well as the partial case where it reads some clones and fails on others.
+
+This is a safety net, not a cure: conflicts happen because pull requests wait unmerged while the default branch moves underneath them.
+Silence is not a proof that every repository was checked.
+Conflicts found and coverage holes are two models that share a sweep because coverage decides which conflict conclusions are justified.
+A conflict is a positive observation keyed by repository, pull request number, and head SHA.
+A coverage gap is an absence of a trustworthy observation keyed by a stable target: `repo:<owner/repo>` for a valid repository, `project:<name>` when a registered project's clone or origin cannot resolve to a valid repository, and `source:projects-registry` or `source:firstmate-origin` when discovery fails before a repository can be named.
+`bin/fm-repo-slug-lib.sh` owns structural GitHub identity parsing for HTTPS and SSH URLs with optional userinfo and numeric ports, SCP-style SSH remotes, and canonical HTTPS pull request URLs.
+It accepts only the exact `github.com` host after case normalization and never retains origin authority or credentials.
+The durable fact is that the target has remained unaccounted for since it first failed; the latest cause of that failure is metadata on the gap, not a second gap.
+A cause change does not reset age and does not notify again after the gap has been disclosed.
+GitHub fails transiently often enough that waking on each blip would be noise, so a gap is disclosed only once it has stayed open for longer than `FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800 seconds, `0` to disclose on the first sweep).
+That disclosure is one `coverage-hole` item naming the target, the valid repository when one is known, how long it has been unaccounted for, and `latest-cause` (`github`, `budget`, `truncated`, `invalid-origin`, `unsupported-host`, `unsupported-transport`, `discovery`, or `dependency-missing`).
+If an armed watch later loses `jq` or `gh-axi`, the stable targets are `source:runtime-jq` and `source:runtime-gh-axi`; their gaps close when the dependency returns.
+It is not a conflict, and it does not claim a root cause the sweep did not observe: malformed identity is `invalid-origin`, a different forge is `unsupported-host`, an unsupported URL scheme is `unsupported-transport`, a local deadline is `budget`, and a cut tool envelope is `truncated`.
+A coverage item that does not fit the line is not counted as disclosed, so it is repeated on a later sweep.
+A sweep is complete only when every expected target was observed and discovery itself completed; an incomplete sweep prunes nothing it did not see.
+A sweep that runs out of budget still names the targets it never reached, so they are coverage gaps rather than silent clean repositories.
+The sweep order is fixed, so a fleet too large for one budget leaves the same tail unaccounted for on every poll.
+Raise `FM_PR_CONFLICT_BUDGET_SECS` with `FM_CHECK_TIMEOUT` when the fleet outgrows one sweep.
+
+`FM_PR_CONFLICT_INTERVAL` (default 300 seconds, `0` to probe on every run) sets how often sweeps run, `FM_PR_CONFLICT_PROBE_SECS` (default 5) bounds one GitHub call, and `FM_PR_CONFLICT_BUDGET_SECS` (default 20) bounds a whole sweep.
+`FM_PR_CONFLICT_UNKNOWN_ATTEMPTS` (default 3) and `FM_PR_CONFLICT_UNKNOWN_WAIT` (default 1 second) control lazy mergeability polling.
+`FM_PR_CONFLICT_PR_LIMIT` (default 30) caps open pull requests read per repository.
+`FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800) sets how long a target must stay unaccounted for before the resulting coverage gap is disclosed.
+The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a larger budget is cut to fit rather than refused, and the `UNKNOWN` reread loop stops at the sweep deadline too, because a run the watcher kills prints and records nothing at all.
+A cut budget is disclosed at the head of the line and, like a matured coverage hole, can appear without a conflict behind it.
+Because the cut-budget disclosure describes a setting rather than an event, it repeats on every sweep until the two settings agree.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
@@ -537,6 +608,32 @@ That adapter, and only that adapter, retries the one exact transient response a 
 Real feedback, ended and missing sessions, any other `SERVER_ERROR`, and that same interruption still standing once the bound is spent are all captured and announced normally; `FM_LAVISH_POLL_RETRY_DELAY` is a bounded 0 to 60 second test override for the interval only, and the runner itself stays adapter-agnostic.
 An already-armed Lavish source keeps its registered listener command until it is retired and armed again, so re-arm a live board once to adopt this retry policy.
 
+`bin/fm-procevent-telegram.sh` covers the captain's Telegram channel; its header and `--help` own its exact commands, credential handling, and timeout.
+It is this runner's one deliberate exception to adapter-driven terminal retirement: the captain's channel never reports itself terminal, so only explicit operator retirement stops it.
+
+These paragraphs are the single prose owner of that channel's state and acknowledgement contract.
+`state/telegram/channel.db` is the sole live authoritative state: one transactional store holding the committed getUpdates offset, every accepted captain payload, its notice, and the sticky API, credential, protocol, and transport episodes.
+There is no separate offset, blocked, pending, receipt, or mutable inbox file, and nothing outside the adapter parses that state.
+The adapter validates a complete Telegram response before opening its transaction, so a rejected batch leaves the committed offset, the episodes, and the stored messages unchanged and the next request repeats the same offset; the offset advances only inside the same commit that stored the batch's messages and notice.
+`state/telegram-inbox/` and the other pre-migration files are read-only evidence after the one-time `migrate` cutover, which retires the source, copies every old artifact into the sealed read-only `state/telegram-migration-archive/`, deletes nothing, imports only coherent state, and publishes a visibly blocked database rather than guessing an offset when the old state is ambiguous, unreadable, or malformed.
+A recoverable precondition is never a blocked cutover: `migrate` refuses up front, changing nothing, while any captured legacy Telegram result is still unhandled or while the old state cannot be archived completely, so the operator handles those and reruns the same command.
+The archive is staged in a marked private directory, fsynced, and validated against both a fresh read of its own manifest and the live legacy bytes before it is published atomically and sealed ahead of the database, so a refused attempt leaves neither a database nor a published archive.
+A rerun reconciles its own marked archive and database staging, that staging's rollback journal, and any complete orphan archive left by an uncatchable termination; it refuses actionably on an unmarked, symlinked, wrongly named, or world-readable leftover rather than sweeping it by name, and refuses before archiving anything when `state/telegram` is itself a symlink, the wrong type, or not mode 0700.
+Every row a cutover publishes - meta, imported messages, notices, conditions, and the offset - is written in one explicit `IMMEDIATE` transaction on the unpublished private database after its empty schema is committed; a fresh `arm` reconciles that staging the same way a rerun of `migrate` does, and a leftover refusal names the command being run rather than sending an `arm` operator to consume the one-time cutover.
+A poll never stages the raw response on disk: curl streams it to a bounded in-memory buffer whose exact final newline-plus-three-digit suffix is the only accepted status frame, so no termination leaves captain bytes outside the store and an absent, partial, or interrupted frame is one transport failure rather than a batch.
+A legacy message the old adapter had already acted on migrates as a dedup tombstone whose entire identity is its update identifier, validated by the same strict positive non-boolean rule: it suppresses a later Telegram replay of that identifier without a wake and without comparing payloads, and never advances the offset by itself, while a legacy message still awaiting delivery must carry coherent text, chat and sender identity, and an exact integer date, or the cutover blocks.
+Database publication is a monotonic boundary: once `state/telegram/channel.db` exists its sealed archive is never discarded, and a later fsync, reopen, or validation failure reports that concrete condition with the database and the archive both preserved.
+A blocked cutover records a bounded printable cause alongside its fingerprint, naming the state-relative legacy artifact rather than any credential value or captain payload, and `bin/fm-procevent-telegram.sh doctor` reports it as `migration_cause`.
+
+A poll publishes a *stable* notice: the notice row stays in the database, and every capture of it names the same state UUID and notice id, so a crash between commit and the runner's capture re-announces the same notice instead of losing it, and no further network call happens while it is unacknowledged.
+Read a `message` result's payloads only through `bin/fm-procevent-telegram.sh messages <result-file>`; never parse the result file or the database yourself.
+After acting on every payload, run `bin/fm-procevent-telegram.sh ack <result-file>` first and the generic `bin/fm-procevent.sh handled <source> <seq>` second.
+The adapter acknowledgement retires the notice, so any later captured copy of that same notice classifies as `none` and cannot authorize the same messages twice; the generic handled acknowledgement separately retires the runner's wake.
+Because the external effect happens before `ack`, a crash in that window can repeat the effect - this path is never exactly-once, at-least-once, no-loss, or lossless.
+A `blocked` result reporting a local-state fingerprint is deliberately unacknowledgeable: it names a condition in the store itself, so it recurs with the same fingerprint on every poll, and the source stays armed and permanent throughout.
+A blocked cutover is one such condition: after its first `migration-blocked` notice is acknowledged, every later poll reports the same unacknowledgeable local-state fingerprint rather than going quiet, and `doctor` names the `migration_cause` behind it.
+A missing `python3` or a modified state engine keeps the whole runner-facing path answerable - `poll` announces the local-state fingerprint, `classify` answers `blocked`, and `ack` answers `unacknowledgeable: local-state` - so a captured wake is never left uninterpretable or undisposable, while `arm` and `migrate` instead refuse with that actionable message before changing any registration or state.
+
 The `when` adapter (`bin/fm-procevent-when.sh`) turns this channel into a condition->action primitive: it registers a deterministic condition and a deterministic action once, its blocking child polls the condition without waking firstmate, and a stable true fires the action at most once before one terminal outcome is durably captured and published as a wake that remains eligible for re-announcement until handled.
 The (condition, action) spec is stored privately under `state/when/` and hash-bound by a trust record the same way `bin/fm-check-register.sh` binds a custom check, while the spec separately binds the resolved action executable's bytes; a mutated or unregistered spec or a changed action executable is refused before the action runs.
 Every failure path - a mutated spec or action executable, a condition error past its budget, an expired deadline, a failed action, or an earlier fire whose outcome was never captured - produces a terminal captured outcome that wakes firstmate rather than a silent retry, and a durable single-fire marker claimed before the action makes restarts and re-polls unable to fire it twice.
@@ -648,6 +745,7 @@ FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops
 CMUX_SOCKET_PASSWORD=   # cmux-only: socket password fallback when config/cmux-socket-password is absent (docs/cmux-backend.md)
 FM_SESSION_START_STATUS_TAIL=5   # state/*.status lines printed per task in the session-start digest; each line is capped by bin/fm-line-cap-lib.sh
 FM_SESSION_START_QUEUED_LIMIT=20   # plain queued backlog rows in the session-start digest; in-flight, held, and blocked rows are never bounded and done rows are never listed
+FM_AUTO_STOW_INTERVAL_SECS=86400   # 1..31536000 seconds; invalid or larger values fall back to 86400; gates automatic /stow against state/.last-stow-attempt's mtime (see "Automatic /stow" above)
 FM_BOOTSTRAP_DETECT_ONLY=0   # internal/read-only session-start mode: skip bootstrap's mutating sweeps and print advisory TANGLE wording
 FM_BOOTSTRAP_NETWORK=all   # internal session-start phase split: all, skip (local steps only), or only (network steps only); see bin/fm-bootstrap.sh
 FM_STARTUP_NETWORK_TIMEOUT=120   # seconds bounding the whole deferred network stage; hitting it prints an actionable NETWORK_CHECKS line

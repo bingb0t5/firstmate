@@ -8,6 +8,35 @@ This record holds reusable version-scoped evidence for the runner's active guara
 Verified on 2026-07-31 on macOS (Darwin 25.5.0) with `lavish-axi` 0.1.45 installed.
 Generic keyed-answer feed verified on 2026-08-16 on the same platform, against the same published poll response shape.
 Cross-origin keyed-answer feed verified on 2026-08-19 through the real runner and Lavish adapter interface.
+Telegram adapter behavior verified on 2026-08-25 through the real adapter and generic runner interfaces.
+The transactional Telegram crash matrix was verified the same day on Linux 6.8.0-138-generic with Python 3.12.3 and SQLite 3.45.1.
+
+## Telegram identifier and durability evidence
+
+The current official [Telegram Bot API](https://core.telegram.org/bots/api) describes `update_id` as an `Integer` whose values start at a positive number and normally increase sequentially.
+The same contract says unspecified `Integer` fields are safe in a signed 32-bit value, and says a `getUpdates` offset greater than an update id confirms that update.
+The adapter therefore accepts only non-boolean values from 1 through 2147483647, stores the possible next offset 2147483648 in SQLite's wider integer, and does not require contiguous values because Telegram may choose the next identifier randomly after a week without updates.
+
+The Linux crash proof ran:
+
+```text
+$ uname -sr
+Linux 6.8.0-138-generic
+$ python3 --version
+Python 3.12.3
+$ python3 -c 'import sqlite3; print(sqlite3.sqlite_version)'
+3.45.1
+$ tests/fm-procevent-telegram.test.sh
+...
+ok - fault injection at every validation, write, commit, and output boundary exposes only complete transactions
+ok - notice acknowledgement is atomic across its own crash boundaries
+ok - missing, corrupt, impossible, unsafe, and unreadable state repeats a stable blocked result without polling
+...
+all fm-procevent-telegram tests passed
+```
+
+The suite verifies process-crash recovery with rollback journaling, `synchronous=FULL`, and `fullfsync=ON`.
+It is not a claim that power-loss durability has been exercised on every supported filesystem.
 
 ## The published Lavish poll interface the adapter wraps
 
@@ -73,7 +102,7 @@ Never at-least-once, no-loss, or lossless.
 
 ## What the runner does prove
 
-Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose completion is a process event, not a timer; for the two supervision-delivery rows below, by `tests/fm-watch-triage.test.sh` driving a real `bin/fm-watch.sh` over a real capture; and for adapter-owned application, by `tests/fm-remote-reply.test.sh` driving the real remote-reply relay end to end in an isolated home:
+Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose completion is a process event, not a timer; for the two supervision-delivery rows below, by `tests/fm-watch-triage.test.sh` driving a real `bin/fm-watch.sh` over a real capture; for adapter-owned application, by `tests/fm-remote-reply.test.sh` driving the real remote-reply relay end to end in an isolated home; and for Telegram intake, by `tests/fm-procevent-telegram.test.sh` driving the public adapter and real generic runner in an isolated home:
 
 | Guarantee | How it is proven |
 | --- | --- |
@@ -115,6 +144,15 @@ Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose c
 | condition->action single-fire and trust | `tests/fm-procevent-when.test.sh` drives the public `when` adapter and generic runner with real commands, proving stable true fires once, a claimed fire restarts as ambiguous without a second action, concurrent arms publish one complete watch, and mutated specs or action executables are refused before execution |
 | condition->action terminal outcomes | the same suite proves flapping true polls do not fire, action failure, condition error budget, deadline expiry, and a true poll completing after its deadline each produce the expected terminal captured result without an unsafe action |
 | condition->action process bounds | the same suite proves action timeout terminates descendants and command-output staging remains within `FM_WHEN_OUTPUT_TAIL_BYTES` while the command runs |
+| Telegram transactional offset | the Telegram suite rejects malformed envelopes, containers, message identity shapes, booleans, zero, negatives, strings, floats, duplicate ids, stale ids, and out-of-range ids without changing the committed offset, API episodes, or message rows, then proves the next request still uses the old offset |
+| Telegram crash recovery | deterministic exits after validation, transaction begin, notice insertion, message insertion, offset update, immediately before commit, immediately after commit, before output, after output, and on both sides of acknowledgement commit expose only the complete old or complete new transaction |
+| Telegram stable notice handoff | a committed message notice survives pre-capture exits, blocks another network call, emits the same state UUID and notice id until adapter acknowledgement, exposes its payload only through the adapter, and makes every later captured copy classify as `none` after acknowledgement |
+| Telegram state corruption and migration | missing, malformed, wrong-version, impossible, wrong-type, symlinked, or wrong-mode state makes no network call and reaches the real runner as a stable `blocked` result; migration refuses a live legacy producer, archives every old artifact read-only without deleting it, imports coherent state exactly, and leaves ambiguous state visibly blocked without guessing an offset |
+| Telegram cutover crash and leftover recovery | the same suite proves a crash on either side of archive publication or sealing, an interrupt during database construction, and a failure after database publication each rerun to exactly one archive and one database with no unmanaged payload copy left behind; the cutover's meta, messages, notices, and offset commit as one transaction whose rollback journal is reaped even when orphaned by an uncatchable termination; and unmarked, symlinked, misnamed, or world-readable leftovers each refuse at their own check instead of being swept by name |
+| Telegram legacy import fidelity | an already-handled legacy row migrates as an update-id dedup tombstone that suppresses a later replay without delivering it again, a malformed identifier can never become a tombstone, and a row still awaiting delivery blocks the cutover unless it carries coherent text, chat and sender identity, and an exact integer date |
+| Telegram response framing | a body carrying trailer-like bytes is framed only by curl's exact final status suffix, and an absent, partial, interrupted, or oversized response is one bounded transport failure that commits no batch and leaves no response state on disk |
+| Telegram identity and credential secrecy | only the configured sender in the configured chat becomes a message, unauthorized and non-text updates advance transactionally without a wake, missing or replaced credentials announce one actionable block without a network call, and the bot token appears in neither argv, database state, captured results, nor message payloads |
+| Telegram API and transport episodes | `terminal` rejects every result, 401 and 409 remain independent across malformed responses and lifecycle commands, only a fully validated success clears them, and transient transport failures become one `transport-blocked` notice on the third consecutive failure rather than retrying silently forever |
 | silent failure handling | a nonzero exit with no output publishes nothing and leaves the source registered for retry |
 | inertness | a home with no registered source generates no state, starts no process, and does not need supervision |
 

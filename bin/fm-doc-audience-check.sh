@@ -27,6 +27,7 @@ from urllib.parse import unquote, urlsplit
 MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 HTML_LINK_RE = re.compile(r"\b(?:href|src)=[\"']([^\"']+)[\"']", re.IGNORECASE)
 REQUIRED_TRACKED_PATTERNS = ["*.md", "*.mdx", "*.rst", "*.txt", "docs/examples/*"]
+REQUIRED_EXCLUDED_PATHS = [".github/pr-bodies/*.md"]
 
 
 class CheckError(Exception):
@@ -48,6 +49,10 @@ def git_tracked(root: Path, patterns: list[str]) -> list[str]:
         detail = proc.stderr.decode("utf-8", "replace").strip()
         fail(f"git ls-files failed: {detail or 'unknown error'}")
     return sorted(p for p in proc.stdout.decode("utf-8").split("\0") if p)
+
+
+def path_matches_any(path: str, patterns: list[str]) -> bool:
+    return any(Path(path).match(pattern) for pattern in patterns)
 
 
 def load_inventory(path: Path) -> dict:
@@ -145,6 +150,9 @@ def validate(root: Path, inventory_path: Path) -> tuple[int, int]:
     patterns = list_of_strings(scope.get("trackedPatterns"), "scope.trackedPatterns")
     if patterns != REQUIRED_TRACKED_PATTERNS:
         fail("scope.trackedPatterns must match the fixed maintained-prose scope")
+    excluded_paths = list_of_strings(scope.get("excludedPaths"), "scope.excludedPaths")
+    if excluded_paths != REQUIRED_EXCLUDED_PATHS:
+        fail("scope.excludedPaths must match the fixed machine-managed prose exclusions")
     audiences = set(list_of_strings(data.get("allowedAudiences"), "allowedAudiences"))
     setup_audiences = set(list_of_strings(data.get("setupAudiences"), "setupAudiences"))
     if not setup_audiences <= audiences:
@@ -171,7 +179,10 @@ def validate(root: Path, inventory_path: Path) -> tuple[int, int]:
     if duplicates:
         fail("surfaces classified more than once: " + ", ".join(duplicates))
 
-    tracked = set(git_tracked(root, patterns))
+    tracked = {
+        path for path in git_tracked(root, patterns)
+        if not path_matches_any(path, excluded_paths)
+    }
     classified = set(paths)
     missing = sorted(tracked - classified)
     extra = sorted(classified - tracked)

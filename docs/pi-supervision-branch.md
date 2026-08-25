@@ -64,6 +64,11 @@ A review that found literally nothing worth reporting uses verdict `routine`, `t
 Only a captain-worthy finding reports verdict `captain` and opens a main turn.
 Every other fleet-wide or unresolvable wake - including watcher-failure alarms, which are never offered to the branch - keeps today's wake-to-main path.
 
+The branch's heartbeat review does not currently run automatic `/stow`.
+`AGENTS.md` section 8 rule 4's staleness-gated `/stow` instruction lives on main, and default-on branch supervision routes heartbeat wakes away from main.
+When the captain has enabled `config/auto-stow`, a lock-owning compact/clear session-start re-emit remains the automatic `/stow` path on a default Pi primary (`bin/fm-session-start.sh`; `FM_AUTO_STOW_INTERVAL_SECS` in [configuration.md](configuration.md)).
+Wiring heartbeat `/stow` into the branch is tracked in [issue #2944](https://github.com/kunchenguid/firstmate/issues/2944): `bin/fm-branch-prompt.sh`'s byte-stable-prefix contract forbids per-wake state, so that change has to preserve cache identity rather than appending a live marker age.
+
 ## Cost model and the byte-stable prefix
 
 The captain accepted the normal provider prompt-caching strategy: a byte-identical branch prefix generated once per firstmate version, the same tool set in the same order on every request, and one shared `prompt_cache_key` per home for all branch sessions (set in a `before_provider_request` hook, and only for providers whose requests already carry that field); main keeps its own per-session key.

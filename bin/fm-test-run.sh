@@ -139,7 +139,8 @@ family_for_basename() {
     fm-classify-decision-key.test.sh|\
     fm-composer-ghost.test.sh|fm-composer-lib.test.sh|\
     fm-crew-state.test.sh|fm-captain-hold-lifecycle.test.sh|\
-    fm-documentation-audiences.test.sh|fm-ensure-agents-md.test.sh|fm-grok-harness.test.sh|\
+    fm-documentation-audiences.test.sh|fm-ensure-agents-md.test.sh|\
+    fm-gnhf-companion-skill.test.sh|fm-grok-harness.test.sh|\
     fm-kimi-harness.test.sh|fm-muse-harness.test.sh|fm-herdr-lab.test.sh|fm-lint.test.sh|\
     fm-lint-workflows.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|\
@@ -1066,6 +1067,17 @@ families_for_changed_path() {
       fixture_ref=${fixture_ref%%/*}
       if [ -d "tests/fixtures/$fixture_ref" ]; then
         families_for_test_reference "fixtures/$fixture_ref" \
+          || printf '%s\n' "__unmapped__:$path"
+      fi
+      ;;
+    bin/fm_procevent_telegram_state.py)
+      # The Telegram channel's state engine is never invoked directly: the
+      # adapter is its only caller, so no test names this file and the
+      # basename reference scan below would refuse it. Select whatever
+      # exercises that adapter instead of giving the engine a second mapping.
+      # Same deleted-file rule as the generic bin case.
+      if [ -e "$path" ]; then
+        families_for_test_reference fm-procevent-telegram.sh \
           || printf '%s\n' "__unmapped__:$path"
       fi
       ;;

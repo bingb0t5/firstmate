@@ -8,7 +8,10 @@
       "*.txt",
       "docs/examples/*"
     ],
-    "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. Script headers, executable configuration, generated JSON evidence, and legal text keep their existing code/config/legal owners."
+    "excludedPaths": [
+      ".github/pr-bodies/*.md"
+    ],
+    "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. Machine-managed pull-request body artifacts, script headers, executable configuration, generated JSON evidence, and legal text keep their existing workflow/code/config/legal owners."
   },
   "allowedAudiences": [
     "public-product",
@@ -157,6 +160,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/gnhf-companion/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/harness-adapters/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -187,6 +194,10 @@
     {
       "path": ".agents/skills/updatefirstmate/SKILL.md",
       "audience": "agent-runtime"
+    },
+    {
+      "path": ".github/PULL_REQUEST_TEMPLATE.md",
+      "audience": "maintainer-architecture"
     },
     {
       "path": ".greptile/rules.md",
@@ -354,6 +365,10 @@
     },
     {
       "path": "docs/verification/dispatch-auth.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/gnhf-companion.md",
       "audience": "maintainer-verification"
     },
     {
