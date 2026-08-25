@@ -197,11 +197,21 @@ raise SystemExit(1)
 PY
 }
 
+replace_manifest_output() {
+  python3 - "$1" "$2" <<'PY'
+import os
+import sys
+
+os.replace(sys.argv[1], sys.argv[2])
+PY
+}
+
 cmd_write() {
   local output=$1 config_dir output_dir env_file base sidecar service obtain key keys purpose alias_rc
   config_dir=$(fm_credential_config_dir) || die "config directory is not available" 1
   [ -d "$config_dir" ] || die "config directory does not exist" 1
   output=${output:-"$config_dir/README.md"}
+  [ ! -d "$output" ] || die "output path must be a file" 1
   output_aliases_manifest_input "$output" "$config_dir"
   alias_rc=$?
   case "$alias_rc" in
@@ -257,7 +267,8 @@ cmd_write() {
     1) ;;
     *) die "cannot validate the output path" 1 ;;
   esac
-  mv -f -- "$MANIFEST_OUTPUT_TMP" "$output" 2>/dev/null || die "cannot write the output path" 1
+  replace_manifest_output "$MANIFEST_OUTPUT_TMP" "$output" 2>/dev/null \
+    || die "cannot write the output path" 1
   MANIFEST_OUTPUT_TMP=
 }
 
@@ -277,7 +288,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     *)
-      die "unknown argument: $1" 2
+      die "unknown argument" 2
       ;;
   esac
 done

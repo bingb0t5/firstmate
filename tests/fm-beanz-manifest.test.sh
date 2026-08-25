@@ -64,6 +64,20 @@ test_missing_output_operand_fails_closed() {
   pass "a missing --output operand fails closed instead of looping forever"
 }
 
+test_unknown_argument_is_value_free() {
+  local case_dir="$TMP_ROOT/unknown-argument" out rc=0
+  setup_config "$case_dir/config"
+  out=$(
+    FM_BEANZ_CONFIG_DIR="$case_dir/config" bash -x "$SCRIPT" write "$SECRET" 2>&1
+  ) || rc=$?
+  expect_code 2 "$rc" "an unknown argument should exit 2"
+  assert_contains "$out" 'fm-beanz-manifest: unknown argument' \
+    "an unknown argument should produce a generic diagnostic"
+  assert_not_contains "$out" "$SECRET" \
+    "an unknown argument must not be echoed in combined output or shell trace"
+  pass "an unknown argument produces only a value-free error"
+}
+
 test_multiline_value_is_never_listed_as_a_key() {
   local case_dir="$TMP_ROOT/multiline" out
   out="$case_dir/README.md"
@@ -128,6 +142,37 @@ test_output_aliases_inputs_fail_closed() {
   pass "manifest output refuses direct, symlink, and hardlink input aliases"
 }
 
+test_directory_output_fails_closed() {
+  local case_dir="$TMP_ROOT/directory-output" output_dir link out rc leftovers
+  setup_config "$case_dir/config"
+  output_dir="$case_dir/output-dir"
+  mkdir -p "$output_dir"
+
+  rc=0
+  out=$(
+    FM_BEANZ_CONFIG_DIR="$case_dir/config" "$SCRIPT" write --output "$output_dir" 2>&1
+  ) || rc=$?
+  expect_code 1 "$rc" "an output directory should exit non-zero"
+  assert_contains "$out" 'output path must be a file' \
+    "an output directory should produce a value-free diagnostic"
+  assert_not_contains "$out" "$SECRET" "an output-directory failure leaked a credential value"
+  leftovers=$(find "$output_dir" -mindepth 1 2>/dev/null)
+  [ -z "$leftovers" ] || fail "an output directory received unexpected manifest artifacts"
+
+  link="$case_dir/output-link"
+  ln -s "$output_dir" "$link"
+  rc=0
+  out=$(
+    FM_BEANZ_CONFIG_DIR="$case_dir/config" "$SCRIPT" write --output "$link" 2>&1
+  ) || rc=$?
+  expect_code 1 "$rc" "a symlink to an output directory should exit non-zero"
+  assert_not_contains "$out" "$SECRET" \
+    "a symlinked output-directory failure leaked a credential value"
+  leftovers=$(find "$output_dir" -mindepth 1 2>/dev/null)
+  [ -z "$leftovers" ] || fail "a symlinked output directory received unexpected manifest artifacts"
+  pass "directory outputs fail closed without creating hidden manifests"
+}
+
 test_unwritable_output_fails_closed() {
   local case_dir="$TMP_ROOT/unwritable" out rc=0
   setup_config "$case_dir/config"
@@ -157,9 +202,11 @@ test_unwritable_output_fails_closed_with_no_credential_files() {
 test_manifest_lists_services_without_secrets
 test_manifest_default_output_path
 test_missing_output_operand_fails_closed
+test_unknown_argument_is_value_free
 test_multiline_value_is_never_listed_as_a_key
 test_shell_trace_never_contains_live_values
 test_output_aliases_inputs_fail_closed
+test_directory_output_fails_closed
 test_unwritable_output_fails_closed
 test_unwritable_output_fails_closed_with_no_credential_files
 echo "# fm-beanz-manifest.test.sh: all assertions passed"
