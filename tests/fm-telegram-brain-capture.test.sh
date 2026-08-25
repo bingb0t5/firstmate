@@ -428,6 +428,40 @@ assert_absent "$endpoint_url/curl.log" \
   "the non-origin BEANZ_MCP_URL still called curl"
 pass "a BEANZ_MCP_URL query is refused before endpoint construction"
 
+# --- malformed credential URLs fail closed without breaking doctor ---------
+malformed_url=$(make_home malformed-url)
+malformed_url_bin=$(make_fake_curl "$malformed_url")
+umask 077
+printf '%s\n' "BEANZ_MCP_TOKEN=$TOKEN" > "$malformed_url/secrets/mcp.env"
+printf '%s\n' 'BEANZ_MCP_URL=https://[bad' >> "$malformed_url/secrets/mcp.env"
+chmod 600 "$malformed_url/secrets/mcp.env"
+if payload 7011 "should not send" | \
+  run_capture "$malformed_url" "$malformed_url_bin" capture - \
+  >"$malformed_url/out" 2>"$malformed_url/err"; then
+  fail "a malformed BEANZ_MCP_URL must stay fail-closed"
+fi
+assert_grep "must be an https origin" "$malformed_url/err" \
+  "the malformed BEANZ_MCP_URL was not reported"
+assert_no_grep "Traceback" "$malformed_url/err" \
+  "the malformed BEANZ_MCP_URL produced a traceback"
+assert_grep "unattempted 1" "$malformed_url/out" \
+  "the malformed BEANZ_MCP_URL did not count the batch"
+doctor_out=$(PATH="$malformed_url_bin:$BASE_PATH" \
+  FM_HOME="$malformed_url" \
+  FM_STATE_OVERRIDE="$malformed_url/state" \
+  FM_CONFIG_OVERRIDE="$malformed_url/config" \
+  FM_BEANZ_ENV_FILE="$malformed_url/secrets/mcp.env" \
+  FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+  "$CAPTURE" doctor 2>"$malformed_url/doctor.err")
+expect_code 0 $? "doctor must report through a malformed BEANZ_MCP_URL"
+assert_contains "$doctor_out" "brain-env: unreadable" \
+  "doctor did not mark the malformed credential URL unreadable"
+assert_contains "$doctor_out" "brain-url: unknown" \
+  "doctor printed a destination from malformed credentials"
+assert_no_grep "Traceback" "$malformed_url/doctor.err" \
+  "doctor produced a traceback for a malformed URL"
+pass "malformed credential URLs fail closed while doctor still reports"
+
 # --- group flag lookup failures are not flag-off ---------------------------
 flag_lookup=$(make_home group-flag-lookup-error)
 flag_lookup_bin=$(make_fake_curl "$flag_lookup")

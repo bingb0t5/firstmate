@@ -171,16 +171,22 @@ def brain_url_from(values: Dict[str, str]) -> str:
     url = values.get("BEANZ_MCP_URL") or DEFAULT_BRAIN_URL
     if not BRAIN_URL_RE.fullmatch(url):
         raise UserError("BEANZ_MCP_URL is not a plain https URL")
-    parsed = urlparse(url)
-    if (
-        parsed.scheme != "https"
-        or not parsed.netloc
-        or parsed.username
-        or parsed.password
-        or parsed.path not in ("", "/")
-        or parsed.query
-        or parsed.fragment
-    ):
+    try:
+        parsed = urlparse(url)
+        valid_origin = (
+            parsed.scheme == "https"
+            and bool(parsed.netloc)
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in ("", "/")
+            and not parsed.query
+            and not parsed.fragment
+        )
+        _ = parsed.port
+    except ValueError:
+        valid_origin = False
+    if not valid_origin:
         raise UserError("BEANZ_MCP_URL must be an https origin with no userinfo")
     return url.rstrip("/")
 
