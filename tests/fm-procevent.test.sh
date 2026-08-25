@@ -188,7 +188,8 @@ assert_absent "${RESULT%.result}.handled" "publication alone never marks a resul
 # --- the public start boundary establishes generation group ownership -------
 HPG="$TMP_ROOT/hpg"; new_home "$HPG"
 DIRECT_TRIGGER="$TMP_ROOT/direct-trigger"
-pe_register "$HPG" lavish direct-src -- "$BLOCKER" "$DIRECT_TRIGGER" "direct result" >/dev/null
+out=$(pe_register "$HPG" lavish direct-src -- "$BLOCKER" "$DIRECT_TRIGGER" "direct result")
+assert_contains "$out" "registered: direct-src" "the compatibility register spelling still records a source"
 pe "$HPG" start direct-src > "$TMP_ROOT/direct-start.out" &
 direct_runner=$!
 wait_for "$FM_PROCEVENT_CLAIM_ROOT/direct-src.claim" || fail "direct start never claimed its source"
