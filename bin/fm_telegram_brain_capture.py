@@ -10,6 +10,7 @@ It never polls Telegram.
 from __future__ import annotations
 
 import argparse
+import codecs
 import hashlib
 import json
 import os
@@ -473,8 +474,15 @@ def classify_capture_response(jq_path: str, path: Path) -> object:
     try:
         fd, wrapped_name = tempfile.mkstemp(prefix=".beanz-json.", dir=str(path.parent))
         with os.fdopen(fd, "wb") as wrapped, path.open("rb") as response:
+            decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
             wrapped.write(b"[")
-            shutil.copyfileobj(response, wrapped, 65536)
+            while True:
+                chunk = response.read(65536)
+                if not chunk:
+                    break
+                decoder.decode(chunk)
+                wrapped.write(chunk)
+            decoder.decode(b"", final=True)
             wrapped.write(b"]")
         completed = subprocess.run(
             [
@@ -513,6 +521,8 @@ def classify_capture_response(jq_path: str, path: Path) -> object:
                 )
             raise UserError("brain capture returned a non-JSON response")
         return result["candidate"]
+    except UnicodeDecodeError as exc:
+        raise UserError("brain capture response is not valid UTF-8: %s" % exc)
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
         raise UserError("brain capture response classification failed: %s" % exc)
     finally:

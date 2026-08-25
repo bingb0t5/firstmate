@@ -125,6 +125,10 @@ if [ -n "$ofile" ]; then
       python3 -c 'import sys; sys.stdout.write("{\"capture_id\":\"accepted\"}" + " " * (1024 * 1024) + "garbage")' > "$ofile"
     elif [ "$FAKE_CAPTURE_OVERSIZED" = ignored-huge-string ]; then
       python3 -c 'import json; print(json.dumps({"ignored": "x" * (32 * 1024 * 1024)}))' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = invalid-utf8-id ]; then
+      printf '{"capture_id":"\377"}' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = invalid-utf8-ignored ]; then
+      printf '{"ignored":"\377","capture_id":"accepted"}' > "$ofile"
     else
       python3 -c 'import sys; sys.stdout.write("<" * (1024 * 1024 + 1))' > "$ofile"
     fi
@@ -1088,6 +1092,31 @@ for response_case in invalid-number unterminated-string trailing-garbage; do
 done
 FAKE_CAPTURE_OVERSIZED=
 pass "malformed oversized responses stop after one POST"
+
+# --- invalid UTF-8 anywhere in a response stops the batch ------------------
+for response_case in invalid-utf8-id invalid-utf8-ignored; do
+  invalid_utf8=$(make_home "$response_case")
+  invalid_utf8_bin=$(make_fake_curl "$invalid_utf8")
+  FAKE_CURL_LOG="$invalid_utf8/curl.log"
+  FAKE_CAPTURE_OVERSIZED=$response_case
+  {
+    payload 9961 "$response_case"
+    payload 9962 "a later thought"
+  } > "$invalid_utf8/batch.jsonl"
+  if run_capture "$invalid_utf8" "$invalid_utf8_bin" capture - \
+    < "$invalid_utf8/batch.jsonl" \
+    >"$invalid_utf8/out" 2>"$invalid_utf8/err"; then
+    fail "$response_case must stay fail-closed"
+  fi
+  assert_grep "response is not valid UTF-8" "$invalid_utf8/err" \
+    "$response_case was accepted after jq normalization"
+  invalid_utf8_posts=$(grep -c '^url=' "$invalid_utf8/curl.log")
+  expect_code 1 "$invalid_utf8_posts" "$response_case kept POSTing the batch"
+  assert_grep "unattempted 1" "$invalid_utf8/out" \
+    "$response_case did not stop the remaining batch"
+done
+FAKE_CAPTURE_OVERSIZED=
+pass "invalid UTF-8 responses stop before jq normalization"
 
 # --- duplicate capture_id keys use the last top-level value ----------------
 duplicate=$(make_home duplicate-capture-id)
