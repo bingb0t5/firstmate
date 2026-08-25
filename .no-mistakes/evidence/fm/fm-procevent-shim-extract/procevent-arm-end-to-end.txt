@@ -1,0 +1,22 @@
+$ fm-procevent.sh arm lavish demo-source -- /usr/bin/printf captain-feedback
+armed: demo-source (lavish)
+starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+
+$ fm-procevent.sh list
+SOURCE                       ADAPTER      OWNER      PENDING
+demo-source                  lavish       none       0
+
+$ fm-procevent.sh reconcile
+reconciled: published=0 started=1 stopped=0 uncertain=0
+
+$ captured result (durable inbox)
+captain-feedback
+
+$ published wake (durable queue)
+check | check: procevent lavish demo-source 1
+
+$ fm-procevent.sh handled demo-source 1
+handled: demo-source 1
+
+$ fm-procevent.sh handled demo-source 1  # idempotent repeat
+already-handled: demo-source 1
