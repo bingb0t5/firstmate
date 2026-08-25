@@ -197,8 +197,9 @@ The helper's header owns the exact signal detection, relocated-home limitation, 
 
 ## Two task shapes
 
-Ship tasks change projects and ship by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.
+Ship tasks change projects and ship by project mode (`no-mistakes`, `direct-PR`, or `local-only`); ordinary scout tasks leave standalone investigation reports at `data/<id>/report.md`, while Sol-spec scouts leave `data/<id>/spec.md`, and neither pushes.
 The intake and authority contract in `AGENTS.md` owns when separate scout research is warranted.
+The Sol-spec relaunch boundary is owned by [`docs/agent-control.md`](agent-control.md).
 
 ## Dispatch profiles
 
