@@ -36,7 +36,7 @@
 #              harness/model/effort - so switching harness is one ordinary use
 #              of this verb. A ship task whose durable record already carries
 #              spawn_gen= refuses here until a Sol spec exists at
-#              data/<task-id>/spec.md (bin/fm-second-attempt-lib.sh).
+#              data/<task-id>/report.md or spec.md (bin/fm-second-attempt-lib.sh).
 #              With no explicit axis, a secondmate re-resolves its
 #              durable config/secondmate-harness pin (harness plus its optional
 #              model and effort tokens) exactly as any other respawn does, while

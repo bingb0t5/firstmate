@@ -98,7 +98,7 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
   zellij, orca, and cmux are refused rather than reported as successful blind.
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts.
-- A ship task whose durable record already carries `spawn_gen=` is refused **before** the running agent is stopped unless a Sol spec exists at `data/<task-id>/spec.md`, so a second implementation worker cannot start on the same unspecified problem (`bin/fm-second-attempt-lib.sh`).
+- A ship task whose durable record already carries `spawn_gen=` is refused **before** the running agent is stopped unless a Sol spec exists at `data/<task-id>/report.md` or `data/<task-id>/spec.md`, so a second implementation worker cannot start on the same unspecified problem (`bin/fm-second-attempt-lib.sh`).
   A recorded no-mistakes third-fix-round marker refuses on the same missing spec; a marker whose round cannot be read refuses too, saying so rather than claiming a round it never read.
 - `fm-spawn --relaunch` independently refuses unless the recorded endpoint is positively agent-free and its shell is sitting in the recorded worktree, so a replacement can never join a live agent or start outside the copy holding the work.
 
