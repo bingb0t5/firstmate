@@ -866,7 +866,11 @@ test_ship_sol_exemption_refuses_duplicate_wait_fields() {
     'Wait: approval bound=30m bound=forever escape=abort' \
     'Wait: approval bound=30m escape=abort escape=none' \
     'Wait: approval bound=30m bound=1h escape=abort' \
-    'Wait: approval bound=30m escape=abort escape=notify'; do
+    'Wait: approval bound=30m escape=abort escape=notify' \
+    'Wait: approval bound=30m,bound=forever escape=abort' \
+    'Wait: approval bound=30m escape=abort;escape=none' \
+    'Wait: approval bound=30m/bound=1h escape=abort' \
+    'Wait: approval bound=30m escape=abort,escape=notify'; do
     i=$((i + 1))
     home="$TMP_ROOT/sol-duplicate-field-home-$i"
     mkdir -p "$home/data"
@@ -1121,6 +1125,27 @@ test_ship_sol_exemption_refuses_non_command_acceptance_payloads() {
   pass "fm-brief.sh: non-command acceptance payloads cannot earn Sol exemption"
 }
 
+test_ship_sol_exemption_accepts_env_prefixed_commands() {
+  local home brief status command i=0
+  for command in 'NODE_ENV=test npm test' \
+                 'CI=1 NODE_ENV=test ./bin/test.sh' \
+                 '_TRACE= ./scripts/check'; do
+    i=$((i + 1))
+    home="$TMP_ROOT/sol-env-command-home-$i"
+    mkdir -p "$home/data"
+    status=0
+    FM_HOME="$home" FM_TASK="Acceptance command: \`$command\`" \
+      "$ROOT/bin/fm-brief.sh" "sol-env-command-$i" firstmate --mode no-mistakes \
+      >/dev/null 2>&1 || status=$?
+    expect_code 0 "$status" "environment-prefixed executable command must scaffold"
+    brief="$home/data/sol-env-command-$i/brief.md"
+    assert_present "$brief" "environment-prefixed acceptance command did not produce a brief"
+    grep -qx "Sol exemption: earned" "$brief" \
+      || fail "environment-prefixed acceptance command did not earn exemption"
+  done
+  pass "fm-brief.sh: environment assignments may prefix an executable acceptance command"
+}
+
 test_ship_sol_exemption_scans_acceptance_command_waits() {
   local home out status command i=0
   for command in wait waits waited waiting await awaits awaiting; do
@@ -1345,6 +1370,7 @@ test_ship_sol_exemption_accepts_trailing_acceptance_text
 test_ship_sol_exemption_refuses_trailing_acceptance_wait
 test_ship_sol_exemption_refusals_are_never_silent
 test_ship_sol_exemption_refuses_non_command_acceptance_payloads
+test_ship_sol_exemption_accepts_env_prefixed_commands
 test_ship_sol_exemption_scans_acceptance_command_waits
 test_fm_task_cannot_forge_scaffold_owned_contract_lines
 test_sol_evidence_block_records_every_validated_wait

@@ -208,16 +208,15 @@ fm_brief_trim_surrounding_punctuation() {
 }
 
 fm_brief_wait_is_bounded() {
-  local line=$1 field value normalized field_tail
+  local line=$1 field value normalized field_tail duplicate_re
   for field in bound escape; do
     case "$line" in
       *[[:space:]]"$field="*) ;;
       *) return 1 ;;
     esac
     field_tail=${line#*[[:space:]]"$field="}
-    case "$field_tail" in
-      *[[:space:]]"$field="*) return 1 ;;
-    esac
+    duplicate_re="(^|[^[:alnum:]_])${field}="
+    [[ $field_tail =~ $duplicate_re ]] && return 1
     value=$field_tail
     value=${value%%[[:space:]]*}
     [ -n "$value" ] || return 1
@@ -271,7 +270,7 @@ fm_brief_count_wait_mentions() {
 }
 
 fm_brief_acceptance_is_executable() {
-  local line=$1 command first
+  local line=$1 command first remaining
   case "$line" in
     Acceptance\ command:\ \`?*\`*) ;;
     *) return 1 ;;
@@ -282,9 +281,19 @@ fm_brief_acceptance_is_executable() {
   case "$command" in
     ''|\#*) return 1 ;;
   esac
-  first=${command%%[[:space:]]*}
+  remaining=$command
+  while :; do
+    first=${remaining%%[[:space:]]*}
+    if [[ $first =~ ^[[:alpha:]_][[:alnum:]_]*=.*$ ]]; then
+      [ "$remaining" != "$first" ] || return 1
+      remaining=${remaining#"$first"}
+      remaining=${remaining#"${remaining%%[![:space:]]*}"}
+      continue
+    fi
+    break
+  done
   case "$first" in
-    ''|*=*|*[![:alnum:]_./-]*) return 1 ;;
+    ''|*[![:alnum:]_./-]*) return 1 ;;
   esac
   bash -n -c "$command" >/dev/null 2>&1 || return 1
   return 0
