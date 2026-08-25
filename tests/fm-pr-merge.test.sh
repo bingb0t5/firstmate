@@ -158,7 +158,7 @@ EOF
 #!/usr/bin/env bash
 if [ "${1:-}" = api ]; then
   printf 'api_response:\n  body: '
-  base64 -w0 "$FM_TEST_FORECAST_SNAPSHOT"
+  base64 < "$FM_TEST_FORECAST_SNAPSHOT" | tr -d '\n\r'
   printf '\n  truncated: false\n'
   exit 0
 fi

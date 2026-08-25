@@ -104,9 +104,8 @@ EOF
       '"'*) body=$(printf '%s' "$body" | jq -r '.' 2>/dev/null) || return 1 ;;
     esac
   fi
-  if ! body=$(printf '%s' "$body" | base64 -d 2>/dev/null); then
-    return 1
-  fi
+  body=$(printf '%s\n' "$body" | base64 -d 2>/dev/null \
+    || printf '%s\n' "$body" | base64 -D 2>/dev/null) || return 1
   printf '%s' "$body" | jq -e . >/dev/null 2>&1 || return 1
   GH_API_BODY=$body
 }
