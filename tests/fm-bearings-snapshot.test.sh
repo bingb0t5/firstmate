@@ -875,7 +875,10 @@ EOF
   record_claude_state "$home/state" main-active busy
   printf 'working: building the board\n' > "$home/state/main-active.status"
   make_valid_secondmate_home ops-mate "$mate"
-  sed -i '/## In flight/a - [ ] mate-active - Mate active work (repo: firstmate) (kind: ship) (since 2026-08-19)' "$mate/data/backlog.md"
+  sed '/## In flight/a\
+- [ ] mate-active - Mate active work (repo: firstmate) (kind: ship) (since 2026-08-19)
+' "$mate/data/backlog.md" > "$mate/data/backlog.md.next"
+  mv "$mate/data/backlog.md.next" "$mate/data/backlog.md"
   mkdir -p "$mate/projects/mate-active"
   fm_write_meta "$mate/state/mate-active.meta" \
     "window=firstmate:fm-mate-active" "worktree=$mate/projects/mate-active" "project=firstmate" \
