@@ -243,6 +243,8 @@ def timeout_seconds() -> int:
 def inspect_receipt_dir(state: Path) -> Tuple[str, Optional[str]]:
     try:
         info = state.lstat()
+    except FileNotFoundError:
+        return "absent", None
     except OSError as exc:
         return "unreadable", "state directory is unreadable: %s" % exc
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
@@ -269,6 +271,9 @@ def ensure_receipt_dir(state: Path) -> Path:
     if store_state == "present":
         return receipts
     try:
+        if not os.path.lexists(str(state)):
+            os.makedirs(str(state), 0o700)
+            os.chmod(str(state), 0o700)
         os.mkdir(str(receipts), 0o700)
         os.chmod(str(receipts), 0o700)
     except OSError as exc:
@@ -361,7 +366,9 @@ def curl_config_value(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Path) -> str:
+def post_capture(
+    token: str, brain_url: str, text: str, source: str, workdir: Path, timeout: int
+) -> str:
     body = json.dumps({"text": text, "source": source}, ensure_ascii=False)
     try:
         fd, body_name = tempfile.mkstemp(prefix=".beanz-body.", dir=str(workdir))
@@ -390,7 +397,6 @@ def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Pa
             body_path.write_bytes(body.encode("utf-8"))
         except OSError as exc:
             raise UserError("cannot stage the brain capture request: %s" % exc)
-        timeout = timeout_seconds()
         try:
             completed = subprocess.run(
                 [
@@ -469,12 +475,13 @@ def capture_line(
     brain_url: str,
     captain_chat: int,
     group_on: bool,
+    timeout: int,
 ) -> str:
     payload = parse_payload(line)
     update_id = int(payload["update_id"])
     try:
         return capture_payload(
-            payload, state, token, brain_url, captain_chat, group_on
+            payload, state, token, brain_url, captain_chat, group_on, timeout
         )
     except CaptureError as exc:
         raise CaptureError("%d %s" % (update_id, exc))
@@ -487,6 +494,7 @@ def capture_payload(
     brain_url: str,
     captain_chat: int,
     group_on: bool,
+    timeout: int,
 ) -> str:
     update_id = int(payload["update_id"])
     chat_id = int(payload["chat_id"])
@@ -504,7 +512,9 @@ def capture_payload(
             existing.get("capture_id"), "receipt", CaptureError
         )
         return "already-captured %d %s" % (update_id, capture_id)
-    capture_id = post_capture(token, brain_url, str(payload["text"]), source, receipts)
+    capture_id = post_capture(
+        token, brain_url, str(payload["text"]), source, receipts, timeout
+    )
     failpoint("before-receipt")
     write_receipt(
         path,
@@ -579,6 +589,7 @@ def command_capture(state: Path, config: Path) -> int:
         group_on = group_capture_enabled(config)
         captain_chat = captain_chat_id()
         token, brain_url = brain_credentials()
+        timeout = timeout_seconds()
     except UserError as exc:
         print("error: %s" % exc, file=sys.stderr)
         report_unattempted(lines, state, captain_chat, group_on)
@@ -586,7 +597,11 @@ def command_capture(state: Path, config: Path) -> int:
     failed = False
     for index, line in enumerate(lines):
         try:
-            print(capture_line(line, state, token, brain_url, captain_chat, group_on))
+            print(
+                capture_line(
+                    line, state, token, brain_url, captain_chat, group_on, timeout
+                )
+            )
         except PayloadError as exc:
             marker = "-" if exc.update_id is None else str(exc.update_id)
             print("skipped:unsupported %s %s" % (marker, exc))

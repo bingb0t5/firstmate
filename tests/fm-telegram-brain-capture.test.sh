@@ -972,6 +972,71 @@ assert_grep "receipt directory is unsafe" "$link/err" \
   "capture did not refuse the symlinked store"
 pass "doctor reports the receipt store exactly as capture judges it"
 
+# --- a bad timeout is refused before the first write ------------------------
+badtimeout=$(make_home bad-timeout)
+badtimeout_bin=$(make_fake_curl "$badtimeout")
+FAKE_CURL_LOG="$badtimeout/curl.log"
+{
+  payload 8401 "first pending memory"
+  payload 8402 "second pending memory"
+  payload 8403 "third pending memory"
+} > "$badtimeout/batch.jsonl"
+if PATH="$badtimeout_bin:$BASE_PATH" \
+  FM_HOME="$badtimeout" \
+  FM_STATE_OVERRIDE="$badtimeout/state" \
+  FM_CONFIG_OVERRIDE="$badtimeout/config" \
+  FM_BEANZ_ENV_FILE="$badtimeout/secrets/mcp.env" \
+  FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+  FAKE_CURL_LOG="$badtimeout/curl.log" \
+  FM_BEANZ_CAPTURE_TIMEOUT=0 \
+  "$CAPTURE" capture - < "$badtimeout/batch.jsonl" \
+  >"$badtimeout/out" 2>"$badtimeout/err"; then
+  fail "an invalid capture timeout must stay fail-closed"
+fi
+assert_grep "FM_BEANZ_CAPTURE_TIMEOUT must be a positive integer" "$badtimeout/err" \
+  "the invalid timeout was not reported"
+assert_grep "unattempted 3" "$badtimeout/out" \
+  "a config failure before the first write under-counted the batch"
+assert_absent "$badtimeout/curl.log" "an invalid timeout still called curl"
+pass "an invalid capture timeout counts the whole batch as unattempted"
+
+# --- a home that never bootstrapped captures without hand setup -------------
+fresh=$(make_home fresh-home)
+fresh_bin=$(make_fake_curl "$fresh")
+rm -rf "$fresh/state"
+out=$(run_doctor "$fresh_bin" "$fresh")
+expect_code 0 $? "doctor should report on a home with no state directory"
+assert_contains "$out" "receipts: absent" \
+  "a home that simply never bootstrapped was reported as wedged"
+FAKE_CURL_LOG="$fresh/curl.log"
+out=$(payload 8301 "the first memory on a fresh home" | \
+  run_capture "$fresh" "$fresh_bin" capture -)
+expect_code 0 $? "capture should bootstrap its own state directory"
+assert_contains "$out" "captured 8301 cap-1" "a fresh home could not capture"
+assert_present "$fresh/state/telegram-brain-capture/8301" "the fresh home wrote no receipt"
+fresh_mode=$(stat -c '%a' "$fresh/state/telegram-brain-capture" 2>/dev/null \
+  || stat -f '%Lp' "$fresh/state/telegram-brain-capture")
+assert_contains "$fresh_mode" "700" "the bootstrapped receipt store is not mode 700"
+pass "a home with no state directory bootstraps its own receipt store"
+
+# --- a state path that is not a directory stays refused ---------------------
+notdir=$(make_home state-not-a-directory)
+notdir_bin=$(make_fake_curl "$notdir")
+rm -rf "$notdir/state"
+printf 'not a directory\n' > "$notdir/state"
+out=$(run_doctor "$notdir_bin" "$notdir")
+expect_code 0 $? "doctor should still report on an unusable state path"
+assert_contains "$out" "receipts: unreadable" \
+  "an unusable state path was reported as merely absent"
+FAKE_CURL_LOG="$notdir/curl.log"
+if payload 8302 "must not be captured" | \
+  run_capture "$notdir" "$notdir_bin" capture - >/dev/null 2>"$notdir/err"; then
+  fail "an unusable state path must stay fail-closed"
+fi
+assert_grep "state path is not a directory" "$notdir/err" \
+  "capture did not refuse the unusable state path"
+pass "a state path that is not a directory is refused, not created over"
+
 # --- doctor reports non-secret readiness ------------------------------------
 doc=$(make_home doctor)
 doc_bin=$(make_fake_curl "$doc")
