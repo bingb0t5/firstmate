@@ -14,6 +14,7 @@ CHECK="$ROOT/scripts/check-pr-communication.ts"
 UNIT="$ROOT/scripts/check-pr-communication.test.ts"
 FETCH_FIXTURE="$ROOT/tests/fixtures/pr-communication-fetch.mjs"
 TEMPLATE="$ROOT/.github/PULL_REQUEST_TEMPLATE.md"
+BEARINGS_V2_BODY="$ROOT/tests/fixtures/pr-communication-bearings-v2.md"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "skip: node is required to run the PR communication gate"
@@ -269,11 +270,28 @@ test_cli_accepts_complete_description() {
   pass "CLI passes a compliant PR description"
 }
 
+test_cli_accepts_bearings_v2_description() {
+  local out rc
+  set +e
+  out=$(
+    PR_TITLE='feat: add multi-home Bearings board v2' \
+      PR_BODY="$(cat "$BEARINGS_V2_BODY")" \
+      node --experimental-strip-types "$CHECK" 2>&1
+  )
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "Bearings v2 PR description"
+  assert_contains "$out" "PR communication is complete." \
+    "Bearings v2 PR description did not satisfy the communication gate"
+  pass "CLI passes the Bearings v2 PR description"
+}
+
 test_missing_remote_token_fails_closed
 test_vendored_unit_suite
 test_cli_rejects_incomplete_description
 test_cli_rejects_untouched_module_boundary_template
 test_cli_accepts_complete_description
+test_cli_accepts_bearings_v2_description
 test_transient_remote_failure_uses_local_pin
 test_required_remote_failure_fails_closed
 test_auth_remote_failure_fails_closed
