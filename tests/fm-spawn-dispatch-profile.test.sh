@@ -70,10 +70,26 @@ SH
 if [ "${1:-}" = --list-models ]; then
   [ "${FM_FAKE_CURSOR_LIST_STATUS:-0}" -eq 0 ] || exit "${FM_FAKE_CURSOR_LIST_STATUS}"
   printf '%b\n' "${FM_FAKE_CURSOR_MODELS:-Available models\ncursor-grok-4.5-high - Grok 4.5 High}"
+  exit 0
+fi
+if [ -n "${FM_TEST_LAUNCH_RESULT:-}" ]; then
+  printf 'CLAUDECODE=%s\nPI_CODING_AGENT=%s\nGROK_AGENT=%s\nFM_PI_HARNESS=%s\nCURSOR_AGENT=%s\nCURSOR_INVOKED_AS=%s\n' \
+    "${CLAUDECODE-unset}" "${PI_CODING_AGENT-unset}" "${GROK_AGENT-unset}" \
+    "${FM_PI_HARNESS-unset}" "${CURSOR_AGENT-unset}" "${CURSOR_INVOKED_AS-unset}" \
+    > "$FM_TEST_LAUNCH_RESULT"
 fi
 exit 0
 SH
-  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
+  cat > "$fakebin/claude" <<'SH'
+#!/usr/bin/env bash
+if [ -n "${FM_TEST_LAUNCH_RESULT:-}" ]; then
+  printf 'CLAUDECODE=%s\nCURSOR_AGENT=%s\nCURSOR_INVOKED_AS=%s\n' \
+    "${CLAUDECODE-unset}" "${CURSOR_AGENT-unset}" "${CURSOR_INVOKED_AS-unset}" \
+    > "$FM_TEST_LAUNCH_RESULT"
+fi
+exit 0
+SH
+  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent" "$fakebin/claude"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
   printf '%s\n' "$fakebin"
@@ -139,6 +155,28 @@ run_ship_spawn() {
   run_spawn "$@" --mode no-mistakes --yolo off
 }
 
+run_bash_shadowed_launch() {
+  local launch=$1 result=$2 env_log=$3
+  FM_TEST_LAUNCH_RESULT="$result" FM_TEST_ENV_FUNCTION_LOG="$env_log" \
+    CLAUDECODE=foreign PI_CODING_AGENT=foreign GROK_AGENT=foreign \
+    FM_PI_HARNESS=foreign CURSOR_AGENT=foreign CURSOR_INVOKED_AS=foreign \
+    PATH="$FAKEBIN_DIR:$PATH" bash --noprofile --norc -ic \
+    'env() { printf "shadowed\n" >> "$FM_TEST_ENV_FUNCTION_LOG"; return 127; }; eval "$1"' \
+    _ "$launch" >/dev/null 2>&1
+}
+
+run_fish_shadowed_launch() {
+  local launch=$1 result=$2 env_log=$3
+  command -v fish >/dev/null 2>&1 || return 125
+  # shellcheck disable=SC2016  # fish evaluates its own variables inside this program.
+  FM_TEST_LAUNCH_RESULT="$result" FM_TEST_ENV_FUNCTION_LOG="$env_log" \
+    CLAUDECODE=foreign PI_CODING_AGENT=foreign GROK_AGENT=foreign \
+    FM_PI_HARNESS=foreign CURSOR_AGENT=foreign CURSOR_INVOKED_AS=foreign \
+    PATH="$FAKEBIN_DIR:$PATH" fish --no-config -ic \
+    'function env; printf "shadowed\n" >> "$FM_TEST_ENV_FUNCTION_LOG"; return 127; end; eval "$argv[1]"' \
+    -- "$launch" >/dev/null 2>&1
+}
+
 read_case_record() {
   IFS='|' read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR LAUNCH_LOG <<EOF
 $1
@@ -150,6 +188,88 @@ assert_meta_profile() {
   assert_grep "harness=$harness" "$meta" "meta missing harness=$harness"
   assert_grep "model=$model" "$meta" "meta missing model=$model"
   assert_grep "effort=$effort" "$meta" "meta missing effort=$effort"
+}
+
+test_launch_env_resolution_survives_bash_and_optional_fish_functions() {
+  local rec id out status launch result env_log
+  id=profile-env-shadow-shared-z20
+  rec=$(make_spawn_case profile-env-shadow-shared claude "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "shared-prefix spawn should succeed before shell shadowing test"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "command env -u CURSOR_AGENT -u CURSOR_INVOKED_AS" \
+    "shared launch prefix must resolve external env through the shell command builtin"
+
+  result="$CASE_DIR/bash-result"
+  env_log="$CASE_DIR/bash-env-function.log"
+  run_bash_shadowed_launch "$launch" "$result" "$env_log"
+  status=$?
+  expect_code 0 "$status" "shared launch must run under interactive Bash with env shadowed"
+  assert_grep 'CURSOR_AGENT=unset' "$result" \
+    "shared launch did not clear CURSOR_AGENT under interactive Bash"
+  assert_grep 'CURSOR_INVOKED_AS=unset' "$result" \
+    "shared launch did not clear CURSOR_INVOKED_AS under interactive Bash"
+  assert_absent "$env_log" "shared launch called the shadowing env function under Bash"
+
+  if command -v fish >/dev/null 2>&1; then
+    result="$CASE_DIR/fish-result"
+    env_log="$CASE_DIR/fish-env-function.log"
+    run_fish_shadowed_launch "$launch" "$result" "$env_log"
+    status=$?
+    expect_code 0 "$status" "shared launch must run under interactive fish with env shadowed"
+    assert_grep 'CURSOR_AGENT=unset' "$result" \
+      "shared launch did not clear CURSOR_AGENT under interactive fish"
+    assert_grep 'CURSOR_INVOKED_AS=unset' "$result" \
+      "shared launch did not clear CURSOR_INVOKED_AS under interactive fish"
+    assert_absent "$env_log" "shared launch called the shadowing env function under fish"
+  else
+    printf 'skip: fish not installed (optional shell coverage unavailable for shared launch)\n'
+  fi
+  pass "shared launch env cleanup bypasses interactive shell functions"
+}
+
+test_cursor_launch_env_resolution_survives_bash_and_optional_fish_functions() {
+  local rec id out status launch result env_log
+  id=profile-env-shadow-cursor-z21
+  rec=$(make_spawn_case profile-env-shadow-cursor cursor "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "cursor spawn should succeed before shell shadowing test"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "command env -u CLAUDECODE -u PI_CODING_AGENT" \
+    "Cursor launch prefix must resolve external env through the shell command builtin"
+
+  result="$CASE_DIR/bash-result"
+  env_log="$CASE_DIR/bash-env-function.log"
+  run_bash_shadowed_launch "$launch" "$result" "$env_log"
+  status=$?
+  expect_code 0 "$status" "Cursor launch must run under interactive Bash with env shadowed"
+  for marker in CLAUDECODE PI_CODING_AGENT GROK_AGENT FM_PI_HARNESS CURSOR_INVOKED_AS; do
+    assert_grep "$marker=unset" "$result" \
+      "Cursor launch did not clear $marker under interactive Bash"
+  done
+  assert_absent "$env_log" "Cursor launch called the shadowing env function under Bash"
+
+  if command -v fish >/dev/null 2>&1; then
+    result="$CASE_DIR/fish-result"
+    env_log="$CASE_DIR/fish-env-function.log"
+    run_fish_shadowed_launch "$launch" "$result" "$env_log"
+    status=$?
+    expect_code 0 "$status" "Cursor launch must run under interactive fish with env shadowed"
+    for marker in CLAUDECODE PI_CODING_AGENT GROK_AGENT FM_PI_HARNESS CURSOR_INVOKED_AS; do
+      assert_grep "$marker=unset" "$result" \
+        "Cursor launch did not clear $marker under interactive fish"
+    done
+    assert_absent "$env_log" "Cursor launch called the shadowing env function under fish"
+  else
+    printf 'skip: fish not installed (optional shell coverage unavailable for Cursor launch)\n'
+  fi
+  pass "Cursor launch env cleanup bypasses interactive shell functions"
 }
 
 test_no_profile_keeps_claude_profile_defaults() {
@@ -165,7 +285,7 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
 
   launch=$(cat "$LAUNCH_LOG")
-  expected="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
+  expected="command env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
   [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
@@ -181,7 +301,7 @@ test_non_cursor_launch_clears_inherited_cursor_markers() {
   status=$?
   expect_code 0 "$status" "claude spawn under Cursor markers should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS" \
+  assert_contains "$launch" "command env -u CURSOR_AGENT -u CURSOR_INVOKED_AS" \
     "non-cursor launch must clear both inherited Cursor identity markers"
   pass "non-cursor launches clear inherited Cursor identity markers"
 }
@@ -547,7 +667,7 @@ test_cursor_threads_model_workspace_and_omits_effort_axis() {
   assert_not_contains "$launch" " --worktree" "cursor launch must never allocate a second worktree"
   assert_not_contains "$launch" " -w " "cursor launch must never allocate a second worktree"
   # An inherited CLAUDECODE would otherwise outrank cursor's own marker.
-  assert_contains "$launch" "env -u CLAUDECODE" "cursor launch must clear foreign primary markers"
+  assert_contains "$launch" "command env -u CLAUDECODE" "cursor launch must clear foreign primary markers"
   assert_contains "$launch" "encode launch-brief" "cursor launch did not deliver the brief positionally"
   assert_not_contains "$launch" "--effort" "cursor launch must not invent a separate effort flag"
   assert_not_contains "$launch" "--reasoning-effort" "cursor launch must not invent a separate reasoning-effort flag"
@@ -770,7 +890,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='/opt/test/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='/opt/test/claude-work' command env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -826,6 +946,8 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
   pass "active crew-dispatch profile does not block secondmate launches"
 }
 
+test_launch_env_resolution_survives_bash_and_optional_fish_functions
+test_cursor_launch_env_resolution_survives_bash_and_optional_fish_functions
 test_no_profile_keeps_claude_profile_defaults
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
