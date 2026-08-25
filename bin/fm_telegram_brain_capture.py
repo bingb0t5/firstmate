@@ -34,6 +34,7 @@ GROUP_SOURCE = "firstmate-telegram-group"
 UPDATE_ID_RE = re.compile(r"^[1-9][0-9]*$")
 BRAIN_URL_RE = re.compile(r"https://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
 MAX_CAPTURE_ID_CHARS = 200
+RECEIPT_IDENTITY_FIELDS = ("update_id", "text", "chat_id", "from_id")
 
 
 class UserError(Exception):
@@ -176,9 +177,11 @@ def brain_credentials() -> Tuple[str, str]:
 
 
 def unconfigured_reason() -> Optional[str]:
-    if not brain_env_path().exists():
+    if not os.path.lexists(str(brain_env_path())):
         return "brain-credentials"
-    if not os.environ.get("FM_TELEGRAM_CAPTAIN_CHAT_ID") and not telegram_env_path().exists():
+    if not os.environ.get("FM_TELEGRAM_CAPTAIN_CHAT_ID") and not os.path.lexists(
+        str(telegram_env_path())
+    ):
         return "captain-chat"
     return None
 
@@ -261,7 +264,8 @@ def receipt_path(receipts: Path, update_id: int) -> Path:
 
 
 def payload_hash(payload: Dict[str, object]) -> str:
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    identity = {key: payload[key] for key in RECEIPT_IDENTITY_FIELDS}
+    encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -471,9 +475,10 @@ def capture_line(
 
 
 def iter_payload_lines(raw: str) -> Iterable[str]:
-    for line in raw.splitlines():
-        if line.strip():
-            yield line
+    for line in raw.split("\n"):
+        record = line.rstrip("\r")
+        if record.strip():
+            yield record
 
 
 def command_capture(state: Path, config: Path) -> int:
@@ -486,7 +491,8 @@ def command_capture(state: Path, config: Path) -> int:
     captain_chat = captain_chat_id()
     group_on = group_capture_enabled(config)
     failed = False
-    for line in iter_payload_lines(raw):
+    lines = list(iter_payload_lines(raw))
+    for index, line in enumerate(lines):
         try:
             print(capture_line(line, state, token, brain_url, captain_chat, group_on))
         except PayloadError as exc:
@@ -495,6 +501,10 @@ def command_capture(state: Path, config: Path) -> int:
         except UserError as exc:
             print("error: %s" % exc, file=sys.stderr)
             failed = True
+            remaining = len(lines) - index - 1
+            if remaining:
+                print("unattempted %d" % remaining)
+            break
     return 1 if failed else 0
 
 
@@ -507,14 +517,16 @@ def command_doctor(state: Path, config: Path) -> int:
         _, brain_url = brain_credentials()
         brain_state = "present"
     except UserError:
-        if brain_path.exists():
+        if os.path.lexists(str(brain_path)):
             brain_state = "unreadable"
     chat_state = "missing"
     try:
         captain_chat_id()
         chat_state = "configured"
     except UserError:
-        if telegram_path.exists() or os.environ.get("FM_TELEGRAM_CAPTAIN_CHAT_ID"):
+        if os.path.lexists(str(telegram_path)) or os.environ.get(
+            "FM_TELEGRAM_CAPTAIN_CHAT_ID"
+        ):
             chat_state = "unreadable"
     group_state = "on" if group_capture_enabled(config) else "off"
     receipts = state / "telegram-brain-capture"

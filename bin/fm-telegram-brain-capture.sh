@@ -27,10 +27,14 @@
 # still-unhandled payloads, then takes the capture path.
 # A zero exit means every payload is captured, already captured, skipped, or
 # that the result named no payloads.
-# One payload never blocks another: the batch is walked to the end, an
-# uncapturable line is reported as `skipped:unsupported <update_id> <reason>`
-# without failing the run, and a failed brain write on any valid payload still
-# exits non-zero after the remaining payloads have had their turn.
+# A line the canonical shape rejects never blocks another: it is reported as
+# `skipped:unsupported <update_id> <reason>` and the batch keeps walking.
+# A failed brain write is systemic until proven otherwise, so it stops the
+# batch there, prints `unattempted <count>` for the payloads it did not try,
+# and exits non-zero.
+# One brain outage therefore costs one timeout rather than one per payload, and
+# the unattempted payloads are captured by the retry that the missing Telegram
+# ack guarantees.
 # A failed brain write must stop before Telegram ack and before treating the
 # texts as interrupt.
 # doctor reports non-secret readiness.
@@ -39,6 +43,8 @@
 # destructive, irreversible, or security-sensitive actions.
 #
 # CANONICAL PAYLOAD.
+# Records are separated by newline only, so U+2028, U+2029, and U+0085 inside a
+# JSON string stay part of the text they belong to.
 # Each line is one JSON object with positive signed 32-bit update_id, nonempty
 # text, integer chat_id, and integer from_id, matching the interrupt adapter's
 # canonical message shape.
@@ -82,7 +88,11 @@
 # Successful writes are recorded under state/telegram-brain-capture/<update_id>
 # at mode 0600 inside a mode-0700 directory.
 # A matching receipt skips the POST on retry.
-# A receipt whose payload hash disagrees with the current line is refused.
+# The hash covers update_id, text, chat_id, and from_id, so the optional date
+# being present on one run and absent on the next is not a disagreement.
+# A receipt whose payload hash disagrees with the current line is refused, and
+# stays refused until an operator inspects it and removes
+# state/telegram-brain-capture/<update_id> to allow a fresh write.
 # A crash after Mr Beanz returns a capture_id and before the receipt lands can
 # duplicate that thought on replay.
 # Never describe this path as exactly-once, at-least-once, no-loss, or lossless.
