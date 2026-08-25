@@ -12,6 +12,7 @@
 #   fm-procevent-telegram.sh export-legacy-offset
 #   fm-procevent-telegram.sh terminal <result-file>
 #   fm-procevent-telegram.sh retire
+#   fm-procevent-telegram.sh poll
 #
 # arm registers this home's permanent Telegram source.
 # It requires one strict credential snapshot from
@@ -154,6 +155,8 @@
 # Never describe this path as exactly-once, at-least-once, no-loss, or lossless.
 #
 # POLL BOUNDS.
+# poll is the registered listener command arm publishes, not a command to run
+# in a conversational turn.
 # Each runner child performs one getUpdates call.
 # FM_TELEGRAM_POLL_TIMEOUT defaults to 25 seconds and is capped at 50.
 # FM_TELEGRAM_CURL_MAX_TIME defaults to the poll timeout plus 15 seconds and
