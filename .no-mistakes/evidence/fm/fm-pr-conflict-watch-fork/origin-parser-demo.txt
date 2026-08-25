@@ -1,0 +1,4 @@
+credential-https status=ok slug=acme/alpha
+ssh-explicit-port status=ok slug=acme/alpha
+spoofed-host status=unsupported-host slug=<none>
+unsupported-forge status=unsupported-host slug=<none>

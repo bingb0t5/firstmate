@@ -1,0 +1,43 @@
+ok - the fake gh-axi refuses what gh-axi refuses and answers in its envelope
+ok - newly conflicted PR wakes once with routing fields
+ok - same conflicted head stays silent on the next poll
+ok - new head after force-update wakes again
+ok - persistent unknown mergeability is never reported as conflicted or clean
+ok - unknown mergeability that settles on a conflict wakes once
+ok - a reread wake is labelled and deduped by the head it judged
+ok - conflicts cut by the line cap wake on a later sweep instead of being lost
+ok - keys for conflicts the sweep no longer observes leave the record
+ok - an empty discovery sweep does not erase the dedupe record
+ok - a partial discovery sweep does not erase the unread repository's record
+ok - a sweep with an unreadable project registry does not erase the record
+ok - keys for a repository this home stopped working in leave the record
+ok - unknown-mergeability rereads stop at the sweep deadline
+ok - clean fleet output is empty
+ok - conflicted draft PRs are reported
+ok - lazy mergeability rereads carry their settled draft state
+ok - failed output leaves the conflict unacknowledged
+ok - a transient GitHub read failure is silent and leaves the record intact
+ok - a persistent GitHub read failure is disclosed once as a coverage hole
+ok - read failures inside the disclosure grace stay silent
+ok - a truncated api body is treated as a failed read, not a short list
+ok - a sweep with an unreadable repository prunes nothing it did not see
+ok - one read per repository carries mergeability for every open pull request
+ok - only pull requests GitHub has not judged yet are reread
+ok - a GraphQL null repository is a failed read, not an empty one
+ok - a slug that is unsafe to interpolate is refused rather than swept
+ok - a budget-cut sweep names the repositories it never reached
+ok - budget holes and GitHub holes are separately worded
+ok - a continuous coverage gap keeps its age and discloses once
+ok - recovery followed by a later outage can notify again
+ok - a malformed origin never reaches GraphQL and round-trips as a local target
+ok - firstmate origin lookup and identity failures keep distinct causes
+ok - project origin lookup and identity failures keep distinct causes
+ok - project gaps recover independently
+ok - structural origins route safely with typed refusal causes
+ok - an unreadable registry is a source-level coverage gap
+ok - a mixed sweep keeps conflict and coverage ledgers separate
+ok - coverage fit on the first capped line
+ok - PR titles preserve a literal backslash and safe whitespace
+ok - runtime dependency gaps notify once and recover
+ok - runtime recovery persists through interval throttling
+ok - arm writes and registers the watcher check

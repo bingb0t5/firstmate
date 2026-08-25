@@ -1,0 +1,1 @@
+ok - GitHub origins are parsed structurally without sensitive retention
