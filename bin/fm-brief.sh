@@ -248,6 +248,16 @@ fm_brief_strip_backticked_names() {
   printf '%s' "$result$remaining"
 }
 
+fm_brief_count_wait_mentions() {
+  local remaining=${1,,} match
+  FM_BRIEF_WAIT_MENTIONS=0
+  while [[ $remaining =~ (^|[^a-z])a?wait(s|ed|ing)?([^a-z]|$) ]]; do
+    match=${BASH_REMATCH[0]}
+    FM_BRIEF_WAIT_MENTIONS=$((FM_BRIEF_WAIT_MENTIONS + 1))
+    remaining=${remaining#*"$match"}
+  done
+}
+
 fm_brief_acceptance_is_executable() {
   local line=$1 command first
   case "$line" in
@@ -309,6 +319,10 @@ fm_brief_sol_scan() {
       Wait:*)
         fm_brief_wait_is_bounded "$line" \
           || FM_BRIEF_SOL_ERRORS+=('Wait: lines must include non-empty bound=... and escape=... values')
+        prose=$(fm_brief_strip_backticked_names "$line")
+        fm_brief_count_wait_mentions "$prose"
+        [ "$FM_BRIEF_WAIT_MENTIONS" -eq 1 ] \
+          || FM_BRIEF_SOL_ERRORS+=('each Wait: line must contain exactly one wait clause with its own bound= and escape=')
         FM_BRIEF_SOL_EVIDENCE+=("$line")
         prose=
         ;;

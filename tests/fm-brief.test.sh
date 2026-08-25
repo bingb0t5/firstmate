@@ -860,6 +860,27 @@ $wait_line" "$ROOT/bin/fm-brief.sh" "sol-vacuous-$i" firstmate --mode no-mistake
   pass "fm-brief.sh: vacuous wait bounds and escapes cannot earn exemption"
 }
 
+test_ship_sol_exemption_refuses_multiple_waits_on_one_line() {
+  local home out status wait_line i=0
+  for wait_line in \
+    'Wait: CI bound=30m escape=abort; then wait forever for approval' \
+    'Wait: CI bound=30m escape=abort, then awaiting review' \
+    'Wait: CI bound=30m escape=abort; Wait: approval bound=1h escape=ship-without'; do
+    i=$((i + 1))
+    home="$TMP_ROOT/sol-multi-wait-home-$i"
+    mkdir -p "$home/data"
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="Acceptance command: \`make test\`
+$wait_line" "$ROOT/bin/fm-brief.sh" "sol-multi-wait-$i" firstmate --mode no-mistakes 2>&1) || status=$?
+    expect_code 1 "$status" "multiple waits on one Wait: line must refuse"
+    assert_contains "$out" "exactly one wait clause" \
+      "refusal must require independently owned wait evidence"
+    assert_absent "$home/data/sol-multi-wait-$i/brief.md" \
+      "refused multi-wait scaffold must not write a brief"
+  done
+  pass "fm-brief.sh: each Wait line owns exactly one bounded wait clause"
+}
+
 # Regression: any line containing the token `wait` was refused, so a backticked
 # command name such as `wait-for-ci.sh` made a legitimate ship task unscaffoldable.
 test_ship_sol_exemption_ignores_backticked_command_names() {
@@ -1245,6 +1266,7 @@ test_ship_sol_exemption_refuses_unbounded_wait
 test_ship_sol_exemption_refuses_inflected_waits
 test_ship_sol_exemption_refuses_valueless_bound_and_escape
 test_ship_sol_exemption_refuses_vacuous_bound_and_escape
+test_ship_sol_exemption_refuses_multiple_waits_on_one_line
 test_ship_sol_exemption_ignores_backticked_command_names
 test_ship_sol_exemption_refuses_backticked_wait_tokens
 test_fm_task_refused_on_scout_and_secondmate
