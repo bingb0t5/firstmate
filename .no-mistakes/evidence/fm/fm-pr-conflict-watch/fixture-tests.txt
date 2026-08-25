@@ -1,0 +1,12 @@
+ok - newly conflicted PR wakes once with routing fields
+ok - same conflicted head stays silent on the next poll
+ok - new head after force-update wakes again
+ok - persistent UNKNOWN is never reported as conflicted or clean
+ok - UNKNOWN that settles on CONFLICTING wakes once
+ok - a reread wake is labelled and deduped by the head it judged
+ok - conflicts cut by the line cap wake on a later sweep instead of being lost
+ok - keys for conflicts the sweep no longer observes leave the record
+ok - UNKNOWN rereads stop at the sweep deadline
+ok - clean fleet output is empty
+ok - conflicted draft PRs are reported
+ok - arm writes and registers the watcher check

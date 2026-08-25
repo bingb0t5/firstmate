@@ -1,0 +1,70 @@
+
+=== 1. arm the watcher check (an operator runs this once per home) ===
+armed: state/pr-conflict-watch.check.sh
+  total 8
+  -rw------- 1 rich rich  84 Aug 25 10:23 pr-conflict-watch.check-trust
+  -rwx------ 1 rich rich 335 Aug 25 10:23 pr-conflict-watch.check.sh
+  trust binding verifies against the armed shim bytes
+  repositories this fleet works in (projects.md clones + firstmate origin): acme/alpha, acme/beta, kunchenguid/firstmate
+
+=== 2. clean fleet: nothing conflicts, so firstmate is never woken ===
+no wake: the watcher kept supervising for 12s and printed nothing.
+GitHub reads this round (gh-axi, bounded by the sweep budget):
+  | 5x gh-axi pr list --repo acme/alpha 
+  | 5x gh-axi pr list --repo acme/beta 
+  | 5x gh-axi pr list --repo kunchenguid/firstmate 
+
+=== 3. main moves: two PRs conflict (one a draft) plus one in the firstmate repo ===
+watcher exited to wake firstmate. reason printed to the supervision loop:
+  | check: /tmp/pr-conflict-e2e.Np3xIt/home/state/pr-conflict-watch.check.sh: pr-conflict: 
+  | owner-team=team-a repo=acme/alpha number=7 head=1111111111111111111111111111111111111111 draft=no 
+  | url=https://github.com/acme/alpha/pull/7 title=Add retry budget to the worker; owner-team=team-b 
+  | repo=acme/beta number=3 head=1111111111111111111111111111111111111111 draft=yes 
+  | url=https://github.com/acme/beta/pull/3 title=WIP: split the ingest queue; owner-team=main 
+  | repo=kunchenguid/firstmate number=2942 head=1111111111111111111111111111111111111111 draft=no 
+  | url=https://github.com/kunchenguid/firstmate/pull/2942 title=bound remote job worker supervisor 
+  | restarts
+what firstmate reads out of the durable wake queue:
+  | check: /tmp/pr-conflict-e2e.Np3xIt/home/state/pr-conflict-watch.check.sh: pr-conflict: owner-team=team-a repo=acme/alpha number=7 head=1111111111111111111111111111111111111111 draft=no url=https://github.com/acme/alpha/pull/7 title=Add retry budget to the worker; owner-team=team-b repo=acme/beta number=3 head=1111111111111111111111111111111111111111 draft=yes url=https://github.com/acme/beta/pull/3 title=WIP: split the ingest queue; owner-team=main repo=kunchenguid/firstmate number=2942 head=1111111111111111111111111111111111111111 draft=no url=https://github.com/kunchenguid/firstmate/pull/2942 title=bound remote job worker supervisor restarts
+GitHub reads this round (gh-axi, bounded by the sweep budget):
+  | 1x gh-axi pr list --repo acme/alpha 
+  | 1x gh-axi pr list --repo acme/beta 
+  | 1x gh-axi pr list --repo kunchenguid/firstmate 
+
+=== 4. the same heads are still conflicting: the fleet stays quiet ===
+no wake: the watcher kept supervising for 12s and printed nothing.
+GitHub reads this round (gh-axi, bounded by the sweep budget):
+  | 7x gh-axi pr list --repo acme/alpha 
+  | 7x gh-axi pr list --repo acme/beta 
+  | 7x gh-axi pr list --repo kunchenguid/firstmate 
+
+=== 5. PR 7's head is force-updated and still conflicts: wake again ===
+watcher exited to wake firstmate. reason printed to the supervision loop:
+  | check: /tmp/pr-conflict-e2e.Np3xIt/home/state/pr-conflict-watch.check.sh: pr-conflict: 
+  | owner-team=team-a repo=acme/alpha number=7 head=2222222222222222222222222222222222222222 draft=no 
+  | url=https://github.com/acme/alpha/pull/7 title=Add retry budget to the worker
+what firstmate reads out of the durable wake queue:
+  | check: /tmp/pr-conflict-e2e.Np3xIt/home/state/pr-conflict-watch.check.sh: pr-conflict: owner-team=team-a repo=acme/alpha number=7 head=2222222222222222222222222222222222222222 draft=no url=https://github.com/acme/alpha/pull/7 title=Add retry budget to the worker
+GitHub reads this round (gh-axi, bounded by the sweep budget):
+  | 1x gh-axi pr list --repo acme/alpha 
+  | 1x gh-axi pr list --repo acme/beta 
+  | 1x gh-axi pr list --repo kunchenguid/firstmate 
+
+=== 6. GitHub has not computed mergeability yet (UNKNOWN): never guessed either way ===
+no wake: the watcher kept supervising for 12s and printed nothing.
+GitHub reads this round (gh-axi, bounded by the sweep budget):
+  | 4x gh-axi pr list --repo acme/alpha 
+  | 3x gh-axi pr list --repo acme/beta 
+  | 3x gh-axi pr list --repo kunchenguid/firstmate 
+  | 11x gh-axi pr view --repo acme/alpha 9
+
+=== 7. every conflict is resolved upstream: the fleet is quiet again ===
+no wake: the watcher kept supervising for 12s and printed nothing.
+GitHub reads this round (gh-axi, bounded by the sweep budget):
+  | 9x gh-axi pr list --repo acme/alpha 
+  | 9x gh-axi pr list --repo acme/beta 
+  | 9x gh-axi pr list --repo kunchenguid/firstmate 
+
+=== 8. disarm removes the shim, the trust binding, and the dedupe record ===
+disarmed: state/pr-conflict-watch.check.sh
+  pr-conflict-watch artifacts left in state/: 0
