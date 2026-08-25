@@ -205,7 +205,7 @@ family_for_basename() {
       ;;
     fm-backend-herdr.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
     fm-tmux-agent-liveness.test.sh|\
-    fm-control.test.sh|fm-control-relaunch.test.sh|\
+    fm-control.test.sh|fm-control-relaunch.test.sh|fm-second-attempt.test.sh|\
     fm-herdr-session-cleanup.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|\
     fm-send-inbox.test.sh|fm-spawn-batch.test.sh|\
     fm-spawn-dispatch-profile.test.sh|\
@@ -414,6 +414,7 @@ tests/fm-cmux-claude-composer-live-e2e.test.sh 18
 tests/fm-codex-continuity-live-e2e.test.sh 16
 tests/fm-composer-matrix-live-e2e.test.sh 20
 tests/fm-control-relaunch.test.sh 60631
+tests/fm-second-attempt.test.sh 8000
 tests/fm-control.test.sh 37577
 tests/fm-cursor-harness.test.sh 30061
 tests/fm-cursor-primary-live-e2e.test.sh 25
