@@ -317,10 +317,56 @@ test_non_https_url_fails_closed() {
   printf 'COOLIFY_URL=http://localhost:8000\nCOOLIFY_API_TOKEN=%s\n' "$FAKE_TOKEN" > "$case_dir/config/coolify.env"
   capture_run "$case_dir" set brain APP_NAME --value-from 'literal:firstmate'
   expect_code 1 "$CAPTURE_RC" "a non-HTTPS Coolify URL should exit non-zero"
-  assert_contains "$CAPTURE_OUT" 'Coolify URL must use HTTPS' "a non-HTTPS URL should name the transport requirement"
+  assert_contains "$CAPTURE_OUT" 'Coolify URL must be an HTTPS origin' "a non-HTTPS URL should name the transport requirement"
   assert_absent "$case_dir/curl.log" "a non-HTTPS URL must not reach curl"
   assert_no_secret "non-HTTPS URL"
   pass "a non-HTTPS Coolify URL fails closed"
+}
+
+test_unsafe_https_url_components_fail_closed() {
+  local kind url case_dir rc
+  for kind in userinfo query fragment empty_query empty_fragment empty_host bad_port whitespace backslash path; do
+    case_dir="$TMP_ROOT/unsafe-url-$kind"
+    setup_config "$case_dir/config"
+    case "$kind" in
+      userinfo) url="https://user:$SECRET@coolify.test.example" ;;
+      query) url="https://coolify.test.example?token=$SECRET" ;;
+      fragment) url="https://coolify.test.example#$SECRET" ;;
+      empty_query) url='https://coolify.test.example?' ;;
+      empty_fragment) url='https://coolify.test.example#' ;;
+      empty_host) url='https://:443' ;;
+      bad_port) url='https://coolify.test.example:invalid' ;;
+      whitespace) url='https://coolify.test.example ' ;;
+      backslash) url='https://coolify.test.example\suffix' ;;
+      path) url='https://coolify.test.example/base' ;;
+    esac
+    printf 'COOLIFY_URL=%s\nCOOLIFY_API_TOKEN=%s\n' "$url" "$FAKE_TOKEN" \
+      > "$case_dir/config/coolify.env"
+    capture_run "$case_dir" set brain APP_NAME --value-from 'literal:firstmate'
+    rc=$CAPTURE_RC
+    expect_code 1 "$rc" "an HTTPS URL with $kind should exit non-zero"
+    assert_contains "$CAPTURE_OUT" 'Coolify URL must be an HTTPS origin' \
+      "an HTTPS URL with $kind should produce a value-free validation error"
+    assert_not_contains "$CAPTURE_OUT" "$SECRET" \
+      "an HTTPS URL with $kind leaked credential material"
+    assert_absent "$case_dir/curl.log" "an HTTPS URL with $kind must not reach curl"
+  done
+  pass "unsafe HTTPS URL components fail closed before curl"
+}
+
+test_https_scheme_is_case_insensitive() {
+  local case_dir="$TMP_ROOT/uppercase-https"
+  setup_config "$case_dir/config"
+  printf 'COOLIFY_URL=HTTPS://COOLIFY.TEST.EXAMPLE/\nCOOLIFY_API_TOKEN=%s\n' "$FAKE_TOKEN" \
+    > "$case_dir/config/coolify.env"
+  capture_run "$case_dir" set brain APP_NAME --value-from 'literal:firstmate'
+  expect_code 0 "$CAPTURE_RC" "an uppercase HTTPS scheme should remain valid"
+  assert_contains "$CAPTURE_OUT" 'ok: brain APP_NAME set' \
+    "an uppercase HTTPS scheme should preserve normal success behavior"
+  assert_grep 'https://coolify.test.example/api/v1/applications/app-uuid-1234/envs' \
+    "$case_dir/curl.log" "the accepted origin should be normalized before curl"
+  assert_no_secret "uppercase HTTPS scheme"
+  pass "HTTPS scheme matching remains case-insensitive"
 }
 
 test_leaves_no_secret_scratch_behind() {
@@ -350,5 +396,7 @@ test_crlf_credential_value_fails_closed
 test_identifier_shaped_continuation_fails_closed
 test_unknown_argument_is_value_free
 test_non_https_url_fails_closed
+test_unsafe_https_url_components_fail_closed
+test_https_scheme_is_case_insensitive
 test_leaves_no_secret_scratch_behind
 echo "# fm-coolify-env.test.sh: all assertions passed"

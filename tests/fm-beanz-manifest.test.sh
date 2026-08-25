@@ -80,6 +80,54 @@ test_multiline_value_is_never_listed_as_a_key() {
   pass "a multi-line credential value is never emitted as a key row"
 }
 
+test_shell_trace_never_contains_live_values() {
+  local case_dir="$TMP_ROOT/trace" out trace rc=0
+  out="$case_dir/README.md"
+  setup_config "$case_dir/config"
+  trace=$(
+    FM_BEANZ_CONFIG_DIR="$case_dir/config" bash -x "$SCRIPT" write --output "$out" 2>&1
+  ) || rc=$?
+  expect_code 0 "$rc" "manifest generation under shell tracing should succeed"
+  [ -f "$out" ] || fail "shell-traced manifest generation did not write its output"
+  assert_not_contains "$trace" "$SECRET" "shell tracing must not expose live credential values"
+  pass "manifest generation disables shell tracing before reading credentials"
+}
+
+test_output_aliases_inputs_fail_closed() {
+  local case_dir="$TMP_ROOT/input-alias" out rc
+  setup_config "$case_dir/config"
+  cp "$case_dir/config/coolify.env" "$case_dir/coolify.before"
+  cp "$case_dir/config/posthog.env.beanz" "$case_dir/sidecar.before"
+
+  rc=0
+  out=$(
+    FM_BEANZ_CONFIG_DIR="$case_dir/config" "$SCRIPT" write \
+      --output "$case_dir/config/coolify.env" 2>&1
+  ) || rc=$?
+  expect_code 1 "$rc" "a credential file cannot be the manifest output"
+  assert_contains "$out" 'output path aliases an input file' \
+    "a direct input alias should produce a value-free error"
+  cmp -s "$case_dir/config/coolify.env" "$case_dir/coolify.before" \
+    || fail "a direct output alias modified the credential file"
+
+  ln -s "$case_dir/config/coolify.env" "$case_dir/credential-link"
+  rc=0
+  FM_BEANZ_CONFIG_DIR="$case_dir/config" "$SCRIPT" write \
+    --output "$case_dir/credential-link" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a symlink to a credential file cannot be the manifest output"
+  cmp -s "$case_dir/config/coolify.env" "$case_dir/coolify.before" \
+    || fail "a symlink output alias modified the credential file"
+
+  ln "$case_dir/config/posthog.env.beanz" "$case_dir/sidecar-link"
+  rc=0
+  FM_BEANZ_CONFIG_DIR="$case_dir/config" "$SCRIPT" write \
+    --output "$case_dir/sidecar-link" >/dev/null 2>&1 || rc=$?
+  expect_code 1 "$rc" "a hardlink to a sidecar cannot be the manifest output"
+  cmp -s "$case_dir/config/posthog.env.beanz" "$case_dir/sidecar.before" \
+    || fail "a hardlink output alias modified the sidecar"
+  pass "manifest output refuses direct, symlink, and hardlink input aliases"
+}
+
 test_unwritable_output_fails_closed() {
   local case_dir="$TMP_ROOT/unwritable" out rc=0
   setup_config "$case_dir/config"
@@ -110,6 +158,8 @@ test_manifest_lists_services_without_secrets
 test_manifest_default_output_path
 test_missing_output_operand_fails_closed
 test_multiline_value_is_never_listed_as_a_key
+test_shell_trace_never_contains_live_values
+test_output_aliases_inputs_fail_closed
 test_unwritable_output_fails_closed
 test_unwritable_output_fails_closed_with_no_credential_files
 echo "# fm-beanz-manifest.test.sh: all assertions passed"

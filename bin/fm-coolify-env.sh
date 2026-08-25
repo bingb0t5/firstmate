@@ -123,12 +123,43 @@ service_uuid() {
 
 normalize_coolify_base() {
   local base=$1
-  case "$base" in
-    https://*) ;;
-    *) return 1 ;;
-  esac
-  base=${base%/}
-  printf '%s' "$base"
+  FM_COOLIFY_BASE_INPUT=$base python3 - <<'PY'
+import ipaddress
+import os
+import re
+import sys
+from urllib.parse import urlsplit
+
+raw = os.environ.get("FM_COOLIFY_BASE_INPUT", "")
+if "?" in raw or "#" in raw:
+    raise SystemExit(1)
+try:
+    parsed = urlsplit(raw)
+    port = parsed.port
+except ValueError:
+    raise SystemExit(1)
+if parsed.scheme.lower() != "https" or parsed.username is not None or parsed.password is not None:
+    raise SystemExit(1)
+if parsed.path not in ("", "/") or parsed.query or parsed.fragment or not parsed.hostname:
+    raise SystemExit(1)
+host = parsed.hostname
+if ":" in host:
+    try:
+        ipaddress.IPv6Address(host)
+    except ValueError:
+        raise SystemExit(1)
+    authority = f"[{host}]"
+else:
+    labels = host.split(".")
+    if any(not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label) for label in labels):
+        raise SystemExit(1)
+    authority = host.lower()
+if port is not None:
+    if not 1 <= port <= 65535:
+        raise SystemExit(1)
+    authority += f":{port}"
+sys.stdout.write(f"https://{authority}")
+PY
 }
 
 coolify_request() {
@@ -181,7 +212,7 @@ cmd_set() {
 
   cred_file=$(coolify_env_file)
   base=$(fm_credential_env_get "$cred_file" COOLIFY_URL) || die "Coolify URL is not configured" 1
-  base=$(normalize_coolify_base "$base") || die "Coolify URL must use HTTPS" 1
+  base=$(normalize_coolify_base "$base") || die "Coolify URL must be an HTTPS origin" 1
   token=$(fm_credential_env_get "$cred_file" COOLIFY_API_TOKEN) || die "Coolify API token is not configured" 1
   fm_credential_redact_register "$token"
 
