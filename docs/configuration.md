@@ -616,6 +616,7 @@ That mode-0600 file alone owns the brain destination; an ambient `BEANZ_MCP_URL`
 `from-result` classifies the interrupt result first, so a result naming no message payloads is a zero-exit no-op that stays acknowledgeable.
 A home with no credential file and no captain chat id has never configured capture: it reports `capture-unconfigured` and exits zero without a brain write, so Telegram is never wedged by a brain nobody set up.
 A credential file that exists but is unusable, and any failed brain write, still exit non-zero before acknowledgement.
+Capture requires `jq` before the first POST and bounds its response-classification memory, output, and time.
 A line the canonical shape rejects is skipped rather than aborting the run, and a refusal scoped to a single update_id - a disagreeing receipt, a brain that rejects just that message with a 4xx, or a JSON 2xx whose body carries no usable capture_id - fails that line and keeps walking.
 A systemic failure such as a transport error, a non-JSON 2xx, a 3xx or 5xx, or HTTP 429, 401, 403, 404 or 405 stops the batch, so one outage costs one timeout rather than one per payload.
 Every per-line refusal names its update_id first, so the payload that failed stays attributable when the batch walks past it, and a stop reports `unattempted <count>` for the payloads behind it whether it happened mid-batch or before the first write.

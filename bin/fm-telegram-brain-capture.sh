@@ -49,6 +49,8 @@
 # home cannot use posts nothing at all and counts every payload, and a batch
 # whose payloads would all be skipped still refuses rather than reporting a
 # readiness the next captain message would not get.
+# Capture requires jq before the first POST and uses it under bounded memory
+# and time to validate every complete 2xx response and select capture_id.
 # One brain outage therefore costs one timeout rather than one per payload, and
 # the unattempted payloads are captured by the retry that the missing Telegram
 # ack guarantees.

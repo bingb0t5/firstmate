@@ -99,6 +99,32 @@ if [ -n "$ofile" ]; then
       python3 -c 'import json; print(json.dumps({"capture_id": "cap-large", "padding": "x" * (1024 * 1024)}))' > "$ofile"
     elif [ "$FAKE_CAPTURE_OVERSIZED" = json-number ]; then
       python3 -c 'import sys; sys.stdout.write(" " * (1024 * 1024) + "1")' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = emoji-small ]; then
+      python3 -c 'import json; print(json.dumps({"capture_id": "😀" * 200}))' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = emoji-large-before ]; then
+      python3 -c 'import json; print(json.dumps({"capture_id": "😀" * 200, "padding": "x" * (1024 * 1024)}))' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = emoji-large-after ]; then
+      python3 -c 'import json; print(json.dumps({"padding": "x" * (1024 * 1024), "capture_id": "😀" * 200}))' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = json-array ]; then
+      python3 -c 'import json; print(json.dumps(["x" * (1024 * 1024)]))' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = json-string ]; then
+      python3 -c 'import json; print(json.dumps("x" * (1024 * 1024)))' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = json-boolean ]; then
+      python3 -c 'import sys; sys.stdout.write(" " * (1024 * 1024) + "true")' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = json-null ]; then
+      python3 -c 'import sys; sys.stdout.write(" " * (1024 * 1024) + "null")' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = duplicate-scalar ]; then
+      python3 -c 'import sys; sys.stdout.write("{\"capture_id\":\"first\",\"padding\":\"" + "x" * (1024 * 1024) + "\",\"capture_id\":\"last\"}")' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = duplicate-composite ]; then
+      python3 -c 'import sys; sys.stdout.write("{\"capture_id\":\"first\",\"padding\":\"" + "x" * (1024 * 1024) + "\",\"capture_id\":{\"nested\":\"invalid\"}}")' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = invalid-number ]; then
+      python3 -c 'import sys; sys.stdout.write(" " * (1024 * 1024) + "1e")' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = unterminated-string ]; then
+      python3 -c 'import sys; sys.stdout.write("\"" + "x" * (1024 * 1024))' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = trailing-garbage ]; then
+      python3 -c 'import sys; sys.stdout.write("{\"capture_id\":\"accepted\"}" + " " * (1024 * 1024) + "garbage")' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = ignored-huge-string ]; then
+      python3 -c 'import json; print(json.dumps({"ignored": "x" * (32 * 1024 * 1024)}))' > "$ofile"
     else
       python3 -c 'import sys; sys.stdout.write("<" * (1024 * 1024 + 1))' > "$ofile"
     fi
@@ -119,6 +145,23 @@ exit "${FAKE_CURL_EXIT:-0}"
 SH
   chmod +x "$fakebin/curl"
   printf '%s\n' "$fakebin"
+}
+
+make_fake_jq() {
+  local fakebin=$1 mode=$2
+  cat > "$fakebin/jq" <<SH
+#!/usr/bin/env bash
+if [ "\${1-}" = --version ]; then
+  printf '%s\n' 'jq-test'
+  exit 0
+fi
+case $mode in
+  timeout) sleep 30 ;;
+  memory) python3 -c 'x = "x" * (256 * 1024 * 1024); print(len(x))' ;;
+  nonzero) exit 7 ;;
+esac
+SH
+  chmod +x "$fakebin/jq"
 }
 
 make_stub_adapter() {
@@ -932,7 +975,7 @@ if run_capture "$oversized_json" "$oversized_json_bin" capture - \
 fi
 FAKE_CAPTURE_OVERSIZED=
 FAKE_CAPTURE_OVERSIZED_MATCH=
-assert_grep "9938 brain capture response is too large" "$oversized_json/err" \
+assert_grep "9938 brain capture has no capture_id" "$oversized_json/err" \
   "the oversized JSON response was not blamed on its update_id"
 assert_not_contains "$(cat "$oversized_json/out")" "unattempted" \
   "an oversized valid JSON response stopped the batch"
@@ -960,7 +1003,7 @@ if run_capture "$oversized_number" "$oversized_number_bin" capture - \
 fi
 FAKE_CAPTURE_OVERSIZED=
 FAKE_CAPTURE_OVERSIZED_MATCH=
-assert_grep "9940 brain capture response is too large" "$oversized_number/err" \
+assert_grep "9940 brain capture has no capture_id" "$oversized_number/err" \
   "the oversized JSON number was not blamed on its update_id"
 assert_not_contains "$(cat "$oversized_number/out")" "unattempted" \
   "an oversized top-level JSON number stopped the batch"
@@ -982,6 +1025,174 @@ assert_contains "$out" "captured 9941 cap-large" \
 assert_present "$oversized_success/state/telegram-brain-capture/9941" \
   "an oversized successful response wrote no receipt"
 pass "oversized valid JSON with capture_id is successful"
+
+# --- escaped non-BMP capture_ids and key position preserve success ----------
+for response_case in emoji-small emoji-large-before emoji-large-after; do
+  emoji=$(make_home "capture-id-$response_case")
+  emoji_bin=$(make_fake_curl "$emoji")
+  FAKE_CURL_LOG="$emoji/curl.log"
+  FAKE_CAPTURE_OVERSIZED=$response_case
+  out=$(payload 9942 "emoji id $response_case" | \
+    run_capture "$emoji" "$emoji_bin" capture -)
+  expect_code 0 $? "$response_case capture_id should succeed"
+  assert_contains "$out" "captured 9942" \
+    "$response_case capture_id was not accepted"
+  assert_present "$emoji/state/telegram-brain-capture/9942" \
+    "$response_case capture_id wrote no receipt"
+done
+FAKE_CAPTURE_OVERSIZED=
+pass "escaped non-BMP capture_ids succeed below and above the size boundary"
+
+# --- complete oversized JSON values without capture_id stay per-payload ----
+for response_case in json-array json-string json-boolean json-null; do
+  noid=$(make_home "no-id-$response_case")
+  noid_bin=$(make_fake_curl "$noid")
+  FAKE_CURL_LOG="$noid/curl.log"
+  FAKE_CAPTURE_OVERSIZED=$response_case
+  FAKE_CAPTURE_OVERSIZED_MATCH="missing id $response_case"
+  {
+    payload 9943 "missing id $response_case"
+    payload 9944 "a later thought"
+  } > "$noid/batch.jsonl"
+  if run_capture "$noid" "$noid_bin" capture - < "$noid/batch.jsonl" \
+    >"$noid/out" 2>"$noid/err"; then
+    fail "$response_case without capture_id must stay fail-closed"
+  fi
+  assert_grep "9943 brain capture has no capture_id" "$noid/err" \
+    "$response_case was not classified as complete JSON"
+  assert_present "$noid/state/telegram-brain-capture/9944" \
+    "$response_case blocked a later payload"
+done
+FAKE_CAPTURE_OVERSIZED=
+FAKE_CAPTURE_OVERSIZED_MATCH=
+pass "complete oversized JSON values without capture_id keep walking"
+
+# --- malformed oversized responses stop after one POST ---------------------
+for response_case in invalid-number unterminated-string trailing-garbage; do
+  malformed=$(make_home "malformed-$response_case")
+  malformed_bin=$(make_fake_curl "$malformed")
+  FAKE_CURL_LOG="$malformed/curl.log"
+  FAKE_CAPTURE_OVERSIZED=$response_case
+  {
+    payload 9945 "malformed $response_case"
+    payload 9946 "a later thought"
+  } > "$malformed/batch.jsonl"
+  if run_capture "$malformed" "$malformed_bin" capture - \
+    < "$malformed/batch.jsonl" >"$malformed/out" 2>"$malformed/err"; then
+    fail "$response_case must stay fail-closed"
+  fi
+  malformed_posts=$(grep -c '^url=' "$malformed/curl.log")
+  expect_code 1 "$malformed_posts" "$response_case kept POSTing the batch"
+  assert_grep "unattempted 1" "$malformed/out" \
+    "$response_case did not stop the remaining batch"
+done
+FAKE_CAPTURE_OVERSIZED=
+pass "malformed oversized responses stop after one POST"
+
+# --- duplicate capture_id keys use the last top-level value ----------------
+duplicate=$(make_home duplicate-capture-id)
+duplicate_bin=$(make_fake_curl "$duplicate")
+FAKE_CURL_LOG="$duplicate/curl.log"
+FAKE_CAPTURE_OVERSIZED=duplicate-scalar
+out=$(payload 9947 "duplicate scalar id" | \
+  run_capture "$duplicate" "$duplicate_bin" capture -)
+expect_code 0 $? "the last scalar capture_id should succeed"
+assert_contains "$out" "captured 9947 last" \
+  "the classifier did not use the last scalar capture_id"
+FAKE_CAPTURE_OVERSIZED=duplicate-composite
+FAKE_CAPTURE_OVERSIZED_MATCH="duplicate composite id"
+{
+  payload 9948 "duplicate composite id"
+  payload 9949 "a later thought"
+} > "$duplicate/composite.jsonl"
+if run_capture "$duplicate" "$duplicate_bin" capture - \
+  < "$duplicate/composite.jsonl" >"$duplicate/out" 2>"$duplicate/err"; then
+  fail "a last composite capture_id must fail its payload"
+fi
+assert_present "$duplicate/state/telegram-brain-capture/9949" \
+  "a composite last capture_id blocked the next payload"
+FAKE_CAPTURE_OVERSIZED=
+FAKE_CAPTURE_OVERSIZED_MATCH=
+pass "duplicate and composite capture_ids follow last-key semantics"
+
+# --- ignored large strings keep classifier output bounded ------------------
+ignored=$(make_home ignored-large-response)
+ignored_bin=$(make_fake_curl "$ignored")
+FAKE_CURL_LOG="$ignored/curl.log"
+FAKE_CAPTURE_OVERSIZED=ignored-huge-string
+if payload 9953 "ignored huge response" | \
+  run_capture "$ignored" "$ignored_bin" capture - \
+  >"$ignored/out" 2>"$ignored/err"; then
+  fail "a large response without capture_id must stay fail-closed"
+fi
+FAKE_CAPTURE_OVERSIZED=
+ignored_bytes=$(wc -c < "$ignored/err")
+if [ "$ignored_bytes" -gt 4096 ]; then
+  fail "the classifier emitted more than 4 KiB for an ignored large string"
+fi
+assert_grep "brain capture has no capture_id" "$ignored/err" \
+  "the ignored large string was not classified as JSON"
+pass "a large ignored string keeps classifier output bounded"
+
+# --- a 201 without capture_id fails one payload and keeps walking -----------
+created_noid=$(make_home created-without-id)
+created_noid_bin=$(make_fake_curl "$created_noid")
+FAKE_CURL_LOG="$created_noid/curl.log"
+FAKE_CAPTURE_FAIL_MATCH="created without id"
+FAKE_CAPTURE_FAIL_CODE=201
+FAKE_CAPTURE_FAIL_BODY='{"status":"created"}'
+{
+  payload 9954 "created without id"
+  payload 9955 "a later thought"
+} > "$created_noid/batch.jsonl"
+if run_capture "$created_noid" "$created_noid_bin" capture - \
+  < "$created_noid/batch.jsonl" >"$created_noid/out" 2>"$created_noid/err"; then
+  fail "a 201 without capture_id must stay fail-closed"
+fi
+FAKE_CAPTURE_FAIL_MATCH=
+FAKE_CAPTURE_FAIL_CODE=
+FAKE_CAPTURE_FAIL_BODY=
+assert_present "$created_noid/state/telegram-brain-capture/9955" \
+  "a 201 without capture_id blocked the next POST"
+pass "a 201 without capture_id fails its payload and keeps walking"
+
+# --- jq preflight and classifier failures stop safely ----------------------
+jq_missing=$(make_home jq-missing)
+jq_missing_bin=$(make_fake_curl "$jq_missing")
+FAKE_CURL_LOG="$jq_missing/curl.log"
+FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT=jq-missing
+{
+  payload 9956 "jq is missing"
+  payload 9957 "a later thought"
+} > "$jq_missing/batch.jsonl"
+if run_capture "$jq_missing" "$jq_missing_bin" capture - \
+  < "$jq_missing/batch.jsonl" >"$jq_missing/out" 2>"$jq_missing/err"; then
+  fail "missing jq must stay fail-closed"
+fi
+FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT=
+assert_absent "$jq_missing/curl.log" "missing jq still allowed a POST"
+assert_grep "unattempted 2" "$jq_missing/out" \
+  "missing jq did not count the whole batch"
+
+for jq_failure in nonzero memory timeout; do
+  jq_bad=$(make_home "jq-$jq_failure")
+  jq_bad_bin=$(make_fake_curl "$jq_bad")
+  make_fake_jq "$jq_bad_bin" "$jq_failure"
+  FAKE_CURL_LOG="$jq_bad/curl.log"
+  {
+    payload 9958 "jq $jq_failure"
+    payload 9959 "a later thought"
+  } > "$jq_bad/batch.jsonl"
+  if run_capture "$jq_bad" "$jq_bad_bin" capture - \
+    < "$jq_bad/batch.jsonl" >"$jq_bad/out" 2>"$jq_bad/err"; then
+    fail "jq $jq_failure must stay fail-closed"
+  fi
+  jq_bad_posts=$(grep -c '^url=' "$jq_bad/curl.log")
+  expect_code 1 "$jq_bad_posts" "jq $jq_failure allowed a later POST"
+  assert_grep "unattempted 1" "$jq_bad/out" \
+    "jq $jq_failure did not stop the remaining batch"
+done
+pass "jq tool and resource failures stop safely"
 
 # --- an endpoint-level 404 is systemic and stops the batch ------------------
 gone=$(make_home http-gone)

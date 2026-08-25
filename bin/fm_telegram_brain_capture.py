@@ -14,6 +14,8 @@ import hashlib
 import json
 import os
 import re
+import resource
+import shutil
 import stat
 import subprocess
 import sys
@@ -26,9 +28,10 @@ from urllib.parse import urlparse
 
 MAX_UPDATE_ID = 2**31 - 1
 MAX_CREDENTIAL_BYTES = 65536
-MAX_RESPONSE_BYTES = 1024 * 1024
 DEFAULT_BRAIN_URL = "https://brain.mrbea.nz"
 DEFAULT_TIMEOUT = 30
+JQ_TIMEOUT = 10
+JQ_MEMORY_BYTES = 128 * 1024 * 1024
 CAPTAIN_SOURCE = "firstmate-telegram"
 GROUP_SOURCE = "firstmate-telegram-group"
 UPDATE_ID_RE = re.compile(r"^[1-9][0-9]*$")
@@ -37,7 +40,29 @@ MAX_CAPTURE_ID_CHARS = 200
 RECEIPT_IDENTITY_FIELDS = ("update_id", "text", "chat_id")
 RECEIPT_DIR_NAME = "telegram-brain-capture"
 SYSTEMIC_HTTP_STATUSES = (401, 403, 404, 405, 429)
-MAX_JSON_DEPTH = 256
+JQ_CAPTURE_FILTER = r'''
+reduce inputs as $item (
+  {candidate: null, error: null, capture_error: false};
+  if ($item[0] | type) == "string" then
+    .error = $item[0][0:201]
+    | .capture_error = (
+        $item[1] == [0, "capture_id"]
+        and ($item[0] | contains("surrogate pair escape"))
+      )
+  elif (($item[0] | length) > 1 and $item[0][0] == 0
+        and $item[0][1] == "capture_id") then
+      if (($item[0] | length) == 2 and ($item | length) == 2
+          and ($item[1] | type) == "string") then
+        .candidate = $item[1][0:201]
+      elif (($item[0] | length) == 2 and ($item | length) == 1) then
+        .
+      else
+        .candidate = null
+      end
+    else . end
+)
+| {candidate, error, capture_error}
+'''
 
 
 class UserError(Exception):
@@ -417,160 +442,95 @@ def curl_config_value(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-class JsonResponseReader:
-    def __init__(self, path: Path) -> None:
-        self.stream = path.open("r", encoding="utf-8")
-        self.pending = ""
-
-    def close(self) -> None:
-        self.stream.close()
-
-    def take(self) -> str:
-        if self.pending:
-            char = self.pending
-            self.pending = ""
-            return char
-        return self.stream.read(1)
-
-    def push(self, char: str) -> None:
-        self.pending = char
-
-    def nonspace(self) -> str:
-        char = self.take()
-        while char and char in " \t\r\n":
-            char = self.take()
-        return char
-
-    def string(self, limit: int = 0) -> Optional[str]:
-        raw = ['"'] if limit else None
-        escaped = False
-        unicode_left = 0
-        while True:
-            char = self.take()
-            if not char or (ord(char) < 32 and not escaped):
-                raise ValueError("invalid JSON string")
-            if raw is not None and len(raw) <= limit:
-                raw.append(char)
-            if unicode_left:
-                if char not in "0123456789abcdefABCDEF":
-                    raise ValueError("invalid JSON escape")
-                unicode_left -= 1
-                escaped = unicode_left != 0
-                continue
-            if escaped:
-                if char == "u":
-                    unicode_left = 4
-                elif char not in '"\\/bfnrt':
-                    raise ValueError("invalid JSON escape")
-                escaped = unicode_left != 0
-                continue
-            if char == "\\":
-                escaped = True
-            elif char == '"':
-                break
-        if raw is None or len(raw) > limit:
-            return None
-        return json.loads("".join(raw))
-
-    def number(self, first: str) -> None:
-        char = first
-        if char == "-":
-            char = self.take()
-        if char == "0":
-            char = self.take()
-            if char.isdigit():
-                raise ValueError("invalid JSON number")
-        elif char in "123456789":
-            char = self.take()
-            while char.isdigit():
-                char = self.take()
-        else:
-            raise ValueError("invalid JSON number")
-        if char == ".":
-            char = self.take()
-            if not char.isdigit():
-                raise ValueError("invalid JSON number")
-            while char.isdigit():
-                char = self.take()
-        if char and char in "eE":
-            char = self.take()
-            if char and char in "+-":
-                char = self.take()
-            if not char.isdigit():
-                raise ValueError("invalid JSON number")
-            while char.isdigit():
-                char = self.take()
-        self.push(char)
-
-    def value(self, first: str, depth: int, collect_string: bool = False) -> object:
-        if depth > MAX_JSON_DEPTH:
-            raise ValueError("JSON nesting is too deep")
-        if first == '"':
-            return self.string(MAX_CAPTURE_ID_CHARS * 6 + 2 if collect_string else 0)
-        if first == "{":
-            return self.object(depth + 1, False)
-        if first == "[":
-            char = self.nonspace()
-            if char == "]":
-                return None
-            while True:
-                self.value(char, depth + 1)
-                char = self.nonspace()
-                if char == "]":
-                    return None
-                if char != ",":
-                    raise ValueError("invalid JSON array")
-                char = self.nonspace()
-        if first in "-0123456789":
-            self.number(first)
-            return None
-        literal = {"t": "rue", "f": "alse", "n": "ull"}.get(first)
-        if literal is None or "".join(self.take() for _ in literal) != literal:
-            raise ValueError("invalid JSON value")
-        return None
-
-    def object(self, depth: int, capture_top_level: bool) -> object:
-        capture_id = None
-        char = self.nonspace()
-        if char == "}":
-            return capture_id
-        while True:
-            if char != '"':
-                raise ValueError("invalid JSON object")
-            key = self.string(64)
-            if self.nonspace() != ":":
-                raise ValueError("invalid JSON object")
-            char = self.nonspace()
-            collecting = capture_top_level and key == "capture_id"
-            value = self.value(char, depth, collecting)
-            if collecting:
-                capture_id = value
-            char = self.nonspace()
-            if char == "}":
-                return capture_id
-            if char != ",":
-                raise ValueError("invalid JSON object")
-            char = self.nonspace()
+def set_jq_limits() -> None:
+    resource.setrlimit(resource.RLIMIT_AS, (JQ_MEMORY_BYTES, JQ_MEMORY_BYTES))
 
 
-def oversized_json_capture_id(path: Path) -> object:
-    reader = JsonResponseReader(path)
+def jq_preflight() -> str:
+    if os.environ.get("FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT") == "jq-missing":
+        raise UserError("jq is required to classify brain capture responses")
+    jq_path = shutil.which("jq")
+    if jq_path is None:
+        raise UserError("jq is required to classify brain capture responses")
     try:
-        first = reader.nonspace()
-        if first == "{":
-            capture_id = reader.object(1, True)
-        else:
-            reader.value(first, 1)
-            capture_id = None
-        if reader.nonspace():
-            raise ValueError("trailing JSON data")
-        return capture_id
+        completed = subprocess.run(
+            [jq_path, "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=JQ_TIMEOUT,
+            check=False,
+            preexec_fn=set_jq_limits,
+        )
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
+        raise UserError("cannot run jq response classifier: %s" % exc)
+    if completed.returncode != 0:
+        raise UserError("jq response classifier preflight failed")
+    return jq_path
+
+
+def classify_capture_response(jq_path: str, path: Path) -> object:
+    wrapped_name = None
+    try:
+        fd, wrapped_name = tempfile.mkstemp(prefix=".beanz-json.", dir=str(path.parent))
+        with os.fdopen(fd, "wb") as wrapped, path.open("rb") as response:
+            wrapped.write(b"[")
+            shutil.copyfileobj(response, wrapped, 65536)
+            wrapped.write(b"]")
+        completed = subprocess.run(
+            [
+                jq_path,
+                "-n",
+                "--stream-errors",
+                "--stream",
+                "-c",
+                JQ_CAPTURE_FILTER,
+                wrapped_name,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=JQ_TIMEOUT,
+            check=False,
+            preexec_fn=set_jq_limits,
+        )
+        if completed.returncode != 0:
+            raise UserError("brain capture response classification failed")
+        if len(completed.stdout) > 4096:
+            raise UserError("brain capture response classifier output is too large")
+        try:
+            result = json.loads(completed.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise UserError("brain capture response classifier returned invalid output")
+        if not isinstance(result, dict) or set(result) != {
+            "candidate",
+            "error",
+            "capture_error",
+        }:
+            raise UserError("brain capture response classifier returned invalid output")
+        if result["error"] is not None:
+            if result["capture_error"] is True:
+                raise CaptureError(
+                    "brain capture returned a capture_id that is not valid UTF-8"
+                )
+            raise UserError("brain capture returned a non-JSON response")
+        return result["candidate"]
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
+        raise UserError("brain capture response classification failed: %s" % exc)
     finally:
-        reader.close()
+        if wrapped_name is not None:
+            try:
+                Path(wrapped_name).unlink()
+            except OSError:
+                pass
 
 
 def post_capture(
-    token: str, brain_url: str, text: str, source: str, workdir: Path, timeout: int
+    token: str,
+    brain_url: str,
+    text: str,
+    source: str,
+    workdir: Path,
+    timeout: int,
+    jq_path: str,
 ) -> str:
     body = json.dumps({"text": text, "source": source}, ensure_ascii=False)
     staged = []
@@ -639,22 +599,7 @@ def post_capture(
             raise http_failure_error(status)(
                 "brain capture failed with HTTP %s" % status
             )
-        try:
-            oversized = resp_path.stat().st_size > MAX_RESPONSE_BYTES
-            if oversized:
-                capture_id = oversized_json_capture_id(resp_path)
-            else:
-                raw = resp_path.read_bytes()
-                response = json.loads(raw.decode("utf-8"))
-                capture_id = (
-                    response.get("capture_id") if isinstance(response, dict) else None
-                )
-        except OSError as exc:
-            raise UserError("cannot read the brain capture response: %s" % exc)
-        except (UnicodeDecodeError, ValueError):
-            raise UserError("brain capture returned a non-JSON response")
-        if oversized and capture_id is None:
-            raise CaptureError("brain capture response is too large")
+        capture_id = classify_capture_response(jq_path, resp_path)
         return validated_capture_id(capture_id, "brain capture", CaptureError)
     finally:
         for path in staged:
@@ -684,12 +629,20 @@ def capture_line(
     captain_chat: int,
     group_on: bool,
     timeout: int,
+    jq_path: str,
 ) -> str:
     payload = parse_payload(line)
     update_id = int(payload["update_id"])
     try:
         return capture_payload(
-            payload, receipts, token, brain_url, captain_chat, group_on, timeout
+            payload,
+            receipts,
+            token,
+            brain_url,
+            captain_chat,
+            group_on,
+            timeout,
+            jq_path,
         )
     except CaptureError as exc:
         raise CaptureError("%d %s" % (update_id, exc))
@@ -705,6 +658,7 @@ def capture_payload(
     captain_chat: int,
     group_on: bool,
     timeout: int,
+    jq_path: str,
 ) -> str:
     update_id = int(payload["update_id"])
     chat_id = int(payload["chat_id"])
@@ -722,7 +676,7 @@ def capture_payload(
         )
         return "already-captured %d %s" % (update_id, capture_id)
     capture_id = post_capture(
-        token, brain_url, str(payload["text"]), source, receipts, timeout
+        token, brain_url, str(payload["text"]), source, receipts, timeout, jq_path
     )
     failpoint("before-receipt")
     write_receipt(
@@ -810,6 +764,7 @@ def command_capture(state: Path, config: Path) -> int:
         token, brain_url = brain_credentials()
         timeout = timeout_seconds()
         receipts = ensure_receipt_dir(state)
+        jq_path = jq_preflight()
     except UserError as exc:
         print("error: %s" % exc, file=sys.stderr)
         report_unattempted(lines, state, captain_chat, group_on)
@@ -819,7 +774,14 @@ def command_capture(state: Path, config: Path) -> int:
         try:
             print(
                 capture_line(
-                    line, receipts, token, brain_url, captain_chat, group_on, timeout
+                    line,
+                    receipts,
+                    token,
+                    brain_url,
+                    captain_chat,
+                    group_on,
+                    timeout,
+                    jq_path,
                 )
             )
         except PayloadError as exc:
