@@ -1108,9 +1108,10 @@ Acceptance command: `b`' \
 
 test_ship_sol_exemption_refuses_non_command_acceptance_payloads() {
   local home out status payload i=0
+  # shellcheck disable=SC2016 # Command substitution text is a literal acceptance payload.
   for payload in ' ' '&&' '>' '# tests not implemented' '   # tests not implemented' \
                  'FOO=bar' "NODE_OPTIONS='--trace warnings'" 'make test &&' \
-                 '/' './' '//' '///' '../' '../../'; do
+                 'BUILD_ID=$(git rev-parse HEAD)' '/' './' '//' '///' '../' '../../'; do
     i=$((i + 1))
     home="$TMP_ROOT/sol-non-command-home-$i"
     mkdir -p "$home/data"
@@ -1128,11 +1129,14 @@ test_ship_sol_exemption_refuses_non_command_acceptance_payloads() {
 
 test_ship_sol_exemption_accepts_env_prefixed_commands() {
   local home brief status command i=0
+  # shellcheck disable=SC2016 # Command substitution text is a literal acceptance payload.
   for command in 'NODE_ENV=test npm test' \
                  'CI=1 NODE_ENV=test ./bin/test.sh' \
                  '_TRACE= ./scripts/check' \
                  "NODE_OPTIONS='--trace warnings' npm test" \
-                 'FLAGS="one two" MODE=ci ./scripts/check'; do
+                 'FLAGS="one two" MODE=ci ./scripts/check' \
+                 'BUILD_ID=$(git rev-parse HEAD) npm test' \
+                 'A=$(printf one) B=$(printf two words) ./scripts/check'; do
     i=$((i + 1))
     home="$TMP_ROOT/sol-env-command-home-$i"
     mkdir -p "$home/data"

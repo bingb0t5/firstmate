@@ -300,6 +300,7 @@ fm_brief_shift_shell_word() {
 
 fm_brief_acceptance_is_executable() {
   local line=$1 command first remaining
+  local substitution_assignment_re='^[[:alpha:]_][[:alnum:]_]*=.*\$\(.+\)[^[:space:]]*[[:space:]]+(.+)$'
   case "$line" in
     Acceptance\ command:\ \`?*\`*) ;;
     *) return 1 ;;
@@ -313,6 +314,13 @@ fm_brief_acceptance_is_executable() {
   bash -n -c "$command" >/dev/null 2>&1 || return 1
   remaining=$command
   while :; do
+    if [[ $remaining =~ $substitution_assignment_re ]]; then
+      remaining=${BASH_REMATCH[1]}
+      continue
+    fi
+    if [[ $remaining =~ ^[[:alpha:]_][[:alnum:]_]*=.*\$\( ]]; then
+      return 1
+    fi
     fm_brief_shift_shell_word "$remaining"
     first=$FM_BRIEF_SHELL_WORD
     if [[ $first =~ ^[[:alpha:]_][[:alnum:]_]*=.*$ ]]; then
