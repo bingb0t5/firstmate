@@ -151,6 +151,9 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 # shellcheck source=bin/fm-classify-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-ff-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-ff-lib.sh"  # validate_secondmate_home: shared seeded-home boundary checks
@@ -439,8 +442,7 @@ task_json_lines() {
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
   local open_decisions_tsv open_decisions_json
 
-  for meta in "$STATE"/*.meta; do
-    [ -e "$meta" ] || continue
+  for meta in "${META_PATHS[@]}"; do
     id=$(basename "$meta" .meta)
     kind=$(meta_value "$meta" kind)
     [ -n "$kind" ] || kind=ship
@@ -1459,13 +1461,17 @@ scout_report_lines() {
 
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
 INVENTORY_VALID=true
-if [ ! -d "$STATE" ] || [ ! -r "$STATE" ] || [ ! -x "$STATE" ] ||
-   ! find "$STATE" -maxdepth 1 -name '*.meta' -print >/dev/null 2>&1; then
+META_PATHS=()
+if [ ! -d "$STATE" ] || [ ! -r "$STATE" ] || [ ! -x "$STATE" ]; then
   INVENTORY_VALID=false
 else
-  for meta in "$STATE"/*.meta; do
-    [ -e "$meta" ] || [ -L "$meta" ] || continue
-    if [ -L "$meta" ] || [ ! -f "$meta" ] || [ ! -r "$meta" ]; then
+  shopt -s nullglob dotglob
+  META_PATHS=("$STATE"/*.meta)
+  shopt -u nullglob dotglob
+  for meta in "${META_PATHS[@]}"; do
+    id=$(basename "$meta" .meta)
+    if [ -L "$meta" ] || [ ! -f "$meta" ] || [ ! -r "$meta" ] ||
+       ! fm_task_id_creation_valid "$id"; then
       INVENTORY_VALID=false
       break
     fi
