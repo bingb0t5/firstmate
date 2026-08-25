@@ -28,12 +28,12 @@
 #   positional, and batch pairs are all refused alongside it; only harness,
 #   model, and effort may change, which is what makes a harness switch one
 #   ordinary relaunch. It refuses unless the recorded endpoint is positively
-#   agent-free. A ship task whose durable record already carries spawn_gen=
-#   refuses here without a Sol spec artifact (bin/fm-second-attempt-lib.sh).
 #   agent-free on a backend with a recovery-grade agent-state classifier (tmux
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
-#   the new incarnation.
+#   the new incarnation. A ship task whose durable record already carries
+#   spawn_gen= refuses here until a Sol spec exists at data/<task-id>/spec.md
+#   (bin/fm-second-attempt-lib.sh).
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
