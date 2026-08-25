@@ -32,7 +32,7 @@
 # A refusal already scoped to one update_id fails that line, keeps walking, and
 # exits non-zero without acking: a receipt whose content disagrees with the
 # payload, a brain that rejects this one message with a 4xx other than 401,
-# 403, 404, 405, or 429, or a 2xx whose body carries no usable capture_id.
+# 403, 404, 405, or 429, or a JSON 2xx whose body carries no usable capture_id.
 # Every such refusal names its update_id first, as `error: <update_id> <reason>`,
 # so the failing payload stays attributable when the batch walks past it.
 # Only a systemic failure stops the batch: a transport failure, any 3xx or 5xx,
@@ -102,8 +102,9 @@
 #   BEANZ_MCP_URL                    optional; default https://brain.mrbea.nz
 # The credential file alone owns the brain destination; an ambient BEANZ_MCP_URL
 # in the environment is ignored so it can never redirect a token-bearing write.
-# BEANZ_MCP_URL must be a plain https URL with no userinfo and no character
-# outside the URL-safe set, so nothing it contains can add a curl directive.
+# BEANZ_MCP_URL must be a plain https origin with no path, query, fragment,
+# userinfo, or character outside the URL-safe set, so nothing it contains can
+# add a curl directive or change the fixed capture endpoint.
 # Captain-chat identity for the group filter is read from:
 #   ~/.config/beanz/telegram.env     override FM_TELEGRAM_ENV_FILE
 #   TELEGRAM_CAPTAIN_CHAT_ID         required unless FM_TELEGRAM_CAPTAIN_CHAT_ID
@@ -119,8 +120,9 @@
 # curl runs with -q so no ambient .curlrc can change the wire, and redirects are
 # never followed, so the token is only ever offered to the configured origin.
 # A capture succeeds on any 2xx whose body carries a usable capture_id.
-# A 2xx without one is the brain refusing this one text, so it fails that
+# A JSON 2xx without one is the brain refusing this one text, so it fails that
 # payload and keeps walking rather than stopping the batch.
+# A non-JSON 2xx is systemic and stops the batch after that one POST.
 #
 # RECEIPTS.
 # Successful writes are recorded under state/telegram-brain-capture/<update_id>
