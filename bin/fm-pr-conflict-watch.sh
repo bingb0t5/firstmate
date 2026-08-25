@@ -22,19 +22,24 @@
 # after the first wake. A key is recorded only for a conflict that reached the
 # printed line, so conflicts cut by the line cap are disclosed as omitted and
 # wake on a later sweep instead of being silenced. The record is cut back to the
-# conflicts each sweep still observes, so it cannot grow without bound.
+# conflicts observed in the repositories whose whole open set the sweep read. A
+# repository whose open page was cut short by FM_PR_CONFLICT_PR_LIMIT keeps its
+# keys instead, because a conflict missing from a partial page is unread rather
+# than resolved, so such a repository's keys do accumulate across sweeps.
 #
 # GitHub is read through `gh-axi api`, which answers with an axi envelope rather
-# than raw JSON. GitHub computes mergeability lazily and omits it from the pull
-# request list endpoint entirely, so each open pull request is resolved by its
-# own read. A read that returns null mergeability is never treated as clean or
-# conflicted; the check polls with short waits until the state settles or stays
-# unknown.
+# than raw JSON. One GraphQL read per repository carries every open pull request
+# together with its mergeability, so sweep cost scales with repositories rather
+# than with pull requests. GitHub computes mergeability lazily, and a read that
+# comes back UNKNOWN is never treated as clean or conflicted; only that pull
+# request is reread, with short waits, until the state settles or stays unknown.
 #
-# A repository GitHub cannot be read for is not silence about a clean fleet. A
-# transient failure is ignored, but one that outlasts
-# FM_PR_CONFLICT_UNREAD_GRACE_SECS is disclosed once as a hole in coverage, and
-# any failed read stops the sweep counting as complete.
+# A repository the sweep could not account for is not silence about a clean
+# fleet. GitHub reads that fail and repositories the sweep budget never reached
+# are tracked separately and worded differently, because the first points at
+# GitHub and the second points at local budget settings. A transient hole is
+# ignored, but one that outlasts FM_PR_CONFLICT_UNREAD_GRACE_SECS is disclosed
+# once, and either kind stops the sweep counting as complete.
 #
 # Detection and routing only: this script never resolves conflicts.
 set -u
@@ -512,18 +517,25 @@ record_remove_key() {
   REPORTED_KEYS=$out
 }
 
-# A repository whose GitHub read fails is remembered as unread across sweeps:
-# the epoch its reads started failing, and whether that hole has been disclosed
-# yet. GitHub blips constantly, so a failure that has not yet outlasted
+# A repository the sweep could not account for is remembered across sweeps: the
+# epoch the hole opened, whether it has been disclosed yet, and which kind of
+# hole it is. GitHub blips constantly, so a hole that has not yet outlasted
 # FM_PR_CONFLICT_UNREAD_GRACE_SECS stays silent - waking on every transient
-# error is noise. A failure that does outlast it is a real hole in coverage and
-# is said once, naming the repository and how long it has been unreadable. It
-# is not a conflict, and it is never recorded as one.
+# error is noise. One that does outlast it is a real gap in coverage and is said
+# once, naming the repository and how long it has been open.
 #
-# Either way the sweep is no longer complete: a sweep that could not read
-# everything must not be able to prune keys for repositories it never saw.
-unread_set() {
-  local repo=$1 first=$2 disclosed=$3 out='' line
+# The two kinds are tracked and worded apart. `github` means the read itself
+# failed, which points at credentials, rate limits, or the network. `budget`
+# means the sweep ran out of its own time before reaching the repository, which
+# points at FM_PR_CONFLICT_BUDGET_SECS and FM_CHECK_TIMEOUT. Telling an operator
+# GitHub is unreadable when the truth is a local budget setting sends them to
+# the wrong place, so a repository that changes from one kind to the other
+# starts a fresh hole rather than inheriting the other one's age.
+#
+# Either kind means the sweep is no longer complete: a sweep that could not
+# account for everything must not prune keys for repositories it never saw.
+hole_set() {
+  local repo=$1 first=$2 disclosed=$3 reason=$4 out='' line
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     [ "${line%% *}" = "$repo" ] && continue
@@ -532,7 +544,7 @@ unread_set() {
   done <<EOF
 $UNREAD_MAP
 EOF
-  UNREAD_MAP="$out$repo $first $disclosed
+  UNREAD_MAP="$out$repo $first $disclosed $reason
 "
 }
 
@@ -549,35 +561,57 @@ EOF
   UNREAD_MAP=$out
 }
 
-repo_read_failed() {
-  local repo=$1 entry first disclosed now elapsed
+hole_text() {
+  local repo=$1 elapsed=$2 reason=$3
+  case "$reason" in
+    budget)
+      printf 'unswept repo=%s for %ss - sweep budget ran out before reaching it, conflict coverage has a hole' \
+        "$repo" "$elapsed"
+      ;;
+    *)
+      printf 'unread repo=%s for %ss - GitHub reads failing, conflict coverage has a hole' \
+        "$repo" "$elapsed"
+      ;;
+  esac
+}
+
+repo_hole() {
+  local repo=$1 reason=$2 entry first disclosed was now elapsed
   SWEEP_COMPLETE=0
   now=$(record_epoch_now)
   entry=$(map_lookup "$UNREAD_MAP" "$repo") || entry=
   first=${entry%% *}
-  disclosed=${entry##* }
+  was=${entry##* }
+  entry=${entry#* }
+  disclosed=${entry%% *}
   case "$first" in ''|*[!0-9]*) first=$now ;; esac
   case "$disclosed" in 1) disclosed=1 ;; *) disclosed=0 ;; esac
+  # A hole that changed kind is a different hole, and inheriting the old one's
+  # age would let it be disclosed under the wrong diagnosis.
+  if [ "$was" != "$reason" ]; then
+    first=$now
+    disclosed=0
+  fi
   elapsed=0
   [ "$now" -gt "$first" ] && elapsed=$((now - first))
   if [ "$disclosed" -eq 0 ] && [ "$elapsed" -ge "$UNREAD_GRACE" ]; then
     # Marked as said only once it survives into the printed line, so a
     # disclosure dropped by the line cap is repeated on a later sweep instead
     # of being silently counted as delivered.
-    queue_finding "unread repo=$repo for ${elapsed}s - GitHub reads failing, conflict coverage has a hole"
+    queue_finding "$(hole_text "$repo" "$elapsed" "$reason")"
     UNREAD_PENDING="${UNREAD_PENDING:+$UNREAD_PENDING }$repo"
   fi
-  unread_set "$repo" "$first" "$disclosed"
+  hole_set "$repo" "$first" "$disclosed" "$reason"
 }
 
 unread_serialize() {
   local out='' line
   while IFS= read -r line; do
     [ -n "$line" ] || continue
-    # shellcheck disable=SC2086 # deliberate split into repo, epoch, disclosed
+    # shellcheck disable=SC2086 # deliberate split into repo, epoch, disclosed, reason
     set -- $line
-    [ "$#" -eq 3 ] || continue
-    out="${out:+$out;}$1@$2@$3"
+    [ "$#" -eq 4 ] || continue
+    out="${out:+$out;}$1@$2@$3@$4"
   done <<EOF
 $UNREAD_MAP
 EOF
@@ -585,20 +619,38 @@ EOF
 }
 
 unread_load() {
-  local raw=$1 part repo first disclosed
+  local raw=$1 part repo first disclosed reason
   UNREAD_MAP=
   while IFS= read -r part; do
     [ -n "$part" ] || continue
     repo=${part%%@*}
     part=${part#*@}
     first=${part%%@*}
-    disclosed=${part#*@}
+    part=${part#*@}
+    disclosed=${part%%@*}
+    reason=${part#*@}
     [ -n "$repo" ] || continue
     case "$first" in ''|*[!0-9]*) continue ;; esac
     case "$disclosed" in 0|1) ;; *) continue ;; esac
-    UNREAD_MAP="$UNREAD_MAP$repo $first $disclosed
+    case "$reason" in github|budget) ;; *) continue ;; esac
+    UNREAD_MAP="$UNREAD_MAP$repo $first $disclosed $reason
 "
   done < <(list_parts "$raw" ';')
+}
+
+unread_confirm_disclosed() {
+  local line=$1 repo entry first reason
+  for repo in $UNREAD_PENDING; do
+    [ -n "$repo" ] || continue
+    case "$line" in
+      *"repo=$repo for "*) ;;
+      *) continue ;;
+    esac
+    entry=$(map_lookup "$UNREAD_MAP" "$repo") || continue
+    first=${entry%% *}
+    reason=${entry##* }
+    hole_set "$repo" "$first" 1 "$reason"
+  done
 }
 
 # A repository this fleet no longer works in cannot go on holding an unread
@@ -619,20 +671,6 @@ unread_prune() {
 $UNREAD_MAP
 EOF
   UNREAD_MAP=$out
-}
-
-unread_confirm_disclosed() {
-  local line=$1 repo entry first
-  for repo in $UNREAD_PENDING; do
-    [ -n "$repo" ] || continue
-    case "$line" in
-      *"unread repo=$repo for "*) ;;
-      *) continue ;;
-    esac
-    entry=$(map_lookup "$UNREAD_MAP" "$repo") || continue
-    first=${entry%% *}
-    unread_set "$repo" "$first" 1
-  done
 }
 
 # Every open pull request this sweep read is remembered, so the record can be
@@ -699,8 +737,10 @@ record_prune() {
 # would read as a shorter list of pull requests, which is silence about the
 # ones that were dropped - the same failure this envelope layer exists to stop.
 gh_api() {
-  local path=$1 query=$2 out line body='' have_body=0 truncated=false enveloped=0
-  out=$(gh_bounded api "$path" --jq "$query" --full 2>/dev/null) || return 2
+  local query=$1
+  shift
+  local out line body='' have_body=0 truncated=false enveloped=0
+  out=$(gh_bounded api "$@" --jq "$query" --full 2>/dev/null) || return 2
   while IFS= read -r line; do
     case "$line" in
       'api_response:') enveloped=1 ;;
@@ -728,23 +768,51 @@ EOF
   printf '%s\n' "$body"
 }
 
-# One tab-separated record per open pull request: number, head SHA, draft flag,
-# url, title. The REST list endpoint does not carry mergeability at all, so the
-# state each pull request is judged on comes from the per-pull-request read
-# below rather than from this page.
-pr_list_records() {
+# An owner/repo slug is interpolated into a GraphQL document, so it is held to
+# the character set GitHub actually allows first. A slug that fails this is
+# refused rather than sent, and its repository is left unread rather than
+# silently reported clean.
+valid_repo_slug() {
   local repo=$1
-  gh_api "/repos/$repo/pulls?state=open&per_page=$PR_LIMIT" \
-    '[.[] | [(.number|tostring), (.head.sha // ""), (.draft|tostring), (.html_url // ""), ((.title // "") | gsub("[\t\r\n]"; " "))] | @tsv] | join("\n")'
+  case "$repo" in
+    *[!A-Za-z0-9._/-]*) return 1 ;;
+  esac
+  case "$repo" in
+    */*/*|/*|*/) return 1 ;;
+    */*) ;;
+    *) return 1 ;;
+  esac
+  return 0
 }
 
-# mergeable, head SHA, draft flag, url, title for one pull request. REST
-# reports lazily computed mergeability as true, false, or null, where null is
-# the not-yet-computed state this check must never read as an answer.
+# GraphQL answers with HTTP 200 and a null repository when the repository cannot
+# be read, which through a plain field selection is byte-identical to a
+# repository with no open pull requests. Both guards below therefore fail the jq
+# program, which fails the gh-axi call, which reaches the unread disclosure -
+# an unreadable repository must never arrive as a clean one.
+GQL_GUARD='if ((.errors // []) | length) > 0 then error("graphql errors") '
+
+# One tab-separated record per open pull request: number, head SHA, draft flag,
+# mergeability, url, title. A single read per repository carries mergeability
+# for every open pull request, so only the UNKNOWN ones cost a further read.
+pr_list_records() {
+  local repo=$1 owner name
+  valid_repo_slug "$repo" || return 2
+  owner=${repo%%/*}
+  name=${repo#*/}
+  gh_api "${GQL_GUARD}elif (.data.repository.pullRequests.nodes | type) != \"array\" then error(\"no repository\") else [.data.repository.pullRequests.nodes[] | [(.number|tostring), (.headRefOid // \"\"), (.isDraft|tostring), (.mergeable // \"UNKNOWN\"), (.url // \"\"), ((.title // \"\") | gsub(\"[\\t\\r\\n]\"; \" \"))] | @tsv] | join(\"\\n\") end" \
+    POST /graphql --field "query={ repository(owner:\"$owner\", name:\"$name\") { pullRequests(states:OPEN, first:$PR_LIMIT) { nodes { number mergeable isDraft title url headRefOid } } } }"
+}
+
+# Mergeability, head SHA and draft flag for one pull request, used only to
+# reread a pull request whose mergeability GitHub had not computed yet.
 pr_view_record() {
-  local repo=$1 number=$2
-  gh_api "/repos/$repo/pulls/$number" \
-    '[(.mergeable|tostring), (.head.sha // ""), (.draft|tostring), (.html_url // ""), ((.title // "") | gsub("[\t\r\n]"; " "))] | @tsv'
+  local repo=$1 number=$2 owner name
+  valid_repo_slug "$repo" || return 2
+  owner=${repo%%/*}
+  name=${repo#*/}
+  gh_api "${GQL_GUARD}elif (.data.repository.pullRequest | type) != \"object\" then error(\"no pull request\") else [.data.repository.pullRequest | (.mergeable // \"UNKNOWN\"), (.headRefOid // \"\"), (.isDraft|tostring)] | @tsv end" \
+    POST /graphql --field "query={ repository(owner:\"$owner\", name:\"$name\") { pullRequest(number:$number) { mergeable headRefOid isDraft } } }"
 }
 
 # Resolve one pull request's lazily computed mergeability into RESOLVED_STATE,
@@ -772,17 +840,17 @@ pr_mergeable_resolved() {
 $record
 EOF
     case "$mergeable" in
-      true)
+      MERGEABLE)
         RESOLVED_STATE=clean
         RESOLVED_HEAD=$head
         return 0
         ;;
-      false)
+      CONFLICTING)
         RESOLVED_STATE=conflicted
         RESOLVED_HEAD=$head
         return 0
         ;;
-      null|'')
+      UNKNOWN|'')
         attempt=$((attempt + 1))
         if [ "$attempt" -ge "$UNKNOWN_ATTEMPTS" ]; then
           RESOLVED_STATE=unknown
@@ -813,25 +881,40 @@ format_finding() {
 
 evaluate_repo() {
   local repo=$1 owner_team=$2 records count=0
-  local number head draft url title key state
+  local number head draft mergeable url title key state
   budget_exhausted && return 1
-  records=$(pr_list_records "$repo") || { repo_read_failed "$repo"; return 0; }
-  while IFS=$'\t' read -r number head draft url title; do
+  if ! records=$(pr_list_records "$repo"); then
+    # A read the sweep's own deadline killed is a budget hole, not a GitHub
+    # one, and the two are worded differently because they point the reader at
+    # different things.
+    budget_exhausted && return 1
+    repo_hole "$repo" github
+    return 0
+  fi
+  while IFS=$'\t' read -r number head draft mergeable url title; do
     [ -n "$number" ] || continue
     count=$((count + 1))
     budget_exhausted && return 1
     [ -n "$head" ] || continue
     seen_key "$(conflict_key "$repo" "$number" "$head")"
-    # Mergeability is absent from the list page, so every open pull request is
-    # resolved through its own read. A read that fails leaves this repository
-    # unswept rather than silently clean.
-    pr_mergeable_resolved "$repo" "$number" || { repo_read_failed "$repo"; return 0; }
-    state=$RESOLVED_STATE
-    if [ -n "$RESOLVED_HEAD" ] && [ "$RESOLVED_HEAD" != "$head" ]; then
-      record_remove_key "$(conflict_key "$repo" "$number" "$head")"
-      head=$RESOLVED_HEAD
-      seen_key "$(conflict_key "$repo" "$number" "$head")"
-    fi
+    case "$mergeable" in
+      MERGEABLE) state=clean ;;
+      CONFLICTING) state=conflicted ;;
+      *)
+        # Only a pull request GitHub had not judged yet costs a further read.
+        if ! pr_mergeable_resolved "$repo" "$number"; then
+          budget_exhausted && return 1
+          repo_hole "$repo" github
+          return 0
+        fi
+        state=$RESOLVED_STATE
+        if [ -n "$RESOLVED_HEAD" ] && [ "$RESOLVED_HEAD" != "$head" ]; then
+          record_remove_key "$(conflict_key "$repo" "$number" "$head")"
+          head=$RESOLVED_HEAD
+          seen_key "$(conflict_key "$repo" "$number" "$head")"
+        fi
+        ;;
+    esac
     key=$(conflict_key "$repo" "$number" "$head")
     case "$state" in
       conflicted) ;;
@@ -847,7 +930,7 @@ evaluate_repo() {
 $records
 EOF
   # Reaching here means every read this repository needed succeeded, so a
-  # repository that had been failing is no longer an unread hole.
+  # repository that had been an unread or unswept hole is no longer one.
   repo_read_ok "$repo"
   # Only a page that was not itself cut short by PR_LIMIT can be read as the
   # repository's whole open set, which is what pruning its stale keys relies on.
@@ -858,7 +941,7 @@ EOF
 }
 
 action_check() {
-  local repo owner_team line now notice
+  local repo owner_team line now notice cut
   if ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
@@ -880,14 +963,22 @@ action_check() {
   fi
 
   discover_repos
+  cut=0
   for repo in $DISCOVERED_REPOS; do
     [ -n "$repo" ] || continue
-    if budget_exhausted; then
-      SWEEP_COMPLETE=0
-      break
+    # Once the budget is gone the sweep keeps walking the discovered set, not to
+    # read it but to name it. A sweep that stopped early and said nothing is
+    # reporting no conflicts for repositories it never looked at.
+    if [ "$cut" -eq 1 ] || budget_exhausted; then
+      cut=1
+      repo_hole "$repo" budget
+      continue
     fi
     owner_team=$(owner_for_repo "$repo")
-    evaluate_repo "$repo" "$owner_team" || { SWEEP_COMPLETE=0; break; }
+    if ! evaluate_repo "$repo" "$owner_team"; then
+      cut=1
+      repo_hole "$repo" budget
+    fi
   done
 
   line=
