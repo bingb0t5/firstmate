@@ -266,7 +266,7 @@ When a selected delivery path calls for a diff, `bin/fm-review-diff.sh` refreshe
 Where a no-mistakes pipeline stores evidence in the repo, it publishes that PR-viewable validation evidence to an orphan evidence branch that shares no history with code branches, so it never enters the crew branch or the default branch.
 This repo uses that setting, and its own `.no-mistakes/` directory remains local state that stays gitignored and is rejected by CI if tracked; [`configuration.md`](configuration.md) owns the setting.
 PR-based task merges go through `bin/fm-pr-merge.sh`, which records `pr=` and any available `pr_head=` through `bin/fm-pr-check.sh` before calling the forge CLI.
-The same path accepts `--forecast` for a read-only pre-merge report, and the forecast refuses incomplete GitHub or fetched-ref evidence rather than presenting a partial answer.
+The same path accepts `--forecast` for a read-only pre-merge report with squash semantics by default and explicit squash, merge, or rebase semantics, and the forecast refuses incomplete GitHub evidence, fetched-ref evidence, or incomparable base evidence rather than presenting a partial answer.
 The helper requires a full canonical URL and rejects malformed URLs or repo override flags before recording merge state.
 A `https://github.com/<owner>/<repo>/pull/<n>` URL invokes `gh-axi pr merge <n> --repo <owner>/<repo>`, defaults to `--squash`, and preserves explicit merge-method flags.
 The forecast fetches the live open PR set and its GitHub pull refs into an isolated temporary repository, then classifies other PRs with Git's merge-tree semantics as already conflicting, newly conflicting after the candidate, or still clean.
