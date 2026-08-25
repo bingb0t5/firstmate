@@ -27,6 +27,7 @@ SECONDMATE_REGISTRY_MATCH_HOME_KEY=
 SECONDMATE_REGISTRY_MATCH_PROJECTS=
 SECONDMATE_REGISTRY_MATCH_REMOTE=0
 SECONDMATE_REGISTRY_ERROR=
+SECONDMATE_REGISTRY_ENTRIES=
 
 secondmate_registry_lock_path() { printf '%s/.secondmate-registry.lock\n' "$1"; }
 secondmate_reply_lifecycle_lock_path() { printf '%s/.remote-reply-lifecycle-%s.lock\n' "$1" "$2"; }
@@ -318,49 +319,59 @@ secondmate_registry_project_basename() {
   basename "$path"
 }
 
+# The generated field is comma-joined, but a hand-edited list separated by
+# whitespace still states a claim, so both separators split it.
 secondmate_registry_projects_field_has() {
   local field=$1 project=$2 entry
-  local IFS=,
+  local IFS=$', \t'
   [ -n "$project" ] || return 1
   [ -n "$field" ] || return 1
   for entry in $field; do
-    entry=${entry#"${entry%%[![:space:]]*}"}
-    entry=${entry%"${entry##*[![:space:]]}"}
     [ -n "$entry" ] || continue
     [ "$entry" = "$project" ] && return 0
   done
   return 1
 }
 
-secondmate_registry_has_entries() {
-  local reg=$1 line
-  [ -f "$reg" ] || return 1
-  [ ! -L "$reg" ] || return 1
+# Collect every registry record into SECONDMATE_REGISTRY_ENTRIES, one
+# `id<TAB>projects<TAB>scope` line per entry, so a caller reads the registry
+# once. Status: 0 records collected, 1 no registry file or no records, 2 the
+# registry cannot be trusted (unsafe path, unreadable, or an entry no
+# operational parser can consume) with the reason in SECONDMATE_REGISTRY_ERROR.
+# A caller that acts on ownership must treat 2 as unresolved ownership rather
+# than as an absent claim; silently skipping an unparseable entry would void
+# that secondmate's claim exactly when the registry is least trustworthy.
+secondmate_registry_entries() {
+  local reg=$1 line found=0
+  SECONDMATE_REGISTRY_ENTRIES=
+  SECONDMATE_REGISTRY_ERROR=
+  if [ ! -e "$reg" ] && [ ! -L "$reg" ]; then
+    return 1
+  fi
+  if [ -L "$reg" ] || [ ! -f "$reg" ] || [ ! -r "$reg" ]; then
+    SECONDMATE_REGISTRY_ERROR="secondmate registry is unavailable or unsafe: $reg"
+    return 2
+  fi
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       "- "*)
-        secondmate_registry_parse_line "$line" && return 0
-        ;;
-    esac
-  done < "$reg"
-  return 1
-}
-
-# Print one owner id per line for a project basename. Returns 0 when any match.
-secondmate_registry_project_owners() {
-  local reg=$1 project=$2 line found=0
-  [ -f "$reg" ] || return 1
-  [ ! -L "$reg" ] || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      "- "*)
-        secondmate_registry_parse_line "$line" || continue
-        if secondmate_registry_projects_field_has "$SECONDMATE_REGISTRY_PROJECTS" "$project"; then
-          printf '%s\n' "$SECONDMATE_REGISTRY_ID"
-          found=1
+        if ! secondmate_registry_parse_line "$line"; then
+          SECONDMATE_REGISTRY_ENTRIES=
+          SECONDMATE_REGISTRY_ERROR="malformed secondmate registry entry: $line"
+          return 2
         fi
+        case "$SECONDMATE_REGISTRY_PROJECTS" in
+          *$'\t'*)
+            SECONDMATE_REGISTRY_ENTRIES=
+            SECONDMATE_REGISTRY_ERROR="unsafe secondmate project list for $SECONDMATE_REGISTRY_ID"
+            return 2
+            ;;
+        esac
+        SECONDMATE_REGISTRY_ENTRIES="${SECONDMATE_REGISTRY_ENTRIES}${SECONDMATE_REGISTRY_ID}"$'\t'"${SECONDMATE_REGISTRY_PROJECTS}"$'\t'"${SECONDMATE_REGISTRY_SCOPE}"$'\n'
+        found=1
         ;;
     esac
   done < "$reg"
-  [ "$found" -eq 1 ]
+  [ "$found" -eq 1 ] || return 1
+  return 0
 }

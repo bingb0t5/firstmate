@@ -140,9 +140,68 @@ EOF
   pass "fm-spawn: unowned projects and missing registries pass the ownership guard"
 }
 
+test_unparseable_registry_entry_refuses_instead_of_voiding_ownership() {
+  local rec home proj fakebin out status good bad
+  good="- design - design domain (home: $TMP_ROOT/malformed/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)"
+  bad="- triage - typo entry (home: $TMP_ROOT/malformed/smhome2; scope: triage; projects: freeproj)"
+  rec=$(make_home malformed "$good" "$bad")
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  write_brief "$home" own-broken-e1 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" own-broken-e1 "$proj/freeproj" claude --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn against an unparseable registry entry should exit non-zero"
+  assert_contains "$out" "malformed secondmate registry entry" "refusal did not name the unusable registry record"
+  assert_contains "$out" "- triage - typo entry" "refusal did not quote the offending registry line"
+  assert_not_contains "$out" "not on any registered secondmate projects: list" \
+    "an unresolvable registry still claimed the project is unowned"
+  assert_absent "$home/state/own-broken-e1.meta" "refused spawn wrote task metadata"
+  pass "fm-spawn: an unparseable registry entry refuses rather than silently voiding its ownership claim"
+}
+
+test_unreadable_registry_symlink_refuses_the_spawn() {
+  local rec home proj fakebin out status
+  rec=$(make_home symlinked)
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  ln -s "$home/data/missing-secondmates.md" "$home/data/secondmates.md"
+  write_brief "$home" own-link-f1 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" own-link-f1 "$proj/freeproj" claude --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn against an unsafe registry path should exit non-zero"
+  assert_contains "$out" "secondmate registry is unavailable or unsafe" "refusal did not name the unsafe registry path"
+  assert_absent "$home/state/own-link-f1.meta" "refused spawn wrote task metadata"
+  pass "fm-spawn: an unsafe registry path refuses rather than reading as an empty registry"
+}
+
+test_batch_dispatch_carries_the_deliberate_override_to_every_pair() {
+  local rec home proj fakebin out
+  local line
+  line="- design - design domain (home: $TMP_ROOT/batch/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)"
+  rec=$(make_home batch "$line")
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  write_brief "$home" own-batch-g1 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" "own-batch-g1=$proj/ownedproj" --mode no-mistakes --yolo off)
+  assert_contains "$out" "registered to secondmate design" "batch pair did not hit the ownership guard"
+
+  write_brief "$home" own-batch-g2 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" "own-batch-g2=$proj/ownedproj" --mode no-mistakes --yolo off --allow-primary-spawn)
+  assert_contains "$out" "--allow-primary-spawn bypasses secondmate ownership" \
+    "batch dispatch dropped the deliberate override before the per-pair guard"
+  assert_not_contains "$out" "registered to secondmate design" "batch pair refused despite the deliberate override"
+  pass "fm-spawn: batch dispatch forwards --allow-primary-spawn to every pair"
+}
+
 test_fresh_spawn_into_owned_project_refuses_and_writes_no_meta
 test_allow_primary_spawn_override_passes_the_ownership_guard
 test_secondmate_spawn_is_unaffected_by_the_ownership_guard
 test_relaunch_is_unaffected_by_the_ownership_guard
 test_unowned_project_or_missing_registry_spawns_past_the_guard
+test_unparseable_registry_entry_refuses_instead_of_voiding_ownership
+test_unreadable_registry_symlink_refuses_the_spawn
+test_batch_dispatch_carries_the_deliberate_override_to_every_pair
 echo "# all fm-spawn-secondmate-ownership tests passed"

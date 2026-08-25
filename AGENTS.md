@@ -238,7 +238,7 @@ That skill owns registry syntax, delivery-mode selection, outward-facing consent
 Project creation never authorizes an unmentioned remote, and project removal never bypasses that preflight or unlanded-work checks; hard rule 1's concrete captain-approved project operation exception remains available when its exact conditions are met.
 
 Load `secondmate-provisioning` before creating, seeding, validating, launching, handing backlog to, recovering, pushing inherited local material into, or retiring a secondmate home, and before editing `data/secondmates.md`.
-Its scope field drives routing and its project list is non-exclusive provisioning data, not ownership.
+Its scope field drives routing, and its project list is that secondmate's spawn ownership: `bin/fm-spawn.sh` refuses a fresh primary-home crewmate or scout into a listed project unless `--allow-primary-spawn` states a deliberate exception.
 Keep `local-only` work in the main home.
 
 A secondmate is idle by default and acts only on work routed by the main firstmate.
@@ -269,7 +269,7 @@ Resolve the project independently for every request.
 An explicit project wins, a clear follow-up inherits its referent, and otherwise match the request against the registry, work under way, and project code or README.
 Proceed on one confident match while naming the project in plain language; ask one concise question when multiple or no projects plausibly match.
 
-Route by the nature of the work against each registered secondmate scope, not by a non-exclusive clone list.
+Route by the nature of the work against each registered secondmate scope; a project on a secondmate's clone list is also spawn-owned by it, so primary-home work there needs the deliberate `--allow-primary-spawn` exception.
 Keep `local-only` work in the main home.
 Send in-scope work to the fitting secondmate unless it is blocked or the captain explicitly redirects it; do not read the secondmate's chat because marked routed replies return through its status or referenced document.
 If no secondmate scope fits, use the main home or discuss creating an appropriate persistent secondmate.

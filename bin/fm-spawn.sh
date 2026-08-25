@@ -26,8 +26,10 @@
 #   primary_spawn_override=1 plus primary_spawn_override_owners=<ids> on the task.
 #   Scope text is never matched; when the project is on no projects: list but the
 #   registry is non-empty, a stderr warning names every registered secondmate and
-#   its scope for judgment, then the spawn continues. Missing or empty registries,
-#   --secondmate spawns, and --relaunch are unaffected.
+#   its scope for judgment, then the spawn continues. A registry that cannot be
+#   read, or any entry no operational parser can consume, refuses the spawn
+#   rather than silently voiding that secondmate's claim. Missing or empty
+#   registries, --secondmate spawns, and --relaunch are unaffected.
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
 #   the launch half of the control plane (bin/fm-control.sh relaunch), which
@@ -153,8 +155,9 @@
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
 #   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo
-#   applies to every pair. A ship batch therefore carries one delivery contract, and each
-#   pair still checks it against its own brief; a batch spanning modes is two invocations.
+#   and --allow-primary-spawn apply to every pair. A ship batch therefore carries
+#   one delivery contract, and each pair still checks it against its own brief;
+#   a batch spanning modes is two invocations.
 #   If config/crew-dispatch.json exists, shared --harness is required for crewmate
 #   and scout batches. The loop lives here, in bash, so callers never hand-write a
 #   multi-task shell loop (the tool shell is zsh, which does not word-split unquoted
@@ -295,6 +298,10 @@ YOLO_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
 ALLOW_PRIMARY_SPAWN=0
+# Guard outputs, never inherited from the environment: only the ownership guard
+# below sets them, and the meta write reads them verbatim.
+PRIMARY_SPAWN_OVERRIDE=0
+PRIMARY_SPAWN_OVERRIDE_OWNERS=
 POS=()
 want_value=
 for a in "$@"; do
@@ -889,6 +896,9 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   # spanning several modes is two invocations rather than a silent mixed dispatch.
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
+  # The deliberate ownership exception is decided once for the batch and must
+  # reach each pair's own guard, or the operator's explicit override is dropped.
+  [ "$ALLOW_PRIMARY_SPAWN" -eq 0 ] || shared_args+=(--allow-primary-spawn)
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1321,14 +1331,28 @@ secondmate_registry_value() {
 }
 
 spawn_secondmate_ownership_guard() {
-  local proj_abs=$1 proj_name reg=$DATA/secondmates.md owners owner scope_line line
+  local proj_abs=$1 proj_name reg=$DATA/secondmates.md owners scope_line id projects scope rc=0
   local -a owner_ids=()
   proj_name=$(secondmate_registry_project_basename "$proj_abs")
-  secondmate_registry_has_entries "$reg" || return 0
-  while IFS= read -r owner; do
-    [ -n "$owner" ] || continue
-    owner_ids+=("$owner")
-  done < <(secondmate_registry_project_owners "$reg" "$proj_name" && true)
+  secondmate_registry_entries "$reg" || rc=$?
+  if [ "$rc" -eq 2 ]; then
+    echo "error: ${SECONDMATE_REGISTRY_ERROR:-secondmate registry is unusable: $reg}" >&2
+    echo "error: refusing this spawn because secondmate project ownership cannot be resolved from $reg; repair the registry (bin/fm-home-seed.sh validate reports the same records) and retry" >&2
+    return 1
+  fi
+  [ "$rc" -eq 0 ] || return 0
+  scope_line=
+  while IFS=$'\t' read -r id projects scope; do
+    [ -n "$id" ] || continue
+    if secondmate_registry_projects_field_has "$projects" "$proj_name"; then
+      owner_ids+=("$id")
+    fi
+    if [ -n "$scope_line" ]; then
+      scope_line="$scope_line; $id (scope: $scope)"
+    else
+      scope_line="$id (scope: $scope)"
+    fi
+  done <<< "$SECONDMATE_REGISTRY_ENTRIES"
   if [ "${#owner_ids[@]}" -gt 0 ]; then
     if [ "$ALLOW_PRIMARY_SPAWN" -eq 1 ]; then
       owners=$(IFS=,; printf '%s' "${owner_ids[*]}")
@@ -1345,19 +1369,6 @@ spawn_secondmate_ownership_guard() {
     echo "error: project $proj_name is registered to secondmate $owners; spawn the worker in that secondmate home or pass --allow-primary-spawn for a deliberate primary-home exception" >&2
     return 1
   fi
-  scope_line=
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      "- "*)
-        secondmate_registry_parse_line "$line" || continue
-        if [ -n "$scope_line" ]; then
-          scope_line="$scope_line; $SECONDMATE_REGISTRY_ID (scope: $SECONDMATE_REGISTRY_SCOPE)"
-        else
-          scope_line="$SECONDMATE_REGISTRY_ID (scope: $SECONDMATE_REGISTRY_SCOPE)"
-        fi
-        ;;
-    esac
-  done < "$reg"
   [ -n "$scope_line" ] || return 0
   echo "warning: project $proj_name is not on any registered secondmate projects: list; confirm primary-home work or route in-scope work to a secondmate - registered: $scope_line" >&2
 }
@@ -2762,7 +2773,7 @@ preserve_relaunch_meta() {
     echo "home=$PROJ_ABS"
     echo "projects=$SECONDMATE_PROJECTS"
   fi
-  if [ "${PRIMARY_SPAWN_OVERRIDE:-0}" = 1 ]; then
+  if [ "$PRIMARY_SPAWN_OVERRIDE" = 1 ]; then
     echo "primary_spawn_override=1"
     echo "primary_spawn_override_owners=$PRIMARY_SPAWN_OVERRIDE_OWNERS"
   fi
