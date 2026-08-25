@@ -542,18 +542,63 @@ expect_code 0 $? "the same thought without a date must not disagree with its rec
 assert_contains "$out" "already-captured 9901 cap-1" "a dropped date was read as a receipt mismatch"
 pass "the receipt digest survives the optional date appearing or disappearing"
 
-# --- a genuine receipt content mismatch stays fail-closed -------------------
+# --- a receipt mismatch fails its line without blocking the rest ------------
 tamper=$(make_home receipt-tamper)
 tamper_bin=$(make_fake_curl "$tamper")
 FAKE_CURL_LOG="$tamper/curl.log"
 out=$(payload 9902 "the original thought" | run_capture "$tamper" "$tamper_bin" capture -)
 expect_code 0 $? "the original capture should succeed"
-if payload 9902 "a different thought" | \
-  run_capture "$tamper" "$tamper_bin" capture - >/dev/null 2>"$tamper/err"; then
+{
+  payload 9902 "a different thought"
+  payload 9903 "a later thought"
+  payload 9904 "a last thought"
+} > "$tamper/batch.jsonl"
+if run_capture "$tamper" "$tamper_bin" capture - < "$tamper/batch.jsonl" \
+  >"$tamper/out" 2>"$tamper/err"; then
   fail "a receipt content mismatch must stay fail-closed"
 fi
 assert_grep "disagrees with the payload" "$tamper/err" "the receipt mismatch was not reported"
-pass "a receipt whose content disagrees with the payload is still refused"
+assert_not_contains "$(cat "$tamper/out")" "unattempted" \
+  "a single-update refusal stopped the batch"
+assert_present "$tamper/state/telegram-brain-capture/9903" \
+  "a receipt mismatch blocked a later payload"
+assert_present "$tamper/state/telegram-brain-capture/9904" \
+  "a receipt mismatch blocked a later payload"
+pass "a refusal scoped to one update_id fails its line, keeps walking, and exits non-zero"
+
+# --- an unread field never costs a capturable message -----------------------
+extra=$(make_home extra-fields)
+extra_bin=$(make_fake_curl "$extra")
+FAKE_CURL_LOG="$extra/curl.log"
+out=$(printf '%s\n' \
+  '{"chat_id":4242,"date":"2026-08-25T10:00:00Z","from_id":909,"text":"buy the homestay","update_id":9905,"edit_date":true}' | \
+  run_capture "$extra" "$extra_bin" capture -)
+expect_code 0 $? "an unread field should not fail the run"
+assert_contains "$out" "captured 9905 cap-1" "a field this path never reads dropped the message"
+assert_not_contains "$out" "skipped:unsupported" "an unread field was treated as a shape rejection"
+assert_present "$extra/state/telegram-brain-capture/9905" "the message was never receipted"
+pass "fields this path never reads, including date, are ignored not typed"
+
+# --- unattempted counts payloads, not remaining input lines -----------------
+count=$(make_home unattempted-count)
+count_bin=$(make_fake_curl "$count")
+FAKE_CURL_LOG="$count/curl.log"
+FAKE_CAPTURE_FAIL_MATCH="trigger the outage"
+{
+  payload 9910 "trigger the outage"
+  payload 9911 "group chatter" -100777 "$CAPTAIN_USER"
+  payload 9912 "stranger DM" 777002 777002
+  printf '{"chat_id":%s,"from_id":%s,"update_id":9913}\n' "$CAPTAIN_CHAT" "$CAPTAIN_USER"
+  payload 9914 "a real pending memory"
+} > "$count/batch.jsonl"
+if run_capture "$count" "$count_bin" capture - < "$count/batch.jsonl" \
+  >"$count/out" 2>/dev/null; then
+  fail "the outage must stay fail-closed"
+fi
+FAKE_CAPTURE_FAIL_MATCH=
+assert_grep "unattempted 1" "$count/out" \
+  "unattempted counted records that would never have been posted"
+pass "unattempted counts only the payloads that would have been posted"
 
 # --- a third-party private DM is never captured -----------------------------
 dm=$(make_home third-party-dm)

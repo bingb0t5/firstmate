@@ -29,9 +29,13 @@
 # that the result named no payloads.
 # A line the canonical shape rejects never blocks another: it is reported as
 # `skipped:unsupported <update_id> <reason>` and the batch keeps walking.
-# A failed brain write is systemic until proven otherwise, so it stops the
-# batch there, prints `unattempted <count>` for the payloads it did not try,
-# and exits non-zero.
+# A refusal already scoped to one update_id, such as a receipt whose content
+# disagrees with the payload, fails that line, keeps walking, and exits
+# non-zero without acking.
+# Only a systemic failure stops the batch: a failed brain write or transport,
+# an unusable credential or config, or a receipt store this home cannot use.
+# A stop prints `unattempted <count>`, counting the payloads behind it that
+# would have been posted, not the input lines it stopped reading.
 # One brain outage therefore costs one timeout rather than one per payload, and
 # the unattempted payloads are captured by the retry that the missing Telegram
 # ack guarantees.
@@ -49,6 +53,8 @@
 # text, integer chat_id, and integer from_id, matching the interrupt adapter's
 # canonical message shape.
 # Boolean JSON numbers are rejected.
+# Any other field, including the adapter's date, is ignored rather than typed,
+# so a field this path never reads can never cost a capturable message.
 #
 # GROUP DISCUSSION.
 # Captain direct messages are captured by default.
