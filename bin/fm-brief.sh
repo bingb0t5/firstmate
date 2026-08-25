@@ -40,6 +40,18 @@
 # "Delivery contract: mode=<mode>" line. bin/fm-spawn.sh reads that line and refuses
 # to launch a ship task whose explicit --mode disagrees, so an adjusted brief and the
 # recorded task metadata cannot drift apart.
+# Ship briefs may earn exemption from the later Sol spec stage only when the filled
+# task text (FM_TASK at scaffold time) carries auditable evidence: exactly one
+#   Acceptance command: `...`
+# line naming a concrete executable command, and every wait mention is expressed as a
+#   Wait: ... bound=... escape=...
+# line. Without both, a filled ship task refuses to scaffold. An unfilled {TASK}
+# placeholder skips this gate and emits no exemption line. When evidence passes,
+# the brief records a fixed machine-readable "Sol exemption: earned" line (read by
+# later spawn/Sol stages) and a scaffold-owned "# Sol exemption evidence" block
+# echoing the acceptance command and any bounded Wait: lines.
+#   Set FM_TASK='<filled task>' to scaffold a ship brief with its task section
+#   already filled and to run the exemption gate.
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
 # --mode is refused on scout and secondmate scaffolds: a scout's deliverable is a
 # report rather than a merge, and a charter is not a delivery contract.
@@ -177,6 +189,67 @@ shell_quote() {
   printf "'"
   printf '%s' "$1" | sed "s/'/'\\\\''/g"
   printf "'"
+}
+
+# Ship Sol-exemption evidence is mechanical: one acceptance-command line and every
+# wait mention bounded with an escape. Prints each missing requirement on stdout;
+# returns 0 only when the text qualifies.
+fm_brief_sol_exemption_errors() {
+  local text=$1
+  local errors=() acc_lines acc_count line saw_unbounded=0
+  # shellcheck disable=SC2016 # Backticks in the grep pattern are literal evidence syntax.
+  acc_lines=$(printf '%s\n' "$text" | grep -E '^Acceptance command: `[^`]+`' || true)
+  acc_count=0
+  if [ -n "$acc_lines" ]; then
+    acc_count=$(printf '%s\n' "$acc_lines" | grep -c . || true)
+  fi
+  if [ "$acc_count" -ne 1 ]; then
+    # shellcheck disable=SC2016 # Backticks in the message document the required syntax.
+    errors+=('missing exactly one Acceptance command: `...` line')
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -z "$line" ] && continue
+    case "$line" in
+      'Acceptance command: '*)
+        case "$line" in
+          Acceptance\ command:\ \`*) ;;
+          *) errors+=('Acceptance command must use backticks around the command') ;;
+        esac
+        ;;
+      Wait:*)
+        case "$line" in
+          Wait:\ *bound=*escape=*|Wait:\ *escape=*bound=*)
+            ;;
+          *)
+            errors+=('Wait: lines must include both bound=... and escape=...')
+            ;;
+        esac
+        ;;
+      *)
+        if [ "$saw_unbounded" -eq 0 ] \
+           && printf '%s\n' "$line" | grep -qiE '(^|[^a-z])wait([^a-z]|$)'; then
+          errors+=('unbounded wait mention requires a Wait: line with bound= and escape=')
+          saw_unbounded=1
+        fi
+        ;;
+    esac
+  done <<EOF
+$text
+EOF
+  if [ "${#errors[@]}" -gt 0 ]; then
+    printf '%s\n' "${errors[@]}" | sort -u
+    return 1
+  fi
+  return 0
+}
+
+fm_brief_sol_evidence_block() {
+  local text=$1
+  local block
+  # shellcheck disable=SC2016 # Backticks in the grep pattern are literal evidence syntax.
+  block=$(printf '%s\n' "$text" | grep -E '^(Acceptance command: `[^`]+`|Wait: .+)$' || true)
+  [ -n "$block" ] || return 1
+  printf '%s\n' '# Sol exemption evidence' "$block"
 }
 
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
@@ -374,6 +447,20 @@ fi
 # delivery mode, validated above. The generated DOD opens with the fixed
 # "Delivery contract: mode=<mode>" line that bin/fm-spawn.sh checks against its own
 # explicit --mode before launching.
+SHIP_TASK_BODY='{TASK}'
+SOL_EXEMPTION_BLOCK=
+SOL_EXEMPTION_LINE=
+if [ -n "${FM_TASK:-}" ]; then
+  SHIP_TASK_BODY=$FM_TASK
+  missing=$(fm_brief_sol_exemption_errors "$SHIP_TASK_BODY" || true)
+  if [ -n "$missing" ]; then
+    echo "error: ship brief cannot earn Sol exemption without auditable evidence:" >&2
+    printf '%s\n' "$missing" | sed 's/^/  - /' >&2
+    exit 1
+  fi
+  SOL_EXEMPTION_LINE='Sol exemption: earned'
+  SOL_EXEMPTION_BLOCK=$(fm_brief_sol_evidence_block "$SHIP_TASK_BODY")
+fi
 case "$MODE" in
   direct-PR)
     SETUP2=""
@@ -431,13 +518,20 @@ esac
 # $(...) command substitution used to strip. Drop that one newline so generated
 # briefs stay byte-identical to the historical Bash 5 output.
 DOD=${DOD%$'\n'}
+if [ -n "$SOL_EXEMPTION_LINE" ]; then
+  DOD=$(printf '%s\n' "$DOD" | awk '
+    /^Delivery contract: mode=/ { print; print "Sol exemption: earned"; next }
+    { print }
+  ')
+fi
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
 
 # Task
-{TASK}
+$SHIP_TASK_BODY
 
+$SOL_EXEMPTION_BLOCK
 $HERDR_SECTION
 
 # Setup
@@ -486,4 +580,8 @@ Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced 
 
 $DOD
 EOF
-echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"
+if [ -n "${FM_TASK:-}" ]; then
+  echo "scaffolded: $BRIEF (ship, mode=$MODE; Sol exemption earned)"
+else
+  echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"
+fi

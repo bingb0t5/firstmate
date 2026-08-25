@@ -726,6 +726,60 @@ test_scout_and_secondmate_load_decision_hold_policy() {
 }
 
 # Scout and secondmate paths still scaffold well-formed briefs.
+test_ship_sol_exemption_refuses_without_evidence() {
+  local home out status
+  home="$TMP_ROOT/sol-refuse-home"
+  mkdir -p "$home/data"
+  out=$(FM_HOME="$home" FM_TASK='Fix the widget and ship it.' \
+    "$ROOT/bin/fm-brief.sh" sol-refuse-1 firstmate --mode no-mistakes 2>&1) || status=$?
+  expect_code 1 "${status:-0}" "filled ship task without exemption evidence must refuse"
+  assert_contains "$out" "Acceptance command" \
+    "refusal must name the missing acceptance command evidence"
+  assert_absent "$home/data/sol-refuse-1/brief.md" \
+    "refused Sol-exemption scaffold must not write a brief"
+  pass "fm-brief.sh: ship scaffold refuses Sol exemption without auditable evidence"
+}
+
+test_ship_sol_exemption_succeeds_with_evidence() {
+  local home brief status task
+  home="$TMP_ROOT/sol-earn-home"
+  mkdir -p "$home/data"
+  # shellcheck disable=SC2016 # Backticks in the task body are literal evidence syntax.
+  task='# Fix widget
+Acceptance command: `bin/fm-lint.sh`
+Wait: CI green bound=30m escape=append blocked: CI timeout'
+  FM_HOME="$home" FM_TASK="$task" \
+    "$ROOT/bin/fm-brief.sh" sol-earn-1 firstmate --mode no-mistakes >/dev/null 2>&1; status=$?
+  expect_code 0 "$status" "filled ship task with exemption evidence must scaffold"
+  brief="$home/data/sol-earn-1/brief.md"
+  assert_present "$brief" "Sol-exempt ship brief was not scaffolded"
+  grep -qx "Sol exemption: earned" "$brief" \
+    || fail "brief missing the machine-readable Sol exemption line"
+  assert_grep "# Sol exemption evidence" "$brief" \
+    "brief missing the scaffold-owned Sol exemption evidence block"
+  assert_grep "Acceptance command: \`bin/fm-lint.sh\`" "$brief" \
+    "brief did not carry the acceptance command in the evidence block"
+  assert_grep "Wait: CI green bound=30m escape=append blocked: CI timeout" "$brief" \
+    "brief did not carry bounded waits in the evidence block"
+  pass "fm-brief.sh: ship scaffold earns Sol exemption with auditable evidence"
+}
+
+test_ship_sol_exemption_refuses_unbounded_wait() {
+  local home out status
+  home="$TMP_ROOT/sol-wait-home"
+  mkdir -p "$home/data"
+  # shellcheck disable=SC2016 # The task body is a literal fixture string.
+  out=$(FM_HOME="$home" FM_TASK='Wait for deploy
+Acceptance command: `make test`' \
+    "$ROOT/bin/fm-brief.sh" sol-wait-1 firstmate --mode direct-PR 2>&1) || status=$?
+  expect_code 1 "${status:-0}" "ship task with unbounded wait must refuse"
+  assert_contains "$out" "unbounded wait" \
+    "refusal must name the unbounded wait"
+  assert_absent "$home/data/sol-wait-1/brief.md" \
+    "refused unbounded-wait scaffold must not write a brief"
+  pass "fm-brief.sh: ship scaffold refuses unbounded waits"
+}
+
 test_scout_and_secondmate_scaffold() {
   local brief
   FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-scout-q6 alpha --scout >/dev/null 2>&1 \
@@ -767,4 +821,7 @@ test_secondmate_marked_request_reporting_contract
 test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
+test_ship_sol_exemption_refuses_without_evidence
+test_ship_sol_exemption_succeeds_with_evidence
+test_ship_sol_exemption_refuses_unbounded_wait
 test_scout_and_secondmate_scaffold
