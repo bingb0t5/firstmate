@@ -531,12 +531,23 @@ def pending_post_count(
     return count
 
 
+def decode_payload_input(data: bytes) -> str:
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise UserError("payload input is not UTF-8: %s" % exc)
+
+
 def command_capture(state: Path, config: Path) -> int:
-    raw = sys.stdin.read()
+    try:
+        data = sys.stdin.buffer.read()
+    except OSError as exc:
+        raise UserError("cannot read the payload batch: %s" % exc)
     missing = unconfigured_reason()
     if missing:
         print("capture-unconfigured %s" % missing)
         return 0
+    raw = decode_payload_input(data)
     token, brain_url = brain_credentials()
     captain_chat = captain_chat_id()
     group_on = group_capture_enabled(config)

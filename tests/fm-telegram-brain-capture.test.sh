@@ -83,6 +83,10 @@ if [ -n "${FAKE_CURL_LOG:-}" ]; then
     echo "url=$url"
   } >> "$FAKE_CURL_LOG"
 fi
+if [ -n "${FAKE_CURL_BODY_LOG:-}" ] && [ -n "$bodyfile" ]; then
+  cat -- "$bodyfile" >> "$FAKE_CURL_BODY_LOG"
+  echo >> "$FAKE_CURL_BODY_LOG"
+fi
 if [ -n "$ofile" ]; then
   body=${FAKE_CAPTURE_BODY-}
   if [ -z "$body" ]; then
@@ -122,6 +126,7 @@ run_capture() {
     FM_BEANZ_ENV_FILE="$home/secrets/mcp.env" \
     FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
     FAKE_CURL_LOG="${FAKE_CURL_LOG-}" \
+    FAKE_CURL_BODY_LOG="${FAKE_CURL_BODY_LOG-}" \
     FAKE_CAPTURE_BODY="${FAKE_CAPTURE_BODY-}" \
     FAKE_CAPTURE_CODE="${FAKE_CAPTURE_CODE-}" \
     FAKE_CAPTURE_FAIL_MATCH="${FAKE_CAPTURE_FAIL_MATCH-}" \
@@ -513,6 +518,49 @@ assert_contains "$out" "captured 9701 cap-1" "a Unicode line separator shredded 
 assert_not_contains "$out" "skipped:unsupported" "a Unicode line separator was treated as a record break"
 assert_present "$sep/state/telegram-brain-capture/9701" "a payload carrying U+2028 was never receipted"
 pass "U+2028, U+2029 and U+0085 inside text do not end a record"
+
+# --- payload text survives a non-UTF-8 ambient encoding ---------------------
+locale_home=$(make_home locale)
+locale_bin=$(make_fake_curl "$locale_home")
+python3 - "$locale_home/batch.jsonl" <<'PY_UTF8'
+import json, sys
+payload = {"chat_id": 4242, "text": "caf\u00e9 wh\u0101nau", "update_id": 9401}
+with open(sys.argv[1], "wb") as handle:
+    handle.write((json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+PY_UTF8
+out=$(PATH="$locale_bin:$BASE_PATH" \
+  FM_HOME="$locale_home" \
+  FM_STATE_OVERRIDE="$locale_home/state" \
+  FM_CONFIG_OVERRIDE="$locale_home/config" \
+  FM_BEANZ_ENV_FILE="$locale_home/secrets/mcp.env" \
+  FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+  FAKE_CURL_BODY_LOG="$locale_home/body.log" \
+  PYTHONIOENCODING=latin-1 \
+  LC_ALL=C \
+  "$CAPTURE" capture - < "$locale_home/batch.jsonl")
+expect_code 0 $? "a UTF-8 payload should capture under any ambient encoding"
+assert_contains "$out" "captured 9401 cap-1" "the payload was not captured"
+if ! python3 -c 'import json,sys
+body = json.load(open(sys.argv[1], encoding="utf-8"))
+sys.exit(0 if body["text"] == "caf\u00e9 wh\u0101nau" else 1)' "$locale_home/body.log"; then
+  fail "the ambient encoding corrupted the text posted to the brain"
+fi
+pass "payload text reaches the brain byte-exact whatever the ambient encoding says"
+
+# --- a batch that is not UTF-8 fails closed ---------------------------------
+badbytes=$(make_home bad-bytes)
+badbytes_bin=$(make_fake_curl "$badbytes")
+FAKE_CURL_LOG="$badbytes/curl.log"
+printf '{"chat_id":4242,"text":"caf\xe9","update_id":9402}\n' > "$badbytes/batch.jsonl"
+if run_capture "$badbytes" "$badbytes_bin" capture - < "$badbytes/batch.jsonl" \
+  >/dev/null 2>"$badbytes/err"; then
+  fail "a batch that is not UTF-8 must fail closed"
+fi
+assert_grep "payload input is not UTF-8" "$badbytes/err" "the undecodable batch was not reported"
+assert_no_grep "Traceback" "$badbytes/err" "an undecodable batch printed a traceback"
+assert_absent "$badbytes/curl.log" "an undecodable batch still called curl"
+assert_absent "$badbytes/state/telegram-brain-capture/9402" "an undecodable batch wrote a receipt"
+pass "a batch that is not UTF-8 is refused before any brain write"
 
 # --- a dangling credential symlink is unusable, not unconfigured ------------
 dangle=$(make_home dangling-cred)
