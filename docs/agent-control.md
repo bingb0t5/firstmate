@@ -101,6 +101,7 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
 - A ship task whose durable record already carries `spawn_gen=` is refused **before** the running agent is stopped unless a Sol spec exists at `data/<task-id>/spec.md`, so a second implementation worker cannot start on the same unspecified problem; scout relaunches remain ungated (`bin/fm-second-attempt-lib.sh`).
   Commission that artifact through the existing scout path with `fm-brief.sh <task-id> <repo> --scout --sol-spec`, then promote the scout in place.
   Ordinary scouts still write `report.md`, which does not satisfy this gate.
+  Before a ship lifecycle action proceeds, Firstmate attributes the active no-mistakes run by branch and code identity and records a third-fix-round marker when that run is fixing round 3 or later.
   A recorded no-mistakes third-fix-round marker refuses on the same missing spec; a marker whose round cannot be read refuses too, saying so rather than claiming a round it never read.
 - `fm-spawn --relaunch` independently refuses unless the recorded endpoint is positively agent-free and its shell is sitting in the recorded worktree.
   An authoritatively missing endpoint counts as agent-free only after the recorded worktree passes the isolation proof, and is recreated before launch.
@@ -124,5 +125,5 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 
 - `tests/fm-control.test.sh` - the adapter contract for every verified harness, the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, missing-endpoint idempotent exit, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
 - `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, missing-endpoint recreation with worktree preservation, and rollback after a failed launch.
-- `tests/fm-second-attempt.test.sh` - the ship-only Sol-spec gate across both relaunch entry points, including the `spec.md`-only artifact contract, scout and secondmate exemptions, and third-fix-round marker handling.
+- `tests/fm-second-attempt.test.sh` - the ship-only Sol-spec gate across both relaunch entry points, including the `spec.md`-only artifact contract, scout and secondmate exemptions, automatic attributed third-fix-round recording, fail-closed marker handling, and missing-endpoint recreation.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.
