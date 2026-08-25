@@ -49,13 +49,13 @@
 #   Wait: ... bound=... escape=...
 # line whose bound= and escape= both carry a non-empty value. The wait scan covers
 # the whole wait word family (wait/waits/waited/waiting/await/awaits/awaiting) and
-# ignores backticked spans, so `wait-for-ci.sh` reads as a command name rather than
-# as an unbounded wait. Without both kinds of evidence, a filled ship task refuses
-# to scaffold and writes nothing. An unfilled {TASK} placeholder skips this gate and
-# emits no exemption line. When evidence passes, the brief records a fixed
-# machine-readable "Sol exemption: earned" line (read by later spawn/Sol stages) and
-# a scaffold-owned "# Sol exemption evidence" block echoing the acceptance command
-# and any bounded Wait: lines.
+# ignores whitespace-free backticked command or token names, so `wait-for-ci.sh`
+# does not read as an unbounded wait while backticked prose still does. Without both
+# kinds of evidence, a filled ship task refuses to scaffold and writes nothing. An
+# unfilled {TASK} placeholder skips this gate and emits no exemption line. When
+# evidence passes, the brief records a fixed machine-readable "Sol exemption: earned"
+# line for later stage consumption and a scaffold-owned "# Sol exemption evidence"
+# block echoing the acceptance command and any bounded Wait: lines.
 #   Set FM_TASK='<filled task>' to scaffold a ship brief with its task section
 #   already filled and to run the exemption gate. FM_TASK is refused on --scout and
 #   --secondmate scaffolds: they are outside the Sol exemption contract, and a
