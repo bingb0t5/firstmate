@@ -1,0 +1,31 @@
+CASE: valid env-prefixed executable plus bounded wait
+exit=0
+scaffolded: /tmp/tmp.TajVI3hfNS/data/valid-e2e/brief.md (ship, mode=no-mistakes; Sol exemption earned)
+# Task
+Acceptance command: `BUILD_ID=$(git rev-parse HEAD) NODE_OPTIONS='--trace warnings' npm test`
+Wait: CI bound=30m escape=abort
+
+# Sol exemption evidence
+Acceptance command: `BUILD_ID=$(git rev-parse HEAD) NODE_OPTIONS='--trace warnings' npm test`
+Wait: CI bound=30m escape=abort
+
+# Herdr lifecycle declaration - NOT ENABLED
+**HARD SAFETY GATE:** this scaffold never inspects the task text above for Herdr lifecycle intent.
+If the task will start, stop, delete, restart, profile, or otherwise drive Herdr lifecycle behavior, stop and regenerate the brief with `--herdr-lab` before dispatch.
+Do not add Herdr lifecycle commands to this unguarded brief by hand.
+Delivery contract: mode=no-mistakes
+Sol exemption: earned
+
+CASE: unbounded trailing wait is refused
+exit=1
+error: ship brief cannot earn Sol exemption without auditable evidence:
+  - each Wait: line must contain exactly one wait clause with its own bound= and escape=
+
+CASE: punctuation-separated duplicate is refused
+exit=1
+error: ship brief cannot earn Sol exemption without auditable evidence:
+  - Wait: lines must include non-empty bound=... and escape=... values
+
+CASE: empty FM_TASK on scout is refused
+exit=1
+error: FM_TASK applies only to ship briefs; a scout report and a secondmate charter carry no Sol exemption, so fill their {TASK} section by hand
