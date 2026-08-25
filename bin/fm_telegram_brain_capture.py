@@ -35,6 +35,7 @@ UPDATE_ID_RE = re.compile(r"^[1-9][0-9]*$")
 BRAIN_URL_RE = re.compile(r"https://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
 MAX_CAPTURE_ID_CHARS = 200
 RECEIPT_IDENTITY_FIELDS = ("update_id", "text", "chat_id")
+RECEIPT_DIR_NAME = "telegram-brain-capture"
 SYSTEMIC_HTTP_STATUSES = (401, 403, 404, 405, 429)
 
 
@@ -239,20 +240,33 @@ def timeout_seconds() -> int:
     return value
 
 
-def ensure_receipt_dir(state: Path) -> Path:
+def inspect_receipt_dir(state: Path) -> Tuple[str, Optional[str]]:
     try:
         info = state.lstat()
     except OSError as exc:
-        raise UserError("state directory is unreadable: %s" % exc)
+        return "unreadable", "state directory is unreadable: %s" % exc
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-        raise UserError("state path is not a directory")
-    receipts = state / "telegram-brain-capture"
-    if receipts.exists() or receipts.is_symlink():
+        return "unreadable", "state path is not a directory"
+    receipts = state / RECEIPT_DIR_NAME
+    try:
         info = receipts.lstat()
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-            raise UserError("receipt directory is unsafe")
-        if stat.S_IMODE(info.st_mode) != 0o700:
-            raise UserError("receipt directory mode is not 700")
+    except FileNotFoundError:
+        return "absent", None
+    except OSError as exc:
+        return "unreadable", "receipt directory is unreadable: %s" % exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        return "unreadable", "receipt directory is unsafe"
+    if stat.S_IMODE(info.st_mode) != 0o700:
+        return "unreadable", "receipt directory mode is not 700"
+    return "present", None
+
+
+def ensure_receipt_dir(state: Path) -> Path:
+    receipts = state / RECEIPT_DIR_NAME
+    store_state, refusal = inspect_receipt_dir(state)
+    if refusal is not None:
+        raise UserError(refusal)
+    if store_state == "present":
         return receipts
     try:
         os.mkdir(str(receipts), 0o700)
@@ -515,7 +529,7 @@ def iter_payload_lines(raw: str) -> Iterable[str]:
 def pending_post_count(
     lines: list, state: Path, captain_chat: Optional[int], group_on: bool
 ) -> int:
-    receipts = state / "telegram-brain-capture"
+    receipts = state / RECEIPT_DIR_NAME
     count = 0
     for line in lines:
         try:
@@ -611,11 +625,7 @@ def command_doctor(state: Path, config: Path) -> int:
         group_state = "on" if group_capture_enabled(config) else "off"
     except UserError:
         group_state = "unreadable"
-    receipts = state / "telegram-brain-capture"
-    if receipts.is_dir() and not receipts.is_symlink():
-        receipt_state = "present"
-    else:
-        receipt_state = "absent"
+    receipt_state, _ = inspect_receipt_dir(state)
     print("brain-env: %s" % brain_state)
     print("brain-url: %s" % brain_url)
     print("captain-chat: %s" % chat_state)
