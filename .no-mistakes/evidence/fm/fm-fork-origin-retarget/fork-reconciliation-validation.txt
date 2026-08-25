@@ -1,0 +1,25 @@
+RECONCILIATION TOPOLOGY
+commit: d0d7fe4e16868b5fb91b791b4d476c96c1b1fcbb
+parents: b7171b4eeafc327f8c8d6205c3fb8e7812796f7f 6a2cd6cd2c642c9422bb43dccedbd91103285fb0
+subject: Merge remote-tracking branch 'origin/main' into fm/fm-fork-origin-retarget
+
+ANCESTRY CHECKS (0 means preserved in HEAD)
+captain-fork-main=0
+divergent-main-tip=0
+
+CONFIGURED REMOTES
+origin	https://github.com/bingb0t5/firstmate.git (fetch)
+origin	https://github.com/bingb0t5/firstmate.git (push)
+
+GUARDED UPDATE USER-VISIBLE SCENARIOS
+ok - T4 dirty secondmate skipped, local edit preserved
+ok - T5 diverged secondmate skipped, local commit preserved
+ok - T9 firstmate off its default branch is skipped, not forced
+ok - T10 firstmate detached HEAD is skipped
+ok - T11 unsafe secondmate home is not fast-forwarded
+
+SECONDMATE SYNC USER-VISIBLE SCENARIOS
+ok - T3 dirty: an uncommitted home is skipped, its edit preserved
+ok - T4 diverged: a home that is not an ancestor of the primary's HEAD is skipped
+ok - T5 in-flight: a home on a feature branch is skipped, its work preserved
+ok - T9 bootstrap surfaces a skipped dirty live secondmate home

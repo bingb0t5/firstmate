@@ -1,0 +1,32 @@
+Repository reconciliation topology and remotes
+* 708995a (HEAD, fm/fm-fork-origin-retarget) no-mistakes(test): Match Calm-off outcome rendering to Pi stock
+*   d0d7fe4 Merge remote-tracking branch 'origin/main' into fm/fm-fork-origin-retarget
+|\  
+| * 6a2cd6c fix(pi): hide branch outcomes tool rows in Calm (#3024)
+| * 85d6c72 fix: safely split supervision wake handling by actor (#2953)
+* | b7171b4 (origin/main) feat: make Telegram process-event state transactional (#8)
+* | af21941 feat: add Telegram process-event channel (adopted from upstream #2966) (#1)
+
+Configured remotes
+origin	https://github.com/bingb0t5/firstmate.git (fetch)
+origin	https://github.com/bingb0t5/firstmate.git (push)
+
+Pi end-user rendering contract
+ok - fm_branch_outcomes hides through ToolExecutionComponent while Calm-off and HTML export stay stock
+
+Guarded firstmate update outcomes
+ok - T4 dirty secondmate skipped, local edit preserved
+ok - T5 diverged secondmate skipped, local commit preserved
+ok - T9 firstmate off its default branch is skipped, not forced
+ok - T10 firstmate detached HEAD is skipped
+ok - T11 unsafe secondmate home is not fast-forwarded
+# all fm-update tests passed
+
+Guarded secondmate sync outcomes
+ok - T3 dirty: an uncommitted home is skipped, its edit preserved
+ok - T4 diverged: a home that is not an ancestor of the primary's HEAD is skipped
+ok - T5 in-flight: a home on a feature branch is skipped, its work preserved
+ok - T9 bootstrap surfaces a skipped dirty live secondmate home
+ok - T11 spawn warns when pre-launch sync is skipped
+ok - T14 marker tolerance does not mask a genuinely dirty home
+# all fm-secondmate-sync tests passed
