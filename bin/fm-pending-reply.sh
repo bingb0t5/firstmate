@@ -8,11 +8,12 @@
 #
 # Usage:
 #   fm-pending-reply.sh list
-#       Print every still-open (non-resolved) obligation in this home, one
+#       Print every still-open obligation in this home, one
 #       TSV line each:
 #         corr=<id><TAB>task=<id><TAB>phase=<phase><TAB>created=<epoch><TAB>summary=<text>
 #       Sorted by created epoch, then corr id. Prints nothing and exits 0
-#       when none are open. An answered obligation (phase=resolved) is omitted.
+#       when none are open. A valid answered obligation is omitted; a malformed
+#       record that claims phase=resolved remains visible with phase=unknown.
 #   fm-pending-reply.sh --help
 #
 # Environment:
@@ -45,7 +46,8 @@ Usage:
 
 list  Print every still-open pending obligation in this home.
       Format: corr=<id><TAB>task=<id><TAB>phase=<phase><TAB>created=<epoch><TAB>summary=<text>
-      An answered (resolved) obligation is omitted. Empty listing exits 0.
+      A valid answered obligation is omitted. A malformed record that claims
+      phase=resolved remains visible with phase=unknown. Empty listing exits 0.
 EOF
     exit 0
     ;;
@@ -77,4 +79,3 @@ fi
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 
 fm_pending_reply_list_open "$STATE"
-

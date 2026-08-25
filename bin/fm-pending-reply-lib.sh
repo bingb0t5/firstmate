@@ -1535,12 +1535,14 @@ fm_pending_reply_tick() {  # <state-dir>
   return 0
 }
 
-# Print every still-open (non-resolved) pending obligation in <state-dir>.
+# Print every still-open pending obligation in <state-dir>.
 # One TSV line per record, sorted by created_epoch then corr_id:
 #   corr=<id><TAB>task=<id><TAB>phase=<phase><TAB>created=<epoch><TAB>summary=<text>
-# Prints nothing and returns 0 when none are open. Skips dotfiles and
-# delivery-confirmation markers. Absence from this listing is the
-# authoritative "not requested or already closed" answer for this home.
+# Valid resolved records are omitted; malformed records, including malformed
+# records that claim phase=resolved, remain visible with phase=unknown. Prints
+# nothing and returns 0 when none remain. Skips dotfiles and delivery-
+# confirmation markers. Absence from this listing is the authoritative "not
+# requested or already closed" answer for this home.
 fm_pending_reply_list_open() {  # <state-dir>
   local state=$1 dir rec corr task_id phase created summary tmp rc=0
   dir=$(fm_pending_reply_dir "$state")
