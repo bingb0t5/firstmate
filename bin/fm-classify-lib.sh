@@ -425,6 +425,35 @@ status_held_decisions() {  # <status-file>
   printf '%s' "$set"
 }
 
+# Fold the WHOLE status stream into unresolved keyed failures. A failed event
+# remains active until a later event for the SAME key explicitly moves that work
+# forward or settles it; unrelated progress must not hide it. This is used only
+# by manager child-work inheritance, where the latest status line can otherwise
+# report `working` and let a busy child mask an earlier failure.
+status_unresolved_failures() {  # <status-file>
+  local f=$1 line verb key note resolve held set=''
+  [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
+  resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
+  held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
+  grep -Fq 'failed' "$f" 2>/dev/null || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    verb=$(status_line_verb "$line")
+    case "$verb" in
+      failed|working|done|needs-decision|blocked|"$resolve"|"$held") ;;
+      *) continue ;;
+    esac
+    key=$(_fm_decision_key "$line") || continue
+    note=$(status_line_note "$line")
+    _fm_decision_key_transition_allowed "$key" "$note" || continue
+    set=$(_fm_decision_drop "$set" "$key")
+    [ -n "$set" ] && set="${set}"$'\n'
+    if [ "$verb" = failed ]; then
+      set="${set}${key}"$'\t'"${verb}"$'\t'"${note}"$'\n'
+    fi
+  done < "$f"
+  printf '%s' "$set"
+}
+
 # 0 when <key> has a record in a folded "<key>\t<verb>\t<note>" open set.
 _fm_open_set_has() {  # <open-set> <key>
   case "$1" in
@@ -1333,8 +1362,8 @@ crew_absorb_class() {  # <id>
 }
 
 # 0 when task <id>'s own status log holds nothing the captain still owes an
-# answer to: no legacy captain-relevant line, no still-open keyed decision, and
-# no key still sitting in a verified captain-held transfer.
+# answer to: no legacy captain-relevant line, unresolved keyed failure, still-open
+# keyed decision, or key still sitting in a verified captain-held transfer.
 # BOTH keyed tests read a durable fold rather than the last line, because
 # last_status_line alone CANNOT see a transition that a later unrelated line
 # masked (the status-fold contract above states this plainly) - and that applies
@@ -1351,6 +1380,7 @@ manager_owes_captain_nothing() {  # <id> <state-dir>
   last=$(last_status_line "$status")
   status_is_captain_relevant "$last" && return 1
   status_is_captain_held "$last" && return 1
+  [ -z "$(status_unresolved_failures "$status")" ] || return 1
   [ -z "$(status_open_decisions "$status")" ] || return 1
   [ -z "$(status_held_decisions "$status")" ] || return 1
   return 0

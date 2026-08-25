@@ -398,6 +398,14 @@ test_manager_child_work_inheritance_classifier() {
     > "$state/platform.status"
   [ "$(crew_absorb_class platform)" = working ] \
     || fail "a manager whose only decision was answered did not regain its inherited verdict"
+  printf 'failed [key=deploy]: rollout broke\nworking: dispatched recovery\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "unrelated progress and a busy child masked the manager's unresolved failure"
+  printf 'failed [key=deploy]: rollout broke\nworking [key=deploy]: retrying rollout\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = working ] \
+    || fail "an explicit same-key retry did not clear the manager's prior failure"
   printf 'working: dispatched the alpha rollout\n' > "$state/platform.status"
   [ "$(crew_absorb_class platform)" = working ] \
     || fail "a quiet manager with a busy child lost its inherited working verdict"
