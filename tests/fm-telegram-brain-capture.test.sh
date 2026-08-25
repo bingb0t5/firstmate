@@ -482,6 +482,28 @@ assert_present "$batch/state/telegram-brain-capture/9103" "a later valid payload
 assert_absent "$batch/state/telegram-brain-capture/9102" "an unsupported payload was receipted"
 pass "an uncapturable payload is skipped without dropping later valid ones"
 
+# --- a lone surrogate is an unsupported payload ----------------------------
+surrogate=$(make_home lone-surrogate)
+surrogate_bin=$(make_fake_curl "$surrogate")
+FAKE_CURL_LOG="$surrogate/curl.log"
+{
+  printf '{"chat_id":%s,"text":"\\ud800bad","update_id":9110}\n' "$CAPTAIN_CHAT"
+  payload 9111 "a later thought"
+} > "$surrogate/batch.jsonl"
+out=$(run_capture "$surrogate" "$surrogate_bin" capture - < "$surrogate/batch.jsonl" \
+  2>"$surrogate/err")
+expect_code 0 $? "a lone surrogate must be an unsupported per-payload skip"
+assert_contains "$out" "skipped:unsupported 9110 text is not valid UTF-8" \
+  "the lone surrogate was not reported as unsupported"
+assert_contains "$out" "captured 9111 cap-1" \
+  "the lone surrogate blocked a later valid payload"
+assert_absent "$surrogate/state/telegram-brain-capture/9110" \
+  "the lone surrogate was receipted"
+assert_present "$surrogate/state/telegram-brain-capture/9111" \
+  "the payload after a lone surrogate was not receipted"
+[ ! -s "$surrogate/err" ] || fail "the lone surrogate produced an unexpected error"
+pass "a lone surrogate is skipped without blocking later payloads"
+
 # --- a failed write stops the batch instead of retrying every payload -------
 wfail=$(make_home write-fail)
 wfail_bin=$(make_fake_curl "$wfail")
@@ -705,6 +727,31 @@ assert_present "$nocap/state/telegram-brain-capture/9931" \
 assert_present "$nocap/state/telegram-brain-capture/9932" \
   "a 2xx without a capture_id blocked a later payload"
 pass "a 2xx carrying no capture_id fails its line, keeps walking, and exits non-zero"
+
+# --- a non-JSON 2xx response stops the batch -------------------------------
+nonjson=$(make_home non-json-response)
+nonjson_bin=$(make_fake_curl "$nonjson")
+FAKE_CURL_LOG="$nonjson/curl.log"
+FAKE_CAPTURE_BODY='<html>gateway challenge</html>'
+{
+  payload 9933 "the gateway intercepts this"
+  payload 9934 "a later thought"
+  payload 9935 "a last thought"
+} > "$nonjson/batch.jsonl"
+if run_capture "$nonjson" "$nonjson_bin" capture - < "$nonjson/batch.jsonl" \
+  >"$nonjson/out" 2>"$nonjson/err"; then
+  fail "a non-JSON 2xx response must stay fail-closed"
+fi
+FAKE_CAPTURE_BODY=
+assert_grep "non-JSON response" "$nonjson/err" \
+  "the endpoint-level response failure was not reported"
+assert_grep "unattempted 2" "$nonjson/out" \
+  "a non-JSON response did not stop the remaining batch"
+nonjson_posts=$(grep -c '^url=' "$nonjson/curl.log")
+expect_code 1 "$nonjson_posts" "a non-JSON response kept POSTing the batch"
+assert_absent "$nonjson/state/telegram-brain-capture/9934" \
+  "a later payload was attempted after a non-JSON response"
+pass "a non-JSON 2xx response stops the batch after one POST"
 
 # --- an endpoint-level 404 is systemic and stops the batch ------------------
 gone=$(make_home http-gone)

@@ -315,6 +315,7 @@ def read_receipt(path: Path) -> Dict[str, object]:
 def write_receipt(path: Path, body: Dict[str, object]) -> None:
     encoded = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     directory = path.parent
+    tmp_name = None
     try:
         fd, tmp_name = tempfile.mkstemp(prefix=".receipt.", dir=str(directory))
         try:
@@ -331,6 +332,14 @@ def write_receipt(path: Path, body: Dict[str, object]) -> None:
             os.close(dir_fd)
     except OSError as exc:
         raise UserError("cannot write the capture receipt: %s" % exc)
+    finally:
+        if tmp_name is not None:
+            try:
+                Path(tmp_name).unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
 
 
 def parse_payload(line: str) -> Dict[str, object]:
@@ -344,6 +353,10 @@ def parse_payload(line: str) -> Dict[str, object]:
     text = payload.get("text")
     if not isinstance(text, str) or not text:
         raise PayloadError("text is not a nonempty string", update_id)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        raise PayloadError("text is not valid UTF-8", update_id)
     chat_id = payload.get("chat_id")
     if type(chat_id) is not int or isinstance(chat_id, bool):
         raise PayloadError("chat_id is not an integer", update_id)
@@ -445,7 +458,7 @@ def post_capture(
         try:
             response = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
-            raise CaptureError("brain capture returned no capture_id")
+            raise UserError("brain capture returned a non-JSON response")
         capture_id = response.get("capture_id") if isinstance(response, dict) else None
         return validated_capture_id(capture_id, "brain capture", CaptureError)
     finally:
