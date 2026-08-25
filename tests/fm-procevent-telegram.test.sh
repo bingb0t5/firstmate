@@ -339,6 +339,31 @@ assert_present "$H_EMPTY_RECEIPTS/state/telegram-inbox/1001.json" \
   "the poll after an empty receipt directory reaches the Telegram delivery path"
 pass "an empty receipt directory does not wedge later polling"
 
+# --- a temp payload abandoned by a killed poll never wedges or leaks --------
+# A poll killed between writing its private temp payload and hardlinking it
+# leaves that temp behind. It must live outside the inbox the handler scans,
+# and the next poll must clear it rather than let it hold the receipt
+# directory open forever.
+H_STALE_TMP="$TMP_ROOT/stale-temp"; new_home "$H_STALE_TMP"
+STALE_TMP_ENV="$TMP_ROOT/stale-temp.env"; write_env_file "$STALE_TMP_ENV" "$TOKEN"
+mkdir -p "$H_STALE_TMP/state/.telegram-delivery-receipts"
+printf '{"update_id":1001,"text":"payload from a poll killed mid-write"}\n' \
+  > "$H_STALE_TMP/state/.telegram-delivery-receipts/tmp.1001.4242"
+stale_tmp_status=0
+stale_tmp_out=$(poll_once "$H_STALE_TMP" "$STALE_TMP_ENV" "$FIXTURES/one-text.json") \
+  || stale_tmp_status=$?
+[ "$stale_tmp_status" -eq 0 ] \
+  || fail "an abandoned temp payload wedged the next poll: status=$stale_tmp_status"
+assert_contains "$stale_tmp_out" "message: 1" \
+  "the poll after an abandoned temp payload still delivers the message"
+assert_absent "$H_STALE_TMP/state/.telegram-delivery-receipts/tmp.1001.4242" \
+  "the abandoned temp payload is cleared instead of accumulating"
+inbox_entries=$(cd "$H_STALE_TMP/state/telegram-inbox" \
+  && find . -mindepth 1 -maxdepth 1 | sed 's|^\./||' | sort | tr '\n' ' ')
+[ "$inbox_entries" = "1001.json " ] \
+  || fail "the handler-scanned inbox holds something other than the delivered claim: $inbox_entries"
+pass "an abandoned temp payload stays out of the inbox and is swept by the next poll"
+
 # --- write-before-offset-advance: a mid-batch write failure is recoverable --
 # Requirement: a message is durably on disk BEFORE the offset advances past
 # it, and a write failure leaves the offset untouched so the whole batch is

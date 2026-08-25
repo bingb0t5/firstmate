@@ -104,19 +104,21 @@
 # rename, so a reader can observe it mid-write. This adapter therefore claims
 # each update id atomically at the delivery boundary rather than checking
 # then writing: it writes its own complete, fsynced payload to a private temp
-# file first, then hardlinks that finished temp file onto the shared
-# `<update_id>.json` name. The hardlink either succeeds - this adapter is the
-# first and only claimant, and the message counts as newly delivered - or
-# fails with the name already taken, in which case this adapter never
-# hardlinks to whatever is already there (that would risk linking a still-
-# mutable inode the legacy script has not finished writing). Instead it reads
-# and parses that existing file: a complete, well-formed payload means some
-# other claimant already delivered this exact update and this poll must
-# no-op on it (never a second captain-visible wake for the same message), and
-# anything else - not yet valid JSON, wrong update id - means a claimant is
-# still mid-write, and this update blocks the whole batch's offset exactly
-# like a failed write, so an unadvanced retry gives that write time to
-# finish. `handled/<update_id>.json` is also checked before claiming, so an
+# file first - kept in its own receipt directory, never in the inbox, so a
+# poll killed mid-write leaves nothing behind in the directory the handler
+# scans and a later poll sweeps the abandoned temp away - then hardlinks that
+# finished temp file onto the shared `<update_id>.json` name. The hardlink
+# either succeeds - this adapter is the first and only claimant, and the
+# message counts as newly delivered - or fails with the name already taken,
+# in which case this adapter never hardlinks to whatever is already there
+# (that would risk linking a still-mutable inode the legacy script has not
+# finished writing). Instead it reads and parses that existing file: a
+# complete, well-formed payload means some other claimant already delivered
+# this exact update and this poll must no-op on it (never a second
+# captain-visible wake for the same message), and anything else - not yet
+# valid JSON, wrong update id - means a claimant is still mid-write, and this
+# update blocks the whole batch's offset exactly like a failed write, so an
+# unadvanced retry gives that write time to finish. `handled/<update_id>.json` is also checked before claiming, so an
 # update already archived when that check occurs is not redelivered after its
 # live inbox file is gone. See LOSS LIMITATION for the concurrent-move race.
 # This closes the specific hazard the atomic claim exists for: two producers
@@ -249,43 +251,35 @@ env_file_path() {
   printf '%s\n' "${FM_TELEGRAM_ENV_FILE:-$HOME/.config/beanz/telegram.env}"
 }
 
-# Read TELEGRAM_BOT_TOKEN out of the credential file into this process's
-# memory only. Never printed anywhere except this function's own stdout,
-# which every caller captures straight into a shell variable and never echoes
-# back out.
-telegram_bot_token() {  # <env-file>
-  (
+# Read all three credential values out of the file in a single pass, into the
+# caller's `token`, `captain_chat_id`, and `captain_user_id` variables. The
+# file is sourced in a subshell, so the token lands only in this process's
+# memory and never in an exported environment; it is never printed anywhere
+# except into those variables. Reading all three at once is also what keeps
+# them consistent: a rotation that rewrites the file between two separate
+# reads could otherwise pair a new token with a stale chat or user id and
+# silently consume the captain's own batch as unauthorized. The captain user
+# id read here is sender identity, not room membership; see CAPTAIN IDENTITY.
+read_credentials() {  # <env-file>
+  local creds
+  creds=$(
     TELEGRAM_BOT_TOKEN=
-    set -a
-    # shellcheck disable=SC1090
-    . "$1" >/dev/null 2>&1
-    set +a
-    printf '%s' "${TELEGRAM_BOT_TOKEN:-}"
-  )
-}
-
-telegram_captain_chat_id() {  # <env-file>
-  (
     TELEGRAM_CAPTAIN_CHAT_ID=
-    set -a
-    # shellcheck disable=SC1090
-    . "$1" >/dev/null 2>&1
-    set +a
-    printf '%s' "${TELEGRAM_CAPTAIN_CHAT_ID:-}"
-  )
-}
-
-# The captain's own Telegram user id. Sender identity, not room membership,
-# is what authorizes a message as a captain command; see CAPTAIN IDENTITY.
-telegram_captain_user_id() {  # <env-file>
-  (
     TELEGRAM_CAPTAIN_USER_ID=
     set -a
     # shellcheck disable=SC1090
     . "$1" >/dev/null 2>&1
     set +a
-    printf '%s' "${TELEGRAM_CAPTAIN_USER_ID:-}"
-  )
+    printf '%s\n%s\n%s\n' \
+      "${TELEGRAM_BOT_TOKEN:-}" "${TELEGRAM_CAPTAIN_CHAT_ID:-}" "${TELEGRAM_CAPTAIN_USER_ID:-}"
+  ) || return 1
+  {
+    IFS= read -r token
+    IFS= read -r captain_chat_id
+    IFS= read -r captain_user_id
+  } <<EOF
+$creds
+EOF
 }
 
 credential_readable() {
@@ -302,11 +296,8 @@ credential_readable() {
 
 credential_available() {
   credential_readable || return 1
-  local env_file token captain_chat_id captain_user_id
-  env_file=$(env_file_path)
-  token=$(telegram_bot_token "$env_file")
-  captain_chat_id=$(telegram_captain_chat_id "$env_file")
-  captain_user_id=$(telegram_captain_user_id "$env_file")
+  local token='' captain_chat_id='' captain_user_id=''
+  read_credentials "$(env_file_path)" || return 1
   [ -n "$token" ] && [ -n "$captain_chat_id" ] && [ -n "$captain_user_id" ]
 }
 
@@ -490,6 +481,16 @@ def publish(receipt, dest):
 
 
 os.makedirs(inbox, exist_ok=True)
+# A poll killed between writing its private temp payload and hardlinking that
+# payload into a receipt leaves the temp behind. Only this adapter writes here
+# and the runner keeps one poll child at a time, so any temp still present now
+# is abandoned: clearing it is what keeps it from holding this directory open
+# forever and wedging the empty-recovery path below.
+for stale in glob.glob(os.path.join(receipt_dir, "tmp.*")):
+    try:
+        os.unlink(stale)
+    except OSError:
+        pass
 count = 0
 for receipt in glob.glob(os.path.join(receipt_dir, "*.json")):
     with open(receipt, "r", encoding="utf-8") as fh:
@@ -559,11 +560,10 @@ cmd_poll() {
 
   env_file=$(env_file_path)
   credential_readable || exit 0
-  token=$(telegram_bot_token "$env_file")
+  token='' captain_chat_id='' captain_user_id=''
+  read_credentials "$env_file" || exit 0
   [ -n "$token" ] || exit 0
-  captain_chat_id=$(telegram_captain_chat_id "$env_file")
   [ -n "$captain_chat_id" ] || exit 0
-  captain_user_id=$(telegram_captain_user_id "$env_file")
   [ -n "$captain_user_id" ] || exit 0
 
   if [ -e "$PENDING_FILE" ] || [ -L "$PENDING_FILE" ]; then
@@ -702,7 +702,12 @@ try:
             "from_id": sender_id,
             "text": text,
         }
-        tmp = os.path.join(inbox, ".%d.json.tmp.%d" % (uid, os.getpid()))
+        # The temp payload lives in the private receipt directory, not in the
+        # inbox: a poll killed between this write and the hardlink below must
+        # never leave a complete captain payload sitting in the directory the
+        # handler scans, where it would be acted on for an update whose offset
+        # never advanced. Same filesystem, so the claim links still work.
+        tmp = os.path.join(receipt_dir, "tmp.%d.%d" % (uid, os.getpid()))
         receipt = os.path.join(receipt_dir, "%d.json" % uid)
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as out_fh:
