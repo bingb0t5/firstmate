@@ -1,0 +1,485 @@
+#!/usr/bin/env python3
+"""Write Telegram message payloads into Mr Beanz.
+
+The shell wrapper owns command dispatch.
+This module owns payload validation, credential parsing, the Beanz POST, and
+durable receipts.
+It never polls Telegram.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Dict, Iterable, Optional, Tuple
+from urllib.parse import urlparse
+
+
+MAX_UPDATE_ID = 2**31 - 1
+MAX_CREDENTIAL_BYTES = 65536
+MAX_RESPONSE_BYTES = 1024 * 1024
+DEFAULT_BRAIN_URL = "https://brain.mrbea.nz"
+DEFAULT_TIMEOUT = 30
+CAPTAIN_SOURCE = "firstmate-telegram"
+GROUP_SOURCE = "firstmate-telegram-group"
+UPDATE_ID_RE = re.compile(r"^[1-9][0-9]*$")
+
+
+class UserError(Exception):
+    pass
+
+
+def failpoint(name: str) -> None:
+    if os.environ.get("FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT") == name:
+        os._exit(91)
+
+
+def positive_int(value: object, name: str) -> int:
+    if type(value) is not int or isinstance(value, bool):
+        raise UserError("%s is not an integer" % name)
+    if value < 1 or value > MAX_UPDATE_ID:
+        raise UserError("%s is outside the supported positive range" % name)
+    return value
+
+
+def parse_env_value(raw: str) -> str:
+    if not raw:
+        return ""
+    if raw[0] in ("'", '"'):
+        if len(raw) < 2 or raw[-1] != raw[0]:
+            raise UserError("quoted credential value is not closed")
+        value = raw[1:-1]
+    else:
+        value = raw
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise UserError("credential value contains control bytes")
+    return value
+
+
+def read_env_file(path: Path) -> Dict[str, str]:
+    try:
+        before = path.lstat()
+    except OSError as exc:
+        raise UserError("cannot read %s: %s" % (path, exc))
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+        raise UserError("%s is not a regular file" % path)
+    if stat.S_IMODE(before.st_mode) != 0o600:
+        raise UserError("%s mode is not 600" % path)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(str(path), flags)
+    except OSError as exc:
+        raise UserError("cannot open %s: %s" % (path, exc))
+    try:
+        after = os.fstat(fd)
+        if (
+            after.st_dev != before.st_dev
+            or after.st_ino != before.st_ino
+            or not stat.S_ISREG(after.st_mode)
+            or stat.S_IMODE(after.st_mode) != 0o600
+        ):
+            raise UserError("%s changed during open" % path)
+        chunks = []
+        total = 0
+        while True:
+            chunk = os.read(fd, min(8192, MAX_CREDENTIAL_BYTES + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > MAX_CREDENTIAL_BYTES:
+                raise UserError("%s is too large" % path)
+        try:
+            text = b"".join(chunks).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise UserError("%s is not UTF-8: %s" % (path, exc))
+    finally:
+        os.close(fd)
+    values: Dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("export "):
+            raise UserError("%s must not be sourced as shell" % path)
+        if "=" not in stripped:
+            raise UserError("%s has a line that is not KEY=VALUE" % path)
+        key, raw = stripped.split("=", 1)
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", key):
+            raise UserError("%s has an invalid key" % path)
+        if key in values:
+            raise UserError("%s repeats %s" % (path, key))
+        values[key] = parse_env_value(raw)
+    return values
+
+
+def brain_env_path() -> Path:
+    override = os.environ.get("FM_BEANZ_ENV_FILE")
+    if override:
+        return Path(override)
+    return Path.home() / ".config" / "beanz" / "mcp.env"
+
+
+def telegram_env_path() -> Path:
+    override = os.environ.get("FM_TELEGRAM_ENV_FILE")
+    if override:
+        return Path(override)
+    return Path.home() / ".config" / "beanz" / "telegram.env"
+
+
+def brain_credentials() -> Tuple[str, str]:
+    path = brain_env_path()
+    values = read_env_file(path)
+    token = values.get("BEANZ_MCP_TOKEN")
+    if not token:
+        raise UserError("BEANZ_MCP_TOKEN is missing from %s" % path)
+    url = (
+        os.environ.get("BEANZ_MCP_URL")
+        or values.get("BEANZ_MCP_URL")
+        or DEFAULT_BRAIN_URL
+    )
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+        raise UserError("BEANZ_MCP_URL must be an https origin with no userinfo")
+    return token, url.rstrip("/")
+
+
+def captain_chat_id() -> int:
+    override = os.environ.get("FM_TELEGRAM_CAPTAIN_CHAT_ID")
+    if override:
+        if not re.fullmatch(r"-?[1-9][0-9]*", override):
+            raise UserError("FM_TELEGRAM_CAPTAIN_CHAT_ID must be an integer")
+        return int(override)
+    values = read_env_file(telegram_env_path())
+    raw = values.get("TELEGRAM_CAPTAIN_CHAT_ID")
+    if not raw or not re.fullmatch(r"-?[1-9][0-9]*", raw):
+        raise UserError(
+            "TELEGRAM_CAPTAIN_CHAT_ID is missing from %s" % telegram_env_path()
+        )
+    return int(raw)
+
+
+def group_capture_enabled(config: Path) -> bool:
+    override = os.environ.get("FM_TELEGRAM_BRAIN_CAPTURE_GROUP")
+    if override is not None and override.strip() != "":
+        return override.strip() == "on"
+    path = config / "telegram-brain-capture-group"
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise UserError("telegram-brain-capture-group is not a regular file")
+    text = path.read_text(encoding="utf-8")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return stripped == "on"
+    return False
+
+
+def timeout_seconds() -> int:
+    raw = os.environ.get("FM_BEANZ_CAPTURE_TIMEOUT", str(DEFAULT_TIMEOUT))
+    if not re.fullmatch(r"[1-9][0-9]*", raw):
+        raise UserError("FM_BEANZ_CAPTURE_TIMEOUT must be a positive integer")
+    value = int(raw)
+    if value > 120:
+        raise UserError("FM_BEANZ_CAPTURE_TIMEOUT must be at most 120")
+    return value
+
+
+def ensure_receipt_dir(state: Path) -> Path:
+    try:
+        info = state.lstat()
+    except OSError as exc:
+        raise UserError("state directory is unreadable: %s" % exc)
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise UserError("state path is not a directory")
+    receipts = state / "telegram-brain-capture"
+    if receipts.exists() or receipts.is_symlink():
+        info = receipts.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise UserError("receipt directory is unsafe")
+        if stat.S_IMODE(info.st_mode) != 0o700:
+            raise UserError("receipt directory mode is not 700")
+        return receipts
+    os.mkdir(str(receipts), 0o700)
+    return receipts
+
+
+def receipt_path(receipts: Path, update_id: int) -> Path:
+    name = str(update_id)
+    if not UPDATE_ID_RE.fullmatch(name):
+        raise UserError("update_id is not a safe receipt name")
+    return receipts / name
+
+
+def payload_hash(payload: Dict[str, object]) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def read_receipt(path: Path) -> Dict[str, object]:
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise UserError("cannot read receipt: %s" % exc)
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise UserError("receipt is not a regular file")
+    if stat.S_IMODE(info.st_mode) != 0o600:
+        raise UserError("receipt mode is not 600")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise UserError("receipt is not valid JSON: %s" % exc)
+    if not isinstance(data, dict):
+        raise UserError("receipt is not an object")
+    return data
+
+
+def write_receipt(path: Path, body: Dict[str, object]) -> None:
+    encoded = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    directory = path.parent
+    fd, tmp_name = tempfile.mkstemp(prefix=".receipt.", dir=str(directory))
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, encoded.encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp_name, str(path))
+    dir_fd = os.open(str(directory), os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
+def parse_payload(line: str) -> Dict[str, object]:
+    try:
+        payload = json.loads(line)
+    except ValueError as exc:
+        raise UserError("payload is not valid JSON: %s" % exc)
+    if not isinstance(payload, dict):
+        raise UserError("payload is not an object")
+    update_id = positive_int(payload.get("update_id"), "update_id")
+    text = payload.get("text")
+    if not isinstance(text, str) or not text:
+        raise UserError("text is not a nonempty string")
+    chat_id = payload.get("chat_id")
+    from_id = payload.get("from_id")
+    if type(chat_id) is not int or isinstance(chat_id, bool):
+        raise UserError("chat_id is not an integer")
+    if type(from_id) is not int or isinstance(from_id, bool):
+        raise UserError("from_id is not an integer")
+    date = payload.get("date")
+    if date is not None and (type(date) is not int or isinstance(date, bool)):
+        raise UserError("date is not an integer")
+    return {
+        "update_id": update_id,
+        "text": text,
+        "chat_id": chat_id,
+        "from_id": from_id,
+        "date": date,
+    }
+
+
+def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Path) -> str:
+    body = json.dumps({"text": text, "source": source}, ensure_ascii=False)
+    fd, body_name = tempfile.mkstemp(prefix=".beanz-body.", dir=str(workdir))
+    os.fchmod(fd, 0o600)
+    os.close(fd)
+    body_path = Path(body_name)
+    resp_fd, resp_name = tempfile.mkstemp(prefix=".beanz-resp.", dir=str(workdir))
+    os.fchmod(resp_fd, 0o600)
+    os.close(resp_fd)
+    resp_path = Path(resp_name)
+    config = (
+        'url = "%s/v1/capture"\n'
+        'header = "Authorization: Bearer %s"\n'
+        'header = "Content-Type: application/json"\n'
+        'data-binary = "@%s"\n'
+        % (brain_url, token.replace("\\", "\\\\").replace('"', '\\"'), body_path)
+    )
+    try:
+        body_path.write_bytes(body.encode("utf-8"))
+        timeout = timeout_seconds()
+        try:
+            completed = subprocess.run(
+                [
+                    "curl",
+                    "-s",
+                    "-o",
+                    str(resp_path),
+                    "-w",
+                    "%{http_code}",
+                    "--max-time",
+                    str(timeout),
+                    "-K",
+                    "-",
+                ],
+                input=config.encode("utf-8"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout + 5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise UserError("brain capture transport failed: %s" % exc)
+        if completed.returncode != 0:
+            raise UserError("brain capture transport failed")
+        try:
+            status_text = completed.stdout.decode("ascii").strip()
+        except UnicodeDecodeError:
+            raise UserError("brain capture returned a malformed status")
+        if not re.fullmatch(r"[0-9]{3}", status_text):
+            raise UserError("brain capture returned a malformed status")
+        status = int(status_text)
+        size = resp_path.stat().st_size
+        if size > MAX_RESPONSE_BYTES:
+            raise UserError("brain capture response is too large")
+        raw = resp_path.read_bytes()
+        if status != 200:
+            raise UserError("brain capture failed with HTTP %s" % status)
+        try:
+            response = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise UserError("brain capture returned no capture_id")
+        capture_id = response.get("capture_id") if isinstance(response, dict) else None
+        if not isinstance(capture_id, str) or not capture_id:
+            raise UserError("brain capture returned no capture_id")
+        return capture_id
+    finally:
+        for path in (body_path, resp_path):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
+def capture_line(
+    line: str,
+    state: Path,
+    config: Path,
+    token: str,
+    brain_url: str,
+    captain_chat: int,
+    group_on: bool,
+) -> str:
+    payload = parse_payload(line)
+    update_id = int(payload["update_id"])
+    chat_id = int(payload["chat_id"])
+    if chat_id != captain_chat and not group_on:
+        return "skipped:group %d" % update_id
+    source = CAPTAIN_SOURCE if chat_id == captain_chat else GROUP_SOURCE
+    digest = payload_hash(payload)
+    receipts = ensure_receipt_dir(state)
+    path = receipt_path(receipts, update_id)
+    if path.exists() or path.is_symlink():
+        existing = read_receipt(path)
+        if existing.get("payload_sha256") != digest:
+            raise UserError("receipt for update %d disagrees with the payload" % update_id)
+        capture_id = existing.get("capture_id")
+        if not isinstance(capture_id, str) or not capture_id:
+            raise UserError("receipt for update %d has no capture_id" % update_id)
+        return "already-captured %d %s" % (update_id, capture_id)
+    capture_id = post_capture(token, brain_url, str(payload["text"]), source, receipts)
+    failpoint("before-receipt")
+    write_receipt(
+        path,
+        {
+            "update_id": update_id,
+            "payload_sha256": digest,
+            "capture_id": capture_id,
+            "source": source,
+            "captured_at": int(time.time()),
+        },
+    )
+    return "captured %d %s" % (update_id, capture_id)
+
+
+def iter_payload_lines(raw: str) -> Iterable[str]:
+    for line in raw.splitlines():
+        if line.strip():
+            yield line
+
+
+def command_capture(state: Path, config: Path) -> int:
+    raw = sys.stdin.read()
+    token, brain_url = brain_credentials()
+    captain_chat = captain_chat_id()
+    group_on = group_capture_enabled(config)
+    for line in iter_payload_lines(raw):
+        print(
+            capture_line(
+                line, state, config, token, brain_url, captain_chat, group_on
+            )
+        )
+    return 0
+
+
+def command_doctor(state: Path, config: Path) -> int:
+    brain_path = brain_env_path()
+    telegram_path = telegram_env_path()
+    brain_state = "missing"
+    brain_url = DEFAULT_BRAIN_URL
+    try:
+        _, brain_url = brain_credentials()
+        brain_state = "present"
+    except UserError:
+        if brain_path.exists():
+            brain_state = "unreadable"
+    chat_state = "missing"
+    try:
+        captain_chat_id()
+        chat_state = "configured"
+    except UserError:
+        if telegram_path.exists() or os.environ.get("FM_TELEGRAM_CAPTAIN_CHAT_ID"):
+            chat_state = "unreadable"
+    group_state = "on" if group_capture_enabled(config) else "off"
+    receipts = state / "telegram-brain-capture"
+    if receipts.is_dir() and not receipts.is_symlink():
+        receipt_state = "present"
+    else:
+        receipt_state = "absent"
+    print("brain-env: %s" % brain_state)
+    print("brain-url: %s" % brain_url)
+    print("captain-chat: %s" % chat_state)
+    print("group-capture: %s" % group_state)
+    print("receipts: %s" % receipt_state)
+    return 0
+
+
+def main(argv: Optional[list] = None) -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--state", required=True)
+    parser.add_argument("--config", required=True)
+    parser.add_argument("command")
+    args = parser.parse_args(argv)
+    state = Path(args.state)
+    config = Path(args.config)
+    try:
+        if args.command == "capture":
+            return command_capture(state, config)
+        if args.command == "doctor":
+            return command_doctor(state, config)
+        raise UserError("unknown engine command: %s" % args.command)
+    except UserError as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

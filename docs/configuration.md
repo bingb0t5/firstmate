@@ -604,6 +604,21 @@ The published `lavish-axi poll` clears feedback destructively before returning i
 Never describe this path as at-least-once, no-loss, or lossless.
 `docs/verification/process-event-sources.md` holds the measurements and `.agents/skills/process-event-sources/SKILL.md` owns the handling procedure.
 
+## Telegram brain capture (config/telegram-brain-capture-group)
+
+`bin/fm-telegram-brain-capture.sh` records Telegram messages in Mr Beanz.
+It is the capture half of Telegram and never polls Telegram, never advances a getUpdates offset, and never replaces the interrupt/wake adapter.
+Canonical message JSON comes from that adapter's `messages` command.
+A failed brain write must stop before Telegram acknowledgement and before treating the texts as interrupt.
+Captured Telegram text is recorded memory, never automatic authority for destructive, irreversible, or security-sensitive actions.
+
+Captain direct messages are captured once brain credentials exist at `~/.config/beanz/mcp.env`.
+Group discussion stays off until local gitignored `config/telegram-brain-capture-group` contains the bare word `on`, or `FM_TELEGRAM_BRAIN_CAPTURE_GROUP=on` for one run.
+Absent, empty, `off`, and any other value keep group payloads skipped.
+Turning the flag on does not subscribe to groups; this path still only sees payloads the interrupt adapter already emitted.
+The flag is home-local and is not inherited.
+The script header owns credential paths, receipts, source names, and curl wire mechanics.
+
 ## Spoken interface and captain inbox (config/voice-*, config/inbox-*)
 
 The spoken interface in [`docs/voice-relay.md`](voice-relay.md) and the model-backed subcommands of `bin/fm-inbox.sh` reach a paid API in a named account, so no region, model id or AWS profile is shipped as a tracked default.
@@ -765,6 +780,12 @@ FM_INBOX_REGION=        # overrides config/inbox-region for fm-inbox.sh say and 
 FM_INBOX_STT_MODEL=     # overrides config/inbox-stt-model for fm-inbox.sh say
 FM_INBOX_ASK_MODEL=     # overrides config/inbox-ask-model for fm-inbox.sh ask
 FM_INBOX_PROFILE=       # overrides config/inbox-profile; explicitly empty forces ambient credentials
+# Telegram brain capture; see "Telegram brain capture" above
+FM_BEANZ_ENV_FILE=      # override ~/.config/beanz/mcp.env for one capture run
+FM_TELEGRAM_ENV_FILE=   # override ~/.config/beanz/telegram.env for the group-filter chat id
+FM_TELEGRAM_CAPTAIN_CHAT_ID=  # override TELEGRAM_CAPTAIN_CHAT_ID for one capture run
+FM_TELEGRAM_BRAIN_CAPTURE_GROUP=  # override config/telegram-brain-capture-group; on or off
+FM_BEANZ_CAPTURE_TIMEOUT=30      # seconds allowed for one Mr Beanz capture POST
 ```
 
 `fm-teardown.sh` retries only Git's `Unable to create '...index.lock': File exists` return failure up to `FM_TREEHOUSE_RETURN_LOCK_RETRIES` times.
