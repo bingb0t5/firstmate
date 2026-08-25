@@ -24,9 +24,11 @@
 #   Set FM_SECONDMATE_SCOPE='<scope>' to write a routing scope distinct from the charter text.
 #   --herdr-lab is mandatory when the task will issue Herdr lifecycle commands.
 #   It adds the hard isolation contract backed by bin/fm-herdr-lab.sh.
-#   The flag must be explicit because {TASK} is filled after scaffolding and the
-#   caller-supplied repo string cannot reliably identify this repo. Briefs made
-#   without it carry a loud declaration so an omitted contract cannot be silent.
+#   The flag must be explicit because no scaffold path ever inspects the task text
+#   for Herdr lifecycle intent - the FM_TASK scan below reads acceptance and wait
+#   evidence only - and the caller-supplied repo string cannot reliably identify
+#   this repo. Briefs made without it carry a loud declaration so an omitted
+#   contract cannot be silent.
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never reads it:
@@ -211,22 +213,14 @@ fm_brief_wait_is_bounded() {
   return 0
 }
 
-# One acceptance-command line, and every wait mention bounded with an escape.
-# One walk classifies every line, so the validator and the auditable evidence block
-# can never disagree about what counts as evidence. Fills FM_BRIEF_SOL_ERRORS and
-# FM_BRIEF_SOL_EVIDENCE; returns 0 only when the text qualifies.
-fm_brief_sol_line_kind() {
-  FM_BRIEF_SOL_KIND=
-  case "$1" in
-    'Acceptance command: '*) FM_BRIEF_SOL_KIND=acceptance ;;
-    Wait:*) FM_BRIEF_SOL_KIND='wait' ;;
-  esac
-}
-
 # Scaffold-owned machine-readable lines. A filled task body that forges one would
 # be read back by bin/fm-spawn.sh ahead of the line this scaffold actually wrote.
 FM_BRIEF_RESERVED_PREFIXES=('Delivery contract:' 'Sol exemption:')
 
+# One acceptance-command line, and every wait mention bounded with an escape.
+# One walk classifies every line, so the validator and the auditable evidence block
+# can never disagree about what counts as evidence. Fills FM_BRIEF_SOL_ERRORS and
+# FM_BRIEF_SOL_EVIDENCE; returns 0 only when the text qualifies.
 fm_brief_sol_scan() {
   local text=$1
   local line prose prefix acc_count=0 saw_unbounded=0
@@ -241,25 +235,25 @@ fm_brief_sol_scan() {
           ;;
       esac
     done
-    fm_brief_sol_line_kind "$line"
-    case "$FM_BRIEF_SOL_KIND" in
-      acceptance)
+    case "$line" in
+      'Acceptance command: '*)
         case "$line" in
           Acceptance\ command:\ \`?*\`*) acc_count=$((acc_count + 1)) ;;
           *) FM_BRIEF_SOL_ERRORS+=('Acceptance command must use backticks around the command') ;;
         esac
         FM_BRIEF_SOL_EVIDENCE+=("$line")
         ;;
-      wait)
+      Wait:*)
         fm_brief_wait_is_bounded "$line" \
           || FM_BRIEF_SOL_ERRORS+=('Wait: lines must include non-empty bound=... and escape=... values')
         FM_BRIEF_SOL_EVIDENCE+=("$line")
         ;;
       *)
-        # Backticked spans are literal code, not prose: `wait-for-ci.sh` names a
-        # command, so scanning them would refuse legitimate ship tasks.
+        # A whitespace-free backticked span is a command or token name, not prose:
+        # `wait-for-ci.sh` must not read as a wait. A span containing whitespace is
+        # prose and stays in the scan, so `wait for review` cannot hide there.
         # shellcheck disable=SC2016 # Backticks in the sed script are literal evidence syntax.
-        prose=$(printf '%s' "$line" | sed 's/`[^`]*`//g')
+        prose=$(printf '%s' "$line" | sed 's/`[^`[:space:]]*`//g')
         if [ "$saw_unbounded" -eq 0 ] \
            && printf '%s\n' "$prose" | grep -qiE '(^|[^a-z])a?wait(s|ed|ing)?([^a-z]|$)'; then
           FM_BRIEF_SOL_ERRORS+=('unbounded wait mention requires a Wait: line with bound= and escape=')
@@ -270,9 +264,11 @@ fm_brief_sol_scan() {
   done <<EOF
 $text
 EOF
-  if [ "$acc_count" -ne 1 ]; then
+  if [ "$acc_count" -eq 0 ]; then
     # shellcheck disable=SC2016 # Backticks in the message document the required syntax.
     FM_BRIEF_SOL_ERRORS+=('missing exactly one Acceptance command: `...` line')
+  elif [ "$acc_count" -gt 1 ]; then
+    FM_BRIEF_SOL_ERRORS+=("found $acc_count Acceptance command lines; keep exactly one")
   fi
   [ "${#FM_BRIEF_SOL_ERRORS[@]}" -eq 0 ]
 }
@@ -439,13 +435,17 @@ HERDR_SECTION=$(printf '%s\n' \
 'Never bypass the helper, even for a read-only lifecycle probe or cleanup after failure.' \
 'The captain fleet uses the running `default` session.')
 else
-IFS= read -r -d '' HERDR_SECTION <<'EOF' || true
-# Herdr lifecycle declaration - NOT ENABLED
-**HARD SAFETY GATE:** this scaffold cannot inspect the task text filled in above.
-If the task will start, stop, delete, restart, profile, or otherwise drive Herdr lifecycle behavior, stop and regenerate the brief with `--herdr-lab` before dispatch.
-Do not add Herdr lifecycle commands to this unguarded brief by hand.
-EOF
-HERDR_SECTION=${HERDR_SECTION%$'\n'}
+if [ -n "${FM_TASK:-}" ]; then
+  HERDR_GATE_LINE='**HARD SAFETY GATE:** this scaffold never inspects the task text above for Herdr lifecycle intent.'
+else
+  HERDR_GATE_LINE='**HARD SAFETY GATE:** this scaffold cannot inspect the task text filled in above.'
+fi
+# shellcheck disable=SC2016  # single quotes are deliberate: the backtick-wrapped `--herdr-lab` is literal brief text that must reach the reading agent verbatim.
+HERDR_SECTION=$(printf '%s\n' \
+'# Herdr lifecycle declaration - NOT ENABLED' \
+"$HERDR_GATE_LINE" \
+'If the task will start, stop, delete, restart, profile, or otherwise drive Herdr lifecycle behavior, stop and regenerate the brief with `--herdr-lab` before dispatch.' \
+'Do not add Herdr lifecycle commands to this unguarded brief by hand.')
 fi
 
 if [ "$KIND" = scout ]; then
@@ -562,8 +562,8 @@ esac
 # briefs stay byte-identical to the historical Bash 5 output.
 DOD=${DOD%$'\n'}
 if [ -n "$SOL_EXEMPTION_LINE" ]; then
-  DOD=$(printf '%s\n' "$DOD" | awk '
-    /^Delivery contract: mode=/ { print; print "Sol exemption: earned"; next }
+  DOD=$(printf '%s\n' "$DOD" | awk -v exemption="$SOL_EXEMPTION_LINE" '
+    /^Delivery contract: mode=/ { print; print exemption; next }
     { print }
   ')
 fi
