@@ -119,6 +119,7 @@ init_changed_fixture_repo() {
   : >"$repo/bin/fm-supervisor-target-lib.sh"
   : >"$repo/bin/fm-secondmate-registry-lib.sh"
   : >"$repo/bin/fm-brief.sh"
+  : >"$repo/bin/fm-lint.sh"
   : >"$repo/bin/unmapped-source.sh"
   printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
     >>"$repo/tests/fm-cd-pretool-check.test.sh"
@@ -177,6 +178,15 @@ test_changed_dependency_selection_and_unmapped_failure() {
     "brief scaffolder selects the secondmate coverage that pins its generated charter note"
   git -C "$repo" add bin/fm-brief.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm brief-change
+
+  printf '\n' >>"$repo/bin/fm-lint.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-brief.test.sh" "lint script selects its own contract coverage"
+  if printf '%s\n' "$listed" | grep -Fqx "tests/fm-secondmate-safety.test.sh"; then
+    fail "lint script over-selected the secondmate family it cannot affect"
+  fi
+  git -C "$repo" add bin/fm-lint.sh
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm lint-change
 
   printf '\n' >>"$repo/.agents/skills/example/SKILL.md"
   printf '\n' >>"$repo/.claude/settings.json"

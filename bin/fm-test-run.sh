@@ -1034,7 +1034,9 @@ families_for_changed_path() {
       printf '%s\n' real-herdr-gated
       ;;
     bin/fm-lint.sh|bin/fm-lint-workflows.sh|bin/fm-install-shellcheck.sh|\
-    bin/fm-install-actionlint.sh|\
+    bin/fm-install-actionlint.sh)
+      printf '%s\n' pure-contract-unit
+      ;;
     bin/fm-brief.sh)
       # Scaffolds both crew briefs and the secondmate charter whose generated
       # note the secondmate suite pins verbatim.
