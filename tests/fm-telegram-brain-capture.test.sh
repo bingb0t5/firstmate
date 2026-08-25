@@ -90,6 +90,11 @@ if [ -n "${FAKE_CURL_BODY_LOG:-}" ] && [ -n "$bodyfile" ]; then
   echo >> "$FAKE_CURL_BODY_LOG"
 fi
 if [ -n "$ofile" ]; then
+  if [ -n "${FAKE_CAPTURE_OVERSIZED:-}" ]; then
+    python3 -c 'import sys; sys.stdout.write("<" * (1024 * 1024 + 1))' > "$ofile"
+    printf '%s' "$code"
+    exit "${FAKE_CURL_EXIT:-0}"
+  fi
   body=${FAKE_CAPTURE_BODY-}
   if [ -n "$matched" ] && [ -n "${FAKE_CAPTURE_FAIL_BODY:-}" ]; then
     body=$FAKE_CAPTURE_FAIL_BODY
@@ -137,6 +142,7 @@ run_capture() {
     FAKE_CAPTURE_FAIL_MATCH="${FAKE_CAPTURE_FAIL_MATCH-}" \
     FAKE_CAPTURE_FAIL_CODE="${FAKE_CAPTURE_FAIL_CODE-}" \
     FAKE_CAPTURE_FAIL_BODY="${FAKE_CAPTURE_FAIL_BODY-}" \
+    FAKE_CAPTURE_OVERSIZED="${FAKE_CAPTURE_OVERSIZED-}" \
     FAKE_CURL_EXIT="${FAKE_CURL_EXIT-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_GROUP="${FM_TELEGRAM_BRAIN_CAPTURE_GROUP-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT="${FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT-}" \
@@ -875,6 +881,30 @@ assert_absent "$nonjson/state/telegram-brain-capture/9934" \
   "a later payload was attempted after a non-JSON response"
 pass "a non-JSON 2xx response stops the batch after one POST"
 
+# --- an oversized non-JSON 2xx response stops the batch --------------------
+oversized=$(make_home oversized-non-json-response)
+oversized_bin=$(make_fake_curl "$oversized")
+FAKE_CURL_LOG="$oversized/curl.log"
+FAKE_CAPTURE_OVERSIZED=1
+{
+  payload 9936 "the gateway sends an oversized challenge"
+  payload 9937 "a later thought"
+} > "$oversized/batch.jsonl"
+if run_capture "$oversized" "$oversized_bin" capture - < "$oversized/batch.jsonl" \
+  >"$oversized/out" 2>"$oversized/err"; then
+  fail "an oversized non-JSON 2xx response must stay fail-closed"
+fi
+FAKE_CAPTURE_OVERSIZED=
+assert_grep "response is too large" "$oversized/err" \
+  "the oversized endpoint response was not reported"
+assert_grep "unattempted 1" "$oversized/out" \
+  "an oversized endpoint response did not stop the remaining batch"
+oversized_posts=$(grep -c '^url=' "$oversized/curl.log")
+expect_code 1 "$oversized_posts" "an oversized endpoint response kept POSTing the batch"
+assert_absent "$oversized/state/telegram-brain-capture/9937" \
+  "a later payload was attempted after an oversized endpoint response"
+pass "an oversized non-JSON 2xx response stops the batch after one POST"
+
 # --- an endpoint-level 404 is systemic and stops the batch ------------------
 gone=$(make_home http-gone)
 gone_bin=$(make_fake_curl "$gone")
@@ -925,13 +955,13 @@ if run_capture "$named" "$named_bin" capture - < "$named/batch.jsonl" \
 fi
 assert_grep "error: 9970 receipt mode is not 600" "$named/err" \
   "the refusal did not name the payload the documented recovery needs"
-assert_grep "unattempted 1" "$named/out" \
-  "an unusable receipt did not count the remaining payload"
-assert_absent "$named/state/telegram-brain-capture/9971" \
-  "an unusable receipt still POSTed the next payload"
+assert_not_contains "$(cat "$named/out")" "unattempted" \
+  "a corrupt per-update receipt stopped the batch"
+assert_present "$named/state/telegram-brain-capture/9971" \
+  "a corrupt per-update receipt blocked a later payload"
 named_posts=$(grep -c '^url=' "$named/curl.log")
-expect_code 1 "$named_posts" "an unusable receipt kept POSTing the batch"
-pass "an unusable receipt stops the batch and names the update_id"
+expect_code 2 "$named_posts" "a corrupt per-update receipt blocked the later POST"
+pass "a corrupt per-update receipt fails its line and keeps walking"
 
 # --- a credential-systemic 401 still stops the batch ------------------------
 denied=$(make_home http-denied)
