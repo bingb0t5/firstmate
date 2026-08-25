@@ -309,3 +309,58 @@ secondmate_registry_validate_bindings() {
   fi
   return 0
 }
+
+secondmate_registry_project_basename() {
+  local path=$1
+  case "$path" in
+    projects/*) path=${path#projects/} ;;
+  esac
+  basename "$path"
+}
+
+secondmate_registry_projects_field_has() {
+  local field=$1 project=$2 entry
+  local IFS=,
+  [ -n "$project" ] || return 1
+  [ -n "$field" ] || return 1
+  for entry in $field; do
+    entry=${entry#"${entry%%[![:space:]]*}"}
+    entry=${entry%"${entry##*[![:space:]]}"}
+    [ -n "$entry" ] || continue
+    [ "$entry" = "$project" ] && return 0
+  done
+  return 1
+}
+
+secondmate_registry_has_entries() {
+  local reg=$1 line
+  [ -f "$reg" ] || return 1
+  [ ! -L "$reg" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "- "*)
+        secondmate_registry_parse_line "$line" && return 0
+        ;;
+    esac
+  done < "$reg"
+  return 1
+}
+
+# Print one owner id per line for a project basename. Returns 0 when any match.
+secondmate_registry_project_owners() {
+  local reg=$1 project=$2 line found=0
+  [ -f "$reg" ] || return 1
+  [ ! -L "$reg" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "- "*)
+        secondmate_registry_parse_line "$line" || continue
+        if secondmate_registry_projects_field_has "$SECONDMATE_REGISTRY_PROJECTS" "$project"; then
+          printf '%s\n' "$SECONDMATE_REGISTRY_ID"
+          found=1
+        fi
+        ;;
+    esac
+  done < "$reg"
+  [ "$found" -eq 1 ]
+}

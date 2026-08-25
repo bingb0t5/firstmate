@@ -193,7 +193,7 @@ The concise single-line route contract is owned by the [`secondmate-provisioning
 A remote route adds `host:` and `root:` before the existing fields and places the whole secondmate home on that SSH host; it does not make ordinary workers remotely placeable.
 [`remote-secondmates.md`](remote-secondmates.md) owns current remote setup, operation, and safety behavior.
 Use `fm-home-seed.sh validate` to check the complete operational registry contract documented by the command itself.
-The main first mate routes by reading those scopes with judgment; the project list is provisioning data, not exclusive ownership.
+The main first mate routes by reading those scopes with judgment; [`fm-spawn.sh`](../bin/fm-spawn.sh) hard-refuses a fresh primary-home ship or scout into any project listed on a secondmate's `projects:` field unless `--allow-primary-spawn` is passed deliberately, while scope text is never matched at spawn time.
 Use `fm-home-seed.sh <id> - {<project>...|--no-projects}` to lease a fresh local firstmate worktree for the secondmate home.
 For remote provisioning, including supplied project origins, follow [Remote second mates](remote-secondmates.md#provision-a-route).
 Use the deliberate `--no-projects` signal only for a firstmate-repo domain that needs no separate project clones.

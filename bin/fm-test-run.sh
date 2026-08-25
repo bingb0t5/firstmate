@@ -146,6 +146,7 @@ family_for_basename() {
     fm-send-popup-settle.test.sh|fm-send-settle.test.sh|\
     fm-subagent-pretool-check.test.sh|\
     fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|\
+    fm-spawn-secondmate-ownership.test.sh|\
     fm-tmux-submit-busy.test.sh|fm-trace-context-lib.test.sh|\
     fm-transition-lib.test.sh|\
     fm-test-run.test.sh|fm-test-isolation-proof.test.sh)
@@ -472,6 +473,7 @@ tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh 21
 tests/fm-sessionstart-nudge.test.sh 26684
 tests/fm-shared-captain-inheritance.test.sh 10672
 tests/fm-spawn-dispatch-profile.test.sh 57765
+tests/fm-spawn-secondmate-ownership.test.sh 3500
 tests/fm-spawn-pool-base-freshen.test.sh 13257
 tests/fm-spawn-worktree-settle.test.sh 4828
 tests/fm-startup-memory-budget.test.sh 6550
