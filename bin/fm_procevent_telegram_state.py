@@ -63,6 +63,15 @@ DETAIL_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
 MIGRATION_CAUSE_RE = re.compile(r"^[^\x00-\x1f\x7f]{1,240}$")
 CONTROL_BYTE_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 FOREIGN_PATH_RE = re.compile(r"(?<![\w.\-/])/[^\s:'\"]+")
+ARCHIVE_PARENT_NAME = "telegram-migration-archive"
+ARCHIVE_SCHEMA = "fm-telegram-migration-archive.v1"
+ARCHIVE_NAME_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$")
+STAGING_PREFIX = ".telegram-migration-staging-"
+STAGING_GLOB = STAGING_PREFIX + "*"
+STAGING_MARKER_SUFFIX = ".owner"
+STAGING_NAME_RE = re.compile(r"^\.telegram-migration-staging-[0-9]+-[0-9a-f]{8}$")
+STAGING_SCHEMA = "fm-telegram-migration-staging.v1"
+ARCHIVE_ENTRY_TYPES = ("file", "directory", "symlink", "other")
 NOTICE_TOKEN_RE = re.compile(
     r"^(?P<state>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
     r"[0-9a-f]{4}-[0-9a-f]{12}):(?P<notice>[1-9][0-9]*)$"
@@ -291,6 +300,19 @@ def fsync_directory(path: Path) -> None:
     fd = os.open(str(path), flags)
     try:
         os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def fsync_path(path: Path) -> None:
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
     finally:
         os.close(fd)
 
@@ -1423,6 +1445,208 @@ def remove_tree_forcibly(path: Path) -> None:
     shutil.rmtree(str(path), ignore_errors=True)
 
 
+def unlink_quietly(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def staging_marker_path(staging: Path) -> Path:
+    return staging.parent / (staging.name + STAGING_MARKER_SUFFIX)
+
+
+def write_staging_marker(marker: Path) -> None:
+    fd = os.open(str(marker), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(
+            {"schema": STAGING_SCHEMA, "pid": os.getpid(), "created_at": now_epoch()},
+            handle,
+            sort_keys=True,
+        )
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def marked_schema(path: Path) -> Optional[str]:
+    try:
+        info = path.lstat()
+    except OSError:
+        return None
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        return None
+    if info.st_size > 65536:
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(document, dict):
+        return None
+    schema = document.get("schema")
+    return schema if isinstance(schema, str) else None
+
+
+def refuse_leftover(name: str, reason: str) -> None:
+    raise UserError(
+        "Telegram migration leftover %s %s; inspect and remove it manually before "
+        "rerunning migrate" % (name, reason)
+    )
+
+
+def reconcile_migration_leftovers(state: Path) -> None:
+    for path in sorted(state.glob(STAGING_GLOB)):
+        if path.name.endswith(STAGING_MARKER_SUFFIX):
+            continue
+        if path.is_symlink() or not path.is_dir():
+            refuse_leftover(path.name, "is not a private staging directory")
+        if not STAGING_NAME_RE.fullmatch(path.name):
+            refuse_leftover(path.name, "does not carry this migrator's staging name")
+        if marked_schema(staging_marker_path(path)) != STAGING_SCHEMA:
+            refuse_leftover(path.name, "has no valid private staging ownership marker")
+        remove_tree_forcibly(path)
+        unlink_quietly(staging_marker_path(path))
+    for path in sorted(state.glob(STAGING_GLOB)):
+        if not path.name.endswith(STAGING_MARKER_SUFFIX):
+            continue
+        if path.is_symlink() or not path.is_file():
+            refuse_leftover(path.name, "is not a private staging ownership marker")
+        if marked_schema(path) != STAGING_SCHEMA:
+            refuse_leftover(path.name, "is not a valid private staging ownership marker")
+        unlink_quietly(path)
+    reconcile_orphan_archives(state)
+
+
+def reconcile_orphan_archives(state: Path) -> None:
+    archive_parent = state / ARCHIVE_PARENT_NAME
+    if archive_parent.is_symlink():
+        refuse_leftover(ARCHIVE_PARENT_NAME, "is a symlink rather than a directory")
+    if not archive_parent.exists():
+        return
+    if not archive_parent.is_dir():
+        refuse_leftover(ARCHIVE_PARENT_NAME, "is not a directory")
+    mode = stat.S_IMODE(archive_parent.lstat().st_mode)
+    if mode not in (0o500, 0o700):
+        refuse_leftover(ARCHIVE_PARENT_NAME, "has an unexpected mode %o" % mode)
+    if mode != 0o700:
+        os.chmod(archive_parent, 0o700)
+    for entry in sorted(archive_parent.iterdir()):
+        if entry.is_symlink() or not entry.is_dir():
+            refuse_leftover(entry.name, "is not a published archive directory")
+        if not ARCHIVE_NAME_RE.fullmatch(entry.name):
+            refuse_leftover(entry.name, "does not carry a published archive name")
+        if marked_schema(entry / "manifest.json") != ARCHIVE_SCHEMA:
+            refuse_leftover(entry.name, "is not a complete manifest-bound archive")
+        remove_tree_forcibly(entry)
+    prune_empty_archive_parent(state)
+
+
+def fsync_staged_tree(staging: Path) -> None:
+    for base, _, files in os.walk(str(staging), topdown=False):
+        for name in files:
+            path = Path(base) / name
+            if not path.is_symlink():
+                fsync_path(path)
+        fsync_path(Path(base))
+
+
+def legacy_source_entries(state: Path, paths: Sequence[Path]) -> List[Dict[str, object]]:
+    seen: Dict[str, Dict[str, object]] = {}
+    pending = list(paths)
+    while pending:
+        current = pending.pop()
+        relative = current.relative_to(state).as_posix()
+        info = current.lstat()
+        item: Dict[str, object] = {"path": relative}
+        if stat.S_ISLNK(info.st_mode):
+            item["type"] = "symlink"
+            item["target"] = os.readlink(str(current))
+        elif stat.S_ISDIR(info.st_mode):
+            item["type"] = "directory"
+            pending.extend(current.iterdir())
+        elif stat.S_ISREG(info.st_mode):
+            item["type"] = "file"
+            item["sha256"] = hash_regular_file(current)
+            item["size"] = info.st_size
+        else:
+            item["type"] = "other"
+        seen[relative] = item
+    return [seen[key] for key in sorted(seen)]
+
+
+def decode_archive_manifest(manifest_path: Path) -> List[Dict[str, object]]:
+    try:
+        raw = manifest_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise UserError("the staged Telegram archive manifest is unreadable: %s" % exc)
+    try:
+        document = json.loads(raw)
+    except ValueError as exc:
+        raise UserError("the staged Telegram archive manifest is not valid JSON: %s" % exc)
+    if not isinstance(document, dict):
+        raise UserError("the staged Telegram archive manifest is not an object")
+    if document.get("schema") != ARCHIVE_SCHEMA:
+        raise UserError("the staged Telegram archive manifest has an unknown schema")
+    if type(document.get("created_at")) is not int:
+        raise UserError("the staged Telegram archive manifest has no valid timestamp")
+    entries = document.get("entries")
+    if not isinstance(entries, list):
+        raise UserError("the staged Telegram archive manifest has no entry list")
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise UserError("the staged Telegram archive manifest has a malformed entry")
+        if not isinstance(entry.get("path"), str) or type(entry.get("mode")) is not int:
+            raise UserError("the staged Telegram archive manifest has a malformed entry")
+        if entry.get("type") not in ARCHIVE_ENTRY_TYPES:
+            raise UserError("the staged Telegram archive manifest has an unknown entry type")
+        if entry.get("type") == "file" and (
+            not isinstance(entry.get("sha256"), str) or type(entry.get("size")) is not int
+        ):
+            raise UserError(
+                "the staged Telegram archive manifest has a malformed file entry"
+            )
+        if entry.get("type") == "symlink" and not isinstance(entry.get("target"), str):
+            raise UserError(
+                "the staged Telegram archive manifest has a malformed symlink entry"
+            )
+    return entries
+
+
+def first_entry_difference(
+    expected: Sequence[Dict[str, object]], observed: Sequence[Dict[str, object]]
+) -> str:
+    expected_map = {str(item.get("path")): item for item in expected}
+    observed_map = {str(item.get("path")): item for item in observed}
+    for name in sorted(set(expected_map) | set(observed_map)):
+        if expected_map.get(name) != observed_map.get(name):
+            return name
+    return "entry order"
+
+
+def verify_staged_archive(
+    state: Path, copied: Path, manifest_path: Path, paths: Sequence[Path]
+) -> None:
+    declared = decode_archive_manifest(manifest_path)
+    observed = archive_manifest_entries(copied)
+    if declared != observed:
+        raise UserError(
+            "the staged Telegram archive does not match its manifest at %s"
+            % first_entry_difference(declared, observed)
+        )
+    staged = {str(entry.get("path")): entry for entry in observed}
+    for item in legacy_source_entries(state, paths):
+        name = str(item["path"])
+        copy = staged.get(name)
+        if copy is None:
+            raise UserError("the staged Telegram archive is missing %s" % name)
+        for key in ("type", "size", "sha256", "target"):
+            if item.get(key) != copy.get(key):
+                raise UserError(
+                    "the staged copy of %s does not match the original legacy artifact"
+                    % name
+                )
+
+
 def stage_migration_archive(state: Path, staging: Path, paths: Sequence[Path]) -> None:
     staging.mkdir(mode=0o700)
     copied = staging / "state"
@@ -1450,11 +1674,12 @@ def stage_migration_archive(state: Path, staging: Path, paths: Sequence[Path]) -
                 "legacy artifact %s could not be archived: %s"
                 % (relative.as_posix(), copy_failure_detail(state, exc))
             )
-    entries = archive_manifest_entries(copied)
+    synchronization_failpoint("staged-copies")
+    fsync_staged_tree(staging)
     manifest = {
-        "schema": "fm-telegram-migration-archive.v1",
+        "schema": ARCHIVE_SCHEMA,
         "created_at": now_epoch(),
-        "entries": entries,
+        "entries": archive_manifest_entries(copied),
     }
     manifest_path = staging / "manifest.json"
     manifest_path.write_text(
@@ -1462,33 +1687,13 @@ def stage_migration_archive(state: Path, staging: Path, paths: Sequence[Path]) -
     )
     with manifest_path.open("rb") as handle:
         os.fsync(handle.fileno())
+    fsync_directory(staging)
+    synchronization_failpoint("staged-archive")
     verify_staged_archive(state, copied, manifest_path, paths)
 
 
-def verify_staged_archive(
-    state: Path, copied: Path, manifest_path: Path, paths: Sequence[Path]
-) -> None:
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise UserError("the staged Telegram archive manifest is unreadable: %s" % exc)
-    entries = manifest.get("entries")
-    if not isinstance(entries, list) or entries != archive_manifest_entries(copied):
-        raise UserError("the staged Telegram archive does not match its manifest")
-    present = {entry.get("path") for entry in entries if isinstance(entry, dict)}
-    missing = sorted(
-        source.relative_to(state).as_posix()
-        for source in paths
-        if source.relative_to(state).as_posix() not in present
-    )
-    if missing:
-        raise UserError(
-            "the staged Telegram archive is missing %s" % ", ".join(missing[:5])
-        )
-
-
 def make_migration_archive(state: Path, paths: Sequence[Path]) -> Path:
-    archive_parent = state / "telegram-migration-archive"
+    archive_parent = state / ARCHIVE_PARENT_NAME
     if archive_parent.exists() or archive_parent.is_symlink():
         ensure_existing_directory(archive_parent, 0o700)
     else:
@@ -1496,9 +1701,11 @@ def make_migration_archive(state: Path, paths: Sequence[Path]) -> Path:
         fsync_directory(state)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     suffix = uuid.uuid4().hex[:8]
-    staging = state / (".telegram-migration-staging-%d-%s" % (os.getpid(), suffix))
+    staging = state / ("%s%d-%s" % (STAGING_PREFIX, os.getpid(), suffix))
+    marker = staging_marker_path(staging)
     archive = archive_parent / ("%s-%s" % (stamp, suffix))
     try:
+        write_staging_marker(marker)
         stage_migration_archive(state, staging, paths)
         for base, directories, files in os.walk(str(staging), topdown=False):
             for name in files:
@@ -1509,21 +1716,38 @@ def make_migration_archive(state: Path, paths: Sequence[Path]) -> Path:
                 path = Path(base) / name
                 if not path.is_symlink():
                     os.chmod(path, 0o500)
+        failpoint("after_stage")
         os.replace(str(staging), str(archive))
         os.chmod(archive, 0o500)
         fsync_directory(archive_parent)
+        unlink_quietly(marker)
+        fsync_directory(state)
+        failpoint("after_archive_publish")
     except BaseException:
         remove_tree_forcibly(staging)
+        remove_tree_forcibly(archive)
+        unlink_quietly(marker)
         raise
     return archive
 
 
-def discard_migration_archive(archive: Path) -> None:
+def discard_migration_archive(state: Path, archive: Path) -> None:
+    unseal_migration_archive_parent(state)
     remove_tree_forcibly(archive)
 
 
+def unseal_migration_archive_parent(state: Path) -> None:
+    archive_parent = state / ARCHIVE_PARENT_NAME
+    if archive_parent.is_symlink() or not archive_parent.is_dir():
+        return
+    try:
+        os.chmod(archive_parent, 0o700)
+    except OSError:
+        pass
+
+
 def prune_empty_archive_parent(state: Path) -> None:
-    archive_parent = state / "telegram-migration-archive"
+    archive_parent = state / ARCHIVE_PARENT_NAME
     if archive_parent.is_symlink() or not archive_parent.is_dir():
         return
     try:
@@ -1536,7 +1760,7 @@ def prune_empty_archive_parent(state: Path) -> None:
 
 
 def seal_migration_archive_parent(state: Path) -> None:
-    archive_parent = state / "telegram-migration-archive"
+    archive_parent = state / ARCHIVE_PARENT_NAME
     os.chmod(archive_parent, 0o500)
     fsync_directory(state)
 
@@ -1758,6 +1982,7 @@ def command_migrate(state: Path) -> int:
     if database.exists() or database.is_symlink():
         raise UserError("Telegram state database already exists; migration is single-use")
     refuse_unhandled_legacy_results(state)
+    reconcile_migration_leftovers(state)
     paths = legacy_paths_present(state)
     try:
         archive = make_migration_archive(state, paths)
@@ -1768,6 +1993,9 @@ def command_migrate(state: Path) -> int:
             "attempted and no database exists: %s; repair the reported artifact and rerun "
             "migrate" % migration_cause_text(state, exc)
         )
+    except BaseException:
+        prune_empty_archive_parent(state)
+        raise
     relative_archive = archive.relative_to(state).as_posix()
     plan: Optional[MigrationPlan] = None
     cause: Optional[str] = None
@@ -1778,6 +2006,8 @@ def command_migrate(state: Path) -> int:
         except Exception as exc:
             cause = migration_cause_text(state, exc)
             fingerprint = state_fingerprint("migration-ambiguous", exc)
+        seal_migration_archive_parent(state)
+        failpoint("after_archive_seal")
         if plan is None:
             conn = create_store(
                 state,
@@ -1796,11 +2026,10 @@ def command_migrate(state: Path) -> int:
                 plan=plan,
             )
         conn.close()
-    except Exception:
-        discard_migration_archive(archive)
+    except BaseException:
+        discard_migration_archive(state, archive)
         prune_empty_archive_parent(state)
         raise
-    seal_migration_archive_parent(state)
     if plan is None:
         print(
             "blocked: migration-ambiguous fingerprint=%s archive=%s"

@@ -32,9 +32,14 @@
 # It then refuses, naming each one and changing nothing, while any captured
 # legacy Telegram result is still unhandled; that is a recoverable precondition,
 # not ambiguous state.
-# The archive is built and manifest-validated in private staging and published
-# atomically, so a refused attempt leaves no database and no published archive
-# and can simply be rerun.
+# The archive is built in a marked private staging directory, fsynced, then
+# manifest-validated against both a fresh read of its own manifest and the live
+# legacy bytes before it is published atomically and sealed ahead of the
+# database.
+# A refused attempt leaves no database and no published archive.
+# A rerun reconciles its own marked staging and any complete orphan archive left
+# by an uncatchable termination, and refuses actionably on any unmarked,
+# symlinked, or otherwise ambiguous leftover instead of sweeping it by name.
 # It then copies every old Telegram artifact into a private read-only archive,
 # validates the originals without changing or deleting them, and atomically
 # publishes the new database.

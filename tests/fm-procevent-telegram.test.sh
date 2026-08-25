@@ -905,6 +905,187 @@ assert_present "$repaired_archive/manifest.json" \
   "the one published archive is not manifest-bound"
 pass "an archive that cannot be completed refuses before cutover and leaves no database"
 
+legacy_fingerprint() {
+  find "$1/state" -path "$1/state/telegram-migration-archive" -prune -o \
+    -path "$1/state/telegram" -prune -o -type f -print0 \
+    | LC_ALL=C sort -z | xargs -0 sha256sum 2>/dev/null | sed "s|$1/||"
+}
+
+seed_migration_home() {
+  local home=$1 env_file=$2
+  new_home "$home"
+  write_env_file "$env_file" "$TOKEN"
+  printf '1003\n' > "$home/state/.telegram-offset"
+  printf '401\n' > "$home/state/.telegram-blocked"
+  mkdir -p "$home/state/telegram-inbox/handled"
+  printf '{"update_id":900,"date":1,"chat_id":555,"from_id":909,"text":"old handled"}\n' \
+    > "$home/state/telegram-inbox/handled/900.json"
+  mkdir -p "$home/state/.telegram-delivery-receipts"
+}
+
+published_archives() {
+  find "$1/state/telegram-migration-archive" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' '
+}
+
+assert_converged_migration() {
+  local home=$1 case_name=$2
+  assert_equal "$(published_archives "$home")" 1 \
+    "$case_name did not converge to exactly one published archive"
+  assert_equal "$(db_query "$home" "SELECT migration_status FROM meta")" complete \
+    "$case_name did not converge to a complete cutover"
+  assert_contains "$(FM_HOME="$home" "$ADAPTER" doctor)" "integrity=ok" \
+    "$case_name converged to an invalid database"
+  [ -z "$(find "$home/state" -maxdepth 1 -name '.telegram-migration-staging-*')" ] \
+    || fail "$case_name left private staging behind"
+  local archive
+  archive="$home/state/$(db_query "$home" "SELECT migration_archive FROM meta")"
+  assert_present "$archive/manifest.json" "$case_name published an archive with no manifest"
+}
+
+crash_recovery_case() {
+  local case_name=$1 point=$2
+  local home="$TMP_ROOT/crash-$1" env_file="$TMP_ROOT/crash-$1.env"
+  seed_migration_home "$home" "$env_file"
+  local before after status=0
+  before=$(legacy_fingerprint "$home")
+  FM_TELEGRAM_FAILPOINT="$point" FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" \
+    "$ADAPTER" migrate >/dev/null 2>&1 || status=$?
+  assert_equal "$status" 91 "$case_name did not stop at its crash boundary"
+  assert_absent "$home/state/telegram/channel.db" \
+    "$case_name published a database past its crash boundary"
+  local recovered
+  recovered=$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate)
+  assert_contains "$recovered" "migrated: archive=" \
+    "$case_name could not be recovered by rerunning migrate"
+  assert_converged_migration "$home" "$case_name"
+  after=$(legacy_fingerprint "$home")
+  assert_equal "$after" "$before" "$case_name changed the original legacy bytes"
+}
+
+crash_recovery_case staged-not-published after_stage
+crash_recovery_case published-not-sealed after_archive_publish
+crash_recovery_case sealed-no-database after_archive_seal
+pass "a crash on either side of archive publication or sealing reruns to one archive and one database"
+
+leftover_refusal_case() {
+  local case_name=$1 home="$TMP_ROOT/leftover-$1" env_file="$TMP_ROOT/leftover-$1.env"
+  seed_migration_home "$home" "$env_file"
+  local leftover="$home/state/.telegram-migration-staging-999-deadbeef"
+  case "$case_name" in
+    unmarked)
+      mkdir -p "$leftover/state"
+      printf '{"update_id":1,"text":"copy"}\n' > "$leftover/state/1.json"
+      ;;
+    symlinked)
+      mkdir -p "$home/state/elsewhere"
+      ln -s "$home/state/elsewhere" "$leftover"
+      ;;
+    ambiguous-marker)
+      mkdir -p "$leftover/state"
+      printf 'not a marker\n' > "$leftover.owner"
+      ;;
+    stray-archive-entry)
+      mkdir -p "$home/state/telegram-migration-archive"
+      printf 'stray\n' > "$home/state/telegram-migration-archive/notes.txt"
+      ;;
+    unmanifested-archive)
+      mkdir -p "$home/state/telegram-migration-archive/20260101T000000Z-abcdef01/state"
+      ;;
+  esac
+  local status=0 out
+  out=$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate 2>&1) || status=$?
+  [ "$status" -ne 0 ] || fail "$case_name leftover did not refuse migration"
+  assert_contains "$out" "inspect and remove it manually" \
+    "$case_name leftover was not refused actionably"
+  assert_absent "$home/state/telegram/channel.db" \
+    "$case_name leftover still published a database"
+  case "$case_name" in
+    unmarked|ambiguous-marker)
+      assert_present "$leftover/state" "$case_name leftover was swept by name" ;;
+    symlinked)
+      [ -L "$leftover" ] || fail "$case_name leftover was swept by name" ;;
+    stray-archive-entry)
+      assert_present "$home/state/telegram-migration-archive/notes.txt" \
+        "$case_name leftover was swept by name" ;;
+    unmanifested-archive)
+      assert_present "$home/state/telegram-migration-archive/20260101T000000Z-abcdef01" \
+        "$case_name leftover was swept by name" ;;
+  esac
+  local repeat_status=0 repeat
+  repeat=$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate 2>&1) \
+    || repeat_status=$?
+  assert_equal "$repeat" "$out" "$case_name leftover refusal was not idempotent"
+  assert_equal "$repeat_status" "$status" "$case_name leftover refusal changed its status"
+  chmod -R u+w "$leftover" "$home/state/telegram-migration-archive" 2>/dev/null || true
+  rm -rf "$leftover" "$leftover.owner" "$home/state/telegram-migration-archive"
+  assert_contains "$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate)" \
+    "migrated: archive=" "$case_name blocked migration after the leftover was removed"
+  assert_converged_migration "$home" "$case_name"
+}
+
+for leftover_case in unmarked symlinked ambiguous-marker stray-archive-entry \
+  unmanifested-archive; do
+  leftover_refusal_case "$leftover_case"
+done
+pass "unmarked, symlinked, and ambiguous migration leftovers refuse actionably instead of being swept"
+
+staged_mutation_case() {
+  local case_name=$1 home="$TMP_ROOT/staged-$1" env_file="$TMP_ROOT/staged-$1.env"
+  local marker="$TMP_ROOT/staged-$1.marker" release="$TMP_ROOT/staged-$1.release"
+  local output="$TMP_ROOT/staged-$1.out" boundary="staged-archive"
+  if [ "$case_name" = pre-manifest-truncated ]; then
+    boundary="staged-copies"
+  fi
+  seed_migration_home "$home" "$env_file"
+  local before after
+  before=$(legacy_fingerprint "$home")
+  FM_TELEGRAM_FAILPOINT="$boundary" \
+    FM_TELEGRAM_FAILPOINT_MARKER="$marker" \
+    FM_TELEGRAM_FAILPOINT_RELEASE="$release" \
+    FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" \
+    "$ADAPTER" migrate > "$output" 2>&1 &
+  local pid=$!
+  local staged=
+  for _ in $(seq 1 500); do
+    [ -e "$marker" ] && break
+    sleep 0.01
+  done
+  assert_present "$marker" "$case_name never reached the staged-archive boundary"
+  staged=$(find "$home/state" -maxdepth 1 -name '.telegram-migration-staging-*' -type d)
+  assert_present "$staged/state/telegram-inbox/handled/900.json" \
+    "$case_name did not stage the legacy payload it was supposed to verify"
+  case "$case_name" in
+    truncated|pre-manifest-truncated)
+      : > "$staged/state/telegram-inbox/handled/900.json" ;;
+    removed) rm -f "$staged/state/telegram-inbox/handled/900.json" ;;
+  esac
+  : > "$release"
+  local status=0
+  wait "$pid" || status=$?
+  [ "$status" -ne 0 ] || fail "$case_name published a cutover from mutated staged evidence"
+  assert_grep 'telegram-inbox/handled/900.json' "$output" \
+    "$case_name verifier did not name the mutated staged artifact"
+  assert_absent "$home/state/telegram/channel.db" \
+    "$case_name published a database from mutated staged evidence"
+  assert_equal "$(published_archives "$home")" 0 \
+    "$case_name published an archive from mutated staged evidence"
+  [ -z "$(find "$home/state" -maxdepth 1 -name '.telegram-migration-staging-*')" ] \
+    || fail "$case_name left its mutated staging behind"
+  after=$(legacy_fingerprint "$home")
+  assert_equal "$after" "$before" "$case_name changed the original legacy bytes"
+  assert_contains "$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate)" \
+    "migrated: archive=" "$case_name blocked a clean rerun"
+  assert_converged_migration "$home" "$case_name"
+}
+
+staged_mutation_case truncated
+staged_mutation_case removed
+staged_mutation_case pre-manifest-truncated
+assert_grep 'does not match the original legacy artifact' \
+  "$TMP_ROOT/staged-pre-manifest-truncated.out" \
+  "a short staged copy its own manifest agrees with was not compared to the original"
+pass "staged evidence mutated before verification publishes neither archive nor database"
+
 H_MIGRATE="$TMP_ROOT/migrate"
 MIGRATE_ENV="$TMP_ROOT/migrate.env"
 new_home "$H_MIGRATE"
