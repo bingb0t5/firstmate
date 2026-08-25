@@ -142,6 +142,13 @@ a { color: inherit; text-decoration: none; }
 
 /* stat strip */
 .bb-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.bb-domains { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.bb-domain { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; background: var(--surface-card); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); min-width: 0; }
+.bb-domain--unavailable { background: var(--status-danger-soft); border: 2px solid var(--status-danger); }
+.bb-domain__top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bb-domain__owner { font-weight: 800; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bb-domain__meta { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-muted); }
+.bb-domain__reason { font-size: var(--fs-xs); color: var(--status-danger); font-weight: 700; }
 .bb-stat {
   display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; min-width: 0;
   background: var(--surface-card-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-md);
@@ -169,6 +176,7 @@ a { color: inherit; text-decoration: none; }
 .bb-stacknav__btn:hover { background: var(--paper-100); border-color: var(--ink-500); }
 .bb-stacknav__btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .bb-stacknav__btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+.bb-stacknav[hidden] { display: none; }
 .bb-stacknav__btn svg { width: 16px; height: 16px; }
 /* the stack: a squared-up paper pile - solid card faces at slight opposing
    rotations, like dealt cards, not translucent offset rectangles. The pile
@@ -295,6 +303,7 @@ a { color: inherit; text-decoration: none; }
 <main class="bb-main">
 
   <div class="bb-stats" id="bb-stats"></div>
+  <div class="bb-domains" id="bb-domains" aria-label="Domain availability"></div>
 
   <div class="bb-cols">
   <section class="bb-section">
@@ -372,7 +381,9 @@ a { color: inherit; text-decoration: none; }
 </main>
 
 <!-- ONE SLOT. bin/fm-bearings-board.sh build injects the fresh
-     fm-bearings-board.v1 payload in place of the placeholder below; everything
+     fm-bearings-board.v2 payload in place of the placeholder below; the builder
+     accepts fm-bearings-board.v1 during the one-release compatibility window.
+     Everything
      above and below is the shipped template and is never regenerated per run. -->
 <script id="bearings-data" type="application/json">
 __FM_BEARINGS_BOARD_DATA__
@@ -410,11 +421,21 @@ __FM_BEARINGS_BOARD_DATA__
     renderBoardError("The board data is not valid JSON");
     return;
   }
-  if (!data || data.schema !== "fm-bearings-board.v1") {
+  var isV2 = !!(data && data.schema === "fm-bearings-board.v2");
+  var isV1 = !!(data && data.schema === "fm-bearings-board.v1");
+  if (!isV1 && !isV2) {
     renderBoardError("Unsupported board data schema: " + (data && data.schema ? data.schema : "(none)"));
     return;
   }
   var fleetLists = [data.captains_call, data.underway, data.landed, data.charted];
+  if (isV2 && (!Array.isArray(data.domains) || !data.domains.length || data.domains.some(function (d) {
+    return !d || typeof d.owner !== "string" || !d.attention || d.attention.limit !== 4 ||
+      !d.freshness || typeof d.freshness.status !== "string" || !d.validity ||
+      typeof d.validity.valid !== "boolean";
+  }))) {
+    renderBoardError("The v2 domain inventory is not valid");
+    return;
+  }
   var callItemsValid = Array.isArray(data.captains_call) && data.captains_call.every(function (item) {
     return item && typeof item === "object" &&
       typeof item.key === "string" && item.key.length > 0 &&
@@ -437,8 +458,34 @@ __FM_BEARINGS_BOARD_DATA__
   function badge(tone, text) { return el("span", "fm-badge fm-badge--" + tone, text); }
   function utf8ByteLength(text) { return new TextEncoder().encode(text).length; }
   var CHECK_SVG = '<svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var domainMap = {};
+  if (isV2) data.domains.forEach(function (d) { domainMap[d.owner] = d; });
+  function ownerOf(row) { return isV2 ? row.owner : "main"; }
+  function domainOf(row) { return isV2 ? domainMap[ownerOf(row)] : null; }
+  function domainAvailable(row) { var d = domainOf(row); return !d || d.validity.valid === true; }
+  function stageLabel(row, fallback) { return isV2 ? (row.stage || fallback) : fallback; }
+  function stageTone(stage) {
+    if (stage === "failed" || stage === "unknown") return "danger";
+    if (stage === "paused" || stage === "captain_held" || stage === "queued") return "warn";
+    return "online";
+  }
 
   document.getElementById("bb-provenance").textContent = data.schema + " · " + data.generated;
+
+  if (isV2) {
+    var domainStrip = document.getElementById("bb-domains");
+    data.domains.forEach(function (d) {
+      var unavailable = d.validity.valid !== true;
+      var lane = el("div", "bb-domain" + (unavailable ? " bb-domain--unavailable" : ""));
+      var top = el("div", "bb-domain__top");
+      top.appendChild(el("span", "bb-domain__owner", d.owner));
+      top.appendChild(badge(unavailable ? "danger" : "online", unavailable ? "unavailable" : "available"));
+      lane.appendChild(top);
+      lane.appendChild(el("div", "bb-domain__meta", "attention " + d.attention.count + "/" + d.attention.limit + " · " + d.freshness.status));
+      if (unavailable) lane.appendChild(el("div", "bb-domain__reason", d.validity.reason || "No readable home snapshot; actions disabled."));
+      domainStrip.appendChild(lane);
+    });
+  }
 
   /* stat strip */
   var callTotal = data.captains_call.length;
@@ -472,6 +519,8 @@ __FM_BEARINGS_BOARD_DATA__
     var pad = el("div", "bb-decision__pad");
 
     var top = el("div", "bb-decision__top");
+    var itemAvailable = domainAvailable(item);
+    if (isV2 && !itemAvailable) top.appendChild(badge("danger", "unavailable"));
     if (item.type === "merge") {
       top.appendChild(badge("online", "checks green"));
       top.appendChild(badge(item.risk === "low" ? "neutral" : "warn", "risk " + item.risk));
@@ -505,6 +554,7 @@ __FM_BEARINGS_BOARD_DATA__
       var lab = el("label", "bb-opt");
       var input = document.createElement("input");
       input.type = "radio"; input.name = "answer"; input.value = o.value;
+      input.disabled = !itemAvailable;
       lab.appendChild(input);
       var body = el("span", "bb-opt__body");
       body.appendChild(el("span", "bb-opt__label", o.label));
@@ -519,14 +569,16 @@ __FM_BEARINGS_BOARD_DATA__
 
     if (item.allow_freeform) {
       var ff = document.createElement("input");
-      ff.type = "text"; ff.name = "note"; ff.className = "bb-freeform";
+      ff.type = "text"; ff.name = "note"; ff.className = "bb-freeform"; ff.disabled = !itemAvailable;
       ff.placeholder = item.freeform_hint || "or answer in your own words…";
       form.appendChild(ff);
     }
 
     var foot = el("div", "bb-decision__foot");
-    var btn = el("button", "fm-btn fm-btn--sm " + (item.type === "merge" ? "fm-btn--gold" : "fm-btn--primary"), "Queue answer");
+    var btn = el("button", "fm-btn fm-btn--sm " + (item.type === "merge" ? "fm-btn--gold" : "fm-btn--primary"), itemAvailable ? "Queue answer" : "Unavailable");
     btn.type = "submit";
+    btn.disabled = !itemAvailable;
+    if (!itemAvailable) form.setAttribute("aria-disabled", "true");
     foot.appendChild(btn);
     var q = el("span", "bb-queued");
     q.innerHTML = CHECK_SVG + " queued";
@@ -605,12 +657,13 @@ __FM_BEARINGS_BOARD_DATA__
   if (!data.underway.length) uw.appendChild(el("div", "bb-empty", "Nothing is underway."));
   data.underway.forEach(function (t) {
     var row = el("div", "bb-row");
-    row.appendChild(badge(t.state === "working" ? "online" : "info", t.state));
+    var stage = stageLabel(t, t.state);
+    row.appendChild(badge(stageTone(stage), stage));
     var main = el("div", "bb-row__main");
     main.appendChild(el("div", "bb-row__title", t.doing));
     /* captain-facing rows name the repo; the internal task id shows only when
        no repo is known */
-    main.appendChild(el("div", "bb-row__sub", t.kind + " · " + (t.repo || t.id)));
+    main.appendChild(el("div", "bb-row__sub", (t.kind || "work") + " · " + (t.repo || t.id) + (isV2 ? " · " + ownerOf(t) : "")));
     row.appendChild(main);
     uw.appendChild(row);
   });
@@ -625,7 +678,7 @@ __FM_BEARINGS_BOARD_DATA__
     row.appendChild(chk);
     var main = el("div", "bb-row__main");
     main.appendChild(el("div", "bb-row__title", t.what));
-    main.appendChild(el("div", "bb-row__sub", (t.repo || t.id) + " · " + t.owner));
+    main.appendChild(el("div", "bb-row__sub", (t.repo || t.id) + " · " + t.owner + (isV2 ? " · " + stageLabel(t, "landed") : "")));
     row.appendChild(main);
     if (t.pr_url) {
       var a = el("a", "bb-row__pr", "#" + t.pr_url.split("/").pop());
@@ -654,7 +707,9 @@ __FM_BEARINGS_BOARD_DATA__
   if (!data.charted.length) ch.appendChild(el("div", "bb-empty", "Nothing is queued."));
   data.charted.forEach(function (t) {
     var row = el("div", "bb-row");
-    if (t.dispatchable) {
+    var chartedAvailable = domainAvailable(t);
+    var canDispatch = !!t.dispatchable && (!isV2 || (t.owner === "main" && t.pull_eligible === true && chartedAvailable));
+    if (canDispatch) {
       anyPickable = true;
       var pick = document.createElement("input");
       pick.type = "checkbox"; pick.className = "bb-pick"; pick.value = t.id;
@@ -675,9 +730,11 @@ __FM_BEARINGS_BOARD_DATA__
     main.appendChild(el("div", "bb-row__title", t.title));
     /* second line keeps the title uncrowded in the half-width column */
     var chSub = t.repo || t.id;
-    main.appendChild(el("div", "bb-row__sub", t.reason ? t.reason + " · " + chSub : chSub));
+    var pullText = isV2 && t.pull_reason ? t.pull_reason : t.reason;
+    main.appendChild(el("div", "bb-row__sub", pullText ? pullText + " · " + chSub : chSub));
     row.appendChild(main);
-    if (t.reason) row.appendChild(badge("warn", "waiting"));
+    if (!chartedAvailable) row.appendChild(badge("danger", "unavailable"));
+    else if (pullText) row.appendChild(badge("warn", "waiting"));
     ch.appendChild(row);
   });
   var chartedTotal = data.charted.length + (data.charted_more || 0);

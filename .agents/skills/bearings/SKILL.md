@@ -15,7 +15,7 @@ metadata:
 Generate a complete current snapshot from the fleet's current state, so the captain can resume in one read after a break, a night, or a context reset.
 Plain `/bearings` returns only the concise four-section chat digest.
 Only `/bearings file` writes the dated markdown report artifact and then returns the concise four-section chat digest linked to that report.
-Only `/bearings lavish` builds the interactive fleet board beside that digest, through `bin/fm-bearings-board.sh` (its header owns every board mechanic and the fm-bearings-board.v1 payload contract).
+Only `/bearings lavish` builds the interactive fleet board beside that digest, through `bin/fm-bearings-board.sh` (its header owns every board mechanic and the fm-bearings-board.v2 payload contract, with one-release fm-bearings-board.v1 compatibility).
 A digest/build invocation is operationally read-only apart from those explicit per-mode artifacts: the dated report in file mode, and in lavish mode the board file plus the answer binding and source registration that `bin/fm-bearings-board.sh build` records through their own owners.
 During that invocation it never tears down a task, merges a PR, dispatches new work, steers a worker, answers a decision, cleans up work, or mutates backlog or task state.
 Board answers are acted on later under the normal authority rules; this skill's board-wake section explicitly owns the guarded routing at that time.
@@ -72,7 +72,8 @@ Board answers are acted on later under the normal authority rules; this skill's 
 ## Lavish board mode
 
 `/bearings lavish` adds one deliverable beside the unchanged chat digest: the interactive fleet board, a myfirstmate-styled Lavish page where the captain answers Captain's Call items directly instead of replying in chat.
-`bin/fm-bearings-board.sh` owns every board mechanic - the stable board path, fm-bearings-board.v1 payload validation, template injection, Lavish session establishment, the any-origin answer binding, and arm-if-absent registration - so the per-invocation work is composing the payload and running its `build`.
+`bin/fm-bearings-board.sh` owns every board mechanic - the stable board path, fm-bearings-board.v2 validation and one-release v1 compatibility, template injection, Lavish session establishment, the any-origin answer binding, and arm-if-absent registration - so the per-invocation work is composing the payload and running its `build`.
+The v2 payload's owner, repo, priority, stage, home-local claim authority, pull eligibility/reason, per-domain attention, freshness, and validity facts come from `bin/fm-bearings-snapshot.sh`; unavailable domains remain visible with actions disabled, and only main-owned queued cards may expose dispatch selection.
 
 Compose the payload from the same snapshot with the same ranking judgment as the chat digest, plus these board rules:
 

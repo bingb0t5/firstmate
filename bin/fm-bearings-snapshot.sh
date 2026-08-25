@@ -62,6 +62,8 @@
 #   -h,--help        usage
 #
 # Output contract: `fm-bearings.v1`. Read-only; no locks, no mutation, no reports.
+# The additive board projection adds owner, repo, priority, stage, home-local claim
+# authority, pull eligibility/reason, per-domain attention, freshness, and validity facts.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -384,7 +386,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
        | select(.backlog.current_role != "program")
        | select(.backlog.current_role != "held" or .current_state.state == "working")
        | {id, kind,
-        state: .current_state.state,
+        state: .current_state.state, source: .current_state.source,
         doing: ((.current_state.detail // "") as $d
                 | (if $d != "" then $d else (.hints.last_event_text // "") end) | trunc(90))
       } ]
@@ -499,6 +501,98 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         (if $include_prs == 1 and $pr_rows_capped > 0 then {surface:("candidate_prs showing \($candidate_prs | length) of at least \($pr_rows_min_total); capped in \($pr_rows_capped) repo(s)"), reveal:"raise FM_BEARINGS_PR_LIMIT"} else empty end),
         (if $include_prs == 1 then empty else {surface:"live PR discovery + checks", reveal:"--include-prs"} end) ]) }
 ') || { echo "fm-bearings-snapshot: projection failed" >&2; exit 1; }
+
+# Add the compact v2 facts after the legacy projection has established the
+# existing four sections. This keeps the canonical snapshot as the only state
+# reader while making home-local ownership explicit at the board seam.
+MODEL=$(printf '%s\n' "$MODEL" | jq --argjson snap "$SNAP" --arg now "$NOW" '
+  def main_record($id):
+    (($snap.backlog.records // []) | .[] | select(.structured == true and .id == $id)) // {};
+  def mate_record($owner; $id):
+    (($snap.secondmate_current.records // []) | .[] | select(.id == $owner)
+      | ((.queued // []) | .[] | select(.structured == true and .id == $id))) // {};
+  def row_owner: (.owner // "main") | if . == "(main)" then "main" else . end;
+  def row_meta($id; $owner):
+    if $owner == "main" then main_record($id)
+    elif ($id | contains("/")) then mate_record($owner; ($id | split("/") | .[-1]))
+    else {} end;
+  def pull_reason($row; $owner; $priority; $stage):
+    if $stage != "queued" then
+      (if $stage == "captain_held" then "captain_held" else "not_queued" end)
+    elif $owner != "main" then "secondmate_owned"
+    elif $priority == null then "missing_priority"
+    elif (($row.blocked_by // "-") != "-") then "blocked"
+    elif (($row.reason // "") != "" and ($row.reason // "") != "-") then ($row.reason // "waiting")
+    else null end;
+  def add_row_facts($stage):
+    . as $row
+    | (row_owner) as $owner
+    | (row_meta($row.id; $owner)) as $meta
+    | ($meta.priority | if type == "number" then . elif type == "string" and test("^[0-4]$") then tonumber else null end) as $priority
+    | (pull_reason($row; $owner; $priority; $stage)) as $reason
+    | $row + {
+        owner:$owner,
+        repo:($row.repo // $meta.repo // null),
+        priority:$priority,
+        stage:$stage,
+        claim_authority:"home-local",
+        pull_eligible:($stage == "queued" and $owner == "main" and $priority != null and $reason == null),
+        pull_reason:$reason
+      };
+  def current_attention($rows):
+    ([ $rows[]? | select((.kind == "ship" or .kind == "scout")
+        and ((.current_state.state // .state) == "working"
+          or (.current_state.state // .state) == "unknown"
+          or (.current_state.state // .state) == "failed")) ] | length);
+  def domain($owner; $record; $valid; $reason):
+    {
+      owner:$owner,
+      attention:($record.attention // {count:current_attention(($record.tasks // [])),limit:4}),
+      freshness:($record.freshness // {status:"fresh",observed_at:$now,age_seconds:0}),
+      validity:{valid:$valid,reason:$reason}
+    };
+  (if (($snap.main_inventory.valid // true) == true)
+   then domain("main"; {tasks:($snap.tasks // [])}; true; null)
+   else domain("main"; {tasks:($snap.tasks // [])}; false; ($snap.main_inventory.reason // "main inventory invalid")) end) as $main_domain
+  | ([ $main_domain ] + [
+      ($snap.secondmate_current.registry.records // []) | .[] as $registered
+      | ([($snap.secondmate_current.records // [])[] | select(.id == $registered.id)] | first // null) as $record
+      | if $record == null then
+          domain($registered.id; {}; false; "home snapshot unavailable")
+        else
+          ($record.freshness.status // "unknown") as $freshness
+          | domain($registered.id; $record;
+              ($record.provenance.selected == "structured-home"
+                and $freshness == "fresh"
+                and ($record.invalidity == null));
+              (if $record.provenance.selected != "structured-home" then ($record.current.reason // "home snapshot unavailable")
+               elif $freshness != "fresh" then ("home freshness: " + $freshness)
+               elif $record.invalidity != null then ($record.invalidity.kind // "home inventory invalid")
+               else null end))
+        end
+    ] + (if (($snap.secondmate_current.registry.available // true) == false)
+         then [domain("registry"; {}; false; ($snap.secondmate_current.registry.reason // "registered home inventory unavailable"))]
+         else [] end)) as $domains
+  | . + {
+      schema:"fm-bearings.v1",
+      domains:$domains,
+      captains_call:((.captains_call // []) | map(add_row_facts("captain_held"))),
+      underway:((.underway // []) | map(
+        . as $row
+        | (if ($row.state // "") == "working" and ($row.source // "") == "run-step"
+           then "validating"
+           elif ($row.state // "") == "paused" then "paused"
+           elif ($row.state // "") == "failed" then "failed"
+           elif ($row.state // "") == "unknown" then "unknown"
+           else "working" end) as $stage
+        | add_row_facts($stage))),
+      landed:((.landed // []) | map(add_row_facts("landed"))),
+      charted:((.charted // .gates // []) | map(
+        . as $row
+        | add_row_facts("queued")
+        | . + {dispatchable:(.pull_eligible == true)}))
+    }
+') || { echo "fm-bearings-snapshot: v2 projection failed" >&2; exit 1; }
 
 if [ "$FORMAT" = json ]; then
   printf '%s\n' "$MODEL"

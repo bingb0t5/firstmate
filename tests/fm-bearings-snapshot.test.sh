@@ -854,6 +854,42 @@ test_registry_unavailability_and_bounds_are_explicit() {
   pass "registry unavailability and bounded truncation remain explicit"
 }
 
+test_v2_projection_exposes_domain_and_pull_contract() {
+  local home fakebin json
+  home=$(make_home v2-contract)
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+- [ ] main-card - Main queued work (repo: firstmate) (kind: ship) (priority: 0) (since 2026-08-20)
+- [ ] missing-card - Missing priority work (repo: firstmate) (kind: ship) (since 2026-08-21)
+
+## Done
+EOF
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    .schema == "fm-bearings.v1"
+      and (.domains | any(.owner == "main"
+        and .attention.limit == 4
+        and (.freshness.status | type) == "string"
+        and .validity.valid == true))
+      and (.charted | any(.id == "main-card"
+        and .owner == "main"
+        and .repo == "firstmate"
+        and .priority == 0
+        and .stage == "queued"
+        and .claim_authority == "home-local"
+        and .pull_eligible == true
+        and .pull_reason == null))
+      and (.charted | any(.id == "missing-card"
+        and .priority == null
+        and .pull_eligible == false
+        and .pull_reason == "missing_priority"))
+  ' >/dev/null || fail "v2 Bearings projection omitted the owner/attention/pull contract: $json"
+  pass "v2 Bearings projection exposes domain freshness, validity, attention, and pull facts"
+}
+
 test_current_landed_baseline_is_repeatable_and_prior_report_independent() {
   local home fakebin one two
   home=$(make_home standalone-baseline); write_fixture "$home"
@@ -1969,6 +2005,7 @@ test_parent_evidence_reconciles_by_verb_and_key
 test_nonprogressing_child_states_are_explicit
 test_registry_unavailability_and_bounds_are_explicit
 test_current_landed_baseline_is_repeatable_and_prior_report_independent
+test_v2_projection_exposes_domain_and_pull_contract
 test_default_is_bounded_and_local_only
 test_toon_json_parity
 test_landed_includes_secondmate_home_merges

@@ -370,6 +370,93 @@ test_build_refuses_a_template_without_exactly_one_slot() {
   pass "build refuses a template without exactly one data slot"
 }
 
+write_v2_payload() {  # <path>
+  cat > "$1" <<'EOF'
+{
+  "schema": "fm-bearings-board.v2",
+  "home": "main",
+  "generated": "2026-08-25T00:00:00Z",
+  "prs_live": false,
+  "domains": [
+    {"owner":"main","attention":{"count":1,"limit":4},"freshness":{"status":"fresh","observed_at":"2026-08-25T00:00:00Z","age_seconds":0},"validity":{"valid":true,"reason":null}},
+    {"owner":"ops-mate","attention":{"count":4,"limit":4},"freshness":{"status":"timed_out","observed_at":"2026-08-25T00:00:00Z","age_seconds":60},"validity":{"valid":false,"reason":"home timed out"}}
+  ],
+  "captains_call": [],
+  "underway": [{"id":"working-card","owner":"main","repo":"firstmate","priority":1,"stage":"working","claim_authority":"home-local","pull_eligible":false,"pull_reason":"already underway","state":"working","doing":"Building the board","kind":"ship"}],
+  "landed": [],
+  "charted": [
+    {"id":"main-card","owner":"main","repo":"firstmate","priority":0,"stage":"queued","claim_authority":"home-local","pull_eligible":true,"pull_reason":null,"title":"Main queued work","reason":"","dispatchable":true},
+    {"id":"mate-card","owner":"ops-mate","repo":"firstmate","priority":1,"stage":"queued","claim_authority":"home-local","pull_eligible":false,"pull_reason":"secondmate pulls locally","title":"Mate queued work","reason":"home timed out","dispatchable":false}
+  ],
+  "charted_more": 0
+}
+EOF
+}
+
+test_v2_task_appears_once_through_each_stage() {
+  local home base stage data out count
+  home=$(make_home stage-walk)
+  base="$home/base.json"
+  data="$home/payload.json"
+  write_v2_payload "$base"
+  for stage in queued working validating paused captain_held review_ready failed unknown landed; do
+    jq --arg stage "$stage" '
+      .captains_call = [] | .underway = [] | .landed = [] | .charted = []
+      | if $stage == "queued" then
+          .charted = [{id:"card",owner:"main",repo:"firstmate",priority:1,stage:"queued",claim_authority:"home-local",pull_eligible:true,pull_reason:null,title:"Stage card",reason:"",dispatchable:true}]
+        elif $stage == "captain_held" then
+          .captains_call = [{id:"card",key:"card",owner:"main",repo:"firstmate",priority:1,stage:"captain_held",claim_authority:"home-local",pull_eligible:false,pull_reason:"captain_held",type:"decision",title:"Stage card",options:[{value:"yes",label:"Continue"}]}]
+        elif $stage == "landed" then
+          .landed = [{id:"card",owner:"main",repo:"firstmate",priority:1,stage:"landed",claim_authority:"home-local",pull_eligible:false,pull_reason:"not_queued",what:"Stage card"}]
+        else
+          .underway = [{id:"card",owner:"main",repo:"firstmate",priority:1,stage:$stage,claim_authority:"home-local",pull_eligible:false,pull_reason:"not_queued",state:$stage,doing:"Stage card",kind:"ship"}]
+        end
+    ' "$base" > "$data"
+    run_board "$home" build "$data" >/dev/null || fail "stage $stage did not build"
+    count=$(extract_payload "$home/.lavish/bearings-board.html" | jq --arg stage "$stage" '[.captains_call[],.underway[],.landed[],.charted[] | select(.id == "card" and .stage == $stage)] | length')
+    [ "$count" = 1 ] || fail "stage $stage rendered $count copies of the task"
+  done
+  pass "one task renders exactly once while progressing through every v2 board stage"
+}
+
+test_v2_validation_preserves_stable_board_and_disables_secondmate_start() {
+  local home data board before after rc out
+  home=$(make_home v2)
+  data="$home/payload.json"
+  board="$home/.lavish/bearings-board.html"
+  write_valid_payload "$data"
+  run_board "$home" build "$data" >/dev/null || fail "v1 compatibility build failed"
+  before=$(sha256sum "$board" | awk '{print $1}')
+  write_v2_payload "$data"
+  out=$(run_board "$home" build "$data") || fail "valid v2 payload did not build"
+  assert_contains "$out" "served: $board" "v2 build did not serve the stable board"
+  after=$(sha256sum "$board" | awk '{print $1}')
+  [ "$before" != "$after" ] || fail "v2 rebuild did not replace the stable board"
+  extract_payload "$board" | jq -e '
+    .schema == "fm-bearings-board.v2"
+      and (.domains | any(.owner == "ops-mate" and .validity.valid == false and .freshness.status == "timed_out"))
+      and (.charted | any(.id == "mate-card" and .owner == "ops-mate" and .pull_eligible == false and .dispatchable == false))
+      and (.charted | any(.id == "main-card" and .pull_eligible == true))
+  ' >/dev/null || fail "v2 payload lost domain validity or local claim authority"
+  jq '.charted[1].dispatchable = true' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "a secondmate direct-start action was accepted"
+  write_v2_payload "$data"
+  jq 'del(.domains[0].owner)' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "malformed v2 payload was accepted"
+  assert_contains "$out" "fm-bearings-board.v2" "malformed v2 refusal did not name the schema: $out"
+  stable_hash=$after
+  set +e; run_board "$home" build "$data" >/dev/null 2>&1; rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "malformed v2 unexpectedly rebuilt the board"
+  after=$(sha256sum "$board" | awk '{print $1}')
+  [ "$after" = "$stable_hash" ] || fail "stable board changed after malformed v2"
+  pass "v2 validation preserves the stable artifact on refusal and never makes a secondmate card directly startable"
+}
+
+test_v2_task_appears_once_through_each_stage
+test_v2_validation_preserves_stable_board_and_disables_secondmate_start
+
 test_path_is_stable_and_home_scoped
 test_build_refuses_malformed_payloads_before_touching_the_board
 test_build_injects_binds_then_arms

@@ -3,7 +3,7 @@
 #
 # The board is the captain-facing interactive surface of /bearings lavish: the
 # shipped template (.agents/skills/bearings/assets/board-template.html) plus one
-# injected fm-bearings-board.v1 JSON payload. This script owns the mechanics so
+# injected fm-bearings-board.v2 JSON payload. This script owns the mechanics so
 # the invoking agent's per-run work stays "compose the JSON, run build" - the
 # agent never authors board UI at invocation time.
 #
@@ -28,8 +28,9 @@
 # path       Print the stable board path for this home.
 #
 # Validation is fail-closed: the payload must be valid JSON with
-# schema=fm-bearings-board.v1 and every renderer-consumed field must satisfy
-# the fm-bearings-board.v1 types and item invariants below. Every fleet row and
+# schema=fm-bearings-board.v2, or the one-release legacy schema
+# fm-bearings-board.v1, and every renderer-consumed field must satisfy its
+# schema's types and item invariants below. Every fleet row and
 # Captain's Call item explicitly carries `repo`; the composer fills it from the
 # snapshot and task records wherever known, and uses null or an empty string
 # only as the deliberate genuinely-no-repo marker. In that exceptional case
@@ -51,7 +52,8 @@ FM_HOME="${FM_HOME:-$FM_ROOT}"
 
 TEMPLATE="${FM_BEARINGS_BOARD_TEMPLATE:-$SCRIPT_DIR/../.agents/skills/bearings/assets/board-template.html}"
 PLACEHOLDER='__FM_BEARINGS_BOARD_DATA__'
-BOARD_SCHEMA=fm-bearings-board.v1
+BOARD_SCHEMA=fm-bearings-board.v2
+LEGACY_BOARD_SCHEMA=fm-bearings-board.v1
 
 usage() {
   awk '
@@ -69,7 +71,7 @@ fail() {
 board_path() { printf '%s/.lavish/bearings-board.html\n' "$FM_HOME"; }
 
 validate_payload() {  # <data.json>
-  jq -e --arg schema "$BOARD_SCHEMA" '
+  jq -e --arg schema "$BOARD_SCHEMA" --arg legacy "$LEGACY_BOARD_SCHEMA" '
     def nonempty_string: type == "string" and length > 0;
     def slug($max): type == "string" and test("^[A-Za-z0-9._-]{1," + ($max | tostring) + "}$");
     def repo_marker: has("repo") and (.repo == null or (.repo | type == "string"));
@@ -114,8 +116,34 @@ validate_payload() {  # <data.json>
       type == "object" and repo_marker and (.id | slug(128))
       and (.title | nonempty_string) and (.reason | type == "string")
       and (.dispatchable | type == "boolean");
+    def v2_row:
+      type == "object" and (.id | nonempty_string)
+      and (.owner | slug(128)) and repo_marker
+      and ((.priority == null) or (.priority | type == "number" and floor == . and . >= 0 and . <= 4))
+      and (.stage == "queued" or .stage == "working" or .stage == "validating"
+        or .stage == "paused" or .stage == "captain_held" or .stage == "review_ready"
+        or .stage == "failed" or .stage == "unknown" or .stage == "landed")
+      and (.claim_authority == "home-local")
+      and (.pull_eligible | type == "boolean")
+      and ((.pull_reason == null) or (.pull_reason | type == "string" and length > 0));
+    def v2_domain:
+      type == "object" and (.owner | slug(128))
+      and (.attention | type == "object")
+      and (.attention.count | type == "number" and floor == . and . >= 0)
+      and (.attention.limit == 4)
+      and (.freshness | type == "object")
+      and (.freshness.status | type == "string" and length > 0)
+      and (.validity | type == "object")
+      and (.validity.valid | type == "boolean")
+      and ((.validity.reason == null) or (.validity.reason | type == "string" and length > 0));
+    def v2_call: v2_row and call_item;
+    def v2_underway: v2_row and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string);
+    def v2_landed: v2_row and (.what | nonempty_string) and optional_https_url("pr_url");
+    def v2_charted:
+      v2_row and (.title | nonempty_string) and (.reason | type == "string")
+      and (.dispatchable | type == "boolean")
+      and (if .owner == "main" then true else (.dispatchable == false and .pull_eligible == false) end);
     type == "object"
-    and (.schema == $schema)
     and (.home | nonempty_string)
     and (.generated | nonempty_string)
     and (.prs_live | type == "boolean")
@@ -125,10 +153,25 @@ validate_payload() {  # <data.json>
     and (.charted | type == "array")
     and ((has("charted_more") | not)
       or ((.charted_more | type == "number") and (.charted_more >= 0) and (.charted_more | floor == .)))
-    and ([.captains_call[] | call_item] | all)
-    and ([.underway[] | underway_item] | all)
-    and ([.landed[] | landed_item] | all)
-    and ([.charted[] | charted_item] | all)
+    and (if .schema == $legacy then
+      ([.captains_call[] | call_item] | all)
+      and ([.underway[] | underway_item] | all)
+      and ([.landed[] | landed_item] | all)
+      and ([.charted[] | charted_item] | all)
+    elif .schema == $schema then
+      (.domains | type == "array" and length > 0)
+      and ([.domains[] | v2_domain] | all)
+      and (([.domains[].owner] | unique | length) == (.domains | length))
+      and (([.captains_call[], .underway[], .landed[], .charted[] | .owner] - [.domains[].owner] | length) == 0)
+      and ([.captains_call[], .underway[], .landed[], .charted[] | v2_row] | all)
+      and (([.captains_call[], .underway[], .landed[], .charted[] | .id] | unique | length)
+        == ([.captains_call[], .underway[], .landed[], .charted[]] | length))
+      and ([.captains_call[] | v2_call] | all)
+      and ([.underway[] | v2_underway] | all)
+      and ([.landed[] | v2_landed] | all)
+      and ([.charted[] | v2_charted] | all)
+    else false end)
+    and (.schema == $schema or .schema == $legacy)
   ' "$1" >/dev/null
 }
 
@@ -138,7 +181,7 @@ command_build() {
   command -v jq >/dev/null 2>&1 || fail "jq is required"
   [ -f "$data" ] || fail "board data does not exist: $data"
   jq empty "$data" 2>/dev/null || fail "board data is not valid JSON: $data"
-  validate_payload "$data" || fail "board data does not satisfy $BOARD_SCHEMA: $data"
+  validate_payload "$data" || fail "board data does not satisfy $BOARD_SCHEMA (legacy $LEGACY_BOARD_SCHEMA is accepted for one release): $data"
   [ -f "$TEMPLATE" ] && [ ! -L "$TEMPLATE" ] || fail "board template is missing: $TEMPLATE"
   [ "$(grep -cxF "$PLACEHOLDER" "$TEMPLATE")" -eq 1 ] \
     || fail "board template does not carry exactly one data slot: $TEMPLATE"
@@ -163,7 +206,7 @@ command_build() {
   # would fail to parse in the browser fails here instead.
   extracted=$(sed -n '/<script id="bearings-data" type="application\/json">/,/<\/script>/p' "$tmp" \
     | sed '1d;$d')
-  if ! printf '%s\n' "$extracted" | jq -e --arg schema "$BOARD_SCHEMA" '.schema == $schema' >/dev/null 2>&1; then
+  if ! printf '%s\n' "$extracted" | jq -e --arg schema "$BOARD_SCHEMA" --arg legacy "$LEGACY_BOARD_SCHEMA" '(.schema == $schema or .schema == $legacy)' >/dev/null 2>&1; then
     rm -f -- "$tmp"
     fail "the built board does not carry a readable $BOARD_SCHEMA payload"
   fi
