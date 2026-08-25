@@ -601,7 +601,9 @@ fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-fi
       continue
     fi
     [ ! -e "$claim_path" ] && [ ! -L "$claim_path" ] || continue
-    candidate= candidate_corr= candidate_created=
+    candidate=''
+    candidate_corr=''
+    candidate_created=''
     for other in "$dir"/*; do
       [ -f "$other" ] || continue
       other_task=$(fm_pending_reply_get "$other" task_id)
