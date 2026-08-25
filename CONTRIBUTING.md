@@ -9,9 +9,9 @@ We require this to reduce the maintainer's burden of reviewing and merging contr
 `no-mistakes` puts a local git proxy in front of your real remote.
 Pushing through it runs an AI-driven review/test/lint pipeline in an isolated worktree, forwards the push upstream only after every check passes, and opens a clean PR automatically.
 
-A GitHub Actions check (`Require no-mistakes`) runs on PRs targeting `main` and fails if the body is missing the deterministic signature that no-mistakes writes.
+A GitHub Actions check (`Require no-mistakes`) runs on PRs targeting `main` and fails unless the body contains the deterministic signature and structured pipeline attestation that no-mistakes writes, with the review, test, and document steps completed.
 It evaluates every PR opening and body edit independently, so a later edit cannot replace an earlier pending compliance check.
-GitHub Actions and Dependabot are exempt so their automation keeps working, but regular contributor PRs without the signature will not be reviewed or merged.
+GitHub Actions and Dependabot are exempt so their automation keeps working, but regular contributor PRs without both records will not be reviewed or merged.
 
 A second check (`pr-communication`) enforces the pull request communication structure shared with the Lalo repos.
 Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) for the required CEO overview, validation, module-boundary decision, and decision-needed sections.
