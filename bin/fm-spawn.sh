@@ -260,6 +260,34 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+
+fm_spawn_attention_guard() {
+  [ "$KIND" = secondmate ] && return 0
+  [ "$RELAUNCH" -eq 1 ] && return 0
+  local snapshot attention count reservation
+  snapshot=$(FM_ROOT_OVERRIDE="$FM_ROOT" FM_HOME="$FM_HOME" \
+    FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+    FM_CONFIG_OVERRIDE="$CONFIG" FM_PROJECTS_OVERRIDE="$PROJECTS" \
+    "$SCRIPT_DIR/fm-fleet-snapshot.sh" --local-json 2>/dev/null) || {
+    echo "error: local attention facts could not be read; refusing fresh spawn" >&2
+    return 1
+  }
+  attention=$(printf '%s' "$snapshot" | jq -c '.attention' 2>/dev/null) || {
+    echo "error: local attention facts were malformed; refusing fresh spawn" >&2
+    return 1
+  }
+  [ "$(printf '%s' "$attention" | jq -r '.valid // false')" = true ] || {
+    echo "error: local attention facts are invalid; refusing fresh spawn" >&2
+    return 1
+  }
+  count=$(printf '%s' "$attention" | jq -r '.count')
+  reservation=$(printf '%s' "$attention" | jq -r --arg id "$ID" \
+    'any(.reservations[]?; .id == $id)')
+  if [ "$reservation" != true ] && [ "$count" -ge 4 ]; then
+    echo "error: local attention limit reached (count=$count limit=4); refusing fresh spawn before endpoint or metadata publication" >&2
+    return 1
+  fi
+}
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -943,6 +971,7 @@ if [ "$RELAUNCH" -eq 0 ]; then
     exit 1
   fi
   SPAWN_TASK_SET_LOCK_HELD=1
+  fm_spawn_attention_guard || exit 1
 fi
 if [ "$KIND" = secondmate ]; then
   if spawn_remote_secondmate "$ID"; then
@@ -1598,6 +1627,10 @@ fi
 if [ "$KIND" = secondmate ]; then
   [ -n "$FIRSTMATE_HOME" ] || { echo "error: no firstmate home supplied or registered for $ID" >&2; exit 1; }
   PROJ_ABS=$(validate_firstmate_home_for_spawn "$ID" "$FIRSTMATE_HOME")
+  if [ -f "$FM_HOME/$SUB_HOME_MARKER" ] && [ "$PROJ_ABS" != "$(resolved_existing_dir "$FM_HOME")" ]; then
+    echo "error: a secondmate home cannot seed or spawn another secondmate; only the primary home may create a domain mate" >&2
+    exit 1
+  fi
   if [ -e "$DATA/secondmates.md" ] || [ -L "$DATA/secondmates.md" ]; then
     if ! secondmate_registry_validate_bindings "$DATA/secondmates.md" resolve_path "$ID" "$FIRSTMATE_HOME"; then
       echo "error: $SECONDMATE_REGISTRY_ERROR" >&2

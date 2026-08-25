@@ -6,6 +6,22 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## Local attention reservation guard
+
+The fixed four-worker reservation guard was verified on 2026-08-25 with the portable shell fixtures, before any backend or harness launch selection.
+
+```sh
+tests/fm-pull.test.sh
+tests/fm-backlog-handoff.test.sh
+tests/fm-remote-backlog-handoff.test.sh
+tests/fm-fleet-snapshot-view.test.sh
+tests/fm-secondmate-lifecycle-e2e.test.sh
+tests/fm-secondmate-safety.test.sh
+```
+
+Observed result: each suite passed, including refusal before backlog, endpoint, or metadata mutation at four counted workers, local-only snapshots without remote reads, prioritized handoff, and nested-secondmate refusal.
+Because `bin/fm-spawn.sh` performs this check under the existing task-set lock before backend resolution and launch, the guard applies unchanged to Claude, Codex, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, Muse, tmux, Herdr, Zellij, Orca, and cmux.
+
 ## tmux
 
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.

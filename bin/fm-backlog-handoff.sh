@@ -82,7 +82,7 @@ MAIN_BACKLOG="$DATA/backlog.md"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 
-RECEIVER_WAKE_MESSAGE='New routed work is in your backlog. Run bin/fm-session-start.sh now, then act on the routed task.'
+RECEIVER_WAKE_MESSAGE='New routed work is in your backlog. Run bin/fm-session-start.sh now, then run bin/fm-pull.sh ready and claim the first eligible local task.'
 
 ACTIVE_HANDOFF_LOCK=
 ACTIVE_REGISTRY_LOCK=
@@ -610,6 +610,31 @@ remove_interrupted_source_duplicates() { # <outbox> <keys...>
   done
 }
 
+validate_handoff_priorities() { # <queued-key>...
+  [ "$#" -gt 0 ] || return 0
+  local snapshot key priority config projects
+  config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+  projects=${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}
+  snapshot=$(FM_ROOT_OVERRIDE="$FM_ROOT" FM_HOME="$FM_HOME" \
+    FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+    FM_CONFIG_OVERRIDE="$config" FM_PROJECTS_OVERRIDE="$projects" \
+    "$SCRIPT_DIR/fm-fleet-snapshot.sh" --local-json 2>/dev/null) || {
+    echo "error: local pull facts could not be read; refusing handoff before any backlog or receiver mutation" >&2
+    return 1
+  }
+  for key in "$@"; do
+    priority=$(printf '%s' "$snapshot" | jq -r --arg id "$key" \
+      '[.pull.rows[]? | select(.id == $id) | .priority][0] // ""')
+    case "$priority" in
+      0|1|2|3|4) ;;
+      *)
+        echo "error: refusing to hand off $key: structured priority is missing or invalid; assign priority 0..4 before routing" >&2
+        return 1
+        ;;
+    esac
+  done
+}
+
 remote_handoff() { # <secondmate-id> <keys...>
   local id=$1 outbox section main_section out_section key mv_out
   local -a requested to_move already missing in_flight done_items not_queued
@@ -659,6 +684,7 @@ remote_handoff() { # <secondmate-id> <keys...>
     echo "       nothing new was staged." >&2
     return 1
   fi
+  validate_handoff_priorities "${to_move[@]}" || return 1
   for key in "${to_move[@]}"; do
     while IFS= read -r line; do
       printf 'error: refusing to hand off %s: non-2-space continuation line: %s\n' "$key" "$line" >&2
@@ -806,6 +832,10 @@ if [ "$FAILED" -ne 0 ]; then
   echo "       nothing was moved." >&2
   exit 1
 fi
+validate_handoff_priorities "${TO_MOVE[@]}" || {
+  echo "       nothing was moved." >&2
+  exit 1
+}
 
 REQUESTED_BATCH=$(receiver_wake_batch_id "$@") || {
   echo "error: receiver wake batch identity could not be recorded; nothing was moved" >&2
