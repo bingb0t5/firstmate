@@ -208,13 +208,17 @@ fm_brief_trim_surrounding_punctuation() {
 }
 
 fm_brief_wait_is_bounded() {
-  local line=$1 field value normalized
+  local line=$1 field value normalized field_tail
   for field in bound escape; do
     case "$line" in
       *[[:space:]]"$field="*) ;;
       *) return 1 ;;
     esac
-    value=${line#*[[:space:]]"$field="}
+    field_tail=${line#*[[:space:]]"$field="}
+    case "$field_tail" in
+      *[[:space:]]"$field="*) return 1 ;;
+    esac
+    value=$field_tail
     value=${value%%[[:space:]]*}
     [ -n "$value" ] || return 1
     case "$value" in
@@ -359,7 +363,9 @@ EOF
 SHIP_TASK_BODY='{TASK}'
 SOL_EXEMPTION_BLOCK=
 SOL_EXEMPTION_LINE=
-if [ -n "${FM_TASK:-}" ]; then
+FM_TASK_IS_SET=0
+[ "${FM_TASK+x}" = x ] && FM_TASK_IS_SET=1
+if [ "$FM_TASK_IS_SET" -eq 1 ]; then
   [ "$KIND" = ship ] || {
     echo "error: FM_TASK applies only to ship briefs; a scout report and a secondmate charter carry no Sol exemption, so fill their {TASK} section by hand" >&2
     exit 1
@@ -514,7 +520,7 @@ HERDR_SECTION=$(printf '%s\n' \
 'Never bypass the helper, even for a read-only lifecycle probe or cleanup after failure.' \
 'The captain fleet uses the running `default` session.')
 else
-if [ -n "${FM_TASK:-}" ]; then
+if [ "$FM_TASK_IS_SET" -eq 1 ]; then
   HERDR_GATE_LINE='**HARD SAFETY GATE:** this scaffold never inspects the task text above for Herdr lifecycle intent.'
 else
   HERDR_GATE_LINE='**HARD SAFETY GATE:** this scaffold cannot inspect the task text filled in above.'
@@ -701,7 +707,7 @@ Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced 
 
 $DOD
 EOF
-if [ -n "${FM_TASK:-}" ]; then
+if [ "$FM_TASK_IS_SET" -eq 1 ]; then
   echo "scaffolded: $BRIEF (ship, mode=$MODE; Sol exemption earned)"
 else
   echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"

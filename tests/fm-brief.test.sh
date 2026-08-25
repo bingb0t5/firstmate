@@ -860,6 +860,27 @@ $wait_line" "$ROOT/bin/fm-brief.sh" "sol-vacuous-$i" firstmate --mode no-mistake
   pass "fm-brief.sh: vacuous wait bounds and escapes cannot earn exemption"
 }
 
+test_ship_sol_exemption_refuses_duplicate_wait_fields() {
+  local home out status wait_line i=0
+  for wait_line in \
+    'Wait: approval bound=30m bound=forever escape=abort' \
+    'Wait: approval bound=30m escape=abort escape=none' \
+    'Wait: approval bound=30m bound=1h escape=abort' \
+    'Wait: approval bound=30m escape=abort escape=notify'; do
+    i=$((i + 1))
+    home="$TMP_ROOT/sol-duplicate-field-home-$i"
+    mkdir -p "$home/data"
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="Acceptance command: \`make test\`
+$wait_line" "$ROOT/bin/fm-brief.sh" "sol-duplicate-field-$i" firstmate --mode no-mistakes 2>&1) || status=$?
+    expect_code 1 "$status" "duplicate wait evidence fields must refuse"
+    assert_contains "$out" "bound=" "refusal must name the wait evidence contract"
+    assert_absent "$home/data/sol-duplicate-field-$i/brief.md" \
+      "refused duplicate-field scaffold must not write a brief"
+  done
+  pass "fm-brief.sh: duplicate wait evidence fields cannot earn exemption"
+}
+
 test_ship_sol_exemption_refuses_multiple_waits_on_one_line() {
   local home out status wait_line i=0
   for wait_line in \
@@ -922,27 +943,44 @@ Then \`$token\` before shipping." \
 # FM_TASK is a ship-only input; scout and secondmate must refuse it loudly rather
 # than scaffold a brief whose {TASK} placeholder silently discarded it.
 test_fm_task_refused_on_scout_and_secondmate() {
-  local home out status
+  local home out status task i=0
   home="$TMP_ROOT/sol-kind-home"
   mkdir -p "$home/data"
-  status=0
-  out=$(FM_HOME="$home" FM_TASK='Investigate the flake.' \
-    "$ROOT/bin/fm-brief.sh" sol-kind-scout alpha --scout 2>&1) || status=$?
-  expect_code 1 "$status" "FM_TASK on a scout scaffold must refuse"
-  assert_contains "$out" "FM_TASK applies only to ship briefs" \
-    "scout refusal must name FM_TASK as ship-only"
-  assert_absent "$home/data/sol-kind-scout/brief.md" \
-    "refused scout scaffold must not write a brief"
+  for task in 'Investigate the flake.' ''; do
+    i=$((i + 1))
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="$task" \
+      "$ROOT/bin/fm-brief.sh" "sol-kind-scout-$i" alpha --scout 2>&1) || status=$?
+    expect_code 1 "$status" "set FM_TASK on a scout scaffold must refuse"
+    assert_contains "$out" "FM_TASK applies only to ship briefs" \
+      "scout refusal must name FM_TASK as ship-only"
+    assert_absent "$home/data/sol-kind-scout-$i/brief.md" \
+      "refused scout scaffold must not write a brief"
 
-  status=0
-  out=$(FM_HOME="$home" FM_TASK='Charter the crew.' \
-    "$ROOT/bin/fm-brief.sh" sol-kind-sm --secondmate --no-projects 2>&1) || status=$?
-  expect_code 1 "$status" "FM_TASK on a secondmate scaffold must refuse"
-  assert_contains "$out" "FM_TASK applies only to ship briefs" \
-    "secondmate refusal must name FM_TASK as ship-only"
-  assert_absent "$home/data/sol-kind-sm/brief.md" \
-    "refused secondmate scaffold must not write a brief"
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="$task" \
+      "$ROOT/bin/fm-brief.sh" "sol-kind-sm-$i" --secondmate --no-projects 2>&1) || status=$?
+    expect_code 1 "$status" "set FM_TASK on a secondmate scaffold must refuse"
+    assert_contains "$out" "FM_TASK applies only to ship briefs" \
+      "secondmate refusal must name FM_TASK as ship-only"
+    assert_absent "$home/data/sol-kind-sm-$i/brief.md" \
+      "refused secondmate scaffold must not write a brief"
+  done
   pass "fm-brief.sh: FM_TASK is refused on scout and secondmate scaffolds"
+}
+
+test_empty_fm_task_refused_on_ship() {
+  local home out status=0
+  home="$TMP_ROOT/sol-empty-task-home"
+  mkdir -p "$home/data"
+  out=$(FM_HOME="$home" FM_TASK='' \
+    "$ROOT/bin/fm-brief.sh" sol-empty-task firstmate --mode no-mistakes 2>&1) || status=$?
+  expect_code 1 "$status" "empty set FM_TASK on a ship scaffold must refuse"
+  assert_contains "$out" "Acceptance command" \
+    "empty ship FM_TASK refusal must name the missing evidence"
+  assert_absent "$home/data/sol-empty-task/brief.md" \
+    "refused empty ship task must not write a brief"
+  pass "fm-brief.sh: empty set FM_TASK is validated, never ignored"
 }
 
 # A refused scaffold must leave the data tree exactly as it found it, not an
@@ -1295,10 +1333,12 @@ test_ship_sol_exemption_refuses_unbounded_wait
 test_ship_sol_exemption_refuses_inflected_waits
 test_ship_sol_exemption_refuses_valueless_bound_and_escape
 test_ship_sol_exemption_refuses_vacuous_bound_and_escape
+test_ship_sol_exemption_refuses_duplicate_wait_fields
 test_ship_sol_exemption_refuses_multiple_waits_on_one_line
 test_ship_sol_exemption_ignores_backticked_command_names
 test_ship_sol_exemption_refuses_backticked_wait_tokens
 test_fm_task_refused_on_scout_and_secondmate
+test_empty_fm_task_refused_on_ship
 test_refused_scaffold_leaves_no_task_directory
 test_sol_exemption_block_spacing_is_stable
 test_ship_sol_exemption_accepts_trailing_acceptance_text
