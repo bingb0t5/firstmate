@@ -487,8 +487,6 @@ def post_capture(
                 "brain capture failed with HTTP %s" % status
             )
         try:
-            if resp_path.stat().st_size > MAX_RESPONSE_BYTES:
-                raise UserError("brain capture response is too large")
             raw = resp_path.read_bytes()
         except OSError as exc:
             raise UserError("cannot read the brain capture response: %s" % exc)
@@ -496,6 +494,8 @@ def post_capture(
             response = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
             raise UserError("brain capture returned a non-JSON response")
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise CaptureError("brain capture response is too large")
         capture_id = response.get("capture_id") if isinstance(response, dict) else None
         return validated_capture_id(capture_id, "brain capture", CaptureError)
     finally:

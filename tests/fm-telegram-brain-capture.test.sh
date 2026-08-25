@@ -90,8 +90,14 @@ if [ -n "${FAKE_CURL_BODY_LOG:-}" ] && [ -n "$bodyfile" ]; then
   echo >> "$FAKE_CURL_BODY_LOG"
 fi
 if [ -n "$ofile" ]; then
-  if [ -n "${FAKE_CAPTURE_OVERSIZED:-}" ]; then
-    python3 -c 'import sys; sys.stdout.write("<" * (1024 * 1024 + 1))' > "$ofile"
+  if [ -n "${FAKE_CAPTURE_OVERSIZED:-}" ] \
+    && { [ -z "${FAKE_CAPTURE_OVERSIZED_MATCH:-}" ] \
+      || grep -q -F -- "$FAKE_CAPTURE_OVERSIZED_MATCH" "$bodyfile"; }; then
+    if [ "$FAKE_CAPTURE_OVERSIZED" = json ]; then
+      python3 -c 'import json; print(json.dumps({"padding": "x" * (1024 * 1024)}))' > "$ofile"
+    else
+      python3 -c 'import sys; sys.stdout.write("<" * (1024 * 1024 + 1))' > "$ofile"
+    fi
     printf '%s' "$code"
     exit "${FAKE_CURL_EXIT:-0}"
   fi
@@ -143,6 +149,7 @@ run_capture() {
     FAKE_CAPTURE_FAIL_CODE="${FAKE_CAPTURE_FAIL_CODE-}" \
     FAKE_CAPTURE_FAIL_BODY="${FAKE_CAPTURE_FAIL_BODY-}" \
     FAKE_CAPTURE_OVERSIZED="${FAKE_CAPTURE_OVERSIZED-}" \
+    FAKE_CAPTURE_OVERSIZED_MATCH="${FAKE_CAPTURE_OVERSIZED_MATCH-}" \
     FAKE_CURL_EXIT="${FAKE_CURL_EXIT-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_GROUP="${FM_TELEGRAM_BRAIN_CAPTURE_GROUP-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT="${FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT-}" \
@@ -895,7 +902,7 @@ if run_capture "$oversized" "$oversized_bin" capture - < "$oversized/batch.jsonl
   fail "an oversized non-JSON 2xx response must stay fail-closed"
 fi
 FAKE_CAPTURE_OVERSIZED=
-assert_grep "response is too large" "$oversized/err" \
+assert_grep "non-JSON response" "$oversized/err" \
   "the oversized endpoint response was not reported"
 assert_grep "unattempted 1" "$oversized/out" \
   "an oversized endpoint response did not stop the remaining batch"
@@ -904,6 +911,33 @@ expect_code 1 "$oversized_posts" "an oversized endpoint response kept POSTing th
 assert_absent "$oversized/state/telegram-brain-capture/9937" \
   "a later payload was attempted after an oversized endpoint response"
 pass "an oversized non-JSON 2xx response stops the batch after one POST"
+
+# --- oversized valid JSON without capture_id stays per-payload -------------
+oversized_json=$(make_home oversized-json-response)
+oversized_json_bin=$(make_fake_curl "$oversized_json")
+FAKE_CURL_LOG="$oversized_json/curl.log"
+FAKE_CAPTURE_OVERSIZED=json
+FAKE_CAPTURE_OVERSIZED_MATCH="the brain sends oversized JSON without an id"
+{
+  payload 9938 "the brain sends oversized JSON without an id"
+  payload 9939 "a later thought"
+} > "$oversized_json/batch.jsonl"
+if run_capture "$oversized_json" "$oversized_json_bin" capture - \
+  < "$oversized_json/batch.jsonl" >"$oversized_json/out" 2>"$oversized_json/err"; then
+  fail "oversized valid JSON without capture_id must stay fail-closed"
+fi
+FAKE_CAPTURE_OVERSIZED=
+FAKE_CAPTURE_OVERSIZED_MATCH=
+assert_grep "9938 brain capture response is too large" "$oversized_json/err" \
+  "the oversized JSON response was not blamed on its update_id"
+assert_not_contains "$(cat "$oversized_json/out")" "unattempted" \
+  "an oversized valid JSON response stopped the batch"
+assert_present "$oversized_json/state/telegram-brain-capture/9939" \
+  "an oversized valid JSON response blocked a later payload"
+oversized_json_posts=$(grep -c '^url=' "$oversized_json/curl.log")
+expect_code 2 "$oversized_json_posts" \
+  "an oversized valid JSON response blocked the later POST"
+pass "oversized valid JSON without capture_id fails its payload and keeps walking"
 
 # --- an endpoint-level 404 is systemic and stops the batch ------------------
 gone=$(make_home http-gone)
