@@ -360,6 +360,69 @@ test_empty_discovery_keeps_the_record() {
   pass "an empty discovery sweep does not erase the dedupe record"
 }
 
+# Discovery that reads some repositories and fails on others is partial, not
+# empty: a clone whose origin cannot be read this sweep was never inspected, so
+# its absence from the discovered set says nothing about whether the fleet still
+# works in it. Pruning its keys there would re-wake every unchanged conflict it
+# holds as soon as the clone resolves again.
+test_partial_discovery_keeps_the_record() {
+  local home out
+  home=$(make_home discovery-partial)
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken A\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  write_list "$home" "$REPO_B" "[{\"number\":9,\"title\":\"Broken B\",\"url\":\"https://github.com/$REPO_B/pull/9\",\"headRefOid\":\"$HEAD_TWO\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "repo=$REPO_A" "first poll should wake for alpha"
+  assert_contains "$(cat "$out")" "repo=$REPO_B" "first poll should wake for beta"
+  # The beta clone goes away while the alpha clone still resolves, exactly as a
+  # transient unreadable checkout would leave it.
+  mv "$home/projects/beta" "$home/projects/beta.away"
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "a partial discovery sweep must stay silent: $(cat "$out")"
+  mv "$home/projects/beta.away" "$home/projects/beta"
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "the unchanged beta conflict must not wake again after its clone resolves: $(cat "$out")"
+  pass "a partial discovery sweep does not erase the unread repository's record"
+}
+
+# The other side of the same rule: when discovery resolved every project it
+# enumerated, a repository missing from the result is one this home genuinely
+# stopped working in, and its keys are dropped so the record stays the size of
+# the live conflict set. Retaining them for an unread repository must not turn
+# into retaining them forever.
+test_deregistered_project_leaves_the_record() {
+  local home out
+  home=$(make_home discovery-deregistered)
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken A\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  write_list "$home" "$REPO_B" "[{\"number\":9,\"title\":\"Broken B\",\"url\":\"https://github.com/$REPO_B/pull/9\",\"headRefOid\":\"$HEAD_TWO\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "repo=$REPO_B" "first poll should wake for beta"
+  # beta is deregistered while every project still listed resolves, so discovery
+  # is complete and beta is genuinely gone rather than unread.
+  cat > "$home/data/projects.md" <<'MD'
+# Projects
+
+- alpha - alpha repo (added 2026-08-25)
+MD
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "a deregistered project must not wake: $(cat "$out")"
+  cat > "$home/data/projects.md" <<'MD'
+# Projects
+
+- alpha - alpha repo (added 2026-08-25)
+- beta - beta repo (added 2026-08-25)
+MD
+  : > "$out"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "repo=$REPO_B" \
+    "a re-registered project's conflict is a fresh event and must wake again"
+  pass "keys for a repository this home stopped working in leave the record"
+}
+
 # A run the watcher kills prints and records nothing, so the reread loop has to
 # end at the sweep deadline rather than at its attempt count.
 test_unknown_rereads_stop_at_the_sweep_deadline() {
@@ -425,6 +488,8 @@ test_unknown_wake_uses_the_head_the_reread_judged
 test_conflicts_past_the_line_cap_wake_on_a_later_sweep
 test_resolved_conflicts_leave_the_record
 test_empty_discovery_keeps_the_record
+test_partial_discovery_keeps_the_record
+test_deregistered_project_leaves_the_record
 test_unknown_rereads_stop_at_the_sweep_deadline
 test_clean_fleet_is_silent
 test_draft_conflicts_are_reported
