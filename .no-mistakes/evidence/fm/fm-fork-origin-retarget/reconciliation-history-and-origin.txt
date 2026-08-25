@@ -1,0 +1,6 @@
+feature_head=64d2d19469034c004ca64ee215100f75941e8322
+reconciliation_commit_and_parents=38c139306a783a1d4dcdd0f569ac519c980c0afd 15a930fca3b58fef13a1da0168d6e4849e3657ee 6a2cd6cd2c642c9422bb43dccedbd91103285fb0
+captain_main_is_ancestor=0
+imported_main_is_ancestor=0
+origin_fetch=https://github.com/bingb0t5/firstmate.git
+origin_push=https://github.com/bingb0t5/firstmate.git
