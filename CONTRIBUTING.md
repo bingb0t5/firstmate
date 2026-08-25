@@ -14,7 +14,8 @@ It evaluates every PR opening and body edit independently, so a later edit canno
 GitHub Actions and Dependabot are exempt so their automation keeps working, but regular contributor PRs without the signature will not be reviewed or merged.
 
 A second check (`pr-communication`) enforces the pull request communication structure shared with the Lalo repos.
-Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) verbatim for the required CEO overview, validation, module-boundary decision, and decision-needed sections. Legacy `Intent`, `Risk Assessment`, and `Testing` headings do not satisfy the communication check.
+Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) verbatim for the required CEO overview, validation, module-boundary decision, and decision-needed sections.
+Legacy `Intent`, `Risk Assessment`, and `Testing` headings do not satisfy the communication check.
 The assessment rules are vendored from `lalo-admin`; the local pin always guards that copy against unreviewed changes, and the companion `pr-communication-sot` check compares it with that remote source of truth using only `PR_COMMUNICATION_SOT_TOKEN`.
 The remote comparison fails closed when the credential is missing or rejected, and only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.
 
