@@ -80,7 +80,7 @@ Launch it with `--trust`, or none of its project hooks load; it also has no turn
 
 ```sh
 gh auth login
-git clone https://github.com/kunchenguid/firstmate
+git clone https://github.com/bingb0t5/firstmate
 cd firstmate
 ```
 
