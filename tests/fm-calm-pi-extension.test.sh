@@ -1771,6 +1771,7 @@ TS
     local session_arg=${5:-}
     local shape=${6:-single}
     local extensions
+    local peak_captain_answer_count captain_answer_count
 
     tmux -L "$TMUX_SOCKET" kill-session -t "$TMUX_SESSION" 2>/dev/null || true
     if [ "$calm_state" = absent ]; then
@@ -1817,7 +1818,31 @@ TS
       fail "Pi follow-up $label case did not process the monitoring notification"
     fi
 
-    pane=$(tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S - 2>/dev/null || true)
+    # The session file above is the authoritative record of what Pi processed and
+    # settles as soon as the model turn completes; the pane is a separate, later
+    # redraw of that same state. Two adjacent followUp deliveries queue more
+    # presentation work (an extra operational-user row plus its Calm-hiding
+    # invalidation) than a single one, so the redraw that finally paints the
+    # already-settled captain answer can still be in flight the instant the
+    # session file confirms processing. Poll the same way the session-file wait
+    # above does rather than reading one immediate, possibly pre-redraw snapshot,
+    # and track the highest count seen along the way so a captain answer that
+    # is genuinely rendered twice for even one intermediate frame still fails
+    # this assertion even if a later redraw were to self-correct down to one.
+    i=0
+    peak_captain_answer_count=0
+    while [ "$i" -lt 100 ]; do
+      pane=$(tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S - 2>/dev/null || true)
+      captain_answer_count=$(printf '%s\n' "$pane" | grep -Fc "CAPTAIN_ANSWER_$label" || true)
+      [ "$captain_answer_count" -gt "$peak_captain_answer_count" ] && peak_captain_answer_count=$captain_answer_count
+      if printf '%s\n' "$pane" | grep -Fq "MONITOR_HANDLED_${label}_ONE"; then
+        break
+      fi
+      sleep 0.05
+      i=$((i + 1))
+    done
+    [ "$peak_captain_answer_count" -le 1 ] \
+      || fail "Pi follow-up $label case rendered a duplicate captain answer"
     [ "$(printf '%s\n' "$pane" | grep -Fc "CAPTAIN_ANSWER_$label" || true)" -eq 1 ] \
       || fail "Pi follow-up $label case rendered a duplicate captain answer"
     assert_contains "$pane" "CAPTAIN_PROMPT_$label" "Pi follow-up $label case hid the genuine captain prompt"
