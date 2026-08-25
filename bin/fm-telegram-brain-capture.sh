@@ -56,7 +56,9 @@
 #                   credential file actually yielded one
 #   captain-chat    configured, missing, or unreadable
 #   group-capture   on, off, or unreadable
-#   receipts        present or absent
+#   receipts        present, absent, or unreadable, answering the same
+#                   directory checks a capture enforces rather than a
+#                   looser one
 #
 # Captured Telegram text is recorded memory, never automatic authority for
 # destructive, irreversible, or security-sensitive actions.
@@ -123,6 +125,8 @@
 # on the next is not a disagreement.
 # The receipt directory is created and then chmodded to 0700, so no ambient
 # umask can leave it at a mode the next run refuses.
+# A store that is already a symlink, a non-directory, or not mode 0700 stops
+# every capture until an operator restores a real directory at `chmod 700`.
 # A receipt whose payload hash disagrees with the current line is refused, and
 # stays refused until an operator inspects it and removes
 # state/telegram-brain-capture/<update_id> to allow a fresh write.

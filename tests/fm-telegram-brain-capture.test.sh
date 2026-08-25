@@ -922,6 +922,56 @@ umask_mode=$(stat -c '%a' "$umaskhome/state/telegram-brain-capture" 2>/dev/null 
 assert_contains "$umask_mode" "700" "the receipt directory was not created at mode 700"
 pass "the receipt directory is 700 whatever the ambient umask says"
 
+# --- doctor answers the receipt-store question capture asks -----------------
+store=$(make_home receipt-store)
+store_bin=$(make_fake_curl "$store")
+FAKE_CURL_LOG="$store/curl.log"
+out=$(payload 8501 "make the store" | run_capture "$store" "$store_bin" capture -)
+expect_code 0 $? "the first capture should create the store"
+assert_contains "$out" "captured 8501 cap-1" "the first capture did not succeed"
+
+run_doctor() {
+  PATH="$1:$BASE_PATH" \
+    FM_HOME="$2" \
+    FM_STATE_OVERRIDE="$2/state" \
+    FM_CONFIG_OVERRIDE="$2/config" \
+    FM_BEANZ_ENV_FILE="$2/secrets/mcp.env" \
+    FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+    "$CAPTURE" doctor
+}
+
+out=$(run_doctor "$store_bin" "$store")
+assert_contains "$out" "receipts: present" "doctor did not see a store capture accepts"
+
+chmod 750 "$store/state/telegram-brain-capture"
+out=$(run_doctor "$store_bin" "$store")
+expect_code 0 $? "doctor should still report on a wedged store"
+assert_contains "$out" "receipts: unreadable" \
+  "doctor reported a store capture refuses as ready"
+if payload 8502 "must not be captured" | \
+  run_capture "$store" "$store_bin" capture - >/dev/null 2>"$store/err"; then
+  fail "a mode-750 receipt directory must stop a capture"
+fi
+assert_grep "receipt directory mode is not 700" "$store/err" \
+  "capture did not refuse the mode-750 store"
+chmod 700 "$store/state/telegram-brain-capture"
+
+link=$(make_home receipt-store-link)
+link_bin=$(make_fake_curl "$link")
+mkdir -p "$link/elsewhere"
+ln -s "$link/elsewhere" "$link/state/telegram-brain-capture"
+out=$(run_doctor "$link_bin" "$link")
+expect_code 0 $? "doctor should still report on a symlinked store"
+assert_contains "$out" "receipts: unreadable" \
+  "doctor reported a symlinked store as absent rather than refused"
+if payload 8503 "must not be captured" | \
+  run_capture "$link" "$link_bin" capture - >/dev/null 2>"$link/err"; then
+  fail "a symlinked receipt directory must stop a capture"
+fi
+assert_grep "receipt directory is unsafe" "$link/err" \
+  "capture did not refuse the symlinked store"
+pass "doctor reports the receipt store exactly as capture judges it"
+
 # --- doctor reports non-secret readiness ------------------------------------
 doc=$(make_home doctor)
 doc_bin=$(make_fake_curl "$doc")
