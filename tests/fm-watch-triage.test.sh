@@ -317,7 +317,12 @@ test_crew_is_provably_working_classifier() {
   pass "crew_is_provably_working: only working+run-step/pane is provable; idle/finished/parked/failed/unknown surface"
 }
 
-test_manager_with_busy_child_is_provably_working() {
+# A kind=secondmate manager's `unknown` is its quiet endpoint state, not a wedge
+# suspect, so a manager whose home still holds a working child inherits that
+# child's `working`. The inheritance is strictly last: the manager's own verdict
+# wins first, and an unanswered captain hold or decision on its log blocks it, so
+# a busy child can never mask work the captain has to act on.
+test_manager_child_work_inheritance_classifier() {
   local dir state home fakebin
   dir=$(make_case manager-busy-child); state="$dir/state"; fakebin="$dir/fakebin"
   home="$dir/mate-home"
@@ -326,23 +331,58 @@ test_manager_with_busy_child_is_provably_working() {
   printf 'window=test:fm-platform\nkind=secondmate\nhome=%s\n' "$home" > "$state/platform.meta"
   printf 'window=test:fm-child\nkind=ship\n' > "$home/state/child.meta"
   export FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh"
-  export FM_FAKE_CREW_STATE
-  export FM_FAKE_CREW_STATE_child
   export FM_STATE_OVERRIDE="$state"
-  FM_FAKE_CREW_STATE='state: unknown · source: none · idle manager'
+  export FM_FAKE_CREW_STATE_platform FM_FAKE_CREW_STATE_child FM_FAKE_CREW_STATE_submate
+  FM_FAKE_CREW_STATE_platform='state: unknown · source: none · idle manager'
   FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating'
   [ "$(crew_absorb_class platform)" = working ] \
     || fail "idle kind=secondmate manager with a busy child was not classified working"
   FM_FAKE_CREW_STATE_child='state: done · source: run-step · landed'
-  [ "$(crew_absorb_class platform)" != working ] \
+  [ "$(crew_absorb_class platform)" = none ] \
     || fail "idle manager was treated as working after its only child finished"
-  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_child FM_STATE_OVERRIDE
-  pass "crew_absorb_class: an idle kind=secondmate manager inherits working from active child crews"
+  # The manager's own authoritative verdict always wins over a child's activity.
+  FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating'
+  FM_FAKE_CREW_STATE_platform='state: failed · source: run-step · run failed'
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a busy child masked the manager's own failed state"
+  FM_FAKE_CREW_STATE_platform='state: parked · source: run-step · parked at review'
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a busy child masked the manager's own parked state"
+  FM_FAKE_CREW_STATE_platform='state: blocked · source: status-log · needs a token'
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a busy child masked the manager's own blocked state"
+  FM_FAKE_CREW_STATE_platform='state: paused · source: status-log · awaiting upstream'
+  [ "$(crew_absorb_class platform)" = paused ] \
+    || fail "a busy child overrode the manager's own declared pause"
+  # A captain hold has no current-state mapping, so it arrives as `unknown` just
+  # like a genuinely idle mate: the status log is what keeps it surfacing.
+  FM_FAKE_CREW_STATE_platform='state: unknown · source: none · idle manager'
+  printf 'captain-held [key=route]: tracked by task-decision-route\n' > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a busy child masked the manager's unanswered captain hold"
+  printf 'needs-decision [key=q1]: pick A or B\n' > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a busy child masked the manager's unanswered decision"
+  printf 'working: dispatched the alpha rollout\n' > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = working ] \
+    || fail "a quiet manager with a busy child lost its inherited working verdict"
+  # A nested kind=secondmate endpoint is idle by design, so it is never counted
+  # as the manager's own dispatched work.
+  printf 'window=test:fm-submate\nkind=secondmate\n' > "$home/state/submate.meta"
+  FM_FAKE_CREW_STATE_child='state: done · source: run-step · landed'
+  FM_FAKE_CREW_STATE_submate='state: working · source: run-step · validating'
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a nested kind=secondmate endpoint was counted as active child work"
+  unset FM_FAKE_CREW_STATE_platform FM_FAKE_CREW_STATE_child FM_FAKE_CREW_STATE_submate FM_STATE_OVERRIDE
+  pass "crew_absorb_class: a quiet manager inherits working from active children, but never masks its own state or an unanswered hold"
 }
 
-test_paused_manager_with_busy_child_stays_absorbed() {
-  local dir state home fakebin out capture_file statusf window key pane_hash sig pid
-  dir=$(make_case paused-manager-busy-child); state="$dir/state"; fakebin="$dir/fakebin"
+# The other half of the same rule at the watcher level: a mate's captain hold must
+# keep taking its bounded re-surface for the whole length of a child run, or a
+# three-hour dispatch silently buys three hours of an unanswered decision rotting.
+test_captain_held_manager_with_busy_child_still_resurfaces() {
+  local dir state home fakebin out capture_file statusf window key pane_hash sig pid back
+  dir=$(make_case held-manager-busy-child); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; home="$dir/mate-home"
   window="test:fm-platform"
   mkdir -p "$home/state"
@@ -350,27 +390,33 @@ test_paused_manager_with_busy_child_stays_absorbed() {
   printf 'window=%s\nkind=secondmate\nhome=%s\n' "$window" "$home" > "$state/platform.meta"
   printf 'window=test:fm-child\nkind=ship\n' > "$home/state/child.meta"
   statusf="$state/platform.status"
-  printf 'paused: supervising dispatched workers\n' > "$statusf"
+  printf 'captain-held [key=rollout]: awaiting the rollout decision\n' > "$statusf"
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
+  else touch -m -d "@$back" "$statusf"; fi
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-platform_status"
   printf 'idle while workers run\n' > "$capture_file"
   key=$(printf '%s' "$window" | tr '.:/' '___')
   pane_hash=$(hash_text "idle while workers run")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
-  printf '2\n' > "$state/.count-$key"
-  printf '%s' "$pane_hash" > "$state/.stale-$key"
-  printf '%s\n' $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
-  printf '1\n' > "$state/.wedge-escalations-$key"
-  FM_FAKE_CREW_STATE_platform='state: unknown · source: none · idle manager'
-  FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating'
-  FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    watch_bg "$state" "$fakebin" "$out"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE_platform='state: unknown · source: none · no current-state source available'
+  export FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating'
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  if ! wait_poll_cycle "$state" "$pid"; then
-    reap "$pid"; fail "watcher woke for paused manager with busy child: $(cat "$out")"
-  fi
-  [ ! -s "$out" ] || { reap "$pid"; fail "paused manager with busy child printed a wake: $(cat "$out")"; }
-  reap "$pid"
-  pass "a declared-pause kind=secondmate manager with busy children stays absorbed instead of stale/wedge"
+  wait_for_exit "$pid" 100 \
+    || fail "a captain hold stopped re-surfacing while the manager's child was busy: $(cat "$out")"
+  grep -F "stale: $window" "$out" >/dev/null \
+    || fail "captain-held manager with a busy child emitted no stale recheck: $(cat "$out")"
+  grep -F "awaiting the captain" "$out" >/dev/null \
+    || fail "the recheck did not name the captain as the blocker: $(cat "$out")"
+  grep -F "possible wedge" "$out" >/dev/null \
+    && fail "captain-held manager with a busy child was mislabeled a wedge"
+  unset FM_FAKE_CREW_STATE_platform FM_FAKE_CREW_STATE_child
+  pass "an unanswered captain hold still re-surfaces while the manager's children run"
 }
 
 # status_is_paused: the shared pause verb test both consumers read (so neither
@@ -2674,8 +2720,8 @@ test_stale_is_terminal_classifier
 test_scan_captain_relevant_statuses_classifier
 test_classifier_primitives
 test_crew_is_provably_working_classifier
-test_manager_with_busy_child_is_provably_working
-test_paused_manager_with_busy_child_stays_absorbed
+test_manager_child_work_inheritance_classifier
+test_captain_held_manager_with_busy_child_still_resurfaces
 test_status_is_paused_classifier
 test_crew_absorb_class_classifier
 test_crew_worktree_written_since_classifier
