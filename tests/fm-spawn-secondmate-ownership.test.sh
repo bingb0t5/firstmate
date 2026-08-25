@@ -397,6 +397,30 @@ EOF
   pass "fm-spawn: an unsafe registry path refuses rather than reading as an empty registry"
 }
 
+test_fresh_scout_spawn_is_guarded_and_overridable_like_a_ship_spawn() {
+  local rec home proj fakebin out status line
+  line="- design - design domain (home: $TMP_ROOT/scout/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)"
+  rec=$(make_home scout "$line")
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  write_brief "$home" own-scout-i1
+  out=$(run_spawn "$home" "$fakebin" own-scout-i1 "$proj/ownedproj" claude --scout)
+  status=$?
+  [ "$status" -ne 0 ] || fail "owned-project scout spawn should exit non-zero"
+  assert_contains "$out" "registered to secondmate(s) design" "scout refusal did not name the owning secondmate"
+  assert_not_contains "$out" "$BACKEND_REACHED" "the refused scout spawn still reached the backend"
+  assert_absent "$home/state/own-scout-i1.meta" "refused scout spawn wrote task metadata"
+
+  write_brief "$home" own-scout-i2
+  out=$(run_spawn "$home" "$fakebin" own-scout-i2 "$proj/ownedproj" claude --scout --allow-primary-spawn)
+  assert_contains "$out" "--allow-primary-spawn bypasses secondmate ownership" \
+    "scout override did not print a loud notice"
+  assert_not_contains "$out" "registered to secondmate" "scout override was blocked by the ownership guard"
+  assert_contains "$out" "$BACKEND_REACHED" "the overridden scout spawn never reached the backend"
+  pass "fm-spawn: a fresh scout spawn is refused on an owned project and passes with the deliberate override"
+}
+
 test_batch_dispatch_carries_the_deliberate_override_to_every_pair() {
   local rec home proj fakebin out
   local line
@@ -421,6 +445,7 @@ test_fresh_spawn_into_owned_project_refuses_and_writes_no_meta
 test_refusal_names_every_owner_when_several_claim_the_project
 test_registry_entry_path_forms_state_the_same_ownership_claim
 test_projects_field_metacharacter_is_never_expanded_against_the_working_directory
+test_fresh_scout_spawn_is_guarded_and_overridable_like_a_ship_spawn
 test_allow_primary_spawn_override_passes_the_ownership_guard
 test_allow_primary_spawn_is_refused_outside_a_fresh_ship_or_scout_spawn
 test_secondmate_spawn_is_unaffected_by_the_ownership_guard
