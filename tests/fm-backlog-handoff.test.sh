@@ -110,6 +110,22 @@ EOF
   pass "a routed handoff wakes once and a successful rerun stays idempotent"
 }
 
+test_already_present_missing_priority_refuses_without_wake() {
+  local home="$TMP_ROOT/already-priority-main" sub="$TMP_ROOT/already-priority-sub" fakebin out rc=0
+  setup_homes "$home" "$sub"
+  mkdir -p "$sub/data"
+  printf '## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  printf '## Queued\n- [ ] legacy-item - migrated without priority (repo: alpha)\n\n## Done\n' > "$sub/data/backlog.md"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/already-priority-fake")
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/already-priority-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design legacy-item 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "already-routed item without priority was accepted"
+  assert_contains "$out" 'structured priority is missing or invalid' "priority migration refusal was not explicit"
+  assert_absent "$TMP_ROOT/already-priority-tmux.log" "invalid already-routed item notified the receiver"
+  pass "already-routed items require structured priority before reconciliation"
+}
+
 test_failed_wake_retries_when_the_item_is_already_present() {
   local home="$TMP_ROOT/retry-wake-main" sub="$TMP_ROOT/retry-wake-sub" out corr rc=0
   setup_homes "$home" "$sub"
@@ -1333,6 +1349,7 @@ EOF
 }
 
 test_handoff_wakes_live_local_receiver
+test_already_present_missing_priority_refuses_without_wake
 test_failed_wake_retries_when_the_item_is_already_present
 test_known_receiver_failure_remains_retryable_after_grace
 test_known_failure_restores_retry_after_reconciliation_race
