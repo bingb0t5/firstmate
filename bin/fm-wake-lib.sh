@@ -443,12 +443,16 @@ fm_lock_remove_path() {
 }
 
 fm_lock_mid_acquire_is_fresh() {
-  local lockdir=$1 pid=$2 mid_acquire_stale
+  local lockdir=$1 pid=$2 mid_acquire_stale age
   case "$pid" in
     ''|*[!0-9]*)
       mid_acquire_stale=$FM_LOCK_STALE_AFTER
       [ "$mid_acquire_stale" -lt 2 ] && mid_acquire_stale=2
-      [ "$(fm_path_age "$lockdir")" -lt "$mid_acquire_stale" ]
+      # Missing age evidence can be a lock-owner publication race, so it must
+      # stay held rather than recurse through progressively nested steal locks.
+      age=$(fm_path_age "$lockdir" 2>/dev/null) || return 0
+      case "$age" in ''|*[!0-9]*) return 0 ;; esac
+      [ "$age" -lt "$mid_acquire_stale" ]
       return
       ;;
   esac
