@@ -74,7 +74,7 @@ test_snapshot_attention_and_local_mode() {
 }
 
 test_unreadable_inventory_fails_closed() {
-  local home fifo_home out rc=0
+  local home fifo_home linked_home out rc=0
   home=$(make_home unreadable)
   ln -s "$home/state/missing-target" "$home/state/broken.meta"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
@@ -85,6 +85,12 @@ test_unreadable_inventory_fails_closed() {
   out=$(FM_HOME="$fifo_home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
   printf '%s' "$out" | jq -e '.attention.valid == false' >/dev/null \
     || fail "non-regular worker metadata was reported as a complete inventory: $out"
+  linked_home=$(make_home unreadable-linked)
+  printf 'kind=ship\n' > "$linked_home/state/worker-record"
+  ln -s "$linked_home/state/worker-record" "$linked_home/state/worker.meta"
+  out=$(FM_HOME="$linked_home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
+  printf '%s' "$out" | jq -e '.attention.valid == false' >/dev/null \
+    || fail "resolved metadata symlink was reported as a complete inventory: $out"
   mkdir -p "$home/data/direct" "$home/data/batch"
   printf '# brief\n' > "$home/data/direct/brief.md"
   printf '# brief\n' > "$home/data/batch/brief.md"

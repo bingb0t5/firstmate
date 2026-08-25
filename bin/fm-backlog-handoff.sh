@@ -798,8 +798,13 @@ IN_FLIGHT=()
 DONE=()
 NOT_QUEUED=()
 for key in "$@"; do
-  if backlog_key_section "$SUB_BACKLOG" "$key" >/dev/null; then
-    ALREADY+=("$key")
+  if section=$(backlog_key_section "$SUB_BACKLOG" "$key"); then
+    case "$section" in
+      "## Queued") ALREADY+=("$key") ;;
+      "## In flight") IN_FLIGHT+=("$key") ;;
+      "## Done") DONE+=("$key") ;;
+      *) NOT_QUEUED+=("$key") ;;
+    esac
   elif section=$(backlog_key_section "$MAIN_BACKLOG" "$key"); then
     case "$section" in
       "## Queued") TO_MOVE+=("$key") ;;
