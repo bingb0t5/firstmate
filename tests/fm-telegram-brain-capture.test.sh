@@ -95,6 +95,8 @@ if [ -n "$ofile" ]; then
       || grep -q -F -- "$FAKE_CAPTURE_OVERSIZED_MATCH" "$bodyfile"; }; then
     if [ "$FAKE_CAPTURE_OVERSIZED" = json ]; then
       python3 -c 'import json; print(json.dumps({"padding": "x" * (1024 * 1024)}))' > "$ofile"
+    elif [ "$FAKE_CAPTURE_OVERSIZED" = json-with-id ]; then
+      python3 -c 'import json; print(json.dumps({"capture_id": "cap-large", "padding": "x" * (1024 * 1024)}))' > "$ofile"
     else
       python3 -c 'import sys; sys.stdout.write("<" * (1024 * 1024 + 1))' > "$ofile"
     fi
@@ -938,6 +940,21 @@ oversized_json_posts=$(grep -c '^url=' "$oversized_json/curl.log")
 expect_code 2 "$oversized_json_posts" \
   "an oversized valid JSON response blocked the later POST"
 pass "oversized valid JSON without capture_id fails its payload and keeps walking"
+
+# --- oversized valid JSON with capture_id succeeds -------------------------
+oversized_success=$(make_home oversized-json-success)
+oversized_success_bin=$(make_fake_curl "$oversized_success")
+FAKE_CURL_LOG="$oversized_success/curl.log"
+FAKE_CAPTURE_OVERSIZED=json-with-id
+out=$(payload 9941 "the brain returns a large receipt" | \
+  run_capture "$oversized_success" "$oversized_success_bin" capture -)
+expect_code 0 $? "oversized JSON carrying capture_id should succeed"
+FAKE_CAPTURE_OVERSIZED=
+assert_contains "$out" "captured 9941 cap-large" \
+  "an oversized JSON response lost its validated capture_id"
+assert_present "$oversized_success/state/telegram-brain-capture/9941" \
+  "an oversized successful response wrote no receipt"
+pass "oversized valid JSON with capture_id is successful"
 
 # --- an endpoint-level 404 is systemic and stops the batch ------------------
 gone=$(make_home http-gone)

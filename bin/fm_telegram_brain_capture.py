@@ -37,6 +37,7 @@ MAX_CAPTURE_ID_CHARS = 200
 RECEIPT_IDENTITY_FIELDS = ("update_id", "text", "chat_id")
 RECEIPT_DIR_NAME = "telegram-brain-capture"
 SYSTEMIC_HTTP_STATUSES = (401, 403, 404, 405, 429)
+MAX_JSON_DEPTH = 256
 
 
 class UserError(Exception):
@@ -416,6 +417,158 @@ def curl_config_value(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
+class JsonResponseReader:
+    def __init__(self, path: Path) -> None:
+        self.stream = path.open("r", encoding="utf-8")
+        self.pending = ""
+
+    def close(self) -> None:
+        self.stream.close()
+
+    def take(self) -> str:
+        if self.pending:
+            char = self.pending
+            self.pending = ""
+            return char
+        return self.stream.read(1)
+
+    def push(self, char: str) -> None:
+        self.pending = char
+
+    def nonspace(self) -> str:
+        char = self.take()
+        while char and char in " \t\r\n":
+            char = self.take()
+        return char
+
+    def string(self, limit: int = 0) -> Optional[str]:
+        raw = ['"'] if limit else None
+        escaped = False
+        unicode_left = 0
+        while True:
+            char = self.take()
+            if not char or (ord(char) < 32 and not escaped):
+                raise ValueError("invalid JSON string")
+            if raw is not None and len(raw) <= limit:
+                raw.append(char)
+            if unicode_left:
+                if char not in "0123456789abcdefABCDEF":
+                    raise ValueError("invalid JSON escape")
+                unicode_left -= 1
+                escaped = unicode_left != 0
+                continue
+            if escaped:
+                if char == "u":
+                    unicode_left = 4
+                elif char not in '"\\/bfnrt':
+                    raise ValueError("invalid JSON escape")
+                escaped = unicode_left != 0
+                continue
+            if char == "\\":
+                escaped = True
+            elif char == '"':
+                break
+        if raw is None or len(raw) > limit:
+            return None
+        return json.loads("".join(raw))
+
+    def number(self, first: str) -> None:
+        char = first
+        if char == "-":
+            char = self.take()
+        if char == "0":
+            char = self.take()
+            if char.isdigit():
+                raise ValueError("invalid JSON number")
+        elif char in "123456789":
+            char = self.take()
+            while char.isdigit():
+                char = self.take()
+        else:
+            raise ValueError("invalid JSON number")
+        if char == ".":
+            char = self.take()
+            if not char.isdigit():
+                raise ValueError("invalid JSON number")
+            while char.isdigit():
+                char = self.take()
+        if char in "eE":
+            char = self.take()
+            if char in "+-":
+                char = self.take()
+            if not char.isdigit():
+                raise ValueError("invalid JSON number")
+            while char.isdigit():
+                char = self.take()
+        self.push(char)
+
+    def value(self, first: str, depth: int, collect_string: bool = False) -> object:
+        if depth > MAX_JSON_DEPTH:
+            raise ValueError("JSON nesting is too deep")
+        if first == '"':
+            return self.string(MAX_CAPTURE_ID_CHARS * 6 + 2 if collect_string else 0)
+        if first == "{":
+            return self.object(depth + 1, False)
+        if first == "[":
+            char = self.nonspace()
+            if char == "]":
+                return None
+            while True:
+                self.value(char, depth + 1)
+                char = self.nonspace()
+                if char == "]":
+                    return None
+                if char != ",":
+                    raise ValueError("invalid JSON array")
+                char = self.nonspace()
+        if first in "-0123456789":
+            self.number(first)
+            return None
+        literal = {"t": "rue", "f": "alse", "n": "ull"}.get(first)
+        if literal is None or "".join(self.take() for _ in literal) != literal:
+            raise ValueError("invalid JSON value")
+        return None
+
+    def object(self, depth: int, capture_top_level: bool) -> object:
+        capture_id = None
+        char = self.nonspace()
+        if char == "}":
+            return capture_id
+        while True:
+            if char != '"':
+                raise ValueError("invalid JSON object")
+            key = self.string(64)
+            if self.nonspace() != ":":
+                raise ValueError("invalid JSON object")
+            char = self.nonspace()
+            collecting = capture_top_level and key == "capture_id"
+            value = self.value(char, depth, collecting)
+            if collecting:
+                capture_id = value
+            char = self.nonspace()
+            if char == "}":
+                return capture_id
+            if char != ",":
+                raise ValueError("invalid JSON object")
+            char = self.nonspace()
+
+
+def oversized_json_capture_id(path: Path) -> object:
+    reader = JsonResponseReader(path)
+    try:
+        first = reader.nonspace()
+        if first == "{":
+            capture_id = reader.object(1, True)
+        else:
+            reader.value(first, 1)
+            capture_id = None
+        if reader.nonspace():
+            raise ValueError("trailing JSON data")
+        return capture_id
+    finally:
+        reader.close()
+
+
 def post_capture(
     token: str, brain_url: str, text: str, source: str, workdir: Path, timeout: int
 ) -> str:
@@ -487,16 +640,21 @@ def post_capture(
                 "brain capture failed with HTTP %s" % status
             )
         try:
-            raw = resp_path.read_bytes()
+            oversized = resp_path.stat().st_size > MAX_RESPONSE_BYTES
+            if oversized:
+                capture_id = oversized_json_capture_id(resp_path)
+            else:
+                raw = resp_path.read_bytes()
+                response = json.loads(raw.decode("utf-8"))
+                capture_id = (
+                    response.get("capture_id") if isinstance(response, dict) else None
+                )
         except OSError as exc:
             raise UserError("cannot read the brain capture response: %s" % exc)
-        try:
-            response = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
             raise UserError("brain capture returned a non-JSON response")
-        if len(raw) > MAX_RESPONSE_BYTES:
+        if oversized and capture_id is None:
             raise CaptureError("brain capture response is too large")
-        capture_id = response.get("capture_id") if isinstance(response, dict) else None
         return validated_capture_id(capture_id, "brain capture", CaptureError)
     finally:
         for path in staged:
