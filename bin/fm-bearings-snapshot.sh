@@ -502,10 +502,12 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         (if $include_prs == 1 then empty else {surface:"live PR discovery + checks", reveal:"--include-prs"} end) ]) }
 ') || { echo "fm-bearings-snapshot: projection failed" >&2; exit 1; }
 
+MAIN_HOME_SUMMARY=$(FM_SNAPSHOT_NOW="$NOW" "$FLEET" --secondmate-home-summary) || exit $?
+
 # Add the compact v2 facts after the legacy projection has established the
 # existing four sections. This keeps the canonical snapshot as the only state
 # reader while making home-local ownership explicit at the board seam.
-MODEL=$(printf '%s\n' "$MODEL" | jq --argjson snap "$SNAP" --arg now "$NOW" '
+MODEL=$(printf '%s\n' "$MODEL" | jq --argjson snap "$SNAP" --argjson main_home "$MAIN_HOME_SUMMARY" --arg now "$NOW" '
   def main_record($id):
     (($snap.backlog.records // []) | .[] | select(.structured == true and .id == $id)) // {};
   def mate_record($owner; $id):
@@ -539,29 +541,24 @@ MODEL=$(printf '%s\n' "$MODEL" | jq --argjson snap "$SNAP" --arg now "$NOW" '
         pull_eligible:($stage == "queued" and $owner == "main" and $priority != null and $reason == null),
         pull_reason:$reason
       };
-  def current_attention($rows):
-    ([ $rows[]? | select((.kind == "ship" or .kind == "scout")
-        and ((.current_state.state // .state) == "working"
-          or (.current_state.state // .state) == "unknown"
-          or (.current_state.state // .state) == "failed")) ] | length);
-  def domain($owner; $record; $valid; $reason):
+  def domain($owner; $record; $attention_count; $valid; $reason):
     {
       owner:$owner,
-      attention:($record.attention // {count:current_attention(($record.tasks // [])),limit:4}),
+      attention:{count:$attention_count,limit:4},
       freshness:($record.freshness // {status:"fresh",observed_at:$now,age_seconds:0}),
       validity:{valid:$valid,reason:$reason}
     };
   (if (($snap.main_inventory.valid // true) == true)
-   then domain("main"; {tasks:($snap.tasks // [])}; true; null)
-   else domain("main"; {tasks:($snap.tasks // [])}; false; ($snap.main_inventory.reason // "main inventory invalid")) end) as $main_domain
+   then domain("main"; {}; ($main_home.counts.active_children // 0); true; null)
+   else domain("main"; {}; ($main_home.counts.active_children // 0); false; ($snap.main_inventory.reason // "main inventory invalid")) end) as $main_domain
   | ([ $main_domain ] + [
       ($snap.secondmate_current.registry.records // []) | .[] as $registered
       | ([($snap.secondmate_current.records // [])[] | select(.id == $registered.id)] | first // null) as $record
       | if $record == null then
-          domain($registered.id; {}; false; "home snapshot unavailable")
+          domain($registered.id; {}; 0; false; "home snapshot unavailable")
         else
           ($record.freshness.status // "unknown") as $freshness
-          | domain($registered.id; $record;
+          | domain($registered.id; $record; ($record.counts.active_children // 0);
               ($record.provenance.selected == "structured-home"
                 and $freshness == "fresh"
                 and ($record.invalidity == null));
@@ -571,7 +568,7 @@ MODEL=$(printf '%s\n' "$MODEL" | jq --argjson snap "$SNAP" --arg now "$NOW" '
                else null end))
         end
     ] + (if (($snap.secondmate_current.registry.available // true) == false)
-         then [domain("registry"; {}; false; ($snap.secondmate_current.registry.reason // "registered home inventory unavailable"))]
+         then [domain("registry"; {}; 0; false; ($snap.secondmate_current.registry.reason // "registered home inventory unavailable"))]
          else [] end)) as $domains
   | . + {
       schema:"fm-bearings.v1",

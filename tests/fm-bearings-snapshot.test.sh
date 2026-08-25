@@ -855,10 +855,12 @@ test_registry_unavailability_and_bounds_are_explicit() {
 }
 
 test_v2_projection_exposes_domain_and_pull_contract() {
-  local home fakebin json
+  local home mate fakebin json
   home=$(make_home v2-contract)
+  mate="$TMP_ROOT/v2-contract-mate"
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
+- [ ] main-active - Main active work (repo: firstmate) (kind: ship) (since 2026-08-19)
 
 ## Queued
 - [ ] main-card - Main queued work (repo: firstmate) (kind: ship) (priority: 0) (since 2026-08-20)
@@ -866,14 +868,34 @@ test_v2_projection_exposes_domain_and_pull_contract() {
 
 ## Done
 EOF
+  mkdir -p "$home/projects/main-active"
+  fm_write_meta "$home/state/main-active.meta" \
+    "window=firstmate:fm-main-active" "worktree=$home/projects/main-active" "project=firstmate" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  record_claude_state "$home/state" main-active busy
+  printf 'working: building the board\n' > "$home/state/main-active.status"
+  make_valid_secondmate_home ops-mate "$mate"
+  sed -i '/## In flight/a - [ ] mate-active - Mate active work (repo: firstmate) (kind: ship) (since 2026-08-19)' "$mate/data/backlog.md"
+  mkdir -p "$mate/projects/mate-active"
+  fm_write_meta "$mate/state/mate-active.meta" \
+    "window=firstmate:fm-mate-active" "worktree=$mate/projects/mate-active" "project=firstmate" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  record_claude_state "$mate/state" mate-active busy
+  printf 'working: handling domain work\n' > "$mate/state/mate-active.status"
+  append_secondmate_registry "$home" ops-mate "$mate"
+  write_parent_secondmate_event "$home" ops-mate "$mate" "handling domain work"
   fakebin=$(make_fakebin "$home")
   json=$(run "$home" "$fakebin" --json)
   printf '%s' "$json" | jq -e '
     .schema == "fm-bearings.v1"
       and (.domains | any(.owner == "main"
+        and .attention.count == 1
         and .attention.limit == 4
         and (.freshness.status | type) == "string"
         and .validity.valid == true))
+      and (.domains | any(.owner == "ops-mate"
+        and .attention.count == 1
+        and .attention.limit == 4))
       and (.charted | any(.id == "main-card"
         and .owner == "main"
         and .repo == "firstmate"
