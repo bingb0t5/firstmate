@@ -235,11 +235,13 @@ test_nested_secondmate_refusals() {
   [ "$rc" -ne 0 ] || fail "nested home seed succeeded"
   assert_contains "$out" 'only the primary home' "nested seed refusal was not explicit"
   rc=0
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-spawn.sh" child "$peer" --secondmate --harness pi 2>&1) || rc=$?
+  out=$(PATH=/usr/bin:/bin FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-spawn.sh" child "$peer" --secondmate --harness pi 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "nested secondmate spawn succeeded"
   assert_contains "$out" 'only the primary home' "nested spawn refusal was not explicit"
   rc=0
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-spawn.sh" nested "$home" --secondmate --harness pi 2>&1) || rc=$?
+  out=$(PATH=/usr/bin:/bin FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-spawn.sh" nested "$home" --secondmate --harness pi 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "nested home spawned a secondmate endpoint for itself"
   assert_contains "$out" 'only the primary home' "same-home nested spawn refusal was not explicit"
   pass "secondmate homes cannot create nested secondmates"
