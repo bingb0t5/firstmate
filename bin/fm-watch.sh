@@ -402,7 +402,7 @@ secondmate_oldest_queue_row() {  # <queue-path>
 # only this home's marker so a later row can be observed.
 secondmate_wake_stall_tick() {
   local now=$(( $(date +%s) )) threshold=$SECONDMATE_WAKE_STALL_SECS
-  local meta task kind remote_host home queue row epoch seq row_key marker receipt receipt_dir notify_key queued age reason
+  local meta task kind remote_host home queue row epoch seq row_key marker receipt receipt_dir supervising notify_key queued age reason
   case "$threshold" in ''|*[!0-9]*|0) threshold=60 ;; esac
   # Endpoint metadata admits this queue-loop check; secondmate-liveness owns registered mates whose endpoint is missing or dead.
   for meta in "$STATE"/*.meta; do
@@ -423,7 +423,7 @@ secondmate_wake_stall_tick() {
     marker="$STATE/.secondmate-wake-stall-$task"
     receipt_dir="$STATE/.secondmate-wake-stall-receipts/$task"
     if [ -z "$row" ]; then
-      rm -f "$marker"
+      rm -f "$marker" "$STATE/.secondmate-supervising-$task"
       if [ -e "$receipt_dir" ] || [ -L "$receipt_dir" ]; then
         [ -d "$receipt_dir" ] && [ ! -L "$receipt_dir" ] || return 1
         rm -rf -- "$receipt_dir" || return 1
@@ -446,15 +446,38 @@ EOF
     [ "$(cat "$receipt" 2>/dev/null || true)" = "$row_key" ] && continue
     # A quiet manager supervising live child work in its registered home is
     # healthy even when its foreign wake queue still holds an aged row: the
-    # manager has nothing to append while workers run. Skip only when the
-    # manager's own instruction inbox is also empty so unread steers still
-    # surface. Placed below the marker/receipt dedup because the child probe
-    # forks one fm-crew-state read per child: an already-notified row must keep
-    # short-circuiting for free instead of paying for it on every poll.
-    if mate_home_has_active_child_work "$home" \
-      && ! fm_task_inbox_oldest_unhandled "$STATE" "$task" >/dev/null 2>&1; then
+    # manager has nothing to append while workers run. Quiet is VERIFIED, not
+    # assumed, in both directions the manager could still owe something - an
+    # unread instruction in its own inbox, and anything on its own status log
+    # the captain still owes an answer to (a verified hold, a still-open keyed
+    # decision, a legacy captain-relevant line, via the same predicate the
+    # classifier's inheritance uses) - so a busy child can never mask the
+    # manager's own failed/blocked/needs-decision state.
+    #
+    # Cost order matters as much as the outcome: this whole gate sits below the
+    # marker/receipt dedup, both quiet tests are pure file reads and run before
+    # the child probe, and the probe's verdict is then cached per row for one
+    # stall cadence. The probe forks one fm-crew-state read per child and this
+    # tick runs every FM_POLL, so without the cache a supervised row - the exact
+    # case this gate exists to serve, and the one case that never earns a
+    # marker - would re-fork for the whole length of a child run. The cache is
+    # deliberately bounded rather than a permanent skip: once it ages out the
+    # probe re-runs, so a row whose children have finished still escalates.
+    supervising="$STATE/.secondmate-supervising-$task"
+    if [ -e "$supervising" ] || [ -L "$supervising" ]; then
+      [ -f "$supervising" ] && [ ! -L "$supervising" ] || return 1
+    fi
+    if [ "$(cat "$supervising" 2>/dev/null || true)" = "$row_key" ] \
+      && [ "$(age_of "$supervising")" -lt "$threshold" ]; then
       continue
     fi
+    if ! fm_task_inbox_oldest_unhandled "$STATE" "$task" >/dev/null 2>&1 \
+      && manager_owes_captain_nothing "$task" "$STATE" \
+      && mate_home_has_active_child_work "$home"; then
+      fm_wake_secondmate_supervising_marker_write "$task" "$row_key" || return 1
+      continue
+    fi
+    rm -f "$supervising"
     notify_key="secondmate-wake-loop-$task-$row_key"
     reason="check: secondmate wake-loop stalled: mate=$task row=$seq age=${age}s"
     queued=$(fm_wake_queued_keys check)

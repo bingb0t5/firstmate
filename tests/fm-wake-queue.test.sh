@@ -394,6 +394,122 @@ SH
   pass "secondmate wake-loop stall still fires when the manager has unread instructions"
 }
 
+# The manager's own state is never masked by a busy child: an unanswered
+# decision still open behind a later, unrelated status line is exactly the wedge
+# this check exists to surface, so the aged foreign row must still wake even
+# though the home holds live child work and the instruction inbox is empty.
+test_secondmate_wake_stall_still_fires_with_open_manager_decision() {
+  local dir state sub fakebin out
+  dir=$(make_case secondmate-stall-open-decision)
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state" "$sub/data"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+    "$sub" > "$state/mate.meta"
+  printf 'window=firstmate:fm-child\nkind=ship\n' > "$sub/state/child.meta"
+  printf 'needs-decision [key=rollout]: ship v2 or hold?\ndispatched the alpha rollout\n' \
+    > "$state/mate.status"
+  printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - 10 ))" > "$sub/state/.wake-queue"
+  fakebin="$dir/fakebin"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-windows) printf '%s\n' "${FM_FAKE_TMUX_WINDOW:-}" ;;
+  capture-pane) cat "${FM_FAKE_TMUX_CAPTURE:-/dev/null}" ;;
+  display-message) printf '0\n' ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod +x "$fakebin/tmux"
+  make_fake_crew_state "$fakebin" >/dev/null
+  out="$dir/watch.out"
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_FAKE_TMUX_LOG="$dir/tmux.log" FM_FAKE_TMUX_CAPTURE="$dir/fake-tmux/pane.txt" \
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 3 > "$out" 2> "$dir/watch.err" || true
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$out" >/dev/null \
+    || fail "an open manager decision behind busy children did not wake: $(cat "$out")"
+  [ ! -e "$state/.secondmate-supervising-mate" ] \
+    || fail "a manager the captain still owes an answer was cached as supervising"
+  pass "secondmate wake-loop stall still fires when the manager holds an unanswered decision"
+}
+
+# The supervising skip is a bounded CACHE, not a permanent suppression: while the
+# children stay busy the forking child probe must not re-run on every poll, and
+# once the cache ages out the probe re-runs so a finished child still escalates.
+test_secondmate_supervising_skip_is_probe_bounded_and_expires() {
+  local dir state sub fakebin out probes
+  dir=$(make_case secondmate-stall-supervising-cache)
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state" "$sub/data"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+    "$sub" > "$state/mate.meta"
+  printf 'window=firstmate:fm-child\nkind=ship\n' > "$sub/state/child.meta"
+  printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - 60 ))" > "$sub/state/.wake-queue"
+  fakebin="$dir/fakebin"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-windows) printf '%s\n' "${FM_FAKE_TMUX_WINDOW:-}" ;;
+  capture-pane) cat "${FM_FAKE_TMUX_CAPTURE:-/dev/null}" ;;
+  display-message) printf '0\n' ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod +x "$fakebin/tmux"
+  probes="$dir/child-probes"
+  cat > "$fakebin/fm-crew-state.sh" <<SH
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = child ]; then
+  printf 'x\n' >> "$probes"
+  printf '%s\n' "\${FM_FAKE_CHILD_STATE:-state: working · source: run-step · validating}"
+  exit 0
+fi
+printf 'state: unknown · source: none · fake default\n'
+SH
+  chmod +x "$fakebin/fm-crew-state.sh"
+  : > "$probes"
+  out="$dir/watch.out"
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_FAKE_TMUX_LOG="$dir/tmux.log" FM_FAKE_TMUX_CAPTURE="$dir/fake-tmux/pane.txt" \
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_SECONDMATE_WAKE_STALL_SECS=30 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 4 > "$out" 2> "$dir/watch.err" || true
+  ! grep -F 'secondmate wake-loop stalled' "$out" >/dev/null \
+    || fail "a supervised aged row woke while its children were busy: $(cat "$out")"
+  [ "$(cat "$state/.secondmate-supervising-mate" 2>/dev/null || true)" = "$(head -1 "$sub/state/.wake-queue" | cut -f1)-7" ] \
+    || fail "the supervising skip recorded no row-keyed cache entry"
+  [ "$(wc -l < "$probes")" -le 2 ] \
+    || fail "the child probe re-forked on every poll instead of once per cadence: $(wc -l < "$probes") probes"
+
+  # Age the cache past the cadence with the children now finished: the probe must
+  # re-run and the row must escalate rather than stay silently suppressed.
+  : > "$probes"
+  touch -t 200001010000 "$state/.secondmate-supervising-mate"
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_FAKE_TMUX_LOG="$dir/tmux.log" FM_FAKE_TMUX_CAPTURE="$dir/fake-tmux/pane.txt" \
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CHILD_STATE='state: done · source: run-step · landed' \
+    FM_SECONDMATE_WAKE_STALL_SECS=30 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 3 > "$out" 2> "$dir/watch.err" || true
+  [ -s "$probes" ] || fail "an aged supervising cache never re-ran the child probe"
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$out" >/dev/null \
+    || fail "the row stayed suppressed after its children finished: $(cat "$out")"
+  pass "the supervising skip caches one child probe per cadence and expires into an escalation"
+}
+
 test_secondmate_stall_marker_rejects_symlink() {
   local dir state sub fakebin marker outside expected
   dir=$(make_case secondmate-stall-marker-symlink)
@@ -1278,6 +1394,8 @@ test_self_held_lock_reclaims_instead_of_deadlocking
 test_secondmate_foreign_queue_stall_is_one_shot_and_read_only
 test_secondmate_wake_stall_skips_idle_manager_with_busy_children
 test_secondmate_wake_stall_still_fires_with_unread_manager_inbox
+test_secondmate_wake_stall_still_fires_with_open_manager_decision
+test_secondmate_supervising_skip_is_probe_bounded_and_expires
 test_secondmate_stall_marker_rejects_symlink
 test_acknowledged_stall_publication_survives_pre_marker_crash
 test_empty_prefix_mate_preserves_other_mate_receipt

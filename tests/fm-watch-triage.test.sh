@@ -363,9 +363,39 @@ test_manager_child_work_inheritance_classifier() {
   printf 'needs-decision [key=q1]: pick A or B\n' > "$state/platform.status"
   [ "$(crew_absorb_class platform)" = none ] \
     || fail "a busy child masked the manager's unanswered decision"
+  # Last-event-wins cannot see a decision a later unrelated line masked, so the
+  # durable open-set is what the guard folds: q1 is still open behind both a
+  # verbless prose line and a resolution that closes a DIFFERENT key.
+  printf 'needs-decision [key=q1]: pick A or B\ndispatched the alpha rollout\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a later status line masked the manager's still-open decision"
+  printf 'needs-decision [key=q1]: pick A or B\nresolved [key=q2]: unrelated call\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "resolving an unrelated key masked the manager's still-open decision"
+  printf 'needs-decision [key=q1]: pick A or B\nresolved [key=q1]: took A\n' \
+    > "$state/platform.status"
+  [ "$(crew_absorb_class platform)" = working ] \
+    || fail "a manager whose only decision was answered did not regain its inherited verdict"
   printf 'working: dispatched the alpha rollout\n' > "$state/platform.status"
   [ "$(crew_absorb_class platform)" = working ] \
     || fail "a quiet manager with a busy child lost its inherited working verdict"
+  # The home a manager may read children from is exactly the one fm-watch.sh's
+  # wake-loop check admits: never a remote mate's path (a captain host with the
+  # same layout would read unrelated local crews), and never a home that names
+  # some other mate as its owner.
+  printf 'window=test:fm-platform\nkind=secondmate\nremote_host=mate-box\nhome=%s\n' \
+    "$home" > "$state/platform.meta"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a remote mate inherited working from crews at the same local path"
+  printf 'window=test:fm-platform\nkind=secondmate\nhome=%s\n' "$home" > "$state/platform.meta"
+  printf 'other-mate\n' > "$home/.fm-secondmate-home"
+  [ "$(crew_absorb_class platform)" = none ] \
+    || fail "a home owned by another mate was read as this manager's child work"
+  printf 'platform\n' > "$home/.fm-secondmate-home"
+  [ "$(crew_absorb_class platform)" = working ] \
+    || fail "the manager lost its inherited verdict once its own home was restored"
   # A nested kind=secondmate endpoint is idle by design, so it is never counted
   # as the manager's own dispatched work.
   printf 'window=test:fm-submate\nkind=secondmate\n' > "$home/state/submate.meta"
