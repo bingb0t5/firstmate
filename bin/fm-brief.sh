@@ -214,17 +214,23 @@ fm_brief_wait_is_bounded() {
 }
 
 fm_brief_acceptance_is_executable() {
-  local line=$1 command
+  local line=$1 command first
   case "$line" in
     Acceptance\ command:\ \`?*\`*) ;;
     *) return 1 ;;
   esac
   command=${line#Acceptance command: \`}
   command=${command%%\`*}
+  command=${command#"${command%%[![:space:]]*}"}
   case "$command" in
-    *[[:alnum:]_]*) return 0 ;;
-    *) return 1 ;;
+    ''|\#*) return 1 ;;
   esac
+  first=${command%%[[:space:]]*}
+  case "$first" in
+    ''|*=*|*[![:alnum:]_./-]*) return 1 ;;
+  esac
+  bash -n -c "$command" >/dev/null 2>&1 || return 1
+  return 0
 }
 
 # Scaffold-owned machine-readable lines. A filled task body that forges one would
