@@ -286,6 +286,30 @@ test_crlf_credential_value_fails_closed() {
   pass "a CRLF-terminated credential value fails closed instead of transmitting the CR"
 }
 
+test_identifier_shaped_continuation_fails_closed() {
+  local case_dir="$TMP_ROOT/multiline"
+  setup_config "$case_dir/config"
+  printf 'MULTILINE_KEY=first-part\ncGFydDJTRUNSRVQ==\n' >> "$case_dir/config/posthog.env"
+  capture_run "$case_dir" set brain MULTILINE_KEY --value-from 'env:posthog.env:MULTILINE_KEY'
+  expect_code 1 "$CAPTURE_RC" "an identifier-shaped continuation is ambiguous and should exit non-zero"
+  assert_not_contains "$CAPTURE_OUT" 'ok:' "an ambiguous multi-line read must not report success"
+  assert_absent "$case_dir/curl.log" "an ambiguous multi-line value must not be transmitted"
+  assert_no_secret "identifier-shaped continuation"
+  pass "an identifier-shaped continuation fails closed"
+}
+
+test_non_https_url_fails_closed() {
+  local case_dir="$TMP_ROOT/non-https"
+  setup_config "$case_dir/config"
+  printf 'COOLIFY_URL=http://localhost:8000\nCOOLIFY_API_TOKEN=%s\n' "$FAKE_TOKEN" > "$case_dir/config/coolify.env"
+  capture_run "$case_dir" set brain APP_NAME --value-from 'literal:firstmate'
+  expect_code 1 "$CAPTURE_RC" "a non-HTTPS Coolify URL should exit non-zero"
+  assert_contains "$CAPTURE_OUT" 'Coolify URL must use HTTPS' "a non-HTTPS URL should name the transport requirement"
+  assert_absent "$case_dir/curl.log" "a non-HTTPS URL must not reach curl"
+  assert_no_secret "non-HTTPS URL"
+  pass "a non-HTTPS Coolify URL fails closed"
+}
+
 test_leaves_no_secret_scratch_behind() {
   local case_dir="$TMP_ROOT/scratch" leftovers
   setup_config "$case_dir/config"
@@ -310,5 +334,7 @@ test_missing_set_operands_fail_closed
 test_literal_source_is_not_redacted
 test_quoted_credential_value_fails_closed
 test_crlf_credential_value_fails_closed
+test_identifier_shaped_continuation_fails_closed
+test_non_https_url_fails_closed
 test_leaves_no_secret_scratch_behind
 echo "# fm-coolify-env.test.sh: all assertions passed"

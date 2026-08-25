@@ -145,21 +145,11 @@ sidecar_get() {
 }
 
 sidecar_key_purpose() {
-  local sidecar=$1 key=$2 line value count=0 found=
-  [ -f "$sidecar" ] || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      ''|'#'*) continue ;;
-      service=*|obtain=*) continue ;;
-      "$key"=*)
-        value=${line#"$key="}
-        count=$((count + 1))
-        found=$value
-        ;;
-    esac
-  done < "$sidecar"
-  [ "$count" -eq 1 ] || return 1
-  printf '%s' "$found"
+  local sidecar=$1 key=$2
+  case "$key" in
+    service|obtain) return 1 ;;
+  esac
+  sidecar_get "$sidecar" "$key"
 }
 
 list_env_keys() {

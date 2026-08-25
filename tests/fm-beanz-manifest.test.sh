@@ -68,7 +68,7 @@ test_multiline_value_is_never_listed_as_a_key() {
   local case_dir="$TMP_ROOT/multiline" out
   out="$case_dir/README.md"
   mkdir -p "$case_dir/config"
-  printf 'PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----\n%s==\n-----END RSA PRIVATE KEY-----\n' \
+  printf 'PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----\n%s==\n' \
     "$PEM_BODY" > "$case_dir/config/pem.env"
   chmod 600 "$case_dir/config/pem.env"
   FM_BEANZ_CONFIG_DIR="$case_dir/config" "$SCRIPT" write --output "$out" \

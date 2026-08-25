@@ -123,6 +123,10 @@ service_uuid() {
 
 normalize_coolify_base() {
   local base=$1
+  case "$base" in
+    https://*) ;;
+    *) return 1 ;;
+  esac
   base=${base%/}
   printf '%s' "$base"
 }
@@ -150,7 +154,7 @@ coolify_request() {
       -H 'Content-Type: application/json' \
       -d "@$body_file" \
       -w $'\n%{http_code}' \
-      "$(normalize_coolify_base "$base")/api/v1/applications/$uuid/envs" \
+      "$base/api/v1/applications/$uuid/envs" \
       2>/dev/null
   ) || rc=$?
   coolify_cleanup
@@ -177,6 +181,7 @@ cmd_set() {
 
   cred_file=$(coolify_env_file)
   base=$(fm_credential_env_get "$cred_file" COOLIFY_URL) || die "Coolify URL is not configured" 1
+  base=$(normalize_coolify_base "$base") || die "Coolify URL must use HTTPS" 1
   token=$(fm_credential_env_get "$cred_file" COOLIFY_API_TOKEN) || die "Coolify API token is not configured" 1
   fm_credential_redact_register "$token"
 
