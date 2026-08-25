@@ -747,6 +747,28 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+test_sol_spec_scout_scaffold() {
+  local home brief out status
+  home="$TMP_ROOT/sol-spec-scout"
+  mkdir -p "$home/data"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" sol-spec-a alpha --scout --sol-spec >/dev/null 2>&1 \
+    || fail "fm-brief.sh Sol spec scout scaffold exited non-zero"
+  brief="$home/data/sol-spec-a/brief.md"
+  assert_present "$brief" "Sol spec scout brief was not scaffolded"
+  assert_grep "$home/data/sol-spec-a/spec.md" "$brief" \
+    "Sol spec scout brief did not name spec.md as its deliverable"
+  assert_no_grep "$home/data/sol-spec-a/report.md" "$brief" \
+    "Sol spec scout brief still instructed the worker to write report.md"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" sol-spec-b alpha --mode local-only --sol-spec 2>&1) || status=$?
+  expect_code 1 "${status:-0}" "--sol-spec without --scout must refuse"
+  assert_contains "$out" "--sol-spec applies only to --scout briefs" \
+    "--sol-spec misuse refusal did not name the required scout workflow"
+  assert_absent "$home/data/sol-spec-b/brief.md" \
+    "refused --sol-spec misuse wrote a brief"
+  pass "fm-brief: Sol spec scouts produce spec.md through the existing scout workflow"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -767,4 +789,5 @@ test_secondmate_marked_request_reporting_contract
 test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
+test_sol_spec_scout_scaffold
 test_scout_and_secondmate_scaffold

@@ -31,7 +31,9 @@
 #   agent-free on a backend with a recovery-grade agent-state classifier (tmux
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
-#   the new incarnation.
+#   the new incarnation. A ship task whose durable record carries spawn_gen=
+#   refuses here until a Sol spec exists at data/<task-id>/spec.md; scout
+#   relaunches stay ungated (bin/fm-second-attempt-lib.sh).
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
@@ -256,6 +258,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-second-attempt-lib.sh
+. "$SCRIPT_DIR/fm-second-attempt-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
@@ -1008,6 +1012,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fm_backend_validate_task_endpoint "$RELAUNCH_META" "$ID" || exit 1
   BACKEND=$FM_BACKEND_VALIDATED_BACKEND
   RELAUNCH_TARGET=$FM_BACKEND_VALIDATED_TARGET
+  KIND=$(fm_meta_get "$RELAUNCH_META" kind)
+  [ -n "$KIND" ] || KIND=ship
+  fm_second_attempt_refuse_if_needed "$STATE" "$DATA" "$ID" "$RELAUNCH_META" replacement_spawn \
+    || exit 1
   fm_backend_validate_spawn "$BACKEND" || exit 1
   fm_backend_source "$BACKEND" || exit 1
   # A relaunch must PROVE the previous agent is gone before it launches another
@@ -1023,8 +1031,6 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   }
   RELAUNCH_PRIOR_HARNESS=$(fm_meta_get "$RELAUNCH_META" harness)
-  KIND=$(fm_meta_get "$RELAUNCH_META" kind)
-  [ -n "$KIND" ] || KIND=ship
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
   RELAUNCH_WT=$(fm_meta_get "$RELAUNCH_META" worktree)

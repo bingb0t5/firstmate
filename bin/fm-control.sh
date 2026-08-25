@@ -34,7 +34,10 @@
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME endpoint and SAME worktree, on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. With no explicit axis, a secondmate re-resolves its
+#              of this verb. A ship task whose durable record carries spawn_gen=
+#              refuses here until a Sol spec exists at data/<task-id>/spec.md;
+#              scout relaunches stay ungated (bin/fm-second-attempt-lib.sh).
+#              With no explicit axis, a secondmate re-resolves its
 #              durable config/secondmate-harness pin (harness plus its optional
 #              model and effort tokens) exactly as any other respawn does, while
 #              a ship or scout keeps the exact adapter already recorded for it.
@@ -134,6 +137,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-second-attempt-lib.sh
+. "$SCRIPT_DIR/fm-second-attempt-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -783,6 +788,7 @@ do_relaunch() {
   local -a spawn_args
 
   require_state_verified_backend relaunch
+  fm_second_attempt_refuse_if_needed "$STATE" "$DATA" "$ID" "$META" relaunch || exit 1
   resolve_relaunch_profile
 
   case "$KIND" in

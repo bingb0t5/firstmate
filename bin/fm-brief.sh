@@ -7,10 +7,12 @@
 # when the task genuinely deviates (e.g. working an existing external PR instead
 # of shipping a new one).
 # Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
-#        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
+#        fm-brief.sh <task-id> <repo-name> --scout [--sol-spec] [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
+#   --sol-spec specializes that same scout workflow to write the task-owned Sol
+#   spec at data/<task-id>/spec.md instead. It is valid only with --scout.
 #   --secondmate writes a persistent secondmate charter. The project list
 #   is cloned into the secondmate home, while the natural-language scope
 #   tells the main firstmate when to route work there; routine churn stays in its own home;
@@ -107,6 +109,7 @@ fi
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
+SOL_SPEC=0
 MODE=
 MODE_SET=0
 POS=()
@@ -125,6 +128,7 @@ for a in "$@"; do
   fi
   case "$a" in
     --scout) KIND=scout ;;
+    --sol-spec) SOL_SPEC=1 ;;
     --secondmate) KIND=secondmate ;;
     --herdr-lab) HERDR_LAB=1 ;;
     --no-projects) NO_PROJECTS=1 ;;
@@ -161,6 +165,11 @@ ID=${POS[0]}
 
 if [ "$KIND" = secondmate ] && [ "$HERDR_LAB" -eq 1 ]; then
   echo "error: --herdr-lab applies only to crewmate ship or scout briefs" >&2
+  exit 1
+fi
+
+if [ "$SOL_SPEC" -eq 1 ] && [ "$KIND" != scout ]; then
+  echo "error: --sol-spec applies only to --scout briefs" >&2
   exit 1
 fi
 
@@ -319,7 +328,15 @@ HERDR_SECTION=${HERDR_SECTION%$'\n'}
 fi
 
 if [ "$KIND" = scout ]; then
-cat > "$BRIEF" <<EOF
+  SCOUT_ARTIFACT=report.md
+  SCOUT_PRODUCT=report
+  SCOUT_PURPOSE='written report'
+  if [ "$SOL_SPEC" -eq 1 ]; then
+    SCOUT_ARTIFACT=spec.md
+    SCOUT_PRODUCT='Sol spec'
+    SCOUT_PURPOSE='task-owned Sol specification'
+  fi
+  cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
 
 # Task
@@ -329,13 +346,13 @@ $HERDR_SECTION
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
-This is a SCOUT task: the deliverable is a written report, not a PR.
+This is a SCOUT task: the deliverable is a $SCOUT_PURPOSE, not a PR.
 The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
-The report is the only thing that survives, so anything worth keeping must be in it.
+The $SCOUT_PRODUCT is the only thing that survives, so anything worth keeping must be in it.
 
 # Rules
 1. Never push to any remote and never open a PR.
-2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
+2. Stay inside this worktree; the only files you may write outside it are the $SCOUT_PRODUCT and the status file below.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
 4. Report status by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
@@ -359,14 +376,14 @@ The report is the only thing that survives, so anything worth keeping must be in
 $INBOX_SECTION
 
 # Definition of done
-Write your findings to \`$DATA/$ID/report.md\`.
-The report must stand alone: what you did, what you found, the evidence (commands run, output, file:line references), and what you recommend.
+Write your findings to \`$DATA/$ID/$SCOUT_ARTIFACT\`.
+The $SCOUT_PRODUCT must stand alone: what you did, what you found, the evidence (commands run, output, file:line references), and what you recommend.
 If your deliverable is a visual artifact the captain will review and iterate on, you may host the Lavish review loop yourself (poll, revise, re-serve, staying alive) instead of handing it back to firstmate.
-Before reporting done, read and follow \`$FM_ROOT/.agents/skills/captain-hold-lifecycle/SKILL.md\` and pass its shared completion gate for the report and any visual review.
-When the report is complete, append \`done: {one-line conclusion}\` to the status file and stop.
-If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the report; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
+Before reporting done, read and follow \`$FM_ROOT/.agents/skills/captain-hold-lifecycle/SKILL.md\` and pass its shared completion gate for the $SCOUT_PRODUCT and any visual review.
+When the $SCOUT_PRODUCT is complete, append \`done: {one-line conclusion}\` to the status file and stop.
+If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the $SCOUT_PRODUCT; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
 EOF
-echo "scaffolded: $BRIEF (scout; replace {TASK})"
+echo "scaffolded: $BRIEF (scout, deliverable=$SCOUT_ARTIFACT; replace {TASK})"
 exit 0
 fi
 
