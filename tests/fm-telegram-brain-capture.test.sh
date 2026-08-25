@@ -59,14 +59,24 @@ while [ $# -gt 0 ]; do
     *) shift ;;
   esac
 done
-url=""
+url="" bodyfile=""
 while IFS= read -r line; do
   case "$line" in
     'url = '*) url=${line#url = } ; url=${url#\"} ; url=${url%\"} ;;
+    'data-binary = '*)
+      bodyfile=${line#data-binary = }
+      bodyfile=${bodyfile#\"@}
+      bodyfile=${bodyfile%\"}
+      ;;
   esac
 done <<EOF
 $config
 EOF
+code=${FAKE_CAPTURE_CODE:-200}
+if [ -n "${FAKE_CAPTURE_FAIL_MATCH:-}" ] && [ -n "$bodyfile" ] \
+  && grep -q -F -- "$FAKE_CAPTURE_FAIL_MATCH" "$bodyfile"; then
+  code=500
+fi
 if [ -n "${FAKE_CURL_LOG:-}" ]; then
   {
     echo "argv=$argv"
@@ -80,7 +90,7 @@ if [ -n "$ofile" ]; then
   fi
   printf '%s' "$body" > "$ofile"
 fi
-printf '%s' "${FAKE_CAPTURE_CODE:-200}"
+printf '%s' "$code"
 exit "${FAKE_CURL_EXIT:-0}"
 SH
   chmod +x "$fakebin/curl"
@@ -114,6 +124,7 @@ run_capture() {
     FAKE_CURL_LOG="${FAKE_CURL_LOG-}" \
     FAKE_CAPTURE_BODY="${FAKE_CAPTURE_BODY-}" \
     FAKE_CAPTURE_CODE="${FAKE_CAPTURE_CODE-}" \
+    FAKE_CAPTURE_FAIL_MATCH="${FAKE_CAPTURE_FAIL_MATCH-}" \
     FAKE_CURL_EXIT="${FAKE_CURL_EXIT-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_GROUP="${FM_TELEGRAM_BRAIN_CAPTURE_GROUP-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT="${FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT-}" \
@@ -239,12 +250,14 @@ pass "a present but unusable credential file stays fail-closed"
 # --- boolean update ids are rejected ----------------------------------------
 bad=$(make_home bool)
 bad_bin=$(make_fake_curl "$bad")
-if printf '{"update_id":true,"text":"x","chat_id":4242,"from_id":909}\n' | \
-  run_capture "$bad" "$bad_bin" capture - >/dev/null 2>"$bad/err"; then
-  fail "boolean update_id must be rejected"
-fi
-assert_grep "update_id is not an integer" "$bad/err" "boolean update_id was accepted"
-pass "boolean update ids are rejected"
+FAKE_CURL_LOG="$bad/curl.log"
+out=$(printf '{"update_id":true,"text":"x","chat_id":4242,"from_id":909}\n' | \
+  run_capture "$bad" "$bad_bin" capture -)
+expect_code 0 $? "a rejected payload shape should not fail the run"
+assert_contains "$out" "skipped:unsupported - update_id is not an integer" \
+  "boolean update_id was accepted"
+assert_absent "$bad/curl.log" "a boolean update_id was posted to the brain"
+pass "boolean update ids are skipped as unsupported"
 
 # --- from-result uses the interrupt adapter's messages command --------------
 from_home=$(make_home from-result)
@@ -423,6 +436,116 @@ assert_no_grep "no-messages blocked" "$forged/out" "a forged capture_id reached 
 assert_absent "$forged/state/telegram-brain-capture/8008" "a forged capture_id was receipted"
 FAKE_CAPTURE_BODY=
 pass "a capture_id carrying control bytes never reaches stdout or a receipt"
+
+# --- one bad line never blocks the rest of the batch ------------------------
+batch=$(make_home batch)
+batch_bin=$(make_fake_curl "$batch")
+FAKE_CURL_LOG="$batch/curl.log"
+FAKE_CAPTURE_CODE=200
+FAKE_CAPTURE_BODY=
+{
+  payload 9101 "first valid"
+  printf '{"chat_id":%s,"date":1,"from_id":%s,"update_id":9102}\n' "$CAPTAIN_CHAT" "$CAPTAIN_USER"
+  payload 9103 "third valid"
+} > "$batch/batch.jsonl"
+out=$(run_capture "$batch" "$batch_bin" capture - < "$batch/batch.jsonl")
+expect_code 0 $? "a canonical-shape rejection must not fail the batch"
+assert_contains "$out" "captured 9101 cap-1" "the first valid payload was not captured"
+assert_contains "$out" "skipped:unsupported 9102 text is not a nonempty string" \
+  "the text-less payload was not reported as an unsupported skip"
+assert_contains "$out" "captured 9103 cap-1" "a later valid payload was dropped by an earlier bad line"
+assert_present "$batch/state/telegram-brain-capture/9103" "a later valid payload was never receipted"
+assert_absent "$batch/state/telegram-brain-capture/9102" "an unsupported payload was receipted"
+pass "an uncapturable payload is skipped without dropping later valid ones"
+
+# --- a failed write still lets later payloads through, then fails -----------
+wfail=$(make_home write-fail)
+wfail_bin=$(make_fake_curl "$wfail")
+FAKE_CURL_LOG="$wfail/curl.log"
+FAKE_CAPTURE_FAIL_MATCH="brain says no"
+{
+  payload 9201 "brain says no"
+  payload 9202 "brain says yes"
+} > "$wfail/batch.jsonl"
+if run_capture "$wfail" "$wfail_bin" capture - < "$wfail/batch.jsonl" >"$wfail/out" 2>"$wfail/err"; then
+  fail "a failed brain write must stay fail-closed"
+fi
+FAKE_CAPTURE_FAIL_MATCH=
+assert_grep "HTTP 500" "$wfail/err" "the failed write was not reported"
+assert_absent "$wfail/state/telegram-brain-capture/9201" "the failed write left a receipt"
+assert_grep "captured 9202" "$wfail/out" "a failed write dropped the next valid payload"
+assert_present "$wfail/state/telegram-brain-capture/9202" "the next valid payload was never receipted"
+pass "a failed brain write keeps walking the batch and still exits non-zero"
+
+# --- a third-party private DM is never captured -----------------------------
+dm=$(make_home third-party-dm)
+printf 'on\n' > "$dm/config/telegram-brain-capture-group"
+dm_bin=$(make_fake_curl "$dm")
+FAKE_CURL_LOG="$dm/curl.log"
+out=$(payload 9301 "stranger DM" 777001 777001 | run_capture "$dm" "$dm_bin" capture -)
+expect_code 0 $? "a third-party DM should be skipped, not refused"
+assert_contains "$out" "skipped:private 9301" "a third-party DM was not skipped as private"
+assert_absent "$dm/curl.log" "a third-party DM was posted to the brain"
+assert_absent "$dm/state/telegram-brain-capture/9301" "a third-party DM was receipted"
+pass "a private chat that is not the captain is never captured"
+
+# --- an unrecognized classification is refused ------------------------------
+badkind=$(make_home bad-kind)
+badkind_bin=$(make_fake_curl "$badkind")
+mkdir -p "$badkind/bin"
+payload 9401 "carried payload" > "$badkind/messages.jsonl"
+make_stub_adapter "$badkind" surprise
+printf 'notice\n' > "$badkind/result"
+if PATH="$badkind/bin:$badkind_bin:$BASE_PATH" \
+  FM_HOME="$badkind" \
+  FM_STATE_OVERRIDE="$badkind/state" \
+  FM_CONFIG_OVERRIDE="$badkind/config" \
+  FM_BEANZ_ENV_FILE="$badkind/secrets/mcp.env" \
+  FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+  FAKE_CURL_LOG="$badkind/curl.log" \
+  "$CAPTURE" from-result "$badkind/result" >/dev/null 2>"$badkind/err"; then
+  fail "an unrecognized classification must be refused"
+fi
+assert_grep "unrecognized classification: surprise" "$badkind/err" \
+  "the unrecognized classification was not named"
+assert_absent "$badkind/messages.calls" "an unrecognized classification still asked for messages"
+pass "an unrecognized adapter classification is refused instead of silently acked"
+
+# --- an empty classification is refused -------------------------------------
+emptykind=$(make_home empty-kind)
+emptykind_bin=$(make_fake_curl "$emptykind")
+mkdir -p "$emptykind/bin"
+payload 9501 "carried payload" > "$emptykind/messages.jsonl"
+make_stub_adapter "$emptykind" ""
+printf 'notice\n' > "$emptykind/result"
+if PATH="$emptykind/bin:$emptykind_bin:$BASE_PATH" \
+  FM_HOME="$emptykind" \
+  FM_STATE_OVERRIDE="$emptykind/state" \
+  FM_CONFIG_OVERRIDE="$emptykind/config" \
+  FM_BEANZ_ENV_FILE="$emptykind/secrets/mcp.env" \
+  FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+  FAKE_CURL_LOG="$emptykind/curl.log" \
+  "$CAPTURE" from-result "$emptykind/result" >/dev/null 2>"$emptykind/err"; then
+  fail "an empty classification must be refused"
+fi
+assert_grep "unrecognized classification: <empty>" "$emptykind/err" \
+  "an empty classification was not reported"
+assert_absent "$emptykind/messages.calls" "an empty classification still asked for messages"
+pass "an empty adapter classification is refused instead of silently acked"
+
+# --- a transport failure names curl's exit code -----------------------------
+trans=$(make_home transport)
+trans_bin=$(make_fake_curl "$trans")
+FAKE_CURL_LOG="$trans/curl.log"
+FAKE_CURL_EXIT=7
+if payload 9601 "no route to brain" | \
+  run_capture "$trans" "$trans_bin" capture - >/dev/null 2>"$trans/err"; then
+  fail "a curl transport failure must refuse"
+fi
+FAKE_CURL_EXIT=
+assert_grep "transport failed: curl exit 7" "$trans/err" "the curl exit code was not reported"
+assert_absent "$trans/state/telegram-brain-capture/9601" "a transport failure left a receipt"
+pass "a transport failure names curl exit code for the operator"
 
 # --- doctor reports non-secret readiness ------------------------------------
 doc=$(make_home doctor)

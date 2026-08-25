@@ -16,14 +16,21 @@
 # message to Mr Beanz `POST /v1/capture`.
 # from-result classifies one interrupt result with
 # `fm-procevent-telegram.sh classify` first.
-# Only a `message` result carries payloads, so any other classification is a
-# zero-exit no-op that leaves the result acknowledgeable; a blocked, credential,
+# Only a `message` result carries payloads.
+# Each named non-message kind in CAPTURE_NO_MESSAGE_KINDS below is a zero-exit
+# no-op that leaves the result acknowledgeable, so a blocked, credential,
 # protocol, or transport-budget notice is never wedged by this path.
+# An empty or unrecognized classification is refused loudly instead, because a
+# kind the adapter never claimed cannot be told apart from a silent drop of the
+# payloads it carried; extend the list when the adapter names a new kind.
 # For a `message` result it asks `fm-procevent-telegram.sh messages` for the
 # still-unhandled payloads, then takes the capture path.
-# A zero exit means every payload is captured, already captured, skipped as
-# group discussion while that flag is off, skipped because this home never
-# configured capture, or that the result named no payloads.
+# A zero exit means every payload is captured, already captured, skipped, or
+# that the result named no payloads.
+# One payload never blocks another: the batch is walked to the end, an
+# uncapturable line is reported as `skipped:unsupported <update_id> <reason>`
+# without failing the run, and a failed brain write on any valid payload still
+# exits non-zero after the remaining payloads have had their turn.
 # A failed brain write must stop before Telegram ack and before treating the
 # texts as interrupt.
 # doctor reports non-secret readiness.
@@ -39,6 +46,9 @@
 #
 # GROUP DISCUSSION.
 # Captain direct messages are captured by default.
+# Group discussion means a Telegram group, supergroup, or channel, which is
+# exactly a negative chat_id.
+# A private chat that is not the captain's is never captured, on or off flag.
 # Group discussion is off until config/telegram-brain-capture-group contains the
 # bare word `on`, or FM_TELEGRAM_BRAIN_CAPTURE_GROUP=on for one run.
 # Absent, empty, `off`, and any other value keep group payloads skipped.
@@ -79,7 +89,8 @@
 #
 # SOURCE NAMES written to the brain:
 #   firstmate-telegram         captain chat
-#   firstmate-telegram-group   other chats, only when group capture is on
+#   firstmate-telegram-group   negative chat ids (groups, supergroups, and
+#                              channels), only when group capture is on
 #
 # FM_BEANZ_CAPTURE_TIMEOUT is the whole-POST budget in seconds, an integer in
 # 1..120, and defaults to 30; anything else is refused before the write.
@@ -92,6 +103,8 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 ENGINE="$SCRIPT_DIR/fm_telegram_brain_capture.py"
+
+CAPTURE_NO_MESSAGE_KINDS="blocked credential protocol transport-budget"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 usage() { awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"; exit 2; }
@@ -122,7 +135,7 @@ cmd_capture() {
 }
 
 cmd_from_result() {
-  local result=${1-} adapter kind
+  local result=${1-} adapter kind known
   [ "$#" -eq 1 ] || usage
   [ -n "$result" ] || usage
   adapter=$(find_telegram_adapter) \
@@ -130,12 +143,18 @@ cmd_from_result() {
   kind=$("$adapter" classify "$result") \
     || die "telegram interrupt adapter could not classify: $result"
   kind=${kind%%$'\n'*}
-  if [ "$kind" != message ]; then
-    printf 'no-messages %s\n' "${kind:-unknown}"
-    return 0
+  if [ "$kind" = message ]; then
+    set -o pipefail
+    "$adapter" messages "$result" | run_engine capture
+    return
   fi
-  set -o pipefail
-  "$adapter" messages "$result" | run_engine capture
+  for known in $CAPTURE_NO_MESSAGE_KINDS; do
+    if [ "$kind" = "$known" ]; then
+      printf 'no-messages %s\n' "$kind"
+      return 0
+    fi
+  done
+  die "telegram interrupt adapter reported an unrecognized classification: ${kind:-<empty>}"
 }
 
 cmd_doctor() {

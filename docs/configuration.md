@@ -616,6 +616,9 @@ That mode-0600 file alone owns the brain destination; an ambient `BEANZ_MCP_URL`
 `from-result` classifies the interrupt result first, so a result naming no message payloads is a zero-exit no-op that stays acknowledgeable.
 A home with no credential file and no captain chat id has never configured capture: it reports `capture-unconfigured` and exits zero without a brain write, so Telegram is never wedged by a brain nobody set up.
 A credential file that exists but is unusable, and any failed brain write, still exit non-zero before acknowledgement.
+One payload never blocks another: the batch is walked to the end, and a line the canonical shape rejects is skipped rather than aborting the run.
+An adapter classification that is empty or outside the script header's named non-message kinds is refused, because a kind nobody claimed cannot be told apart from silently dropping the payloads it carried.
+Group discussion means a Telegram group, supergroup, or channel; a private chat that is not the captain's is never captured whatever the flag says.
 Group discussion stays off until local gitignored `config/telegram-brain-capture-group` contains the bare word `on`, or `FM_TELEGRAM_BRAIN_CAPTURE_GROUP=on` for one run.
 Absent, empty, `off`, and any other value keep group payloads skipped.
 Turning the flag on does not subscribe to groups; this path still only sees payloads the interrupt adapter already emitted.

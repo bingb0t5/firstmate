@@ -40,6 +40,12 @@ class UserError(Exception):
     pass
 
 
+class PayloadError(UserError):
+    def __init__(self, message: str, update_id: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.update_id = update_id
+
+
 def failpoint(name: str) -> None:
     if os.environ.get("FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT") == name:
         os._exit(91)
@@ -47,9 +53,9 @@ def failpoint(name: str) -> None:
 
 def positive_int(value: object, name: str) -> int:
     if type(value) is not int or isinstance(value, bool):
-        raise UserError("%s is not an integer" % name)
+        raise PayloadError("%s is not an integer" % name)
     if value < 1 or value > MAX_UPDATE_ID:
-        raise UserError("%s is outside the supported positive range" % name)
+        raise PayloadError("%s is outside the supported positive range" % name)
     return value
 
 
@@ -302,22 +308,22 @@ def parse_payload(line: str) -> Dict[str, object]:
     try:
         payload = json.loads(line)
     except ValueError as exc:
-        raise UserError("payload is not valid JSON: %s" % exc)
+        raise PayloadError("payload is not valid JSON: %s" % exc)
     if not isinstance(payload, dict):
-        raise UserError("payload is not an object")
+        raise PayloadError("payload is not an object")
     update_id = positive_int(payload.get("update_id"), "update_id")
     text = payload.get("text")
     if not isinstance(text, str) or not text:
-        raise UserError("text is not a nonempty string")
+        raise PayloadError("text is not a nonempty string", update_id)
     chat_id = payload.get("chat_id")
     from_id = payload.get("from_id")
     if type(chat_id) is not int or isinstance(chat_id, bool):
-        raise UserError("chat_id is not an integer")
+        raise PayloadError("chat_id is not an integer", update_id)
     if type(from_id) is not int or isinstance(from_id, bool):
-        raise UserError("from_id is not an integer")
+        raise PayloadError("from_id is not an integer", update_id)
     date = payload.get("date")
     if date is not None and (type(date) is not int or isinstance(date, bool)):
-        raise UserError("date is not an integer")
+        raise PayloadError("date is not an integer", update_id)
     return {
         "update_id": update_id,
         "text": text,
@@ -386,7 +392,9 @@ def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Pa
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise UserError("brain capture transport failed: %s" % exc)
         if completed.returncode != 0:
-            raise UserError("brain capture transport failed")
+            raise UserError(
+                "brain capture transport failed: curl exit %d" % completed.returncode
+            )
         try:
             status_text = completed.stdout.decode("ascii").strip()
         except UnicodeDecodeError:
@@ -420,7 +428,6 @@ def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Pa
 def capture_line(
     line: str,
     state: Path,
-    config: Path,
     token: str,
     brain_url: str,
     captain_chat: int,
@@ -429,9 +436,14 @@ def capture_line(
     payload = parse_payload(line)
     update_id = int(payload["update_id"])
     chat_id = int(payload["chat_id"])
-    if chat_id != captain_chat and not group_on:
+    if chat_id == captain_chat:
+        source = CAPTAIN_SOURCE
+    elif chat_id >= 0:
+        return "skipped:private %d" % update_id
+    elif not group_on:
         return "skipped:group %d" % update_id
-    source = CAPTAIN_SOURCE if chat_id == captain_chat else GROUP_SOURCE
+    else:
+        source = GROUP_SOURCE
     digest = payload_hash(payload)
     receipts = ensure_receipt_dir(state)
     path = receipt_path(receipts, update_id)
@@ -473,13 +485,17 @@ def command_capture(state: Path, config: Path) -> int:
     token, brain_url = brain_credentials()
     captain_chat = captain_chat_id()
     group_on = group_capture_enabled(config)
+    failed = False
     for line in iter_payload_lines(raw):
-        print(
-            capture_line(
-                line, state, config, token, brain_url, captain_chat, group_on
-            )
-        )
-    return 0
+        try:
+            print(capture_line(line, state, token, brain_url, captain_chat, group_on))
+        except PayloadError as exc:
+            marker = "-" if exc.update_id is None else str(exc.update_id)
+            print("skipped:unsupported %s %s" % (marker, exc))
+        except UserError as exc:
+            print("error: %s" % exc, file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
 
 
 def command_doctor(state: Path, config: Path) -> int:
