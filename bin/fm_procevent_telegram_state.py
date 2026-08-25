@@ -71,6 +71,9 @@ STAGING_GLOB = STAGING_PREFIX + "*"
 STAGING_MARKER_SUFFIX = ".owner"
 STAGING_NAME_RE = re.compile(r"^\.telegram-migration-staging-[0-9]+-[0-9a-f]{8}$")
 STAGING_SCHEMA = "fm-telegram-migration-staging.v1"
+DATABASE_TEMP_GLOB = ".channel.db.*"
+DATABASE_TEMP_RE = re.compile(r"^\.channel\.db\.[0-9]+\.[0-9a-f]{32}$")
+DATABASE_STAGING_SCHEMA = "fm-telegram-database-staging.v1"
 ARCHIVE_ENTRY_TYPES = ("file", "directory", "symlink", "other")
 NOTICE_TOKEN_RE = re.compile(
     r"^(?P<state>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
@@ -184,6 +187,18 @@ def synchronization_failpoint(name: str) -> None:
         if time.monotonic() >= deadline:
             raise LocalStateError("failpoint-timeout", name)
         time.sleep(0.01)
+
+
+def raising_failpoint(name: str) -> None:
+    if os.environ.get("FM_TELEGRAM_FAILPOINT") == name:
+        raise LocalStateError("failpoint", name)
+
+
+class Publication:
+    """Tracks whether the irreversible database publication already happened."""
+
+    def __init__(self) -> None:
+        self.published = False
 
 
 def clean_error_detail(value: object) -> str:
@@ -570,14 +585,17 @@ def create_store(
     migration_fingerprint: Optional[str],
     plan: Optional[MigrationPlan] = None,
     migration_cause: Optional[str] = None,
+    publication: Optional[Publication] = None,
 ) -> sqlite3.Connection:
     telegram_dir = ensure_telegram_directory(state, create=True)
     _, database = state_paths(state)
     if database.exists() or database.is_symlink():
         raise UserError("Telegram state database already exists: %s" % database)
     temp_path = telegram_dir / (".channel.db.%d.%s" % (os.getpid(), uuid.uuid4().hex))
+    marker_path = staging_marker_path(temp_path)
     conn = None
     try:
+        write_owner_marker(marker_path, DATABASE_STAGING_SCHEMA)
         fd = os.open(str(temp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         os.close(fd)
         conn = sqlite3.connect(str(temp_path), isolation_level=None, timeout=5)
@@ -605,6 +623,7 @@ def create_store(
             import_migration_plan(conn, plan)
         elif migration_status == "blocked":
             create_notice(conn, "migration-blocked", "ambiguous")
+        failpoint("during_database_build")
         conn.commit()
         validate_store(conn)
         conn.close()
@@ -613,18 +632,21 @@ def create_store(
         with temp_path.open("rb") as handle:
             os.fsync(handle.fileno())
         os.replace(temp_path, database)
+        if publication is not None:
+            publication.published = True
+        unlink_quietly(marker_path)
+        raising_failpoint("after_database_publish")
         fsync_directory(telegram_dir)
         return connect_existing(state)
-    except Exception:
+    except BaseException:
         if conn is not None:
             try:
                 conn.close()
             except sqlite3.Error:
                 pass
-        try:
-            temp_path.unlink()
-        except OSError:
-            pass
+        if publication is None or not publication.published:
+            unlink_quietly(temp_path)
+        unlink_quietly(marker_path)
         raise
 
 
@@ -1456,11 +1478,11 @@ def staging_marker_path(staging: Path) -> Path:
     return staging.parent / (staging.name + STAGING_MARKER_SUFFIX)
 
 
-def write_staging_marker(marker: Path) -> None:
+def write_owner_marker(marker: Path, schema: str) -> None:
     fd = os.open(str(marker), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(
-            {"schema": STAGING_SCHEMA, "pid": os.getpid(), "created_at": now_epoch()},
+            {"schema": schema, "pid": os.getpid(), "created_at": now_epoch()},
             handle,
             sort_keys=True,
         )
@@ -1494,6 +1516,35 @@ def refuse_leftover(name: str, reason: str) -> None:
     )
 
 
+def reconcile_database_staging(state: Path) -> None:
+    telegram_dir, _ = state_paths(state)
+    if telegram_dir.is_symlink() or not telegram_dir.is_dir():
+        return
+    for path in sorted(telegram_dir.glob(DATABASE_TEMP_GLOB)):
+        name = "telegram/" + path.name
+        if path.name.endswith(STAGING_MARKER_SUFFIX):
+            continue
+        if path.is_symlink() or not path.is_file():
+            refuse_leftover(name, "is not a private database staging file")
+        if not DATABASE_TEMP_RE.fullmatch(path.name):
+            refuse_leftover(name, "does not carry this migrator's database staging name")
+        if stat.S_IMODE(path.lstat().st_mode) != 0o600:
+            refuse_leftover(name, "is not a private mode-0600 database staging file")
+        if marked_schema(staging_marker_path(path)) != DATABASE_STAGING_SCHEMA:
+            refuse_leftover(name, "has no valid private database staging ownership marker")
+        unlink_quietly(path)
+        unlink_quietly(staging_marker_path(path))
+    for path in sorted(telegram_dir.glob(DATABASE_TEMP_GLOB)):
+        name = "telegram/" + path.name
+        if not path.name.endswith(STAGING_MARKER_SUFFIX):
+            continue
+        if path.is_symlink() or not path.is_file():
+            refuse_leftover(name, "is not a private database staging ownership marker")
+        if marked_schema(path) != DATABASE_STAGING_SCHEMA:
+            refuse_leftover(name, "is not a valid private database staging ownership marker")
+        unlink_quietly(path)
+
+
 def reconcile_migration_leftovers(state: Path) -> None:
     for path in sorted(state.glob(STAGING_GLOB)):
         if path.name.endswith(STAGING_MARKER_SUFFIX):
@@ -1514,6 +1565,7 @@ def reconcile_migration_leftovers(state: Path) -> None:
         if marked_schema(path) != STAGING_SCHEMA:
             refuse_leftover(path.name, "is not a valid private staging ownership marker")
         unlink_quietly(path)
+    reconcile_database_staging(state)
     reconcile_orphan_archives(state)
 
 
@@ -1705,7 +1757,7 @@ def make_migration_archive(state: Path, paths: Sequence[Path]) -> Path:
     marker = staging_marker_path(staging)
     archive = archive_parent / ("%s-%s" % (stamp, suffix))
     try:
-        write_staging_marker(marker)
+        write_owner_marker(marker, STAGING_SCHEMA)
         stage_migration_archive(state, staging, paths)
         for base, directories, files in os.walk(str(staging), topdown=False):
             for name in files:
@@ -2000,6 +2052,7 @@ def command_migrate(state: Path) -> int:
     plan: Optional[MigrationPlan] = None
     cause: Optional[str] = None
     fingerprint: Optional[str] = None
+    publication = Publication()
     try:
         try:
             plan = build_migration_plan(state)
@@ -2016,6 +2069,7 @@ def command_migrate(state: Path) -> int:
                 fingerprint,
                 plan=None,
                 migration_cause=cause,
+                publication=publication,
             )
         else:
             conn = create_store(
@@ -2024,11 +2078,24 @@ def command_migrate(state: Path) -> int:
                 relative_archive,
                 None,
                 plan=plan,
+                publication=publication,
             )
         conn.close()
-    except BaseException:
+    except Exception as exc:
+        if publication.published:
+            raise UserError(
+                "the Telegram cutover database was published but could not be confirmed: "
+                "%s; the database and its sealed archive %s are both preserved - run "
+                "bin/fm-procevent-telegram.sh doctor before any further action"
+                % (migration_cause_text(state, exc), relative_archive)
+            )
         discard_migration_archive(state, archive)
         prune_empty_archive_parent(state)
+        raise
+    except BaseException:
+        if not publication.published:
+            discard_migration_archive(state, archive)
+            prune_empty_archive_parent(state)
         raise
     if plan is None:
         print(

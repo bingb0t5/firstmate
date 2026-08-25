@@ -37,9 +37,13 @@
 # legacy bytes before it is published atomically and sealed ahead of the
 # database.
 # A refused attempt leaves no database and no published archive.
-# A rerun reconciles its own marked staging and any complete orphan archive left
-# by an uncatchable termination, and refuses actionably on any unmarked,
-# symlinked, or otherwise ambiguous leftover instead of sweeping it by name.
+# A rerun reconciles its own marked archive and database staging and any complete
+# orphan archive left by an uncatchable termination, and refuses actionably on
+# any unmarked, symlinked, wrongly named, or world-readable leftover instead of
+# sweeping it by name.
+# Database publication is a monotonic boundary: once state/telegram/channel.db
+# exists its sealed archive is never discarded, and a later fsync, reopen, or
+# validation failure reports the concrete condition with both preserved.
 # It then copies every old Telegram artifact into a private read-only archive,
 # validates the originals without changing or deleting them, and atomically
 # publishes the new database.

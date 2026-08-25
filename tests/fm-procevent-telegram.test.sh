@@ -967,10 +967,77 @@ crash_recovery_case published-not-sealed after_archive_publish
 crash_recovery_case sealed-no-database after_archive_seal
 pass "a crash on either side of archive publication or sealing reruns to one archive and one database"
 
+database_temps() {
+  find "$1/state/telegram" -maxdepth 1 -name '.channel.db.*' 2>/dev/null | wc -l | tr -d ' '
+}
+
+H_DB_BUILD="$TMP_ROOT/crash-database-build"
+DB_BUILD_ENV="$TMP_ROOT/crash-database-build.env"
+seed_migration_home "$H_DB_BUILD" "$DB_BUILD_ENV"
+db_build_before=$(legacy_fingerprint "$H_DB_BUILD")
+db_build_status=0
+FM_TELEGRAM_FAILPOINT=during_database_build FM_HOME="$H_DB_BUILD" \
+  FM_TELEGRAM_ENV_FILE="$DB_BUILD_ENV" "$ADAPTER" migrate >/dev/null 2>&1 \
+  || db_build_status=$?
+assert_equal "$db_build_status" 91 "the database build crash did not stop at its boundary"
+assert_absent "$H_DB_BUILD/state/telegram/channel.db" \
+  "an interrupted database build published a cutover"
+assert_equal "$(database_temps "$H_DB_BUILD")" 2 \
+  "an interrupted database build left no marked staging to reconcile"
+db_build_recovered=$(FM_HOME="$H_DB_BUILD" FM_TELEGRAM_ENV_FILE="$DB_BUILD_ENV" \
+  "$ADAPTER" migrate)
+assert_contains "$db_build_recovered" "migrated: archive=" \
+  "an interrupted database build could not be recovered by rerunning migrate"
+assert_equal "$(database_temps "$H_DB_BUILD")" 0 \
+  "a captain payload copy from the interrupted database build was left unmanaged"
+assert_converged_migration "$H_DB_BUILD" "database-build crash"
+assert_equal "$(legacy_fingerprint "$H_DB_BUILD")" "$db_build_before" \
+  "the database build crash changed the original legacy bytes"
+pass "an interrupt during database construction leaves no unmanaged payload copy and reruns clean"
+
+H_DB_PUBLISH="$TMP_ROOT/crash-database-publish"
+DB_PUBLISH_ENV="$TMP_ROOT/crash-database-publish.env"
+seed_migration_home "$H_DB_PUBLISH" "$DB_PUBLISH_ENV"
+db_publish_status=0
+db_publish_out=$(FM_TELEGRAM_FAILPOINT=after_database_publish FM_HOME="$H_DB_PUBLISH" \
+  FM_TELEGRAM_ENV_FILE="$DB_PUBLISH_ENV" "$ADAPTER" migrate 2>&1) || db_publish_status=$?
+[ "$db_publish_status" -ne 0 ] || fail "a failure after database publication reported success"
+assert_present "$H_DB_PUBLISH/state/telegram/channel.db" \
+  "a failure after database publication unpublished the cutover"
+db_publish_archive="$H_DB_PUBLISH/state/$(db_query "$H_DB_PUBLISH" \
+  "SELECT migration_archive FROM meta")"
+assert_present "$db_publish_archive/manifest.json" \
+  "a failure after database publication discarded the sealed archive the database names"
+assert_contains "$db_publish_out" "published but could not be confirmed" \
+  "a failure after database publication did not report the concrete condition"
+assert_equal "$(database_temps "$H_DB_PUBLISH")" 0 \
+  "a failure after database publication left its database staging behind"
+db_publish_doctor=$(FM_HOME="$H_DB_PUBLISH" "$ADAPTER" doctor)
+assert_contains "$db_publish_doctor" "integrity=ok" \
+  "the published cutover database is not valid after the post-publication failure"
+assert_contains "$db_publish_doctor" "migration_status=complete" \
+  "the published cutover did not survive the post-publication failure"
+db_publish_repeat_status=0
+db_publish_repeat=$(FM_HOME="$H_DB_PUBLISH" FM_TELEGRAM_ENV_FILE="$DB_PUBLISH_ENV" \
+  "$ADAPTER" migrate 2>&1) || db_publish_repeat_status=$?
+[ "$db_publish_repeat_status" -ne 0 ] || fail "a published cutover was migrated a second time"
+assert_contains "$db_publish_repeat" "migration is single-use" \
+  "a published cutover did not refuse a second migration"
+assert_present "$db_publish_archive/manifest.json" \
+  "the second migration attempt discarded the published cutover's archive"
+pass "a failure after database publication preserves both the database and its sealed archive"
+
+write_owner_marker() {
+  printf '{"created_at":1,"pid":999,"schema":"%s"}' "$2" > "$1"
+  chmod 600 "$1"
+}
+
 leftover_refusal_case() {
-  local case_name=$1 home="$TMP_ROOT/leftover-$1" env_file="$TMP_ROOT/leftover-$1.env"
+  local case_name=$1 expected_reason=$2
+  local home="$TMP_ROOT/leftover-$1" env_file="$TMP_ROOT/leftover-$1.env"
   seed_migration_home "$home" "$env_file"
   local leftover="$home/state/.telegram-migration-staging-999-deadbeef"
+  local db_temp="$home/state/telegram/.channel.db.999.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   case "$case_name" in
     unmarked)
       mkdir -p "$leftover/state"
@@ -987,9 +1054,43 @@ leftover_refusal_case() {
     stray-archive-entry)
       mkdir -p "$home/state/telegram-migration-archive"
       printf 'stray\n' > "$home/state/telegram-migration-archive/notes.txt"
+      chmod 700 "$home/state/telegram-migration-archive"
+      ;;
+    misnamed-archive)
+      mkdir -p "$home/state/telegram-migration-archive/not-an-archive"
+      chmod 700 "$home/state/telegram-migration-archive"
       ;;
     unmanifested-archive)
       mkdir -p "$home/state/telegram-migration-archive/20260101T000000Z-abcdef01/state"
+      chmod 700 "$home/state/telegram-migration-archive"
+      ;;
+    archive-parent-mode)
+      mkdir -p "$home/state/telegram-migration-archive"
+      chmod 755 "$home/state/telegram-migration-archive"
+      ;;
+    stray-database-temp)
+      mkdir -p "$home/state/telegram"
+      chmod 700 "$home/state/telegram"
+      printf 'stray\n' > "$home/state/telegram/.channel.db.stray"
+      chmod 600 "$home/state/telegram/.channel.db.stray"
+      ;;
+    symlinked-database-temp)
+      mkdir -p "$home/state/telegram"
+      chmod 700 "$home/state/telegram"
+      ln -s "$home/state/.telegram-offset" "$db_temp"
+      ;;
+    unmarked-database-temp)
+      mkdir -p "$home/state/telegram"
+      chmod 700 "$home/state/telegram"
+      printf 'payload copy\n' > "$db_temp"
+      chmod 600 "$db_temp"
+      ;;
+    world-readable-database-temp)
+      mkdir -p "$home/state/telegram"
+      chmod 700 "$home/state/telegram"
+      printf 'payload copy\n' > "$db_temp"
+      chmod 644 "$db_temp"
+      write_owner_marker "$db_temp.owner" fm-telegram-database-staging.v1
       ;;
   esac
   local status=0 out
@@ -997,6 +1098,14 @@ leftover_refusal_case() {
   [ "$status" -ne 0 ] || fail "$case_name leftover did not refuse migration"
   assert_contains "$out" "inspect and remove it manually" \
     "$case_name leftover was not refused actionably"
+  assert_contains "$out" "$expected_reason" \
+    "$case_name leftover was refused by a check other than the one it exercises"
+  if [ "$case_name" != archive-parent-mode ]; then
+    case "$out" in
+      *"has an unexpected mode"*)
+        fail "$case_name leftover never reached its own validation branch" ;;
+    esac
+  fi
   assert_absent "$home/state/telegram/channel.db" \
     "$case_name leftover still published a database"
   case "$case_name" in
@@ -1007,27 +1116,52 @@ leftover_refusal_case() {
     stray-archive-entry)
       assert_present "$home/state/telegram-migration-archive/notes.txt" \
         "$case_name leftover was swept by name" ;;
+    misnamed-archive)
+      assert_present "$home/state/telegram-migration-archive/not-an-archive" \
+        "$case_name leftover was swept by name" ;;
     unmanifested-archive)
       assert_present "$home/state/telegram-migration-archive/20260101T000000Z-abcdef01" \
         "$case_name leftover was swept by name" ;;
+    archive-parent-mode)
+      assert_present "$home/state/telegram-migration-archive" \
+        "$case_name leftover was swept by name" ;;
+    stray-database-temp)
+      assert_present "$home/state/telegram/.channel.db.stray" \
+        "$case_name leftover was swept by name" ;;
+    symlinked-database-temp)
+      [ -L "$db_temp" ] || fail "$case_name leftover was swept by name" ;;
+    unmarked-database-temp|world-readable-database-temp)
+      assert_present "$db_temp" "$case_name leftover was swept by name" ;;
   esac
   local repeat_status=0 repeat
   repeat=$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate 2>&1) \
     || repeat_status=$?
   assert_equal "$repeat" "$out" "$case_name leftover refusal was not idempotent"
   assert_equal "$repeat_status" "$status" "$case_name leftover refusal changed its status"
-  chmod -R u+w "$leftover" "$home/state/telegram-migration-archive" 2>/dev/null || true
-  rm -rf "$leftover" "$leftover.owner" "$home/state/telegram-migration-archive"
+  chmod -R u+w "$leftover" "$home/state/telegram-migration-archive" \
+    "$home/state/telegram" 2>/dev/null || true
+  rm -rf "$leftover" "$leftover.owner" "$home/state/telegram-migration-archive" \
+    "$home/state/telegram"
   assert_contains "$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate)" \
     "migrated: archive=" "$case_name blocked migration after the leftover was removed"
   assert_converged_migration "$home" "$case_name"
 }
 
-for leftover_case in unmarked symlinked ambiguous-marker stray-archive-entry \
-  unmanifested-archive; do
-  leftover_refusal_case "$leftover_case"
-done
-pass "unmarked, symlinked, and ambiguous migration leftovers refuse actionably instead of being swept"
+leftover_refusal_case unmarked "has no valid private staging ownership marker"
+leftover_refusal_case symlinked "is not a private staging directory"
+leftover_refusal_case ambiguous-marker "has no valid private staging ownership marker"
+leftover_refusal_case archive-parent-mode "has an unexpected mode"
+leftover_refusal_case stray-archive-entry "is not a published archive directory"
+leftover_refusal_case misnamed-archive "does not carry a published archive name"
+leftover_refusal_case unmanifested-archive "is not a complete manifest-bound archive"
+leftover_refusal_case stray-database-temp \
+  "does not carry this migrator's database staging name"
+leftover_refusal_case symlinked-database-temp "is not a private database staging file"
+leftover_refusal_case unmarked-database-temp \
+  "has no valid private database staging ownership marker"
+leftover_refusal_case world-readable-database-temp \
+  "is not a private mode-0600 database staging file"
+pass "unmarked, symlinked, misnamed, and world-readable leftovers each refuse at their own check"
 
 staged_mutation_case() {
   local case_name=$1 home="$TMP_ROOT/staged-$1" env_file="$TMP_ROOT/staged-$1.env"
