@@ -279,6 +279,40 @@ test_nm_third_fix_round_marker_refuses_through_fm_control() {
   pass "fm-control: a recorded third fix round refuses the relaunch by name"
 }
 
+# The real lifecycle executable must derive the marker from the task's
+# attributed no-mistakes run. A pre-created marker would only prove the
+# consumer, not the automatic transition that the validation path requires.
+test_nm_third_fix_round_is_recorded_automatically() {
+  local dir wt branch head out rc marker
+  dir=$(new_case nm-round-automatic sa11)
+  add_ship_task "$dir" sa11
+  wt="$dir/wt"
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD)
+  head=$(git -C "$wt" rev-parse --short HEAD)
+  cat > "$dir/fakebin/no-mistakes" <<EOF
+#!/usr/bin/env bash
+cat <<'STATUS'
+run:
+  id: fixture-run
+  branch: $branch
+  status: fixing
+  head: $head
+  active_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
+    review,fixing,1s,now,123,fix 3
+STATUS
+EOF
+  chmod +x "$dir/fakebin/no-mistakes"
+  marker="$dir/home/state/sa11.nm-third-fix-round"
+  [ ! -e "$marker" ] || fail "automatic-round fixture unexpectedly started with a marker"
+  out=$(run_control "$dir" sa11 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "an attributed third fix round should refuse the relaunch"
+  assert_contains "$out" "fix round 3" \
+    "automatic third-round refusal did not name the observed round"
+  [ "$(cat "$marker")" = 3 ] || fail "automatic transition did not persist the observed third fix round"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "automatic third-round refusal stopped the running agent"
+  pass "fm-control: an attributed no-mistakes third fix round is recorded and refuses automatically"
+}
+
 # The no-mistakes side owns the marker payload, so a `touch`-style marker with
 # no parseable round must still refuse rather than standing the gate down - and
 # must report what it observed instead of asserting a round it never read.
@@ -364,6 +398,7 @@ test_spawn_relaunch_refuses_without_a_spec
 test_scout_relaunch_is_ungated_after_an_existing_attempt
 test_secondmate_relaunch_is_unaffected_by_the_gate
 test_nm_third_fix_round_marker_refuses_through_fm_control
+test_nm_third_fix_round_is_recorded_automatically
 test_nm_third_fix_round_marker_with_no_payload_refuses
 test_nm_non_numeric_marker_payload_refuses_without_claiming_a_round
 test_nm_first_fix_round_marker_does_not_claim_the_third_round
