@@ -313,14 +313,21 @@ def read_receipt(path: Path) -> Dict[str, object]:
 
 
 def write_receipt(path: Path, body: Dict[str, object]) -> None:
-    encoded = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    encoded = json.dumps(
+        body, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
     directory = path.parent
     tmp_name = None
     try:
         fd, tmp_name = tempfile.mkstemp(prefix=".receipt.", dir=str(directory))
         try:
             os.fchmod(fd, 0o600)
-            os.write(fd, encoded.encode("utf-8"))
+            written = 0
+            while written < len(encoded):
+                count = os.write(fd, encoded[written:])
+                if count == 0:
+                    raise OSError("receipt write made no progress")
+                written += count
             os.fsync(fd)
         finally:
             os.close(fd)
