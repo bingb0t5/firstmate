@@ -43,8 +43,13 @@
 #   registry is non-empty, a stderr warning names every registered secondmate and
 #   its scope for judgment, then the spawn continues. A registry that cannot be
 #   read, or any entry no operational parser can consume, refuses the spawn
-#   rather than silently voiding that secondmate's claim. Missing or empty
-#   registries, --secondmate spawns, and --relaunch are unaffected.
+#   rather than silently voiding that secondmate's claim; that refusal is
+#   independent of this flag, which is a deliberate exception to a NAMED owner
+#   rather than a way to spawn while ownership is unresolvable, so repair the
+#   registry instead. A projects: entry matches on its path basename, so a bare
+#   name, a projects/<name>, and an absolute clone path all state one claim.
+#   Missing or empty registries, --secondmate spawns, and --relaunch are
+#   unaffected.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
