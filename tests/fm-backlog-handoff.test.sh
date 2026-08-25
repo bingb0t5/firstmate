@@ -126,6 +126,23 @@ test_already_present_missing_priority_refuses_without_wake() {
   pass "already-routed items require structured priority before reconciliation"
 }
 
+test_already_done_refuses_without_wake() {
+  local home="$TMP_ROOT/already-done-main" sub="$TMP_ROOT/already-done-sub" fakebin out rc=0
+  setup_homes "$home" "$sub"
+  mkdir -p "$sub/data"
+  printf '## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  printf '## Queued\n\n## Done\n- [x] completed-item - historical work (repo: alpha) (priority: 2)\n' > "$sub/data/backlog.md"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/already-done-fake")
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/already-done-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design completed-item 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "already-completed destination item was accepted as a queued retry"
+  assert_contains "$out" 'refusing to hand off Done' "completed destination refusal was not explicit"
+  assert_absent "$TMP_ROOT/already-done-tmux.log" "completed destination item notified the receiver"
+  assert_absent "$home/state/design.inbox" "completed destination item created receiver inbox work"
+  pass "completed destination items cannot become handoff retries"
+}
+
 test_failed_wake_retries_when_the_item_is_already_present() {
   local home="$TMP_ROOT/retry-wake-main" sub="$TMP_ROOT/retry-wake-sub" out corr rc=0
   setup_homes "$home" "$sub"
@@ -1350,6 +1367,7 @@ EOF
 
 test_handoff_wakes_live_local_receiver
 test_already_present_missing_priority_refuses_without_wake
+test_already_done_refuses_without_wake
 test_failed_wake_retries_when_the_item_is_already_present
 test_known_receiver_failure_remains_retryable_after_grace
 test_known_failure_restores_retry_after_reconciliation_race

@@ -1465,7 +1465,7 @@ if [ ! -d "$STATE" ] || [ ! -r "$STATE" ] || [ ! -x "$STATE" ] ||
 else
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || [ -L "$meta" ] || continue
-    if [ ! -f "$meta" ] || [ ! -r "$meta" ]; then
+    if [ -L "$meta" ] || [ ! -f "$meta" ] || [ ! -r "$meta" ]; then
       INVENTORY_VALID=false
       break
     fi
