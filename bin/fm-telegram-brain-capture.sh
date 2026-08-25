@@ -45,6 +45,10 @@
 # A credential or config failure stops before the first write and counts the
 # whole batch the same way; a batch whose bytes are not UTF-8 has no payload
 # list to count, so it reports the decode failure alone.
+# The receipt store is resolved once in that same pre-flight, so a store this
+# home cannot use posts nothing at all and counts every payload, and a batch
+# whose payloads would all be skipped still refuses rather than reporting a
+# readiness the next captain message would not get.
 # One brain outage therefore costs one timeout rather than one per payload, and
 # the unattempted payloads are captured by the retry that the missing Telegram
 # ack guarantees.

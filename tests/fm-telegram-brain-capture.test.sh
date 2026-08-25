@@ -1037,6 +1037,42 @@ assert_grep "state path is not a directory" "$notdir/err" \
   "capture did not refuse the unusable state path"
 pass "a state path that is not a directory is refused, not created over"
 
+# --- a wedged store stops before any payload is posted ----------------------
+wedged=$(make_home wedged-store)
+wedged_bin=$(make_fake_curl "$wedged")
+FAKE_CURL_LOG="$wedged/curl.log"
+out=$(payload 8201 "make the store" | run_capture "$wedged" "$wedged_bin" capture -)
+expect_code 0 $? "the first capture should create the store"
+assert_contains "$out" "captured 8201 cap-1" "the first capture did not succeed"
+chmod 755 "$wedged/state/telegram-brain-capture"
+rm -f "$wedged/curl.log"
+{
+  payload 8202 "first pending memory"
+  payload 8203 "second pending memory"
+  payload 8204 "third pending memory"
+} > "$wedged/batch.jsonl"
+if run_capture "$wedged" "$wedged_bin" capture - < "$wedged/batch.jsonl" \
+  >"$wedged/out" 2>"$wedged/err"; then
+  fail "an unusable receipt store must stay fail-closed"
+fi
+assert_grep "receipt directory mode is not 700" "$wedged/err" \
+  "the unusable store was not reported"
+assert_grep "unattempted 3" "$wedged/out" \
+  "a wedged store under-counted the payloads it never attempted"
+assert_absent "$wedged/curl.log" "a wedged store still posted to the brain"
+
+# a batch this store would only skip must refuse too, not report a readiness
+# the next captain message would not get
+if payload 8205 "group chatter" -100999 "$CAPTAIN_USER" | \
+  run_capture "$wedged" "$wedged_bin" capture - >/dev/null 2>"$wedged/skip.err"; then
+  fail "an all-skipped batch must not report success on a wedged store"
+fi
+assert_grep "receipt directory mode is not 700" "$wedged/skip.err" \
+  "an all-skipped batch hid the wedged store"
+assert_absent "$wedged/curl.log" "an all-skipped batch posted to the brain"
+chmod 700 "$wedged/state/telegram-brain-capture"
+pass "an unusable receipt store stops the batch and counts every payload"
+
 # --- doctor reports non-secret readiness ------------------------------------
 doc=$(make_home doctor)
 doc_bin=$(make_fake_curl "$doc")
