@@ -47,6 +47,29 @@ test_ready_priority_and_reasons() {
   pass "ready orders by priority and exposes missing-priority rows"
 }
 
+test_lowercase_compatibility_markers_refuse_pull() {
+  local home out rc=0
+  home=$(make_home lowercase-markers)
+  (cd "$home" && tasks-axi add deferred-task "deferred until migration" --kind ship --repo demo --priority 1 >/dev/null)
+  (cd "$home" && tasks-axi add unauthorized-task "not authorized by captain" --kind ship --repo demo --priority 1 >/dev/null)
+  (cd "$home" && tasks-axi add declined-task "do not chase this" --kind ship --repo demo --priority 1 >/dev/null)
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" ready --json)
+  printf '%s' "$out" | jq -e '
+    (.pull.eligible | length) == 0
+    and ([.pull.ineligible[] | select(.id == "deferred-task" or .id == "unauthorized-task" or .id == "declined-task") | .pull_reason]
+      | length == 3 and all(. == "migration_required"))
+  ' >/dev/null || fail "lowercase compatibility markers remained pull-eligible: $out"
+  mkdir -p "$home/data/deferred-task"
+  printf '# brief\n' > "$home/data/deferred-task/brief.md"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start deferred-task "$ROOT" \
+    --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "lowercase deferred task was started"
+  assert_contains "$out" 'not eligible for local pull' "lowercase deferred start refusal was not explicit"
+  assert_grep 'deferred-task' "$home/data/backlog.md" "lowercase deferred refusal removed the queued task"
+  assert_absent "$home/state/deferred-task.meta" "lowercase deferred refusal published metadata"
+  pass "lowercase compatibility markers remain ineligible for pull"
+}
+
 test_start_refuses_at_four_before_mutation() {
   local home out rc=0
   home=$(make_home cap)
@@ -223,6 +246,7 @@ test_nested_secondmate_refusals() {
 }
 
 test_ready_priority_and_reasons
+test_lowercase_compatibility_markers_refuse_pull
 test_start_refuses_at_four_before_mutation
 test_snapshot_attention_and_local_mode
 test_unreadable_inventory_fails_closed
