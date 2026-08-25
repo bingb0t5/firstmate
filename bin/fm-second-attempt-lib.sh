@@ -5,14 +5,10 @@
 # later one, must not start until a Sol spec artifact exists for that task.
 # Prose in AGENTS.md is not the safeguard; these entrypoints refuse mechanically.
 #
-# Spec artifact - exactly one owned path:
-#   data/<id>/spec.md
-# data/<id>/report.md is deliberately NOT accepted: it is the scout deliverable
-# for the same task id (bin/fm-brief.sh), and bin/fm-promote.sh flips kind=scout
-# to kind=ship in place, so a pre-implementation scout report would otherwise
-# clear this gate without any Sol spec pass ever happening. Placing the spec is
-# an ordinary file copy (a Sol spec scout's report copied to data/<id>/spec.md);
-# there is no new control plane for it.
+# Accepted Sol-spec artifacts:
+#   data/<id>/report.md (the existing scout deliverable)
+#   data/<id>/spec.md   (the task's owned spec path)
+# The gate reuses scout+promote and introduces no new control plane.
 #
 # Triggers (any one with a missing spec refuses):
 #   1. bin/fm-control.sh <id> relaunch on a ship that already published spawn_gen=
@@ -32,9 +28,8 @@
 #   - kind=scout (investigation, not implementation)
 #   - Recovery that does not start another implementation worker
 #
-# Refusal names the missing data/<id>/spec.md path and the next legal action -
-# commission a Sol spec scout for this task and copy its report to that path; it
-# never guesses a model.
+# Refusal names both missing artifact paths and the next legal action -
+# commission a Sol spec scout for this task; it never guesses a model.
 #
 # Sourced by bin/fm-control.sh and bin/fm-spawn.sh. No side effects on source.
 
@@ -42,17 +37,17 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-backend.sh"
 
 # fm_second_attempt_spec_path <data-dir> <task-id>
-# The one artifact this gate owns. Never data/<id>/report.md, which on the
-# scout+promote path predates the first implementation attempt.
+# The task-owned artifact path, alongside the existing scout report path.
 fm_second_attempt_spec_path() {
   printf '%s/%s/spec.md' "${1%/}" "$2"
 }
 
 # fm_second_attempt_spec_present <data-dir> <task-id>
 fm_second_attempt_spec_present() {
-  local spec
+  local spec report
   spec=$(fm_second_attempt_spec_path "$1" "$2")
-  [ -f "$spec" ]
+  report="${1%/}/$2/report.md"
+  [ -f "$report" ] || [ -f "$spec" ]
 }
 
 # fm_second_attempt_meta_had_implementation <meta-path>
@@ -136,29 +131,30 @@ fm_second_attempt_gate_reason() {
 # and the spec is absent; returns 0 otherwise. Callers own the exit.
 fm_second_attempt_refuse_if_needed() {
   local state=$1 data=$2 id=$3 meta=$4 trigger=$5
-  local reason spec next marker
+  local reason spec report next marker
   fm_second_attempt_gate_reason "$state" "$data" "$id" "$meta" "$trigger"
   reason=$FM_SECOND_ATTEMPT_GATE_REASON
   [ "$reason" != none ] || return 0
   fm_second_attempt_spec_present "$data" "$id" && return 0
   spec=$(fm_second_attempt_spec_path "$data" "$id")
-  next="commission a Sol spec scout for this task and copy its report to $spec before starting another implementation worker"
+  report="${data%/}/$id/report.md"
+  next="commission a Sol spec scout for this task before starting another implementation worker; do not guess a model"
   case "$reason" in
     relaunch)
-      echo "error: relaunch of ship task $id refused - no Sol spec at $spec; $next" >&2
+      echo "error: relaunch of ship task $id refused - no Sol spec at $report or $spec; $next" >&2
       ;;
     replacement_spawn)
-      echo "error: replacement spawn for ship task $id refused - no Sol spec at $spec; $next" >&2
+      echo "error: replacement spawn for ship task $id refused - no Sol spec at $report or $spec; $next" >&2
       ;;
     nm_third_fix_round)
-      echo "error: ship task $id reached no-mistakes fix round 3 without a Sol spec at $spec; $next" >&2
+      echo "error: ship task $id reached no-mistakes fix round 3 without a Sol spec at $report or $spec; $next" >&2
       ;;
     nm_fix_round_unreadable)
       marker=$(fm_second_attempt_nm_third_fix_round_marker "$state" "$id")
-      echo "error: ship task $id has a no-mistakes fix-round marker at $marker whose round could not be read, and no Sol spec at $spec; $next" >&2
+      echo "error: ship task $id has a no-mistakes fix-round marker at $marker whose round could not be read, and no Sol spec at $report or $spec; $next" >&2
       ;;
     *)
-      echo "error: ship task $id refused - no Sol spec at $spec; $next" >&2
+      echo "error: ship task $id refused - no Sol spec at $report or $spec; $next" >&2
       ;;
   esac
   return 1

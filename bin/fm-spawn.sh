@@ -30,6 +30,7 @@
 #   model, and effort may change, which is what makes a harness switch one
 #   ordinary relaunch. A ship task whose durable record already carries
 #   spawn_gen= refuses here without a Sol spec artifact
+#   exists at data/<task-id>/report.md or spec.md
 #   (bin/fm-second-attempt-lib.sh). A recovery-grade backend's authoritatively
 #   missing endpoint is agent-free after the recorded worktree passes the
 #   isolation proof, so fm-spawn recreates that endpoint before launching.
