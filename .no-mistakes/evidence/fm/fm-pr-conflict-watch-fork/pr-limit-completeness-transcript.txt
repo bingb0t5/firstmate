@@ -1,0 +1,10 @@
+SCENARIO 1: exactly PR_LIMIT=3 open PRs, complete page
+watcher stdout: <empty - repository observed, no wake>
+
+SCENARIO 2: fourth PR conflicts beyond the bounded page
+watcher stdout: pr-conflict: coverage-hole target=repo:acme/alpha repo=acme/alpha unaccounted-for=0s latest-cause=truncated
+persisted record coverage: [{"target_id":"repo:acme/alpha","repo":"acme/alpha","opened_at":1787652947,"last_attempt_at":1787652947,"latest_cause":"truncated","disclosed":1}]
+
+SCENARIO 3: open set returns to three complete rows
+watcher stdout: <empty - coverage recovered silently>
+persisted record coverage: []
