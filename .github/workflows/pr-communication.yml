@@ -1,5 +1,6 @@
 # Immediate PR communication gate (CEO overview, Decision needed,
-# Module-boundary decision, Validation). Re-runs on description edits.
+# Module-boundary decision, Validation). Re-runs on description edits and
+# branch synchronization so legacy PR descriptions cannot bypass current rules.
 #
 # Assessor is vendored from lalo-admin; the trusted pr-communication-sot
 # workflow verifies pull-request copies against the private source of truth.
