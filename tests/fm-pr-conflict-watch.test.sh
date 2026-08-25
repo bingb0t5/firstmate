@@ -310,6 +310,29 @@ test_resolved_conflicts_leave_the_record() {
   pass "keys for conflicts the sweep no longer observes leave the record"
 }
 
+# A sweep that discovers no repositories at all read nothing, so it must not be
+# taken as proof that the fleet stopped working in the repositories the record
+# names. Erasing the record there would re-wake every unchanged conflict as soon
+# as discovery recovered.
+test_empty_discovery_keeps_the_record() {
+  local home out
+  home=$(make_home discovery-outage)
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  [ -s "$out" ] || fail "first poll should wake"
+  # Discovery yields nothing: no projects.md to read and no firstmate checkout
+  # to take an origin from. Both reads fail, exactly as a transient outage would.
+  : > "$out"
+  run_check "$home" "$out" env FM_DATA_OVERRIDE="$home/data-gone" \
+    FM_ROOT_OVERRIDE="$home/root-gone"
+  [ ! -s "$out" ] || fail "a sweep that discovered nothing must stay silent: $(cat "$out")"
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "the unchanged conflict must not wake again after discovery recovers: $(cat "$out")"
+  pass "an empty discovery sweep does not erase the dedupe record"
+}
+
 # A run the watcher kills prints and records nothing, so the reread loop has to
 # end at the sweep deadline rather than at its attempt count.
 test_unknown_rereads_stop_at_the_sweep_deadline() {
@@ -373,6 +396,7 @@ test_unknown_resolving_to_conflicting_wakes
 test_unknown_wake_uses_the_head_the_reread_judged
 test_conflicts_past_the_line_cap_wake_on_a_later_sweep
 test_resolved_conflicts_leave_the_record
+test_empty_discovery_keeps_the_record
 test_unknown_rereads_stop_at_the_sweep_deadline
 test_clean_fleet_is_silent
 test_draft_conflicts_are_reported

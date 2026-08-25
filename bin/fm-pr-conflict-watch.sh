@@ -484,7 +484,9 @@ record_remove_key() {
 # that page carried; a repository the sweep did not finish keeps all of its
 # keys, because absence there means unread rather than resolved. Keys for
 # repositories this fleet no longer works in are dropped only when the sweep
-# reached every discovered repository.
+# reached every discovered repository and discovery named at least one: a sweep
+# that discovered nothing inspected nothing, so its empty repository set is a
+# failed read rather than proof the fleet stopped working in those repositories.
 seen_key() {
   local key=$1
   case ";$SEEN_KEYS;" in
@@ -505,7 +507,7 @@ record_prune() {
         esac
         ;;
       *)
-        if [ "$SWEEP_COMPLETE" -eq 1 ]; then
+        if [ "$SWEEP_COMPLETE" -eq 1 ] && [ -n "$DISCOVERED_REPOS" ]; then
           case " $DISCOVERED_REPOS " in
             *" $repo "*) ;;
             *) continue ;;
