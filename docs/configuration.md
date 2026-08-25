@@ -432,6 +432,33 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the 
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
 
+## PR merge conflict watch
+
+`bin/fm-pr-conflict-watch.sh` polls open GitHub pull requests for merge conflicts across the repositories this home works in.
+It is detection and routing only: it never resolves conflicts, rebases branches, or calls GitHub's update-branch API.
+
+Repositories are derived from `data/projects.md` by reading each registered project's clone under `projects/` and parsing its `origin` remote into an `owner/repo` slug.
+The firstmate checkout's own `origin` remote is included too, so the captain's firstmate fork is covered without hardcoding its name.
+Owning targets come from `data/secondmates.md`: each secondmate's `projects:` list maps registered project names to that secondmate's id, and the firstmate repository maps to `main`.
+Unmapped projects fall back to `main`.
+
+Arm once per home with `bin/fm-pr-conflict-watch.sh arm`.
+That writes `state/pr-conflict-watch.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence and turns a newly conflicted pull request into one `check:` wake line.
+`bin/fm-pr-conflict-watch.sh disarm` removes the shim, trust binding, and dedupe record.
+The check prints nothing when no new conflict exists.
+Draft pull requests are included; a conflicted draft is reported with `draft=yes`.
+
+Each wake line begins with `pr-conflict:` and carries `owner-team`, `repo`, `number`, `head`, `draft`, `url`, and `title` so firstmate can route without re-deriving ownership.
+Dedupe keys are repository, pull request number, and head SHA: the same conflict on the same head is reported once, while a force-updated head that conflicts again is a new event.
+GitHub computes mergeability lazily; the check polls short rereads when `mergeable` is `UNKNOWN` and treats a persistent `UNKNOWN` as unknown rather than clean or conflicted.
+
+This is a safety net, not a cure: conflicts happen because pull requests wait unmerged while the default branch moves underneath them.
+
+`FM_PR_CONFLICT_INTERVAL` (default 300 seconds, `0` to probe on every run) sets how often sweeps run, `FM_PR_CONFLICT_PROBE_SECS` (default 5) bounds one GitHub call, and `FM_PR_CONFLICT_BUDGET_SECS` (default 20) bounds a whole sweep.
+`FM_PR_CONFLICT_UNKNOWN_ATTEMPTS` (default 3) and `FM_PR_CONFLICT_UNKNOWN_WAIT` (default 1 second) control lazy mergeability polling.
+`FM_PR_CONFLICT_PR_LIMIT` (default 30) caps open pull requests read per repository.
+The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a larger budget is cut to fit rather than refused.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
