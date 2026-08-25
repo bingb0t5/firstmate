@@ -780,6 +780,148 @@ Acceptance command: `make test`' \
   pass "fm-brief.sh: ship scaffold refuses unbounded waits"
 }
 
+# Regression: the wait scan matched only the bare token `wait`, so an inflected
+# unbounded wait ("keep waiting", "await") earned the exemption anyway.
+test_ship_sol_exemption_refuses_inflected_waits() {
+  local home out status inflection i=0
+  for inflection in 'Keep waiting for CI until it goes green.' \
+                    'Await the deploy indefinitely.' \
+                    'The task awaits review before landing.' \
+                    'We waited for the queue to drain.'; do
+    i=$((i + 1))
+    home="$TMP_ROOT/sol-inflect-home-$i"
+    mkdir -p "$home/data"
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="Ship it.
+Acceptance command: \`make test\`
+$inflection" "$ROOT/bin/fm-brief.sh" "sol-inflect-$i" firstmate --mode no-mistakes 2>&1) || status=$?
+    expect_code 1 "$status" "inflected unbounded wait must refuse: $inflection"
+    assert_contains "$out" "unbounded wait" \
+      "refusal must name the unbounded wait for: $inflection"
+    assert_absent "$home/data/sol-inflect-$i/brief.md" \
+      "refused inflected-wait scaffold must not write a brief"
+  done
+  pass "fm-brief.sh: ship scaffold refuses the whole unbounded wait word family"
+}
+
+# Regression: `bound=escape=` satisfied the old prefix glob, stamping a brief
+# exempt while recording a wait that carries no actual bound.
+test_ship_sol_exemption_refuses_valueless_bound_and_escape() {
+  local home out status wait_line i=0
+  for wait_line in 'Wait: CI bound=escape=' \
+                   'Wait: CI bound= escape=1m' \
+                   'Wait: CI bound=30m escape=' \
+                   'Wait: CI bound=30m'; do
+    i=$((i + 1))
+    home="$TMP_ROOT/sol-bound-home-$i"
+    mkdir -p "$home/data"
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="Acceptance command: \`make test\`
+$wait_line" "$ROOT/bin/fm-brief.sh" "sol-bound-$i" firstmate --mode no-mistakes 2>&1) || status=$?
+    expect_code 1 "$status" "wait without real bound/escape values must refuse: $wait_line"
+    assert_contains "$out" "bound=" "refusal must name the bound/escape requirement"
+    assert_absent "$home/data/sol-bound-$i/brief.md" \
+      "refused valueless-bound scaffold must not write a brief"
+  done
+  pass "fm-brief.sh: ship scaffold refuses Wait: lines with empty bound=/escape= values"
+}
+
+# Regression: any line containing the token `wait` was refused, so a backticked
+# command name such as `wait-for-ci.sh` made a legitimate ship task unscaffoldable.
+test_ship_sol_exemption_ignores_backticked_command_names() {
+  local home brief status
+  home="$TMP_ROOT/sol-backtick-home"
+  mkdir -p "$home/data"
+  status=0
+  # shellcheck disable=SC2016 # The task body is a literal fixture string.
+  FM_HOME="$home" FM_TASK='Acceptance command: `make test`
+Run `wait-for-ci.sh` as part of setup, then land `await-queue.py`.' \
+    "$ROOT/bin/fm-brief.sh" sol-backtick-1 firstmate --mode no-mistakes >/dev/null 2>&1 || status=$?
+  expect_code 0 "$status" "backticked command names containing 'wait' must not refuse"
+  brief="$home/data/sol-backtick-1/brief.md"
+  assert_present "$brief" "backticked-command ship brief was not scaffolded"
+  grep -qx "Sol exemption: earned" "$brief" \
+    || fail "brief missing the machine-readable Sol exemption line"
+  pass "fm-brief.sh: wait scan skips backticked spans"
+}
+
+# FM_TASK is a ship-only input; scout and secondmate must refuse it loudly rather
+# than scaffold a brief whose {TASK} placeholder silently discarded it.
+test_fm_task_refused_on_scout_and_secondmate() {
+  local home out status
+  home="$TMP_ROOT/sol-kind-home"
+  mkdir -p "$home/data"
+  status=0
+  out=$(FM_HOME="$home" FM_TASK='Investigate the flake.' \
+    "$ROOT/bin/fm-brief.sh" sol-kind-scout alpha --scout 2>&1) || status=$?
+  expect_code 1 "$status" "FM_TASK on a scout scaffold must refuse"
+  assert_contains "$out" "FM_TASK applies only to ship briefs" \
+    "scout refusal must name FM_TASK as ship-only"
+  assert_absent "$home/data/sol-kind-scout/brief.md" \
+    "refused scout scaffold must not write a brief"
+
+  status=0
+  out=$(FM_HOME="$home" FM_TASK='Charter the crew.' \
+    "$ROOT/bin/fm-brief.sh" sol-kind-sm alpha --secondmate --no-projects 2>&1) || status=$?
+  expect_code 1 "$status" "FM_TASK on a secondmate scaffold must refuse"
+  assert_contains "$out" "FM_TASK applies only to ship briefs" \
+    "secondmate refusal must name FM_TASK as ship-only"
+  assert_absent "$home/data/sol-kind-sm/brief.md" \
+    "refused secondmate scaffold must not write a brief"
+  pass "fm-brief.sh: FM_TASK is refused on scout and secondmate scaffolds"
+}
+
+# A refused scaffold must leave the data tree exactly as it found it, not an
+# empty data/<id>/ shell from a mkdir that ran before validation.
+test_refused_scaffold_leaves_no_task_directory() {
+  local home status
+  home="$TMP_ROOT/sol-nodir-home"
+  mkdir -p "$home/data"
+  status=0
+  FM_HOME="$home" FM_TASK='Ship the widget.' \
+    "$ROOT/bin/fm-brief.sh" sol-nodir-1 firstmate --mode no-mistakes >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "scaffold without evidence must refuse"
+  assert_absent "$home/data/sol-nodir-1" \
+    "refused scaffold must not leave an empty task directory behind"
+  pass "fm-brief.sh: a refused scaffold leaves the data tree untouched"
+}
+
+# The exemption block is a generated section of the brief and owns its own
+# separators: an unfilled {TASK} brief keeps exactly one blank line before the
+# Herdr heading, and a filled one keeps a blank line after the evidence block.
+test_sol_exemption_block_spacing_is_stable() {
+  local home unfilled filled status
+  home="$TMP_ROOT/sol-spacing-home"
+  mkdir -p "$home/data"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" sol-space-plain firstmate --mode no-mistakes >/dev/null 2>&1 \
+    || fail "unfilled ship scaffold failed"
+  unfilled=$(sed -n '3,6p' "$home/data/sol-space-plain/brief.md")
+  [ "$unfilled" = '# Task
+{TASK}
+
+# Herdr lifecycle declaration - NOT ENABLED' ] \
+    || fail "unfilled ship brief must keep one blank line between {TASK} and the Herdr heading, got:"$'\n'"$unfilled"
+
+  status=0
+  # shellcheck disable=SC2016 # The task body is a literal fixture string.
+  FM_HOME="$home" FM_TASK='Fix the widget.
+Acceptance command: `make test`' \
+    "$ROOT/bin/fm-brief.sh" sol-space-filled firstmate --mode no-mistakes >/dev/null 2>&1 || status=$?
+  expect_code 0 "$status" "filled ship scaffold with evidence must succeed"
+  filled=$(sed -n '3,10p' "$home/data/sol-space-filled/brief.md")
+  # shellcheck disable=SC2016 # The expected brief text is a literal fixture.
+  [ "$filled" = '# Task
+Fix the widget.
+Acceptance command: `make test`
+
+# Sol exemption evidence
+Acceptance command: `make test`
+
+# Herdr lifecycle declaration - NOT ENABLED' ] \
+    || fail "filled ship brief evidence block must be blank-line separated, got:"$'\n'"$filled"
+  pass "fm-brief.sh: Sol exemption block owns its own blank-line separators"
+}
+
 test_scout_and_secondmate_scaffold() {
   local brief
   FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-scout-q6 alpha --scout >/dev/null 2>&1 \
@@ -824,4 +966,10 @@ test_scout_and_secondmate_load_decision_hold_policy
 test_ship_sol_exemption_refuses_without_evidence
 test_ship_sol_exemption_succeeds_with_evidence
 test_ship_sol_exemption_refuses_unbounded_wait
+test_ship_sol_exemption_refuses_inflected_waits
+test_ship_sol_exemption_refuses_valueless_bound_and_escape
+test_ship_sol_exemption_ignores_backticked_command_names
+test_fm_task_refused_on_scout_and_secondmate
+test_refused_scaffold_leaves_no_task_directory
+test_sol_exemption_block_spacing_is_stable
 test_scout_and_secondmate_scaffold
