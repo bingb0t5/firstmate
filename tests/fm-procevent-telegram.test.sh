@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
-# Behavior tests for the Telegram process-to-event adapter
-# (bin/fm-procevent-telegram.sh).
-#
-# `curl` is replaced by a fake binary on PATH for every scenario here: no test
-# talks to the real Telegram API. The fake reads and discards the `-K -`
-# config fed over stdin (optionally capturing it for the token-leak checks
-# below), writes a canned response body to the path named by `-o`, and prints
-# a canned HTTP status code - enough to drive the adapter's own parsing and
-# write-before-offset-advance logic for real, with no network involved.
-#
-# Nothing here asserts against the adapter's own source text; every check
-# reads data the adapter produced (inbox files, the offset file, its own
-# stdout) or drives it through fm-procevent.sh, the real generic runner.
+# Behavioral and crash-boundary proofs for the transactional Telegram adapter.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -21,921 +9,867 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TMP_ROOT=$(fm_test_tmproot fm-procevent-telegram-tests)
 export FM_PROCEVENT_CLAIM_ROOT="$TMP_ROOT/claims"
 
+telegram_test_cleanup() {
+  chmod -R u+w "$TMP_ROOT" 2>/dev/null || true
+  fm_test_cleanup
+}
+
+trap telegram_test_cleanup EXIT
+trap 'telegram_test_cleanup; exit 130' INT
+trap 'telegram_test_cleanup; exit 143' TERM
+
 ADAPTER="$ROOT/bin/fm-procevent-telegram.sh"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
+ORIGINAL_PATH=$PATH
+export PATH="$FAKEBIN:$PATH"
 
 cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
-# Fake curl: writes CURL_STUB_BODY's content to the path named by -o, prints
-# CURL_STUB_HTTP (default 200), and optionally saves the piped -K - config to
-# CURL_STUB_CAPTURE so a test can inspect exactly what would have been sent -
-# including proving the real token was in it, as a positive control against
-# the negative "the token never reaches durable output" assertions below.
 set -u
-out=""
+out=
 i=1
-argc=$#
 args=("$@")
-while [ "$i" -le "$argc" ]; do
-  if [ "${args[$((i - 1))]}" = "-o" ]; then
+while [ "$i" -le "$#" ]; do
+  if [ "${args[$((i - 1))]}" = -o ]; then
     out=${args[$i]}
   fi
   i=$((i + 1))
 done
+config=$(cat)
+if [ -n "${CURL_STUB_CALL_LOG:-}" ]; then
+  printf '%s\n' "$config" >> "$CURL_STUB_CALL_LOG"
+fi
 if [ -n "${CURL_STUB_CAPTURE:-}" ]; then
-  cat > "$CURL_STUB_CAPTURE"
-else
-  cat > /dev/null
+  printf '%s\n' "$config" > "$CURL_STUB_CAPTURE"
 fi
 if [ -n "$out" ] && [ -n "${CURL_STUB_BODY:-}" ]; then
   cp "$CURL_STUB_BODY" "$out"
-fi
-if [ -n "${CURL_STUB_OBSTRUCT_PENDING:-}" ]; then
-  mkdir -p "$CURL_STUB_OBSTRUCT_PENDING"
 fi
 printf '%s' "${CURL_STUB_HTTP:-200}"
 exit "${CURL_STUB_EXIT:-0}"
 SH
 chmod +x "$FAKEBIN/curl"
 
-cat > "$FAKEBIN/rm" <<'SH'
-#!/usr/bin/env bash
-set -u
-if [ -n "${FAIL_RM_PATH:-}" ]; then
-  for arg in "$@"; do
-    [ "$arg" = "$FAIL_RM_PATH" ] && exit 1
-  done
-fi
-exec /bin/rm "$@"
-SH
-chmod +x "$FAKEBIN/rm"
-
-ORIGINAL_PATH=$PATH
-export PATH="$FAKEBIN:$PATH"
+CURL_CALLS="$TMP_ROOT/curl.calls"
+: > "$CURL_CALLS"
+export CURL_STUB_CALL_LOG="$CURL_CALLS"
 
 FIXTURES="$TMP_ROOT/fixtures"
 mkdir -p "$FIXTURES"
-TOKEN=SEKRIT-TEST-TOKEN-7f3a9c
+TOKEN='123456:SEKRIT-TEST-TOKEN-7f3a9c'
 CAPTAIN_CHAT_ID=555
 CAPTAIN_USER_ID=909
-cat > "$FIXTURES/one-text.json" <<JSON
-{"ok":true,"result":[{"update_id":1001,"message":{"message_id":5,"date":1700000000,"chat":{"id":555},"from":{"id":909},"text":"ahoy from the captain"}}]}
-JSON
-cat > "$FIXTURES/two-text.json" <<JSON
-{"ok":true,"result":[{"update_id":3001,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"first message"}},{"update_id":3002,"message":{"date":2,"chat":{"id":555},"from":{"id":909},"text":"second message"}}]}
-JSON
-cat > "$FIXTURES/non-text.json" <<JSON
-{"ok":true,"result":[{"update_id":2001,"message":{"message_id":6,"date":1700000001,"chat":{"id":555},"from":{"id":909},"sticker":{"file_id":"abc"}}}]}
-JSON
-cat > "$FIXTURES/non-captain-text.json" <<JSON
-{"ok":true,"result":[{"update_id":2501,"edited_message":{"message_id":7,"date":1700000002,"chat":{"id":777},"from":{"id":909},"text":"untrusted sender"}}]}
-JSON
-# The captain's own chat id, but somebody else's user id: exactly what a
-# group chat containing the captain's bot looks like when another member
-# posts. Sender identity, not the room, is what authorizes a command.
-cat > "$FIXTURES/group-other-sender.json" <<JSON
-{"ok":true,"result":[{"update_id":2601,"message":{"message_id":8,"date":1700000003,"chat":{"id":555,"type":"group"},"from":{"id":424242},"text":"/ship everything to production right now"}}]}
-JSON
-# The same group chat with no sender at all (a channel post shape): still
-# never the captain.
-cat > "$FIXTURES/group-no-sender.json" <<JSON
-{"ok":true,"result":[{"update_id":2701,"message":{"message_id":9,"date":1700000004,"chat":{"id":555,"type":"group"},"text":"anonymous group text"}}]}
-JSON
-# Shapes the real API never sends, but a proxy, a truncated middlebox, or a
-# future API change could: a non-object message, a chat that is not an
-# object, a sender that is not an object - each alongside one genuinely valid
-# captain message in the same batch.
-cat > "$FIXTURES/malformed-shapes.json" <<JSON
-{"ok":true,"result":[{"update_id":5001,"message":5},{"update_id":5002,"message":{"date":1,"chat":"not-an-object","from":{"id":909},"text":"unusable chat"}},{"update_id":5003,"message":{"date":2,"chat":{"id":555},"from":"not-an-object","text":"unusable sender"}},{"update_id":5004,"message":{"date":3,"chat":{"id":555},"from":{"id":909},"text":"the real captain message"}}]}
-JSON
-# An update that is not an object at all: nothing to read an update_id from,
-# so the batch must block rather than advance past ids it cannot account for.
-cat > "$FIXTURES/malformed-update.json" <<JSON
-{"ok":true,"result":["not-an-update",{"update_id":5101,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"after the garbage"}}]}
-JSON
-cat > "$FIXTURES/boolean-update-id.json" <<JSON
-{"ok":true,"result":[{"update_id":true,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"boolean identifier"}}]}
-JSON
-cat > "$FIXTURES/zero-update-id.json" <<JSON
-{"ok":true,"result":[{"update_id":0,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"zero identifier"}}]}
-JSON
-cat > "$FIXTURES/out-of-range-update-id.json" <<JSON
-{"ok":true,"result":[{"update_id":2147483648,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"out-of-range identifier"}}]}
-JSON
-cat > "$FIXTURES/empty.json" <<JSON
-{"ok":true,"result":[]}
-JSON
-printf '{"ok":true,"result":' > "$FIXTURES/malformed-response.json"
-cat > "$FIXTURES/rejected-response.json" <<JSON
-{"ok":false,"result":[]}
-JSON
-cat > "$FIXTURES/overlap-batch.json" <<JSON
-{"ok":true,"result":[{"update_id":4001,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"already delivered by the legacy script"}},{"update_id":4002,"message":{"date":2,"chat":{"id":555},"from":{"id":909},"text":"genuinely new in this batch"}}]}
-JSON
 
-new_home() { mkdir -p "$1/state"; }
+fixture() {
+  printf '%s\n' "$2" > "$FIXTURES/$1.json"
+}
 
-write_env_file() {  # <path> <token> [captain-chat-id] [captain-user-id]
+fixture one-text \
+  '{"ok":true,"result":[{"update_id":1001,"message":{"date":1700000000,"chat":{"id":555},"from":{"id":909},"text":"ahoy from the captain"}}]}'
+fixture next-text \
+  '{"ok":true,"result":[{"update_id":1002,"message":{"date":1700000001,"chat":{"id":555},"from":{"id":909},"text":"second captain message"}}]}'
+fixture two-text \
+  '{"ok":true,"result":[{"update_id":3001,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"first message"}},{"update_id":3002,"message":{"date":2,"chat":{"id":555},"from":{"id":909},"text":"second message"}}]}'
+fixture empty '{"ok":true,"result":[]}'
+fixture non-text \
+  '{"ok":true,"result":[{"update_id":2001,"message":{"date":1700000001,"chat":{"id":555},"from":{"id":909},"sticker":{"file_id":"abc"}}}]}'
+fixture untrusted \
+  '{"ok":true,"result":[{"update_id":2501,"message":{"date":1,"chat":{"id":555},"from":{"id":424242},"text":"not the captain"}}]}'
+fixture no-sender \
+  '{"ok":true,"result":[{"update_id":2502,"message":{"date":1,"chat":{"id":555},"text":"sender missing"}}]}'
+fixture noncontiguous \
+  '{"ok":true,"result":[{"update_id":100,"message":{"sticker":{"file_id":"a"}}},{"update_id":200,"message":{"sticker":{"file_id":"b"}}}]}'
+fixture max-id \
+  '{"ok":true,"result":[{"update_id":2147483647,"message":{"sticker":{"file_id":"max"}}}]}'
+fixture malformed-json '{"ok":true,"result":'
+fixture ok-false '{"ok":false,"result":[]}'
+fixture result-object '{"ok":true,"result":{}}'
+fixture update-string '{"ok":true,"result":["not-an-update"]}'
+fixture bool-id '{"ok":true,"result":[{"update_id":true}]}'
+fixture zero-id '{"ok":true,"result":[{"update_id":0}]}'
+fixture negative-id '{"ok":true,"result":[{"update_id":-1}]}'
+fixture string-id '{"ok":true,"result":[{"update_id":"1001"}]}'
+fixture float-id '{"ok":true,"result":[{"update_id":1001.5}]}'
+fixture range-id '{"ok":true,"result":[{"update_id":2147483648}]}'
+fixture duplicate-id '{"ok":true,"result":[{"update_id":1001},{"update_id":1001}]}'
+fixture malformed-message \
+  '{"ok":true,"result":[{"update_id":1001,"message":"not-an-object"}]}'
+fixture malformed-chat \
+  '{"ok":true,"result":[{"update_id":1001,"message":{"date":1,"chat":"bad","from":{"id":909},"text":"bad chat"}}]}'
+fixture malformed-sender \
+  '{"ok":true,"result":[{"update_id":1001,"message":{"date":1,"chat":{"id":555},"from":"bad","text":"bad sender"}}]}'
+fixture malformed-text \
+  '{"ok":true,"result":[{"update_id":1001,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":7}}]}'
+fixture malformed-date \
+  '{"ok":true,"result":[{"update_id":1001,"message":{"date":"today","chat":{"id":555},"from":{"id":909},"text":"bad date"}}]}'
+fixture mixed-invalid \
+  '{"ok":true,"result":[{"update_id":1001,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"must not commit"}},{"update_id":true}]}'
+fixture stale-id '{"ok":true,"result":[{"update_id":1001}]}'
+
+new_home() {
+  mkdir -p "$1/state"
+}
+
+write_env_file() {
   mkdir -p "$(dirname "$1")"
   printf 'TELEGRAM_BOT_TOKEN=%s\nTELEGRAM_CAPTAIN_CHAT_ID=%s\nTELEGRAM_CAPTAIN_USER_ID=%s\n' \
     "$2" "${3:-$CAPTAIN_CHAT_ID}" "${4:-$CAPTAIN_USER_ID}" > "$1"
   chmod 600 "$1"
 }
 
-# Runs the adapter's blocking child once against a given curl fixture.
-# poll_once <home> <env-file> <body-fixture> [http-code] [capture-file]
+arm_home() {
+  local home=$1 env_file=$2
+  new_home "$home"
+  write_env_file "$env_file" "$TOKEN"
+  FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" arm >/dev/null
+}
+
 poll_once() {
-  local home=$1 env_file=$2 body=$3 http=${4:-200} capture=${5:-}
-  CURL_STUB_BODY="$body" CURL_STUB_HTTP="$http" CURL_STUB_CAPTURE="$capture" \
-    FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" \
-    "$ADAPTER" poll
+  local home=$1 env_file=$2 body=$3 http=${4:-200}
+  CURL_STUB_BODY="$body" CURL_STUB_HTTP="$http" \
+    FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" poll
 }
 
-# --- credential gating on arm ------------------------------------------------
-H_NOCRED="$TMP_ROOT/nocred"; new_home "$H_NOCRED"
-noarm_status=0
-noarm_out=$(FM_HOME="$H_NOCRED" FM_TELEGRAM_ENV_FILE="$H_NOCRED/nonexistent.env" \
-  "$ADAPTER" arm 2>&1) || noarm_status=$?
-[ "$noarm_status" -ne 0 ] || fail "arm succeeded with no credential file"
-assert_contains "$noarm_out" "no readable Telegram credential" "arm explains the refusal"
-assert_absent "$H_NOCRED/state/procevent/telegram.source" "arm registered a source with no credential"
-pass "arm refuses to register a source with no readable credential file"
+db_query() {
+  python3 - "$1/state/telegram/channel.db" "$2" <<'PY'
+import sqlite3
+import sys
+with sqlite3.connect(sys.argv[1]) as db:
+    row = db.execute(sys.argv[2]).fetchone()
+if row is None:
+    print("")
+elif len(row) == 1:
+    print("" if row[0] is None else row[0])
+else:
+    print("|".join("" if value is None else str(value) for value in row))
+PY
+}
 
-H_NOCHAT="$TMP_ROOT/nochat"; new_home "$H_NOCHAT"
-NOCHAT_ENV="$TMP_ROOT/nochat.env"
-printf 'TELEGRAM_BOT_TOKEN=%s\nTELEGRAM_CAPTAIN_USER_ID=%s\n' "$TOKEN" "$CAPTAIN_USER_ID" > "$NOCHAT_ENV"
-chmod 600 "$NOCHAT_ENV"
-nochat_status=0
-nochat_out=$(FM_HOME="$H_NOCHAT" FM_TELEGRAM_ENV_FILE="$NOCHAT_ENV" \
-  "$ADAPTER" arm 2>&1) || nochat_status=$?
-[ "$nochat_status" -ne 0 ] || fail "arm succeeded without a captain chat id"
-assert_contains "$nochat_out" "no readable Telegram credential" "arm explains the incomplete credential"
-assert_absent "$H_NOCHAT/state/procevent/telegram.source" "arm registered a source without a captain chat id"
-pass "arm refuses to register without a captain chat id"
+db_exec() {
+  python3 - "$1/state/telegram/channel.db" "$2" <<'PY'
+import sqlite3
+import sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.executescript(sys.argv[2])
+PY
+}
 
-H_NOUSER="$TMP_ROOT/nouser"; new_home "$H_NOUSER"
-NOUSER_ENV="$TMP_ROOT/nouser.env"
-printf 'TELEGRAM_BOT_TOKEN=%s\nTELEGRAM_CAPTAIN_CHAT_ID=%s\n' "$TOKEN" "$CAPTAIN_CHAT_ID" > "$NOUSER_ENV"
-chmod 600 "$NOUSER_ENV"
-nouser_status=0
-nouser_out=$(FM_HOME="$H_NOUSER" FM_TELEGRAM_ENV_FILE="$NOUSER_ENV" \
-  "$ADAPTER" arm 2>&1) || nouser_status=$?
-[ "$nouser_status" -ne 0 ] || fail "arm succeeded without a captain user id"
-assert_contains "$nouser_out" "no readable Telegram credential" "arm explains the missing captain user id"
-assert_absent "$H_NOUSER/state/procevent/telegram.source" "arm registered a source without a captain user id"
-nouser_poll_status=0
-nouser_poll_out=$(poll_once "$H_NOUSER" "$NOUSER_ENV" "$FIXTURES/one-text.json" \
-  2>"$TMP_ROOT/nouser.err") || nouser_poll_status=$?
-[ "$nouser_poll_status" -eq 0 ] || fail "a poll with no captain user id did not exit 0: status=$nouser_poll_status"
-[ -z "$nouser_poll_out" ] || fail "a poll with no captain user id produced output: $nouser_poll_out"
-assert_absent "$H_NOUSER/state/telegram-inbox/1001.json" \
-  "a chat id alone must never authorize a message without a configured captain user id"
-assert_absent "$H_NOUSER/state/.telegram-offset" "a poll with no captain user id must not advance an offset"
-pass "chat id alone is not captain identity: arm refuses and poll stays inert without a user id"
+safety_snapshot() {
+  local home=$1
+  db_query "$home" \
+    "SELECT (SELECT committed_offset FROM meta), (SELECT count(*) FROM messages), (SELECT group_concat(kind, ',') FROM (SELECT kind FROM conditions WHERE kind LIKE 'api-%' ORDER BY kind))"
+}
 
-# --- arm registers with the real runner, list shows it, retire cleans up ----
-H_ARM="$TMP_ROOT/arm"; new_home "$H_ARM"
-ARM_ENV="$TMP_ROOT/arm.env"; write_env_file "$ARM_ENV" "$TOKEN"
-arm_out=$(FM_HOME="$H_ARM" FM_TELEGRAM_ENV_FILE="$ARM_ENV" "$ADAPTER" arm)
-assert_contains "$arm_out" "armed: telegram" "arm reports the fixed source id"
-list_out=$(FM_HOME="$H_ARM" "$ROOT/bin/fm-procevent.sh" list)
-assert_contains "$list_out" "telegram" "the registered source is visible to the generic runner"
-sid_out=$("$ADAPTER" source-id)
-assert_contains "$sid_out" "telegram" "source-id is the fixed constant"
+RESULT_NUMBER=0
+write_result() {
+  RESULT_NUMBER=$((RESULT_NUMBER + 1))
+  RESULT_FILE="$TMP_ROOT/result.$RESULT_NUMBER"
+  printf '%s\n' "$1" > "$RESULT_FILE"
+}
+
+ack_result() {
+  local home=$1 env_file=$2 output=$3
+  write_result "$output"
+  FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" ack "$RESULT_FILE"
+}
+
+assert_equal() {
+  [ "$1" = "$2" ] || fail "$3 (expected '$2', got '$1')"
+}
+
+assert_no_curl() {
+  [ ! -s "$CURL_CALLS" ] || fail "$1"
+}
+
+clear_curl_calls() {
+  : > "$CURL_CALLS"
+}
+
+# --- strict credential intake and explicit first arm ------------------------
+H_NOCRED="$TMP_ROOT/no-credential"
+new_home "$H_NOCRED"
+no_cred_status=0
+no_cred_out=$(FM_HOME="$H_NOCRED" FM_TELEGRAM_ENV_FILE="$H_NOCRED/missing.env" \
+  "$ADAPTER" arm 2>&1) || no_cred_status=$?
+[ "$no_cred_status" -ne 0 ] || fail "arm accepted a missing credential"
+assert_contains "$no_cred_out" "no valid Telegram credential" "arm explains missing credentials"
+assert_absent "$H_NOCRED/state/telegram/channel.db" "arm created state without credentials"
+
+for credential_case in bad-mode symlink incomplete unknown duplicate; do
+  home="$TMP_ROOT/credential-$credential_case"
+  env_file="$TMP_ROOT/credential-$credential_case.env"
+  new_home "$home"
+  case "$credential_case" in
+    bad-mode)
+      write_env_file "$env_file" "$TOKEN"
+      chmod 644 "$env_file"
+      ;;
+    symlink)
+      write_env_file "$env_file.real" "$TOKEN"
+      ln -s "$env_file.real" "$env_file"
+      ;;
+    incomplete)
+      printf 'TELEGRAM_BOT_TOKEN=%s\nTELEGRAM_CAPTAIN_CHAT_ID=555\n' "$TOKEN" > "$env_file"
+      chmod 600 "$env_file"
+      ;;
+    unknown)
+      write_env_file "$env_file" "$TOKEN"
+      printf 'EXTRA_KEY=nope\n' >> "$env_file"
+      ;;
+    duplicate)
+      write_env_file "$env_file" "$TOKEN"
+      printf 'TELEGRAM_BOT_TOKEN=again\n' >> "$env_file"
+      ;;
+  esac
+  credential_status=0
+  FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" arm >/dev/null 2>&1 \
+    || credential_status=$?
+  [ "$credential_status" -ne 0 ] || fail "arm accepted $credential_case credentials"
+  assert_absent "$home/state/telegram/channel.db" "$credential_case credentials created state"
+done
+pass "arm accepts only one strict, private, complete credential snapshot"
+
+H_ROTATE="$TMP_ROOT/credential-rotate"
+ROTATE_ENV="$TMP_ROOT/credential-rotate.env"
+ROTATE_REPLACEMENT="$TMP_ROOT/credential-rotate.replacement"
+ROTATE_MARKER="$TMP_ROOT/credential-rotate.marker"
+ROTATE_RELEASE="$TMP_ROOT/credential-rotate.release"
+ROTATE_OUT="$TMP_ROOT/credential-rotate.out"
+new_home "$H_ROTATE"
+write_env_file "$ROTATE_ENV" "$TOKEN"
+write_env_file "$ROTATE_REPLACEMENT" "987654:ROTATED-TOKEN"
+FM_TELEGRAM_FAILPOINT=credential-after-lstat \
+  FM_TELEGRAM_FAILPOINT_MARKER="$ROTATE_MARKER" \
+  FM_TELEGRAM_FAILPOINT_RELEASE="$ROTATE_RELEASE" \
+  FM_HOME="$H_ROTATE" FM_TELEGRAM_ENV_FILE="$ROTATE_ENV" \
+  "$ADAPTER" arm > "$ROTATE_OUT" 2>&1 &
+rotate_pid=$!
+for _ in $(seq 1 100); do
+  [ -e "$ROTATE_MARKER" ] && break
+  sleep 0.01
+done
+assert_present "$ROTATE_MARKER" "credential replacement test never reached the open boundary"
+mv "$ROTATE_REPLACEMENT" "$ROTATE_ENV"
+: > "$ROTATE_RELEASE"
+rotate_status=0
+wait "$rotate_pid" || rotate_status=$?
+[ "$rotate_status" -ne 0 ] || fail "arm accepted a credential file replaced between inspection and open"
+assert_absent "$H_ROTATE/state/telegram/channel.db" \
+  "credential replacement assembled a mixed snapshot into live state"
+pass "credential replacement during read is detected as one rejected snapshot"
+
+H_DATA="$TMP_ROOT/credential-data"
+DATA_ENV="$TMP_ROOT/credential-data.env"
+new_home "$H_DATA"
+SHELL_MARKER="$TMP_ROOT/credential-executed"
+# shellcheck disable=SC2016  # Literal command substitution proves the file is never sourced.
+printf 'TELEGRAM_BOT_TOKEN=123:$(touch%s)\nTELEGRAM_CAPTAIN_CHAT_ID=555\nTELEGRAM_CAPTAIN_USER_ID=909\n' \
+  "$SHELL_MARKER" > "$DATA_ENV"
+chmod 600 "$DATA_ENV"
+data_status=0
+FM_HOME="$H_DATA" FM_TELEGRAM_ENV_FILE="$DATA_ENV" "$ADAPTER" arm >/dev/null 2>&1 \
+  || data_status=$?
+[ "$data_status" -ne 0 ] || fail "executable-looking credential syntax was accepted"
+assert_absent "$SHELL_MARKER" "credential syntax was executed as shell"
+assert_absent "$H_DATA/state/telegram/channel.db" \
+  "executable-looking credential syntax initialized state"
+pass "credential files are parsed as data and never executed"
+
+# --- state initialization, registration, and private SQLite settings --------
+H_ARM="$TMP_ROOT/arm"
+ARM_ENV="$TMP_ROOT/arm.env"
+arm_home "$H_ARM" "$ARM_ENV"
+assert_contains "$(FM_HOME="$H_ARM" "$ROOT/bin/fm-procevent.sh" list)" "telegram" \
+  "arm did not register the canonical source"
+assert_equal "$("$ADAPTER" source-id)" telegram "source-id is not canonical"
+assert_equal "$(db_query "$H_ARM" "SELECT committed_offset FROM meta")" 0 \
+  "fresh state did not start at offset zero"
+doctor_out=$(FM_HOME="$H_ARM" FM_TELEGRAM_ENV_FILE="$ARM_ENV" "$ADAPTER" doctor)
+assert_contains "$doctor_out" "integrity=ok" "doctor did not prove database integrity"
+assert_contains "$doctor_out" "journal_mode=delete" "rollback journaling is not pinned"
+assert_contains "$doctor_out" "synchronous=2" "synchronous FULL is not pinned"
+assert_contains "$doctor_out" "fullfsync=1" "fullfsync is not enabled"
+db_mode=$(stat -c %a "$H_ARM/state/telegram/channel.db" 2>/dev/null \
+  || stat -f %Lp "$H_ARM/state/telegram/channel.db")
+dir_mode=$(stat -c %a "$H_ARM/state/telegram" 2>/dev/null \
+  || stat -f %Lp "$H_ARM/state/telegram")
+assert_equal "$db_mode" 600 "database mode is not private"
+assert_equal "$dir_mode" 700 "Telegram state directory mode is not private"
 retire_out=$(FM_HOME="$H_ARM" "$ADAPTER" retire)
-assert_contains "$retire_out" "retired: telegram" "retire is the explicit operator path"
-list_after=$(FM_HOME="$H_ARM" "$ROOT/bin/fm-procevent.sh" list)
-assert_contains "$list_after" "no sources registered" "retire actually removes the registration"
-pass "arm registers with the real runner, list shows it, and retire cleans it up"
+assert_contains "$retire_out" "retired: telegram" "retire did not use the generic source owner"
+assert_present "$H_ARM/state/telegram/channel.db" "retire deleted transactional state"
+pass "arm creates private durable state, registers one source, and retire preserves state"
 
-# --- happy path: a new text message is captured and wakes the source -------
-H_MSG="$TMP_ROOT/msg"; new_home "$H_MSG"
-MSG_ENV="$TMP_ROOT/msg.env"; write_env_file "$MSG_ENV" "$TOKEN"
-msg_status=0
-msg_out=$(poll_once "$H_MSG" "$MSG_ENV" "$FIXTURES/one-text.json") || msg_status=$?
-[ "$msg_status" -eq 0 ] || fail "a delivered text message did not exit 0: $msg_out"
-assert_contains "$msg_out" "message: 1" "a delivered text message is reported by count"
-assert_present "$H_MSG/state/telegram-inbox/1001.json" "the message was written to the inbox"
-mode=$(PATH="${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" bash -c \
-  '. "$1/bin/fm-pr-lib.sh"; fm_pr_file_mode "$2"' _ "$ROOT" "$H_MSG/state/telegram-inbox/1001.json")
-assert_contains "$mode" 600 "the inbox message file is private"
-assert_grep 'ahoy from the captain' "$H_MSG/state/telegram-inbox/1001.json" "the inbox file carries the real message text"
-assert_grep '"chat_id": 555' "$H_MSG/state/telegram-inbox/1001.json" "the inbox file carries the chat id"
-[ "$(cat "$H_MSG/state/.telegram-offset")" = 1002 ] || fail "the offset did not advance past the delivered update"
-pass "a new text message is written to the inbox, and the offset advances past it"
+# --- stable message notice, identity, acknowledgement, and secrecy -----------
+H_MSG="$TMP_ROOT/message"
+MSG_ENV="$TMP_ROOT/message.env"
+arm_home "$H_MSG" "$MSG_ENV"
+clear_curl_calls
+msg_out=$(poll_once "$H_MSG" "$MSG_ENV" "$FIXTURES/one-text.json")
+assert_contains "$msg_out" "message: 1 notice=" "captain message did not create a stable notice"
+assert_equal "$(db_query "$H_MSG" "SELECT committed_offset FROM meta")" 1002 \
+  "message transaction did not advance the offset"
+assert_equal "$(db_query "$H_MSG" "SELECT count(*) FROM messages")" 1 \
+  "message transaction did not store the payload"
+write_result "$msg_out"
+assert_equal "$(FM_HOME="$H_MSG" "$ADAPTER" classify "$RESULT_FILE")" message \
+  "pending message notice did not classify"
+message_json=$(FM_HOME="$H_MSG" "$ADAPTER" messages "$RESULT_FILE")
+assert_contains "$message_json" "ahoy from the captain" "messages did not expose the captain text"
+assert_contains "$message_json" '"from_id":909' "stored payload lost sender identity"
+calls_before=$(wc -l < "$CURL_CALLS" | tr -d ' ')
+repeat_out=$(poll_once "$H_MSG" "$MSG_ENV" "$FIXTURES/next-text.json")
+assert_equal "$repeat_out" "$msg_out" "pre-ack retry did not emit the same stable notice"
+calls_after=$(wc -l < "$CURL_CALLS" | tr -d ' ')
+assert_equal "$calls_after" "$calls_before" "a pending notice allowed another irreversible poll"
+ack_out=$(FM_HOME="$H_MSG" "$ADAPTER" ack "$RESULT_FILE")
+assert_contains "$ack_out" "acknowledged:" "notice acknowledgement failed"
+assert_equal "$(FM_HOME="$H_MSG" "$ADAPTER" classify "$RESULT_FILE")" none \
+  "an acknowledged capture could authorize the message twice"
+assert_equal "$(FM_HOME="$H_MSG" "$ADAPTER" messages "$RESULT_FILE")" "" \
+  "acknowledged messages remained actionable"
+assert_contains "$(FM_HOME="$H_MSG" "$ADAPTER" ack "$RESULT_FILE")" "already-acknowledged:" \
+  "notice acknowledgement is not idempotent"
+pass "a message, offset, and stable notice commit together and deduplicate until acknowledgement"
 
-# --- missing credential file: silent and inert ------------------------------
-H_NOCRED2="$TMP_ROOT/nocred2"; new_home "$H_NOCRED2"
-noc_status=0
-noc_out=$(CURL_STUB_BODY="$FIXTURES/one-text.json" FM_HOME="$H_NOCRED2" \
-  FM_TELEGRAM_ENV_FILE="$H_NOCRED2/absent.env" "$ADAPTER" poll 2>"$TMP_ROOT/nocred2.err") || noc_status=$?
-[ "$noc_status" -eq 0 ] || fail "missing credential file did not exit 0: status=$noc_status"
-[ -z "$noc_out" ] || fail "missing credential file produced output: $noc_out"
-[ ! -s "$TMP_ROOT/nocred2.err" ] || fail "missing credential file wrote to stderr: $(cat "$TMP_ROOT/nocred2.err")"
-assert_absent "$H_NOCRED2/state/telegram-inbox" "a missing credential file must never create an inbox"
-assert_absent "$H_NOCRED2/state/.telegram-offset" "a missing credential file must never advance an offset"
-pass "an absent credential file exits zero, silent, and touches nothing"
+CAPTURE="$TMP_ROOT/curl-config"
+H_SECRET="$TMP_ROOT/secret"
+SECRET_ENV="$TMP_ROOT/secret.env"
+arm_home "$H_SECRET" "$SECRET_ENV"
+secret_out=$(CURL_STUB_CAPTURE="$CAPTURE" poll_once \
+  "$H_SECRET" "$SECRET_ENV" "$FIXTURES/one-text.json")
+assert_grep "$TOKEN" "$CAPTURE" "positive control: curl did not receive the token"
+case "$secret_out" in *"$TOKEN"*) fail "token leaked into adapter output" ;; esac
+while IFS= read -r state_file; do
+  assert_no_grep "$TOKEN" "$state_file" "token leaked into durable Telegram state"
+done < <(find "$H_SECRET/state" -type f)
+pass "the token reaches curl through stdin and never durable state or results"
 
-H_BADMODE="$TMP_ROOT/badmode"; new_home "$H_BADMODE"
-BADMODE_ENV="$TMP_ROOT/badmode.env"; write_env_file "$BADMODE_ENV" "$TOKEN"
-chmod 0644 "$BADMODE_ENV"
-badmode_arm_status=0
-badmode_arm_out=$(FM_HOME="$H_BADMODE" FM_TELEGRAM_ENV_FILE="$BADMODE_ENV" \
-  "$ADAPTER" arm 2>&1) || badmode_arm_status=$?
-[ "$badmode_arm_status" -ne 0 ] || fail "arm succeeded with a mode-0644 credential file"
-assert_contains "$badmode_arm_out" "no readable Telegram credential" "arm explains the insecure credential refusal"
-assert_absent "$H_BADMODE/state/procevent/telegram.source" "arm registered a source with insecure credentials"
-badmode_poll_status=0
-badmode_poll_out=$(poll_once "$H_BADMODE" "$BADMODE_ENV" "$FIXTURES/one-text.json" \
-  2>"$TMP_ROOT/badmode.err") || badmode_poll_status=$?
-[ "$badmode_poll_status" -eq 0 ] || fail "insecure credential poll did not exit 0: status=$badmode_poll_status"
-[ -z "$badmode_poll_out" ] || fail "insecure credential poll produced output: $badmode_poll_out"
-[ ! -s "$TMP_ROOT/badmode.err" ] || fail "insecure credential poll wrote to stderr: $(cat "$TMP_ROOT/badmode.err")"
-assert_absent "$H_BADMODE/state/telegram-inbox" "insecure credentials must never create an inbox"
-assert_absent "$H_BADMODE/state/.telegram-offset" "insecure credentials must never advance an offset"
-pass "mode-0644 credentials make arm refuse and poll exit silent"
+# --- authorization and accepted update-id domain -----------------------------
+H_NON_TEXT="$TMP_ROOT/non-text"
+NON_TEXT_ENV="$TMP_ROOT/non-text.env"
+arm_home "$H_NON_TEXT" "$NON_TEXT_ENV"
+non_text_status=0
+non_text_out=$(poll_once "$H_NON_TEXT" "$NON_TEXT_ENV" "$FIXTURES/non-text.json") \
+  || non_text_status=$?
+[ "$non_text_status" -ne 0 ] || fail "non-text update produced a captured result"
+assert_equal "$non_text_out" "" "non-text update printed output"
+assert_equal "$(db_query "$H_NON_TEXT" "SELECT committed_offset FROM meta")" 2002 \
+  "non-text update did not advance atomically"
+assert_equal "$(db_query "$H_NON_TEXT" "SELECT count(*) FROM messages")" 0 \
+  "non-text update became a command"
 
-# --- a non-text update advances the offset without waking -------------------
-H_STICKER="$TMP_ROOT/sticker"; new_home "$H_STICKER"
-STICKER_ENV="$TMP_ROOT/sticker.env"; write_env_file "$STICKER_ENV" "$TOKEN"
-sticker_status=0
-sticker_out=$(poll_once "$H_STICKER" "$STICKER_ENV" "$FIXTURES/non-text.json") || sticker_status=$?
-[ "$sticker_status" -ne 0 ] || fail "a non-text-only poll exited 0 and would have woken firstmate"
-[ -z "$sticker_out" ] || fail "a non-text-only poll produced output: $sticker_out"
-[ "$(cat "$H_STICKER/state/.telegram-offset")" = 2002 ] || fail "the non-text update's offset was not consumed"
-assert_absent "$H_STICKER/state/telegram-inbox/2001.json" "a non-text update must never create an inbox file"
-pass "a non-text update advances the offset and produces no capturable result"
-
-# --- text from a non-captain chat is consumed without waking ----------------
-H_UNTRUSTED="$TMP_ROOT/untrusted"; new_home "$H_UNTRUSTED"
-UNTRUSTED_ENV="$TMP_ROOT/untrusted.env"; write_env_file "$UNTRUSTED_ENV" "$TOKEN"
-untrusted_status=0
-untrusted_out=$(poll_once "$H_UNTRUSTED" "$UNTRUSTED_ENV" "$FIXTURES/non-captain-text.json") || untrusted_status=$?
-[ "$untrusted_status" -ne 0 ] || fail "a non-captain text exited 0 and would have woken firstmate"
-[ -z "$untrusted_out" ] || fail "a non-captain text produced output: $untrusted_out"
-[ "$(cat "$H_UNTRUSTED/state/.telegram-offset")" = 2502 ] || fail "the non-captain update's offset was not consumed"
-assert_absent "$H_UNTRUSTED/state/telegram-inbox/2501.json" "a non-captain text must never create an inbox file"
-pass "a non-captain text advances the offset without capture or wake"
-
-# --- text from another member of the captain's own chat is not a command ---
-# The dangerous case: TELEGRAM_CAPTAIN_CHAT_ID is a group, so a non-captain
-# member's text arrives with the captain's chat id on it. It must be consumed
-# exactly like any other unauthorized traffic - no inbox file, no wake.
-H_GROUP="$TMP_ROOT/group-other-sender"; new_home "$H_GROUP"
-GROUP_ENV="$TMP_ROOT/group-other-sender.env"; write_env_file "$GROUP_ENV" "$TOKEN"
-group_status=0
-group_out=$(poll_once "$H_GROUP" "$GROUP_ENV" "$FIXTURES/group-other-sender.json") || group_status=$?
-[ "$group_status" -ne 0 ] || fail "a non-captain group member's text exited 0 and would have woken firstmate: $group_out"
-[ -z "$group_out" ] || fail "a non-captain group member's text produced output: $group_out"
-assert_absent "$H_GROUP/state/telegram-inbox/2601.json" \
-  "a non-captain group member's text must never become a captain command"
-[ "$(cat "$H_GROUP/state/.telegram-offset")" = 2602 ] || fail "the non-captain group update's offset was not consumed"
-group_none_status=0
-group_none_out=$(poll_once "$H_GROUP" "$GROUP_ENV" "$FIXTURES/group-no-sender.json") || group_none_status=$?
-[ "$group_none_status" -ne 0 ] || fail "a senderless group text exited 0 and would have woken firstmate: $group_none_out"
-[ -z "$group_none_out" ] || fail "a senderless group text produced output: $group_none_out"
-assert_absent "$H_GROUP/state/telegram-inbox/2701.json" \
-  "a text with no sender at all must never become a captain command"
-[ "$(cat "$H_GROUP/state/.telegram-offset")" = 2702 ] || fail "the senderless group update's offset was not consumed"
-pass "text in the captain's own chat from anyone but the captain is never a captain command"
-
-# --- the same chat, the captain's own user id: still delivered -------------
-H_SENDER_OK="$TMP_ROOT/sender-ok"; new_home "$H_SENDER_OK"
-SENDER_OK_ENV="$TMP_ROOT/sender-ok.env"; write_env_file "$SENDER_OK_ENV" "$TOKEN"
-sender_ok_status=0
-sender_ok_out=$(poll_once "$H_SENDER_OK" "$SENDER_OK_ENV" "$FIXTURES/one-text.json") || sender_ok_status=$?
-[ "$sender_ok_status" -eq 0 ] || fail "the captain's own message was not delivered: $sender_ok_out"
-assert_contains "$sender_ok_out" "message: 1" "the captain's own message still wakes firstmate"
-assert_grep '"from_id": 909' "$H_SENDER_OK/state/telegram-inbox/1001.json" \
-  "the inbox file records the authorized sender it was accepted from"
-pass "positive control: a message from the configured captain user id is still delivered"
-
-# --- an empty long-poll result is equally silent ----------------------------
-H_EMPTY="$TMP_ROOT/empty"; new_home "$H_EMPTY"
-EMPTY_ENV="$TMP_ROOT/empty.env"; write_env_file "$EMPTY_ENV" "$TOKEN"
-empty_status=0
-empty_out=$(poll_once "$H_EMPTY" "$EMPTY_ENV" "$FIXTURES/empty.json") || empty_status=$?
-[ "$empty_status" -ne 0 ] || fail "an empty long-poll result exited 0 and would have woken firstmate"
-[ -z "$empty_out" ] || fail "an empty long-poll result produced output: $empty_out"
-assert_absent "$H_EMPTY/state/.telegram-offset" "an empty long-poll result has nothing to advance the offset past"
-pass "an empty long-poll result is silent and advances nothing"
-
-H_EMPTY_RECEIPTS="$TMP_ROOT/empty-receipts"; new_home "$H_EMPTY_RECEIPTS"
-EMPTY_RECEIPTS_ENV="$TMP_ROOT/empty-receipts.env"; write_env_file "$EMPTY_RECEIPTS_ENV" "$TOKEN"
-empty_receipts_status=0
-CURL_STUB_EXIT=28 poll_once "$H_EMPTY_RECEIPTS" "$EMPTY_RECEIPTS_ENV" "$FIXTURES/one-text.json" \
-  >/dev/null || empty_receipts_status=$?
-[ "$empty_receipts_status" -ne 0 ] || fail "a simulated curl failure unexpectedly succeeded"
-[ -d "$H_EMPTY_RECEIPTS/state/.telegram-delivery-receipts" ] \
-  || fail "the simulated curl failure did not leave an empty receipt directory"
-empty_receipts_retry_status=0
-empty_receipts_retry_out=$(poll_once "$H_EMPTY_RECEIPTS" "$EMPTY_RECEIPTS_ENV" "$FIXTURES/one-text.json") \
-  || empty_receipts_retry_status=$?
-[ "$empty_receipts_retry_status" -eq 0 ] \
-  || fail "an empty receipt directory blocked the next poll: $empty_receipts_retry_out"
-assert_contains "$empty_receipts_retry_out" "message: 1" \
-  "the poll after an empty receipt directory still delivers the message"
-assert_present "$H_EMPTY_RECEIPTS/state/telegram-inbox/1001.json" \
-  "the poll after an empty receipt directory reaches the Telegram delivery path"
-pass "an empty receipt directory does not wedge later polling"
-
-# --- a temp payload abandoned by a killed poll never wedges or leaks --------
-# A poll killed between writing its private temp payload and hardlinking it
-# leaves that temp behind. It must live outside the inbox the handler scans,
-# and the next poll must clear it rather than let it hold the receipt
-# directory open forever.
-H_STALE_TMP="$TMP_ROOT/stale-temp"; new_home "$H_STALE_TMP"
-STALE_TMP_ENV="$TMP_ROOT/stale-temp.env"; write_env_file "$STALE_TMP_ENV" "$TOKEN"
-mkdir -p "$H_STALE_TMP/state/.telegram-delivery-receipts"
-printf '{"update_id":1001,"text":"payload from a poll killed mid-write"}\n' \
-  > "$H_STALE_TMP/state/.telegram-delivery-receipts/tmp.1001.4242"
-stale_tmp_status=0
-stale_tmp_out=$(poll_once "$H_STALE_TMP" "$STALE_TMP_ENV" "$FIXTURES/one-text.json") \
-  || stale_tmp_status=$?
-[ "$stale_tmp_status" -eq 0 ] \
-  || fail "an abandoned temp payload wedged the next poll: status=$stale_tmp_status"
-assert_contains "$stale_tmp_out" "message: 1" \
-  "the poll after an abandoned temp payload still delivers the message"
-assert_absent "$H_STALE_TMP/state/.telegram-delivery-receipts/tmp.1001.4242" \
-  "the abandoned temp payload is cleared instead of accumulating"
-inbox_entries=$(cd "$H_STALE_TMP/state/telegram-inbox" \
-  && find . -mindepth 1 -maxdepth 1 | sed 's|^\./||' | sort | tr '\n' ' ')
-[ "$inbox_entries" = "1001.json " ] \
-  || fail "the handler-scanned inbox holds something other than the delivered claim: $inbox_entries"
-pass "an abandoned temp payload stays out of the inbox and is swept by the next poll"
-
-# --- write-before-offset-advance: a mid-batch write failure is recoverable --
-# Requirement: a message is durably on disk BEFORE the offset advances past
-# it, and a write failure leaves the offset untouched so the whole batch is
-# safely retried. The obstruction here is a real filesystem failure - a
-# directory already occupies the second message's own target path - not a
-# stubbed helper, so the write really does fail the way a full disk or a
-# permissions problem would.
-H_FAIL="$TMP_ROOT/writefail"; new_home "$H_FAIL"
-FAIL_ENV="$TMP_ROOT/writefail.env"; write_env_file "$FAIL_ENV" "$TOKEN"
-mkdir -p "$H_FAIL/state/telegram-inbox/3002.json"
-fail_status=0
-fail_out=$(poll_once "$H_FAIL" "$FAIL_ENV" "$FIXTURES/two-text.json") || fail_status=$?
-[ "$fail_status" -ne 0 ] || fail "a mid-batch write failure exited 0 and would have woken firstmate"
-[ -z "$fail_out" ] || fail "a mid-batch write failure produced output: $fail_out"
-assert_present "$H_FAIL/state/telegram-inbox/3001.json" \
-  "the first message was durably written before the second message's write failed"
-assert_grep 'first message' "$H_FAIL/state/telegram-inbox/3001.json" "the durably written first message carries its real text"
-assert_absent "$H_FAIL/state/.telegram-offset" \
-  "the offset must not advance past a batch that only partially wrote"
-assert_present "$H_FAIL/state/.telegram-pending-delivery" \
-  "the first message remains pending for a wake after the later batch failure"
-rmdir "$H_FAIL/state/telegram-inbox/3002.json"
-recover_status=0
-recover_out=$(poll_once "$H_FAIL" "$FAIL_ENV" "$FIXTURES/two-text.json") || recover_status=$?
-[ "$recover_status" -eq 0 ] || fail "the pending partial delivery was not reported: $recover_out"
-assert_contains "$recover_out" "message: 1" \
-  "the first message receives its wake before the batch is retried"
-[ "$(cat "$H_FAIL/state/.telegram-offset")" = 0 ] || fail "reporting a partial delivery advanced the unresolved batch"
-recover_status=0
-recover_out=$(poll_once "$H_FAIL" "$FAIL_ENV" "$FIXTURES/two-text.json") || recover_status=$?
-[ "$recover_status" -eq 0 ] || fail "the retried batch did not succeed once the obstruction was removed: $recover_out"
-assert_contains "$recover_out" "message: 1" \
-  "the retried batch delivers only the genuinely new second message"
-assert_present "$H_FAIL/state/telegram-inbox/3002.json" "the second message is written once the obstruction clears"
-[ "$(cat "$H_FAIL/state/.telegram-offset")" = 3003 ] || fail "the offset advances only after the retried batch fully succeeds"
-pass "a mid-batch write failure leaves the offset untouched and the batch safely redelivers"
-
-H_MARKER_FAIL="$TMP_ROOT/marker-fail"; new_home "$H_MARKER_FAIL"
-MARKER_FAIL_ENV="$TMP_ROOT/marker-fail.env"; write_env_file "$MARKER_FAIL_ENV" "$TOKEN"
-mkdir -p "$H_MARKER_FAIL/state/telegram-inbox/3002.json"
-marker_fail_status=0
-marker_fail_out=$(CURL_STUB_BODY="$FIXTURES/two-text.json" \
-  CURL_STUB_OBSTRUCT_PENDING="$H_MARKER_FAIL/state/.telegram-pending-delivery" \
-  FM_HOME="$H_MARKER_FAIL" FM_TELEGRAM_ENV_FILE="$MARKER_FAIL_ENV" \
-  "$ADAPTER" poll) || marker_fail_status=$?
-[ "$marker_fail_status" -ne 0 ] || fail "an obstructed pending marker unexpectedly succeeded: $marker_fail_out"
-[ -z "$marker_fail_out" ] || fail "an obstructed pending marker produced output: $marker_fail_out"
-assert_present "$H_MARKER_FAIL/state/telegram-inbox/3001.json" \
-  "the first message was published before pending-marker persistence failed"
-assert_present "$H_MARKER_FAIL/state/.telegram-delivery-receipts/3001.json" \
-  "the published message remains durably discoverable after pending-marker failure"
-rmdir "$H_MARKER_FAIL/state/.telegram-pending-delivery"
-rmdir "$H_MARKER_FAIL/state/telegram-inbox/3002.json"
-rm -f -- "$MARKER_FAIL_ENV"
-marker_nocred_status=0
-marker_nocred_out=$(poll_once "$H_MARKER_FAIL" "$MARKER_FAIL_ENV" "$FIXTURES/two-text.json") \
-  || marker_nocred_status=$?
-[ "$marker_nocred_status" -eq 0 ] || fail "receipt recovery without credentials did not exit 0"
-[ -z "$marker_nocred_out" ] || fail "receipt recovery without credentials produced output: $marker_nocred_out"
-assert_present "$H_MARKER_FAIL/state/.telegram-delivery-receipts/3001.json" \
-  "credential-free polling must not consume a delivery receipt"
-write_env_file "$MARKER_FAIL_ENV" "$TOKEN"
-marker_recover_status=0
-marker_recover_out=$(poll_once "$H_MARKER_FAIL" "$MARKER_FAIL_ENV" "$FIXTURES/two-text.json") || marker_recover_status=$?
-[ "$marker_recover_status" -eq 0 ] || fail "the durable receipt was not recovered: $marker_recover_out"
-assert_contains "$marker_recover_out" "message: 1" \
-  "the message is eventually reported after pending-marker persistence recovers"
-assert_absent "$H_MARKER_FAIL/state/.telegram-delivery-receipts/3001.json" \
-  "the durable receipt clears after the message is reported"
-pass "a pending-marker write failure cannot hide an already-published message"
-
-# --- receipt cleanup must finish before a pending wake is published --------
-# The pending record and receipt directory are durable adapter state. A
-# malformed receipt entry models cleanup failing after a prior invocation
-# persisted the handoff but before it could announce the message.
-H_CLEANUP_FAIL="$TMP_ROOT/cleanup-fail"; new_home "$H_CLEANUP_FAIL"
-CLEANUP_FAIL_ENV="$TMP_ROOT/cleanup-fail.env"; write_env_file "$CLEANUP_FAIL_ENV" "$TOKEN"
-mkdir -p "$H_CLEANUP_FAIL/state/telegram-inbox"
-cp "$FIXTURES/one-text.json" "$H_CLEANUP_FAIL/state/telegram-inbox/1001.json"
-printf '1 1002\n' > "$H_CLEANUP_FAIL/state/.telegram-pending-delivery"
-mkdir -p "$H_CLEANUP_FAIL/state/.telegram-delivery-receipts/broken.json"
-cleanup_fail_status=0
-cleanup_fail_out=$(poll_once "$H_CLEANUP_FAIL" "$CLEANUP_FAIL_ENV" "$FIXTURES/empty.json") \
-  || cleanup_fail_status=$?
-[ "$cleanup_fail_status" -ne 0 ] || fail "malformed receipt cleanup unexpectedly succeeded"
-[ -z "$cleanup_fail_out" ] || fail "a wake was published before receipt cleanup completed: $cleanup_fail_out"
-assert_present "$H_CLEANUP_FAIL/state/.telegram-pending-delivery" \
-  "cleanup failure must retain the pending wake for retry"
-rmdir "$H_CLEANUP_FAIL/state/.telegram-delivery-receipts/broken.json"
-rmdir "$H_CLEANUP_FAIL/state/.telegram-delivery-receipts"
-cleanup_retry_out=$(poll_once "$H_CLEANUP_FAIL" "$CLEANUP_FAIL_ENV" "$FIXTURES/empty.json")
-assert_contains "$cleanup_retry_out" "message: 1" \
-  "the pending wake publishes once receipt cleanup can finish"
-assert_absent "$H_CLEANUP_FAIL/state/.telegram-pending-delivery" \
-  "successful retry clears the pending wake"
-pass "receipt cleanup completes before a pending wake is published"
-
-# --- pending cleanup must finish before a wake is published -----------------
-H_PENDING_REMOVE="$TMP_ROOT/pending-remove-fail"; new_home "$H_PENDING_REMOVE"
-PENDING_REMOVE_ENV="$TMP_ROOT/pending-remove-fail.env"
-write_env_file "$PENDING_REMOVE_ENV" "$TOKEN"
-printf '1 1002\n' > "$H_PENDING_REMOVE/state/.telegram-pending-delivery"
-FAIL_RM_PATH="$H_PENDING_REMOVE/state/.telegram-pending-delivery"
-export FAIL_RM_PATH
-pending_remove_status=0
-pending_remove_out=$(poll_once "$H_PENDING_REMOVE" "$PENDING_REMOVE_ENV" "$FIXTURES/empty.json") \
-  || pending_remove_status=$?
-unset FAIL_RM_PATH
-[ "$pending_remove_status" -ne 0 ] \
-  || fail "a pending cleanup failure unexpectedly succeeded: $pending_remove_out"
-[ -z "$pending_remove_out" ] \
-  || fail "a pending cleanup failure published a wake before cleanup completed: $pending_remove_out"
-assert_present "$H_PENDING_REMOVE/state/.telegram-pending-delivery" \
-  "a failed pending cleanup retains the durable wake for retry"
-pending_remove_retry_out=$(poll_once "$H_PENDING_REMOVE" "$PENDING_REMOVE_ENV" "$FIXTURES/empty.json")
-assert_contains "$pending_remove_retry_out" "message: 1" \
-  "the pending wake publishes once cleanup can finish"
-assert_absent "$H_PENDING_REMOVE/state/.telegram-pending-delivery" \
-  "successful pending cleanup removes the durable wake"
-pass "pending cleanup completes before a wake is published"
-
-# --- a receipt must never resurrect a message firstmate already handled ----
-# Same failure the marker-fail case drives: the message is published and its
-# durable receipt survives, but the poll exits without reporting. Firstmate,
-# woken by an earlier event, then follows its documented contract - read every
-# new file under state/telegram-inbox/, act on it, move it into handled/ - so
-# by the next poll the live inbox file is gone and only the receipt remains.
-# Relinking that receipt would run the captain's command a second time.
-H_RESURRECT="$TMP_ROOT/receipt-handled"; new_home "$H_RESURRECT"
-RESURRECT_ENV="$TMP_ROOT/receipt-handled.env"; write_env_file "$RESURRECT_ENV" "$TOKEN"
-mkdir -p "$H_RESURRECT/state/telegram-inbox/3002.json"
-resurrect_setup_status=0
-CURL_STUB_BODY="$FIXTURES/two-text.json" \
-  CURL_STUB_OBSTRUCT_PENDING="$H_RESURRECT/state/.telegram-pending-delivery" \
-  FM_HOME="$H_RESURRECT" FM_TELEGRAM_ENV_FILE="$RESURRECT_ENV" \
-  "$ADAPTER" poll >/dev/null || resurrect_setup_status=$?
-[ "$resurrect_setup_status" -ne 0 ] || fail "the obstructed pending marker unexpectedly succeeded"
-assert_present "$H_RESURRECT/state/telegram-inbox/3001.json" "the first message was published before the failure"
-assert_present "$H_RESURRECT/state/.telegram-delivery-receipts/3001.json" "its durable receipt survived the failure"
-# Firstmate handles and archives it, exactly as SKILL.md instructs.
-mkdir -p "$H_RESURRECT/state/telegram-inbox/handled"
-mv "$H_RESURRECT/state/telegram-inbox/3001.json" "$H_RESURRECT/state/telegram-inbox/handled/3001.json"
-rmdir "$H_RESURRECT/state/.telegram-pending-delivery"
-rmdir "$H_RESURRECT/state/telegram-inbox/3002.json"
-resurrect_status=0
-resurrect_out=$(poll_once "$H_RESURRECT" "$RESURRECT_ENV" "$FIXTURES/two-text.json") || resurrect_status=$?
-assert_absent "$H_RESURRECT/state/telegram-inbox/3001.json" \
-  "a handled message must never be relinked back into the live inbox by receipt recovery"
-assert_present "$H_RESURRECT/state/telegram-inbox/handled/3001.json" "the handled archive is left intact"
-[ "$resurrect_status" -eq 0 ] || fail "the poll after the handled move did not deliver the remaining message: $resurrect_out"
-assert_contains "$resurrect_out" "message: 1" \
-  "only the genuinely undelivered message is reported, not the already-handled one"
-assert_present "$H_RESURRECT/state/telegram-inbox/3002.json" "the second message is delivered on that same poll"
-assert_absent "$H_RESURRECT/state/.telegram-delivery-receipts/3001.json" \
-  "the handled message's stale receipt is cleared rather than left to retry forever"
-pass "receipt recovery never resurrects a message firstmate already handled"
-
-# --- receipt recovery repairs a missing inbox tree instead of wedging ------
-# Same published-but-unreported starting point, but the whole telegram-inbox
-# tree is gone by the next poll (operator cleanup, an archive rotation that
-# took the parent). Recovery runs before the ordinary polling path, so if it
-# cannot cope with that the channel is permanently and silently dead: the
-# receipt directory survives, every later poll repeats the same failure, and
-# the runner discards the child's stderr.
-H_NOINBOX="$TMP_ROOT/receipt-noinbox"; new_home "$H_NOINBOX"
-NOINBOX_ENV="$TMP_ROOT/receipt-noinbox.env"; write_env_file "$NOINBOX_ENV" "$TOKEN"
-mkdir -p "$H_NOINBOX/state/telegram-inbox/3002.json"
-noinbox_setup_status=0
-CURL_STUB_BODY="$FIXTURES/two-text.json" \
-  CURL_STUB_OBSTRUCT_PENDING="$H_NOINBOX/state/.telegram-pending-delivery" \
-  FM_HOME="$H_NOINBOX" FM_TELEGRAM_ENV_FILE="$NOINBOX_ENV" \
-  "$ADAPTER" poll >/dev/null || noinbox_setup_status=$?
-[ "$noinbox_setup_status" -ne 0 ] || fail "the obstructed pending marker unexpectedly succeeded"
-assert_present "$H_NOINBOX/state/.telegram-delivery-receipts/3001.json" "the durable receipt survived the failure"
-rmdir "$H_NOINBOX/state/.telegram-pending-delivery"
-rm -rf "$H_NOINBOX/state/telegram-inbox"
-noinbox_status=0
-noinbox_out=$(poll_once "$H_NOINBOX" "$NOINBOX_ENV" "$FIXTURES/two-text.json" \
-  2>"$TMP_ROOT/receipt-noinbox.err") || noinbox_status=$?
-[ "$noinbox_status" -eq 0 ] || fail "a missing inbox tree wedged receipt recovery: status=$noinbox_status"
-[ ! -s "$TMP_ROOT/receipt-noinbox.err" ] \
-  || fail "receipt recovery crashed on a missing inbox tree: $(cat "$TMP_ROOT/receipt-noinbox.err")"
-assert_contains "$noinbox_out" "message: 1" "the recovered message is still reported after the inbox tree is rebuilt"
-assert_present "$H_NOINBOX/state/telegram-inbox/3001.json" "recovery rebuilt the inbox and republished the message"
-assert_absent "$H_NOINBOX/state/.telegram-delivery-receipts/3001.json" "the receipt clears once its message is reported"
-pass "receipt recovery rebuilds a missing inbox tree rather than wedging the channel forever"
-
-# --- an inbox replaced by a symlink is refused, not published through ------
-H_SYMINBOX="$TMP_ROOT/receipt-syminbox"; new_home "$H_SYMINBOX"
-SYMINBOX_ENV="$TMP_ROOT/receipt-syminbox.env"; write_env_file "$SYMINBOX_ENV" "$TOKEN"
-mkdir -p "$H_SYMINBOX/state/telegram-inbox/3002.json"
-syminbox_setup_status=0
-CURL_STUB_BODY="$FIXTURES/two-text.json" \
-  CURL_STUB_OBSTRUCT_PENDING="$H_SYMINBOX/state/.telegram-pending-delivery" \
-  FM_HOME="$H_SYMINBOX" FM_TELEGRAM_ENV_FILE="$SYMINBOX_ENV" \
-  "$ADAPTER" poll >/dev/null || syminbox_setup_status=$?
-[ "$syminbox_setup_status" -ne 0 ] || fail "the obstructed pending marker unexpectedly succeeded"
-rmdir "$H_SYMINBOX/state/.telegram-pending-delivery"
-rm -rf "$H_SYMINBOX/state/telegram-inbox"
-ELSEWHERE="$TMP_ROOT/receipt-syminbox-elsewhere"; mkdir -p "$ELSEWHERE"
-ln -s "$ELSEWHERE" "$H_SYMINBOX/state/telegram-inbox"
-syminbox_status=0
-syminbox_out=$(poll_once "$H_SYMINBOX" "$SYMINBOX_ENV" "$FIXTURES/two-text.json") || syminbox_status=$?
-[ "$syminbox_status" -ne 0 ] || fail "recovery published through a symlinked inbox: $syminbox_out"
-[ -z "$syminbox_out" ] || fail "a symlinked inbox produced output: $syminbox_out"
-assert_absent "$ELSEWHERE/3001.json" "a symlinked inbox must never receive a published claim"
-pass "receipt recovery refuses an inbox replaced by a symlink"
-
-H_BAD_RECEIPT_ID="$TMP_ROOT/receipt-invalid-id"; new_home "$H_BAD_RECEIPT_ID"
-BAD_RECEIPT_ENV="$TMP_ROOT/receipt-invalid-id.env"; write_env_file "$BAD_RECEIPT_ENV" "$TOKEN"
-mkdir -p "$H_BAD_RECEIPT_ID/state/.telegram-delivery-receipts"
-printf '{"update_id":true,"text":"invalid receipt"}\n' \
-  > "$H_BAD_RECEIPT_ID/state/.telegram-delivery-receipts/1.json"
-bad_receipt_status=0
-bad_receipt_out=$(poll_once "$H_BAD_RECEIPT_ID" "$BAD_RECEIPT_ENV" "$FIXTURES/empty.json") \
-  || bad_receipt_status=$?
-[ "$bad_receipt_status" -ne 0 ] || fail "a boolean receipt update_id was accepted: $bad_receipt_out"
-[ -z "$bad_receipt_out" ] || fail "a boolean receipt update_id produced a wake: $bad_receipt_out"
-assert_absent "$H_BAD_RECEIPT_ID/state/telegram-inbox/1.json" \
-  "a boolean receipt update_id must not be published"
-pass "receipt recovery rejects boolean update identifiers"
-
-# --- a malformed update shape is consumed, not left to wedge the channel ---
-# Anything not shaped like the documented API carries no captain text this
-# adapter could deliver, so it must be consumed like a non-text update while
-# the genuinely valid message in the same batch is still delivered.
-H_MALFORMED="$TMP_ROOT/malformed"; new_home "$H_MALFORMED"
-MALFORMED_ENV="$TMP_ROOT/malformed.env"; write_env_file "$MALFORMED_ENV" "$TOKEN"
-malformed_status=0
-malformed_out=$(poll_once "$H_MALFORMED" "$MALFORMED_ENV" "$FIXTURES/malformed-shapes.json" \
-  2>"$TMP_ROOT/malformed.err") || malformed_status=$?
-[ "$malformed_status" -eq 0 ] || fail "a batch containing malformed shapes lost its valid message: $malformed_out"
-[ ! -s "$TMP_ROOT/malformed.err" ] || fail "a malformed shape crashed instead of degrading: $(cat "$TMP_ROOT/malformed.err")"
-assert_contains "$malformed_out" "message: 1" "the one genuinely valid message in the batch is still delivered"
-assert_present "$H_MALFORMED/state/telegram-inbox/5004.json" "the valid captain message reached the inbox"
-assert_absent "$H_MALFORMED/state/telegram-inbox/5001.json" "a non-object message must never become an inbox file"
-assert_absent "$H_MALFORMED/state/telegram-inbox/5002.json" "text with an unreadable chat must never be authorized"
-assert_absent "$H_MALFORMED/state/telegram-inbox/5003.json" "text with an unreadable sender must never be authorized"
-[ "$(cat "$H_MALFORMED/state/.telegram-offset")" = 5005 ] \
-  || fail "the malformed batch wedged the offset: $(cat "$H_MALFORMED/state/.telegram-offset" 2>/dev/null)"
-pass "malformed update shapes are consumed without crashing or wedging the offset"
-
-H_MALFORMED_U="$TMP_ROOT/malformed-update"; new_home "$H_MALFORMED_U"
-MALFORMED_U_ENV="$TMP_ROOT/malformed-update.env"; write_env_file "$MALFORMED_U_ENV" "$TOKEN"
-malformed_u_status=0
-malformed_u_out=$(poll_once "$H_MALFORMED_U" "$MALFORMED_U_ENV" "$FIXTURES/malformed-update.json" \
-  2>"$TMP_ROOT/malformed-update.err") || malformed_u_status=$?
-[ "$malformed_u_status" -ne 0 ] || fail "an unaccountable update exited 0 and would have woken firstmate: $malformed_u_out"
-[ -z "$malformed_u_out" ] || fail "an unaccountable update produced output: $malformed_u_out"
-[ ! -s "$TMP_ROOT/malformed-update.err" ] \
-  || fail "an unaccountable update crashed instead of degrading: $(cat "$TMP_ROOT/malformed-update.err")"
-assert_absent "$H_MALFORMED_U/state/.telegram-offset" \
-  "an update with no readable update_id must never let the offset advance past it"
-pass "an update that is not an object blocks its batch cleanly instead of crashing"
-
-for invalid_id_case in boolean-update-id zero-update-id out-of-range-update-id; do
-  invalid_id_home="$TMP_ROOT/$invalid_id_case"; new_home "$invalid_id_home"
-  invalid_id_env="$TMP_ROOT/$invalid_id_case.env"; write_env_file "$invalid_id_env" "$TOKEN"
-  invalid_id_status=0
-  invalid_id_out=$(poll_once "$invalid_id_home" "$invalid_id_env" "$FIXTURES/$invalid_id_case.json") \
-    || invalid_id_status=$?
-  [ "$invalid_id_status" -ne 0 ] || fail "$invalid_id_case was accepted: $invalid_id_out"
-  [ -z "$invalid_id_out" ] || fail "$invalid_id_case produced output: $invalid_id_out"
-  assert_absent "$invalid_id_home/state/.telegram-offset" \
-    "$invalid_id_case must not advance the offset"
+for identity_case in untrusted no-sender; do
+  home="$TMP_ROOT/$identity_case"
+  env_file="$TMP_ROOT/$identity_case.env"
+  arm_home "$home" "$env_file"
+  identity_status=0
+  identity_out=$(poll_once "$home" "$env_file" "$FIXTURES/$identity_case.json") \
+    || identity_status=$?
+  if [ "$identity_case" = untrusted ]; then
+    [ "$identity_status" -ne 0 ] || fail "another sender became the captain"
+    assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 2502 \
+      "unauthorized sender was not safely consumed"
+  else
+    [ "$identity_status" -eq 0 ] || fail "malformed sender did not announce a protocol block"
+    assert_contains "$identity_out" "blocked: protocol-blocked" \
+      "missing sender died silently"
+    assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 0 \
+      "malformed sender advanced the offset"
+  fi
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM messages")" 0 \
+    "$identity_case created a captain message"
 done
-pass "polling rejects boolean and unsupported update identifiers"
 
-# --- HANDOFF: the atomic claim survives a legacy producer mid-write --------
-# state/telegram-watch.check.sh (out of scope to modify) writes its own copy
-# of an inbox file with a plain in-place `open(path, "w")` - no temp file, no
-# rename - so a reader can observe it truncated or partially written. This
-# reproduces exactly that shape: a legacy-style writer leaves an update's
-# inbox file existing but not yet valid JSON for that update, overlapping
-# with this adapter's own poll for a batch that also contains a genuinely new
-# update. The whole batch must block (same as any other write failure) rather
-# than either fabricating a duplicate delivery or corrupting the legacy
-# write, and the genuinely new update must not be lost either.
-legacy_write_incomplete() {  # <path>
-  printf '{"update_id":' > "$1"  # mid-write: not yet valid JSON
-}
+H_GAPS="$TMP_ROOT/noncontiguous"
+GAPS_ENV="$TMP_ROOT/noncontiguous.env"
+arm_home "$H_GAPS" "$GAPS_ENV"
+gaps_status=0
+poll_once "$H_GAPS" "$GAPS_ENV" "$FIXTURES/noncontiguous.json" >/dev/null \
+  || gaps_status=$?
+[ "$gaps_status" -ne 0 ] || fail "noncontiguous non-text updates woke firstmate"
+assert_equal "$(db_query "$H_GAPS" "SELECT committed_offset FROM meta")" 201 \
+  "the validator incorrectly required contiguous identifiers"
 
-legacy_write_complete() {  # <path> <update_id> <text>
-  printf '{"update_id": %s, "date": 1, "chat_id": 555, "text": "%s"}' "$2" "$3" > "$1"
-}
+H_MAX="$TMP_ROOT/max-id"
+MAX_ENV="$TMP_ROOT/max-id.env"
+arm_home "$H_MAX" "$MAX_ENV"
+max_status=0
+poll_once "$H_MAX" "$MAX_ENV" "$FIXTURES/max-id.json" >/dev/null || max_status=$?
+[ "$max_status" -ne 0 ] || fail "maximum valid non-text update woke firstmate"
+assert_equal "$(db_query "$H_MAX" "SELECT committed_offset FROM meta")" 2147483648 \
+  "maximum signed 32-bit update id was not safely committed"
+pass "only the configured sender is authorized, gaps are legal, and the current Bot API id range is enforced"
 
-H_OVERLAP="$TMP_ROOT/overlap"; new_home "$H_OVERLAP"
-OVERLAP_ENV="$TMP_ROOT/overlap.env"; write_env_file "$OVERLAP_ENV" "$TOKEN"
-mkdir -p "$H_OVERLAP/state/telegram-inbox"
-legacy_write_incomplete "$H_OVERLAP/state/telegram-inbox/4001.json"
-overlap_status=0
-overlap_out=$(poll_once "$H_OVERLAP" "$OVERLAP_ENV" "$FIXTURES/overlap-batch.json") || overlap_status=$?
-[ "$overlap_status" -ne 0 ] || fail "a batch overlapping a legacy mid-write exited 0 and would have woken firstmate: $overlap_out"
-[ -z "$overlap_out" ] || fail "a batch overlapping a legacy mid-write produced output: $overlap_out"
-assert_absent "$H_OVERLAP/state/.telegram-offset" \
-  "the offset must not advance while a legacy write for this batch is still incomplete"
-assert_absent "$H_OVERLAP/state/telegram-inbox/4002.json" \
-  "this adapter must never hardlink over or otherwise disturb a legacy claim it cannot yet trust"
-legacy_content_before=$(cat "$H_OVERLAP/state/telegram-inbox/4001.json")
-[ "$legacy_content_before" = '{"update_id":' ] \
-  || fail "the adapter mutated the legacy producer's still-mid-write file"
+# --- every rejected batch preserves the irreversible state boundary ----------
+INVALID_CASES=(
+  malformed-json ok-false result-object update-string bool-id zero-id
+  negative-id string-id float-id range-id duplicate-id malformed-message
+  malformed-chat malformed-sender malformed-text malformed-date mixed-invalid
+)
+for invalid_case in "${INVALID_CASES[@]}"; do
+  home="$TMP_ROOT/rejected-$invalid_case"
+  env_file="$TMP_ROOT/rejected-$invalid_case.env"
+  arm_home "$home" "$env_file"
+  before=$(safety_snapshot "$home")
+  clear_curl_calls
+  rejected_status=0
+  rejected_out=$(poll_once "$home" "$env_file" "$FIXTURES/$invalid_case.json") \
+    || rejected_status=$?
+  [ "$rejected_status" -eq 0 ] || fail "$invalid_case died silently instead of announcing"
+  assert_contains "$rejected_out" "blocked: protocol-blocked invalid-response" \
+    "$invalid_case did not produce a protocol block"
+  after=$(safety_snapshot "$home")
+  assert_equal "$after" "$before" "$invalid_case changed offset, messages, or API episodes"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM notices WHERE kind='message'")" 0 \
+    "$invalid_case committed a partial message notice"
+  ack_result "$home" "$env_file" "$rejected_out" >/dev/null
+  retry_status=0
+  retry_out=$(poll_once "$home" "$env_file" "$FIXTURES/$invalid_case.json") \
+    || retry_status=$?
+  [ "$retry_status" -ne 0 ] || fail "$invalid_case re-announced one continuous protocol episode"
+  assert_equal "$retry_out" "" "$invalid_case repeated output after acknowledgement"
+  assert_grep 'offset=0&timeout=' "$CURL_CALLS" \
+    "$invalid_case caused a later request to use a higher offset"
+done
 
-# The legacy script finishes its own write. A retried poll must now recognize
-# that update as already delivered - no duplicate captain-visible wake for
-# it - while still delivering the genuinely new update in the same batch.
-legacy_write_complete "$H_OVERLAP/state/telegram-inbox/4001.json" 4001 "already delivered by the legacy script"
-overlap_retry_status=0
-overlap_retry_out=$(poll_once "$H_OVERLAP" "$OVERLAP_ENV" "$FIXTURES/overlap-batch.json") || overlap_retry_status=$?
-[ "$overlap_retry_status" -eq 0 ] || fail "the retried batch did not succeed once the legacy write finished: $overlap_retry_out"
-assert_contains "$overlap_retry_out" "message: 1" \
-  "only the genuinely new update counts once the legacy-delivered one is recognized"
-assert_present "$H_OVERLAP/state/telegram-inbox/4002.json" "the genuinely new update was still delivered"
-[ "$(cat "$H_OVERLAP/state/.telegram-offset")" = 4003 ] || fail "the offset advances past the whole resolved batch"
-assert_grep 'already delivered by the legacy script' "$H_OVERLAP/state/telegram-inbox/4001.json" \
-  "the legacy producer's own completed content survives untouched"
-pass "a legacy mid-write blocks the batch without corrupting or duplicating, and resolves once it finishes"
+H_STALE="$TMP_ROOT/rejected-stale"
+STALE_ENV="$TMP_ROOT/rejected-stale.env"
+arm_home "$H_STALE" "$STALE_ENV"
+seed_status=0
+poll_once "$H_STALE" "$STALE_ENV" "$FIXTURES/one-text.json" >/dev/null || seed_status=$?
+[ "$seed_status" -eq 0 ] || fail "stale-id setup message failed"
+seed_result=$(poll_once "$H_STALE" "$STALE_ENV" "$FIXTURES/empty.json")
+write_result "$seed_result"
+# The second call above re-emits the pending notice without polling.
+FM_HOME="$H_STALE" "$ADAPTER" ack "$RESULT_FILE" >/dev/null
+stale_before=$(safety_snapshot "$H_STALE")
+stale_out=$(poll_once "$H_STALE" "$STALE_ENV" "$FIXTURES/stale-id.json")
+assert_contains "$stale_out" "blocked: protocol-blocked" "stale update id did not block"
+assert_equal "$(safety_snapshot "$H_STALE")" "$stale_before" \
+  "stale update id moved the irreversible boundary"
+pass "all rejected envelopes, identifiers, shapes, duplicates, and stale batches preserve offset and message state"
 
-# handled/ takes precedence over the live inbox: an update already archived
-# as handled must never be redelivered, even though its live inbox copy is
-# gone (the ordinary case once firstmate has processed and moved it).
-H_HANDLED="$TMP_ROOT/handled-precedence"; new_home "$H_HANDLED"
-HANDLED_ENV="$TMP_ROOT/handled-precedence.env"; write_env_file "$HANDLED_ENV" "$TOKEN"
-mkdir -p "$H_HANDLED/state/telegram-inbox/handled"
-legacy_write_complete "$H_HANDLED/state/telegram-inbox/handled/4001.json" 4001 "already handled"
-handled_status=0
-handled_out=$(poll_once "$H_HANDLED" "$HANDLED_ENV" "$FIXTURES/overlap-batch.json") || handled_status=$?
-[ "$handled_status" -eq 0 ] || fail "a batch with one already-handled update failed entirely: $handled_out"
-assert_contains "$handled_out" "message: 1" "an already-handled update is never redelivered"
-assert_absent "$H_HANDLED/state/telegram-inbox/4001.json" \
-  "an already-handled update must not be recreated in the live inbox"
-assert_present "$H_HANDLED/state/telegram-inbox/4002.json" "the genuinely new update is still delivered"
-pass "a handled update is never redelivered even after its live inbox copy is gone"
+# --- independent sticky API episodes and validated-success recovery ----------
+H_API="$TMP_ROOT/api-episodes"
+API_ENV="$TMP_ROOT/api-episodes.env"
+arm_home "$H_API" "$API_ENV"
+api_401=$(poll_once "$H_API" "$API_ENV" "$FIXTURES/empty.json" 401)
+assert_contains "$api_401" "blocked: api-blocked 401" "401 did not announce"
+ack_result "$H_API" "$API_ENV" "$api_401" >/dev/null
+repeat_401_status=0
+repeat_401=$(poll_once "$H_API" "$API_ENV" "$FIXTURES/empty.json" 401) \
+  || repeat_401_status=$?
+[ "$repeat_401_status" -ne 0 ] || fail "continuous 401 announced twice"
+assert_equal "$repeat_401" "" "continuous 401 produced output"
 
-# --- offset-write failure waits silently for credentials before recovery ---
-H_PEND="$TMP_ROOT/pending"; new_home "$H_PEND"
-PEND_ENV="$TMP_ROOT/pending.env"; write_env_file "$PEND_ENV" "$TOKEN"
-mkdir -p "$H_PEND/state/.telegram-offset"  # obstruct: the offset path is a directory
-pend_status=0
-pend_out=$(poll_once "$H_PEND" "$PEND_ENV" "$FIXTURES/one-text.json") || pend_status=$?
-[ "$pend_status" -ne 0 ] || fail "a poll that could not persist its offset exited 0: $pend_out"
-[ -z "$pend_out" ] || fail "a poll that could not persist its offset produced output: $pend_out"
-assert_present "$H_PEND/state/telegram-inbox/1001.json" \
-  "the message is durably written even though the offset could not be persisted yet"
-assert_present "$H_PEND/state/.telegram-pending-delivery" \
-  "a pending-delivery record bridges the inbox write and the stalled offset"
-rmdir "$H_PEND/state/.telegram-offset"
-rm -f -- "$PEND_ENV"  # credentials disappear before the retry
-pend_recover_status=0
-pend_recover_out=$(poll_once "$H_PEND" "$PEND_ENV" "$FIXTURES/one-text.json") || pend_recover_status=$?
-[ "$pend_recover_status" -eq 0 ] || fail "pending-delivery recovery without credentials did not exit 0: $pend_recover_out"
-[ -z "$pend_recover_out" ] || fail "pending recovery without credentials produced output: $pend_recover_out"
-assert_absent "$H_PEND/state/.telegram-offset" "credential-free recovery must not advance the offset"
-assert_present "$H_PEND/state/.telegram-pending-delivery" \
-  "credential-free recovery must preserve the pending record"
-write_env_file "$PEND_ENV" "$TOKEN"
-pend_restored_out=$(poll_once "$H_PEND" "$PEND_ENV" "$FIXTURES/one-text.json")
-assert_contains "$pend_restored_out" "message: 1" \
-  "the previously-written message is reported once credentials return"
-[ "$(cat "$H_PEND/state/.telegram-offset")" = 1002 ] || fail "the offset advances once persistence recovers"
-assert_absent "$H_PEND/state/.telegram-pending-delivery" "the pending record clears once reported"
-pass "pending recovery stays silent and inert until credentials return"
+malformed_during_401=$(poll_once "$H_API" "$API_ENV" "$FIXTURES/malformed-json.json")
+assert_contains "$malformed_during_401" "blocked: protocol-blocked" \
+  "malformed 200 died silently during 401"
+assert_equal "$(db_query "$H_API" "SELECT count(*) FROM conditions WHERE kind='api-401'")" 1 \
+  "malformed 200 cleared sticky 401"
+ack_result "$H_API" "$API_ENV" "$malformed_during_401" >/dev/null
 
-# --- a confirmed permanent API failure is announced exactly once -----------
-# 401 (revoked or rotated token) and 409 (the legacy check-sweep still holding
-# this bot's getUpdates) can never resolve by retrying, so each must produce
-# one real captured result rather than dying silently forever. Everything else
-# non-200 stays on the silent-retry path.
-H_BLOCKED="$TMP_ROOT/blocked"; new_home "$H_BLOCKED"
-BLOCKED_ENV="$TMP_ROOT/blocked.env"; write_env_file "$BLOCKED_ENV" "$TOKEN"
-blocked_status=0
-blocked_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) || blocked_status=$?
-[ "$blocked_status" -eq 0 ] || fail "a 401 did not produce a capturable result: status=$blocked_status"
-assert_contains "$blocked_out" "blocked: 401" "the permanent failure names its HTTP code"
-printf '%s\n' "$blocked_out" > "$TMP_ROOT/blocked-401.result"
-assert_contains "$("$ADAPTER" classify "$TMP_ROOT/blocked-401.result")" "blocked" \
-  "a permanent-failure result classifies as blocked, not as nothing to do"
-blocked_term_status=0
-"$ADAPTER" terminal "$TMP_ROOT/blocked-401.result" || blocked_term_status=$?
-[ "$blocked_term_status" -ne 0 ] || fail "a permanent failure retired the captain's permanent channel"
-repeat_status=0
-repeat_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) || repeat_status=$?
-[ "$repeat_status" -ne 0 ] || fail "the same permanent failure woke firstmate a second time: $repeat_out"
-[ -z "$repeat_out" ] || fail "an already-announced permanent failure produced output: $repeat_out"
-pass "a permanent API failure wakes firstmate exactly once, and never retires the channel"
+api_409=$(poll_once "$H_API" "$API_ENV" "$FIXTURES/empty.json" 409)
+assert_contains "$api_409" "blocked: api-blocked 409" "409 did not announce independently"
+ack_result "$H_API" "$API_ENV" "$api_409" >/dev/null
+assert_equal "$(db_query "$H_API" "SELECT count(*) FROM conditions WHERE kind LIKE 'api-%'")" 2 \
+  "401 and 409 were not retained independently"
 
-malformed_recovery_status=0
-malformed_recovery_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/malformed-response.json") \
-  || malformed_recovery_status=$?
-[ "$malformed_recovery_status" -ne 0 ] || fail "a malformed HTTP 200 response was treated as recovery"
-[ -z "$malformed_recovery_out" ] || fail "a malformed HTTP 200 response produced output: $malformed_recovery_out"
-sticky_401_status=0
-sticky_401_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) || sticky_401_status=$?
-[ "$sticky_401_status" -ne 0 ] || fail "a malformed HTTP 200 cleared the sticky 401: $sticky_401_out"
-[ -z "$sticky_401_out" ] || fail "the sticky 401 announced twice after malformed HTTP 200: $sticky_401_out"
-pass "a malformed HTTP success cannot clear a sticky 401"
+for code in 401 409; do
+  continuous_status=0
+  continuous_out=$(poll_once "$H_API" "$API_ENV" "$FIXTURES/empty.json" "$code") \
+    || continuous_status=$?
+  [ "$continuous_status" -ne 0 ] || fail "continuous HTTP $code announced twice"
+  assert_equal "$continuous_out" "" "continuous HTTP $code produced output"
+done
 
-rejected_recovery_status=0
-rejected_recovery_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/rejected-response.json") \
-  || rejected_recovery_status=$?
-[ "$rejected_recovery_status" -ne 0 ] || fail "an ok-false HTTP 200 response was treated as recovery"
-[ -z "$rejected_recovery_out" ] || fail "an ok-false HTTP 200 response produced output: $rejected_recovery_out"
-invalid_update_status=0
-invalid_update_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/malformed-update.json") \
-  || invalid_update_status=$?
-[ "$invalid_update_status" -ne 0 ] || fail "an invalid update batch was treated as recovery"
-[ -z "$invalid_update_out" ] || fail "an invalid update batch produced output: $invalid_update_out"
-boolean_update_status=0
-boolean_update_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/boolean-update-id.json") \
-  || boolean_update_status=$?
-[ "$boolean_update_status" -ne 0 ] || fail "a boolean update_id was treated as recovery"
-[ -z "$boolean_update_out" ] || fail "a boolean update_id produced output: $boolean_update_out"
-zero_update_status=0
-zero_update_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/zero-update-id.json") \
-  || zero_update_status=$?
-[ "$zero_update_status" -ne 0 ] || fail "a zero update_id was treated as recovery"
-[ -z "$zero_update_out" ] || fail "a zero update_id produced output: $zero_update_out"
-still_sticky_status=0
-still_sticky_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) \
-  || still_sticky_status=$?
-[ "$still_sticky_status" -ne 0 ] || fail "an unsuccessful batch cleared the sticky 401: $still_sticky_out"
-[ -z "$still_sticky_out" ] || fail "the sticky 401 repeated after an unsuccessful batch: $still_sticky_out"
-pass "rejected responses and invalid updates cannot clear a sticky 401"
+success_status=0
+success_out=$(poll_once "$H_API" "$API_ENV" "$FIXTURES/empty.json") || success_status=$?
+[ "$success_status" -ne 0 ] || fail "empty validated success produced a wake"
+assert_equal "$success_out" "" "empty validated success printed output"
+assert_equal "$(db_query "$H_API" "SELECT count(*) FROM conditions WHERE kind IN ('api-401','api-409','protocol')")" 0 \
+  "validated success did not clear resolved episodes atomically"
+recur_401=$(poll_once "$H_API" "$API_ENV" "$FIXTURES/empty.json" 401)
+assert_contains "$recur_401" "blocked: api-blocked 401" "401 recurrence after success did not announce"
 
-# A different permanent condition is its own announcement.
-switch_status=0
-switch_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 409) || switch_status=$?
-[ "$switch_status" -eq 0 ] || fail "a 409 after an announced 401 was swallowed: status=$switch_status"
-assert_contains "$switch_out" "blocked: 409" "a different permanent condition announces on its own"
-switch_back_status=0
-switch_back_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 401) || switch_back_status=$?
-[ "$switch_back_status" -ne 0 ] || fail "a 409 replaced the sticky 401 marker: $switch_back_out"
-[ -z "$switch_back_out" ] || fail "a 409 caused the sticky 401 to announce twice: $switch_back_out"
-repeat_409_status=0
-repeat_409_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json" 409) || repeat_409_status=$?
-[ "$repeat_409_status" -ne 0 ] || fail "a 401 replaced the continuous 409 marker: $repeat_409_out"
-[ -z "$repeat_409_out" ] || fail "the continuous 409 announced twice: $repeat_409_out"
-# Recovery clears the condition, and the message behind it is still delivered.
-recovered_status=0
-recovered_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/one-text.json") || recovered_status=$?
-[ "$recovered_status" -eq 0 ] || fail "the poll after the blockage cleared failed: $recovered_out"
-assert_contains "$recovered_out" "message: 1" "delivery resumes with no operator action beyond fixing the cause"
-assert_present "$H_BLOCKED/state/telegram-inbox/1001.json" "the message behind the blockage reached the inbox"
-reblock_status=0
-reblock_out=$(poll_once "$H_BLOCKED" "$BLOCKED_ENV" "$FIXTURES/empty.json" 401) || reblock_status=$?
-[ "$reblock_status" -eq 0 ] || fail "a permanent failure recurring after recovery was swallowed: status=$reblock_status"
-assert_contains "$reblock_out" "blocked: 401" "a permanent failure that recurs after recovery announces again"
-pass "a cleared blockage resumes delivery and lets a later permanent failure announce again"
-
-# --- lifecycle operations preserve a blocked episode -----------------------
-H_REARM="$TMP_ROOT/blocked-rearm"; new_home "$H_REARM"
-REARM_ENV="$TMP_ROOT/blocked-rearm.env"; write_env_file "$REARM_ENV" "$TOKEN"
-rearm_first_status=0
-rearm_first_out=$(poll_once "$H_REARM" "$REARM_ENV" "$FIXTURES/empty.json" 401) || rearm_first_status=$?
-[ "$rearm_first_status" -eq 0 ] || fail "the first 401 did not announce: status=$rearm_first_status"
-assert_contains "$rearm_first_out" "blocked: 401" "the first 401 announces"
-rearm_silent_status=0
-rearm_silent_out=$(poll_once "$H_REARM" "$REARM_ENV" "$FIXTURES/empty.json" 401) || rearm_silent_status=$?
-[ "$rearm_silent_status" -ne 0 ] || fail "the announced 401 repeated without a lifecycle boundary: $rearm_silent_out"
-FM_HOME="$H_REARM" FM_TELEGRAM_ENV_FILE="$REARM_ENV" "$ADAPTER" retire >/dev/null
-FM_HOME="$H_REARM" FM_TELEGRAM_ENV_FILE="$REARM_ENV" "$ADAPTER" arm >/dev/null
+FM_HOME="$H_API" "$ADAPTER" retire >/dev/null
+FM_HOME="$H_API" FM_TELEGRAM_ENV_FILE="$API_ENV" "$ADAPTER" arm >/dev/null
+ack_result "$H_API" "$API_ENV" "$recur_401" >/dev/null
 rearm_status=0
-rearm_out=$(poll_once "$H_REARM" "$REARM_ENV" "$FIXTURES/empty.json" 401) || rearm_status=$?
-[ "$rearm_status" -ne 0 ] || fail "re-arm cleared the sticky 401 marker: $rearm_out"
-[ -z "$rearm_out" ] || fail "re-arm caused the sticky 401 to announce twice: $rearm_out"
-FM_HOME="$H_REARM" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null 2>&1 || :
-pass "retiring and re-arming cannot clear a sticky 401"
+rearm_out=$(poll_once "$H_API" "$API_ENV" "$FIXTURES/empty.json" 401) || rearm_status=$?
+[ "$rearm_status" -ne 0 ] || fail "retire and arm cleared the sticky 401"
+assert_equal "$rearm_out" "" "retire and arm repeated the sticky 401 notice"
+pass "401 and 409 remain independent and clear only with one fully validated success transaction"
 
-# Retire alone also preserves the continuous 409 episode.
-H_RETIRE_CLEAR="$TMP_ROOT/blocked-retire"; new_home "$H_RETIRE_CLEAR"
-RETIRE_CLEAR_ENV="$TMP_ROOT/blocked-retire.env"; write_env_file "$RETIRE_CLEAR_ENV" "$TOKEN"
-retire_clear_out=$(poll_once "$H_RETIRE_CLEAR" "$RETIRE_CLEAR_ENV" "$FIXTURES/empty.json" 409)
-assert_contains "$retire_clear_out" "blocked: 409" "the 409 announces before the retire"
-FM_HOME="$H_RETIRE_CLEAR" "$ADAPTER" retire >/dev/null 2>&1 || :
-retire_clear_status=0
-retire_clear_again=$(poll_once "$H_RETIRE_CLEAR" "$RETIRE_CLEAR_ENV" "$FIXTURES/empty.json" 409) || retire_clear_status=$?
-[ "$retire_clear_status" -ne 0 ] || fail "retire cleared the continuous 409 marker: $retire_clear_again"
-[ -z "$retire_clear_again" ] || fail "retire caused the continuous 409 to announce twice: $retire_clear_again"
-pass "retire preserves a continuous 409 episode"
-
-# A transient status must stay exactly as silent as it always was.
-H_TRANSIENT="$TMP_ROOT/transient"; new_home "$H_TRANSIENT"
-TRANSIENT_ENV="$TMP_ROOT/transient.env"; write_env_file "$TRANSIENT_ENV" "$TOKEN"
-for code in 500 429 403; do
-  transient_status=0
-  transient_out=$(poll_once "$H_TRANSIENT" "$TRANSIENT_ENV" "$FIXTURES/one-text.json" "$code") || transient_status=$?
-  [ "$transient_status" -ne 0 ] || fail "HTTP $code was treated as permanent and woke firstmate: $transient_out"
-  [ -z "$transient_out" ] || fail "HTTP $code produced output: $transient_out"
+# --- bounded transport silence and recovery ---------------------------------
+H_TRANSPORT="$TMP_ROOT/transport"
+TRANSPORT_ENV="$TMP_ROOT/transport.env"
+arm_home "$H_TRANSPORT" "$TRANSPORT_ENV"
+for attempt in 1 2; do
+  transport_status=0
+  transport_out=$(poll_once "$H_TRANSPORT" "$TRANSPORT_ENV" "$FIXTURES/empty.json" 500) \
+    || transport_status=$?
+  [ "$transport_status" -ne 0 ] || fail "transport attempt $attempt announced before the budget"
+  assert_equal "$transport_out" "" "transport attempt $attempt printed output"
 done
-transient_recovered_out=$(poll_once "$H_TRANSIENT" "$TRANSIENT_ENV" "$FIXTURES/one-text.json")
-assert_contains "$transient_recovered_out" "message: 1" "a transient failure never blocks later delivery"
-pass "every non-permanent failure keeps retrying silently, exactly as before"
+transport_block=$(poll_once "$H_TRANSPORT" "$TRANSPORT_ENV" "$FIXTURES/empty.json" 500)
+assert_contains "$transport_block" "blocked: transport-blocked failure-budget" \
+  "third consecutive transport failure died silently"
+ack_result "$H_TRANSPORT" "$TRANSPORT_ENV" "$transport_block" >/dev/null
+fourth_status=0
+fourth_out=$(poll_once "$H_TRANSPORT" "$TRANSPORT_ENV" "$FIXTURES/empty.json" 429) \
+  || fourth_status=$?
+[ "$fourth_status" -ne 0 ] || fail "one continuous transport episode announced twice"
+assert_equal "$fourth_out" "" "continuous transport episode printed output after acknowledgement"
+recovery_status=0
+poll_once "$H_TRANSPORT" "$TRANSPORT_ENV" "$FIXTURES/empty.json" >/dev/null \
+  || recovery_status=$?
+[ "$recovery_status" -ne 0 ] || fail "transport recovery empty success woke firstmate"
+assert_equal "$(db_query "$H_TRANSPORT" "SELECT consecutive_failures FROM meta")" 0 \
+  "validated success did not reset transport failures"
+assert_equal "$(db_query "$H_TRANSPORT" "SELECT count(*) FROM conditions WHERE kind='transport'")" 0 \
+  "validated success did not clear transport episode"
 
-# --- the bot token never reaches durable output -----------------------------
-H_TOKEN="$TMP_ROOT/tokenleak"; new_home "$H_TOKEN"
-TOKEN_ENV="$TMP_ROOT/tokenleak.env"; write_env_file "$TOKEN_ENV" "$TOKEN"
-CAPTURE="$TMP_ROOT/curl-config-capture.txt"
-token_out=$(poll_once "$H_TOKEN" "$TOKEN_ENV" "$FIXTURES/one-text.json" 200 "$CAPTURE")
-assert_grep "$TOKEN" "$CAPTURE" "positive control: the real request actually carried the token"
-assert_no_grep "$TOKEN" "$H_TOKEN/state/telegram-inbox/1001.json" "the token leaked into the captured inbox message"
-assert_no_grep "$TOKEN" "$H_TOKEN/state/.telegram-offset" "the token leaked into the offset file"
-case "$token_out" in
-  *"$TOKEN"*) fail "the token leaked into the adapter's own stdout: $token_out" ;;
-esac
-while IFS= read -r f; do
-  assert_no_grep "$TOKEN" "$f" "the token leaked into $f"
-done < <(find "$H_TOKEN/state" -type f)
-pass "the bot token reaches curl alone and never appears in any durable output"
+H_BUDGET="$TMP_ROOT/transport-budget"
+BUDGET_ENV="$TMP_ROOT/transport-budget.env"
+arm_home "$H_BUDGET" "$BUDGET_ENV"
+budget_out=$(FM_TELEGRAM_TRANSIENT_ERROR_BUDGET=1 poll_once \
+  "$H_BUDGET" "$BUDGET_ENV" "$FIXTURES/empty.json" 500)
+assert_contains "$budget_out" "blocked: transport-blocked" \
+  "explicit one-failure budget was not honored"
+ack_result "$H_BUDGET" "$BUDGET_ENV" "$budget_out" >/dev/null
+clear_curl_calls
+bad_budget_out=$(FM_TELEGRAM_TRANSIENT_ERROR_BUDGET=0 poll_once \
+  "$H_BUDGET" "$BUDGET_ENV" "$FIXTURES/empty.json")
+assert_contains "$bad_budget_out" "blocked: local-state" \
+  "invalid transport budget failed silently"
+assert_no_curl "invalid transport budget made a network call"
+pass "transient failures are silent only for an explicit bounded budget and announce once per episode"
 
-# --- terminal never reports terminal, regardless of what was captured ------
-RESULT_MESSAGE="$TMP_ROOT/result-message"
-printf 'message: 1\n' > "$RESULT_MESSAGE"
-RESULT_NONE="$TMP_ROOT/result-none"
-: > "$RESULT_NONE"
-term_status=0
-"$ADAPTER" terminal "$RESULT_MESSAGE" || term_status=$?
-[ "$term_status" -ne 0 ] || fail "terminal reported terminal for a real delivered message"
-term_status=0
-"$ADAPTER" terminal "$RESULT_NONE" || term_status=$?
-[ "$term_status" -ne 0 ] || fail "terminal reported terminal for an empty result"
-pass "the Telegram channel's terminal command never reports terminal"
+# --- credential loss after arm announces and never polls --------------------
+H_CRED_LOSS="$TMP_ROOT/credential-loss"
+CRED_LOSS_ENV="$TMP_ROOT/credential-loss.env"
+arm_home "$H_CRED_LOSS" "$CRED_LOSS_ENV"
+rm -f "$CRED_LOSS_ENV"
+clear_curl_calls
+credential_block=$(poll_once "$H_CRED_LOSS" "$CRED_LOSS_ENV" "$FIXTURES/one-text.json")
+assert_contains "$credential_block" "blocked: credential-blocked unavailable" \
+  "credential loss after arm died silently"
+assert_no_curl "invalid credentials made a Telegram request"
+assert_equal "$(db_query "$H_CRED_LOSS" "SELECT committed_offset FROM meta")" 0 \
+  "credential loss changed the offset"
+ack_result "$H_CRED_LOSS" "$CRED_LOSS_ENV" "$credential_block" >/dev/null
+credential_repeat_status=0
+credential_repeat=$(poll_once "$H_CRED_LOSS" "$CRED_LOSS_ENV" "$FIXTURES/one-text.json") \
+  || credential_repeat_status=$?
+[ "$credential_repeat_status" -ne 0 ] || fail "continuous credential loss announced twice"
+assert_equal "$credential_repeat" "" "continuous credential loss printed output"
+write_env_file "$CRED_LOSS_ENV" "$TOKEN"
+credential_recovered=$(poll_once "$H_CRED_LOSS" "$CRED_LOSS_ENV" "$FIXTURES/one-text.json")
+assert_contains "$credential_recovered" "message: 1" "restored credentials did not resume delivery"
+assert_equal "$(db_query "$H_CRED_LOSS" "SELECT count(*) FROM conditions WHERE kind='credential'")" 0 \
+  "credential restoration did not close its episode"
+pass "credential loss is actionable, inert, sticky, and automatically recoverable"
 
-# --- classify reads the fixed marker line -----------------------------------
-assert_contains "$("$ADAPTER" classify "$RESULT_MESSAGE")" "message" "classify recognizes a delivered message result"
-assert_contains "$("$ADAPTER" classify "$RESULT_NONE")" "none" "classify treats an empty result as none"
-pass "classify distinguishes a delivered message from nothing to act on"
+# --- transaction crash matrix: old or new complete state, never partial -----
+PRECOMMIT_FAILPOINTS=(after_validate after_begin after_notice after_message after_offset before_commit)
+for point in "${PRECOMMIT_FAILPOINTS[@]}"; do
+  home="$TMP_ROOT/crash-$point"
+  env_file="$TMP_ROOT/crash-$point.env"
+  arm_home "$home" "$env_file"
+  crash_out=$(FM_TELEGRAM_FAILPOINT="$point" poll_once \
+    "$home" "$env_file" "$FIXTURES/one-text.json")
+  assert_contains "$crash_out" "blocked: local-state" \
+    "$point did not surface the injected child crash"
+  assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 0 \
+    "$point exposed an advanced offset before commit"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM messages")" 0 \
+    "$point exposed a partial message"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM notices")" 0 \
+    "$point exposed a partial notice"
+  recovered=$(poll_once "$home" "$env_file" "$FIXTURES/one-text.json")
+  assert_contains "$recovered" "message: 1" "$point did not recover from the old transaction"
+  assert_equal "$(db_query "$home" "SELECT committed_offset, (SELECT count(*) FROM messages), (SELECT count(*) FROM notices WHERE acknowledged_at IS NULL) FROM meta")" \
+    "1002|1|1" "$point recovery did not expose one complete new transaction"
+done
 
-# --- end-to-end through the real generic runner -----------------------------
-# arm, then let fm-procevent.sh reconcile actually run the poll, capture it,
-# and publish a real wake - proving the whole chain, not just the adapter in
-# isolation.
-H_E2E="$TMP_ROOT/e2e"; new_home "$H_E2E"
-E2E_ENV="$TMP_ROOT/e2e.env"; write_env_file "$E2E_ENV" "$TOKEN"
-FM_HOME="$H_E2E" FM_TELEGRAM_ENV_FILE="$E2E_ENV" "$ADAPTER" arm >/dev/null
-CURL_STUB_BODY="$FIXTURES/one-text.json" FM_HOME="$H_E2E" FM_TELEGRAM_ENV_FILE="$E2E_ENV" \
+for point in after_commit before_output after_output; do
+  home="$TMP_ROOT/crash-$point"
+  env_file="$TMP_ROOT/crash-$point.env"
+  arm_home "$home" "$env_file"
+  crash_status=0
+  crash_out=$(FM_TELEGRAM_FAILPOINT="$point" poll_once \
+    "$home" "$env_file" "$FIXTURES/one-text.json") || crash_status=$?
+  [ "$crash_status" -eq 0 ] || fail "$point left the wrapper non-capturable"
+  assert_equal "$(db_query "$home" "SELECT committed_offset, (SELECT count(*) FROM messages), (SELECT count(*) FROM notices WHERE acknowledged_at IS NULL) FROM meta")" \
+    "1002|1|1" "$point did not preserve the complete committed transaction"
+  calls_before=$(wc -l < "$CURL_CALLS" | tr -d ' ')
+  recovered=$(poll_once "$home" "$env_file" "$FIXTURES/next-text.json")
+  assert_contains "$recovered" "message: 1" "$point did not re-emit the committed notice"
+  calls_after=$(wc -l < "$CURL_CALLS" | tr -d ' ')
+  assert_equal "$calls_after" "$calls_before" "$point recovery polled past a pending notice"
+done
+pass "fault injection at every validation, write, commit, and output boundary exposes only complete transactions"
+
+H_ACK_CRASH="$TMP_ROOT/ack-crash"
+ACK_CRASH_ENV="$TMP_ROOT/ack-crash.env"
+arm_home "$H_ACK_CRASH" "$ACK_CRASH_ENV"
+ack_crash_message=$(poll_once "$H_ACK_CRASH" "$ACK_CRASH_ENV" "$FIXTURES/one-text.json")
+write_result "$ack_crash_message"
+ack_crash_status=0
+FM_TELEGRAM_FAILPOINT=before_ack_commit FM_HOME="$H_ACK_CRASH" \
+  FM_TELEGRAM_ENV_FILE="$ACK_CRASH_ENV" "$ADAPTER" ack "$RESULT_FILE" >/dev/null 2>&1 \
+  || ack_crash_status=$?
+[ "$ack_crash_status" -ne 0 ] || fail "pre-commit acknowledgement failpoint did not crash"
+assert_equal "$(FM_HOME="$H_ACK_CRASH" "$ADAPTER" classify "$RESULT_FILE")" message \
+  "pre-commit acknowledgement crash lost the pending notice"
+ack_after_status=0
+FM_TELEGRAM_FAILPOINT=after_ack_commit FM_HOME="$H_ACK_CRASH" \
+  FM_TELEGRAM_ENV_FILE="$ACK_CRASH_ENV" "$ADAPTER" ack "$RESULT_FILE" >/dev/null 2>&1 \
+  || ack_after_status=$?
+[ "$ack_after_status" -ne 0 ] || fail "post-commit acknowledgement failpoint did not crash"
+assert_equal "$(FM_HOME="$H_ACK_CRASH" "$ADAPTER" classify "$RESULT_FILE")" none \
+  "post-commit acknowledgement crash repeated an already handled notice"
+pass "notice acknowledgement is atomic across its own crash boundaries"
+
+# --- malformed authoritative state always announces before any network call -
+corrupt_case() {
+  local case_name=$1 home="$TMP_ROOT/corrupt-$1" env_file="$TMP_ROOT/corrupt-$1.env"
+  arm_home "$home" "$env_file"
+  case "$case_name" in
+    missing-db)
+      rm -f "$home/state/telegram/channel.db"
+      ;;
+    corrupt-header)
+      printf 'not a sqlite database\n' > "$home/state/telegram/channel.db"
+      chmod 600 "$home/state/telegram/channel.db"
+      ;;
+    wrong-schema)
+      db_exec "$home" "PRAGMA user_version=99;"
+      ;;
+    impossible-row)
+      db_exec "$home" "PRAGMA ignore_check_constraints=ON; UPDATE meta SET committed_offset=-1;"
+      ;;
+    missing-table)
+      db_exec "$home" "DROP TABLE messages;"
+      ;;
+    database-symlink)
+      mv "$home/state/telegram/channel.db" "$home/state/channel.real"
+      ln -s "$home/state/channel.real" "$home/state/telegram/channel.db"
+      ;;
+    database-mode)
+      chmod 644 "$home/state/telegram/channel.db"
+      ;;
+    database-directory)
+      rm -f "$home/state/telegram/channel.db"
+      mkdir "$home/state/telegram/channel.db"
+      ;;
+    state-symlink)
+      mv "$home/state/telegram" "$home/state/telegram.real"
+      ln -s "$home/state/telegram.real" "$home/state/telegram"
+      ;;
+  esac
+  clear_curl_calls
+  local first second
+  first=$(poll_once "$home" "$env_file" "$FIXTURES/one-text.json")
+  second=$(poll_once "$home" "$env_file" "$FIXTURES/one-text.json")
+  assert_contains "$first" "blocked: local-state fingerprint=" \
+    "$case_name did not announce local state blockage"
+  assert_equal "$second" "$first" "$case_name did not produce a stable fingerprint"
+  assert_no_curl "$case_name reached Telegram from invalid local state"
+  write_result "$first"
+  assert_equal "$(FM_HOME="$home" "$ADAPTER" classify "$RESULT_FILE")" blocked \
+    "$case_name local-state result did not classify as blocked"
+  assert_contains "$(FM_HOME="$home" "$ADAPTER" ack "$RESULT_FILE")" \
+    "unacknowledgeable: local-state" \
+    "$case_name local-state result pretended to persist an acknowledgement"
+  local terminal_status=0
+  FM_HOME="$home" "$ADAPTER" terminal "$RESULT_FILE" || terminal_status=$?
+  [ "$terminal_status" -ne 0 ] || fail "$case_name retired the permanent channel"
+}
+
+for state_case in missing-db corrupt-header wrong-schema impossible-row missing-table \
+  database-symlink database-mode database-directory state-symlink; do
+  corrupt_case "$state_case"
+done
+pass "missing, corrupt, impossible, unsafe, and unreadable state repeats a stable blocked result without polling"
+
+# --- real runner captures local-state failure instead of nonzero-empty -------
+H_E2E_BLOCK="$TMP_ROOT/e2e-local-block"
+E2E_BLOCK_ENV="$TMP_ROOT/e2e-local-block.env"
+arm_home "$H_E2E_BLOCK" "$E2E_BLOCK_ENV"
+db_exec "$H_E2E_BLOCK" "PRAGMA user_version=99;"
+clear_curl_calls
+FM_HOME="$H_E2E_BLOCK" FM_TELEGRAM_ENV_FILE="$E2E_BLOCK_ENV" \
   "$ROOT/bin/fm-procevent.sh" reconcile >/dev/null
-for _ in $(seq 1 50); do [ -e "$H_E2E/state/.wake-queue" ] && break; sleep 0.1; done
-[ -e "$H_E2E/state/.wake-queue" ] || fail "reconcile never published a wake for a delivered captain message"
-assert_grep 'procevent telegram telegram 1' "$H_E2E/state/.wake-queue" "the published wake carries the adapter, source id, and sequence"
-assert_present "$H_E2E/state/telegram-inbox/1001.json" "the real message landed in the inbox through the full runner"
-CAPTURED=$(printf '%s/state/procevent-inbox/telegram.1.result' "$H_E2E")
-assert_present "$CAPTURED" "the runner durably captured the poll's result"
-assert_contains "$(FM_HOME="$H_E2E" "$ADAPTER" classify "$CAPTURED")" "message" "the captured result classifies as a message"
-term_status=0
-FM_HOME="$H_E2E" "$ADAPTER" terminal "$CAPTURED" || term_status=$?
-[ "$term_status" -ne 0 ] || fail "the real captured result retired the channel"
-assert_present "$H_E2E/state/procevent/telegram.source" "the source stays armed after a real delivered message"
+for _ in $(seq 1 80); do
+  [ -e "$H_E2E_BLOCK/state/.wake-queue" ] && break
+  sleep 0.1
+done
+assert_present "$H_E2E_BLOCK/state/.wake-queue" \
+  "real runner never announced malformed Telegram state"
+assert_grep 'procevent telegram telegram 1' "$H_E2E_BLOCK/state/.wake-queue" \
+  "local-state blockage did not use the ordinary durable event"
+E2E_BLOCK_RESULT="$H_E2E_BLOCK/state/procevent-inbox/telegram.1.result"
+assert_present "$E2E_BLOCK_RESULT" "real runner did not capture the local-state result"
+assert_equal "$(FM_HOME="$H_E2E_BLOCK" "$ADAPTER" classify "$E2E_BLOCK_RESULT")" blocked \
+  "captured local-state result did not classify as blocked"
+assert_no_curl "real runner called Telegram from malformed local state"
+FM_HOME="$H_E2E_BLOCK" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null
+pass "the real runner durably announces internal corruption and keeps the source permanent"
+
+# --- offline migration archives everything and never guesses ----------------
+H_LEGACY_REFUSE="$TMP_ROOT/legacy-refuse"
+LEGACY_REFUSE_ENV="$TMP_ROOT/legacy-refuse.env"
+new_home "$H_LEGACY_REFUSE"
+write_env_file "$LEGACY_REFUSE_ENV" "$TOKEN"
+printf '1002\n' > "$H_LEGACY_REFUSE/state/.telegram-offset"
+legacy_arm_status=0
+FM_HOME="$H_LEGACY_REFUSE" FM_TELEGRAM_ENV_FILE="$LEGACY_REFUSE_ENV" \
+  "$ADAPTER" arm >/dev/null 2>&1 || legacy_arm_status=$?
+[ "$legacy_arm_status" -ne 0 ] || fail "arm bypassed required legacy migration"
+
+printf '#!/usr/bin/env bash\n' > "$H_LEGACY_REFUSE/state/telegram-watch.check.sh"
+chmod 700 "$H_LEGACY_REFUSE/state/telegram-watch.check.sh"
+legacy_check_status=0
+FM_HOME="$H_LEGACY_REFUSE" FM_TELEGRAM_ENV_FILE="$LEGACY_REFUSE_ENV" \
+  "$ADAPTER" migrate >/dev/null 2>&1 || legacy_check_status=$?
+[ "$legacy_check_status" -ne 0 ] || fail "migration ran while the legacy check remained registered"
+rm -f "$H_LEGACY_REFUSE/state/telegram-watch.check.sh"
+printf 'snapshot\n' > "$H_LEGACY_REFUSE/state/.fm-custom-check.active"
+snapshot_status=0
+FM_HOME="$H_LEGACY_REFUSE" FM_TELEGRAM_ENV_FILE="$LEGACY_REFUSE_ENV" \
+  "$ADAPTER" migrate >/dev/null 2>&1 || snapshot_status=$?
+[ "$snapshot_status" -ne 0 ] || fail "migration ran while a custom-check snapshot could be active"
+rm -f "$H_LEGACY_REFUSE/state/.fm-custom-check.active"
+pass "migration refuses until both the source and legacy producer are stopped"
+
+H_MIGRATE="$TMP_ROOT/migrate"
+MIGRATE_ENV="$TMP_ROOT/migrate.env"
+new_home "$H_MIGRATE"
+write_env_file "$MIGRATE_ENV" "$TOKEN"
+printf '1002\n' > "$H_MIGRATE/state/.telegram-offset"
+printf 'staged but unpublished\n' > "$H_MIGRATE/state/.telegram-offset.staged"
+printf '401\n409\n' > "$H_MIGRATE/state/.telegram-blocked"
+mkdir -p "$H_MIGRATE/state/telegram-inbox/handled"
+printf '{"update_id":900,"date":1,"chat_id":555,"from_id":909,"text":"already handled"}\n' \
+  > "$H_MIGRATE/state/telegram-inbox/handled/900.json"
+printf '{"update_id":1002,"date":2,"chat_id":555,"from_id":909,"text":"pending legacy"}\n' \
+  > "$H_MIGRATE/state/telegram-inbox/1002.json"
+printf '1 1003\n' > "$H_MIGRATE/state/.telegram-pending-delivery"
+mkdir -p "$H_MIGRATE/state/.telegram-delivery-receipts"
+cp "$H_MIGRATE/state/telegram-inbox/1002.json" \
+  "$H_MIGRATE/state/.telegram-delivery-receipts/1002.json"
+migrate_out=$(FM_HOME="$H_MIGRATE" FM_TELEGRAM_ENV_FILE="$MIGRATE_ENV" \
+  "$ADAPTER" migrate)
+assert_contains "$migrate_out" "migrated: archive=" "coherent migration did not complete"
+assert_present "$H_MIGRATE/state/.telegram-offset" "migration deleted the old offset"
+assert_present "$H_MIGRATE/state/.telegram-blocked" "migration deleted old API episodes"
+assert_present "$H_MIGRATE/state/.telegram-pending-delivery" "migration deleted old pending state"
+assert_present "$H_MIGRATE/state/.telegram-delivery-receipts/1002.json" \
+  "migration deleted an old receipt"
+assert_equal "$(db_query "$H_MIGRATE" "SELECT committed_offset FROM meta")" 1003 \
+  "migration did not import the pending target offset"
+assert_equal "$(db_query "$H_MIGRATE" "SELECT count(*) FROM messages")" 2 \
+  "migration did not import handled and pending payloads"
+assert_equal "$(db_query "$H_MIGRATE" "SELECT count(*) FROM conditions WHERE kind LIKE 'api-%'")" 2 \
+  "migration did not preserve both API episodes"
+archive_rel=$(db_query "$H_MIGRATE" "SELECT migration_archive FROM meta")
+archive="$H_MIGRATE/state/$archive_rel"
+assert_present "$archive/manifest.json" "migration archive has no integrity manifest"
+assert_grep '.telegram-offset' "$archive/manifest.json" "archive omitted the old offset"
+assert_grep '.telegram-offset.staged' "$archive/manifest.json" \
+  "archive omitted an abandoned legacy temp artifact"
+assert_grep '.telegram-delivery-receipts/1002.json' "$archive/manifest.json" \
+  "archive omitted a receipt"
+archive_mode=$(stat -c %a "$archive" 2>/dev/null || stat -f %Lp "$archive")
+assert_equal "$archive_mode" 500 "migration archive is not read-only"
+archive_parent_mode=$(stat -c %a "$(dirname "$archive")" 2>/dev/null \
+  || stat -f %Lp "$(dirname "$archive")")
+assert_equal "$archive_parent_mode" 500 "migration archive parent still allows accidental deletion"
+
+clear_curl_calls
+migrated_pending=$(poll_once "$H_MIGRATE" "$MIGRATE_ENV" "$FIXTURES/empty.json")
+assert_contains "$migrated_pending" "message: 1" "migrated pending message did not announce first"
+assert_no_curl "migrated pending notice allowed a network call"
+ack_result "$H_MIGRATE" "$MIGRATE_ENV" "$migrated_pending" >/dev/null
+migrated_401=$(poll_once "$H_MIGRATE" "$MIGRATE_ENV" "$FIXTURES/empty.json")
+assert_contains "$migrated_401" "api-blocked 401" "migrated 401 episode was lost"
+assert_no_curl "unannounced migrated API condition allowed a network call"
+ack_result "$H_MIGRATE" "$MIGRATE_ENV" "$migrated_401" >/dev/null
+migrated_409=$(poll_once "$H_MIGRATE" "$MIGRATE_ENV" "$FIXTURES/empty.json")
+assert_contains "$migrated_409" "api-blocked 409" "migrated 409 episode was lost"
+assert_no_curl "second unannounced migrated API condition allowed a network call"
+pass "coherent migration archives every old byte, imports exact state, and drains notices before polling"
+
+H_AMBIGUOUS="$TMP_ROOT/migrate-ambiguous"
+AMBIGUOUS_ENV="$TMP_ROOT/migrate-ambiguous.env"
+new_home "$H_AMBIGUOUS"
+write_env_file "$AMBIGUOUS_ENV" "$TOKEN"
+printf 'not-an-offset\n' > "$H_AMBIGUOUS/state/.telegram-offset"
+ambiguous_status=0
+ambiguous_out=$(FM_HOME="$H_AMBIGUOUS" FM_TELEGRAM_ENV_FILE="$AMBIGUOUS_ENV" \
+  "$ADAPTER" migrate 2>&1) || ambiguous_status=$?
+[ "$ambiguous_status" -ne 0 ] || fail "ambiguous migration reported success"
+assert_contains "$ambiguous_out" "blocked: migration-ambiguous" \
+  "ambiguous migration did not explain its blocked state"
+assert_equal "$(db_query "$H_AMBIGUOUS" "SELECT migration_status FROM meta")" blocked \
+  "ambiguous migration did not persist a blocked cutover"
+assert_equal "$(db_query "$H_AMBIGUOUS" "SELECT committed_offset FROM meta")" 0 \
+  "ambiguous migration guessed an offset"
+assert_present "$H_AMBIGUOUS/state/.telegram-offset" "ambiguous migration deleted evidence"
+FM_HOME="$H_AMBIGUOUS" FM_TELEGRAM_ENV_FILE="$AMBIGUOUS_ENV" "$ADAPTER" arm >/dev/null
+clear_curl_calls
+ambiguous_poll=$(poll_once "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$FIXTURES/one-text.json")
+assert_contains "$ambiguous_poll" "blocked: migration-blocked ambiguous" \
+  "blocked migration did not announce through the channel"
+assert_no_curl "blocked migration called Telegram from a guessed offset"
+pass "ambiguous migration preserves evidence, guesses nothing, and remains visibly blocked"
+
+# --- explicit rollback export can only move the old format forward ----------
+H_EXPORT="$TMP_ROOT/export"
+EXPORT_ENV="$TMP_ROOT/export.env"
+arm_home "$H_EXPORT" "$EXPORT_ENV"
+export_poll_status=0
+poll_once "$H_EXPORT" "$EXPORT_ENV" "$FIXTURES/non-text.json" >/dev/null \
+  || export_poll_status=$?
+[ "$export_poll_status" -ne 0 ] || fail "rollback export setup unexpectedly woke firstmate"
+export_out=$(FM_HOME="$H_EXPORT" "$ADAPTER" export-legacy-offset)
+assert_contains "$export_out" "exported-offset: 2002" "rollback export reported the wrong offset"
+assert_equal "$(tr -d '\n' < "$H_EXPORT/state/.telegram-offset")" 2002 \
+  "rollback export wrote an older offset"
+printf '3000\n' > "$H_EXPORT/state/.telegram-offset"
+newer_status=0
+FM_HOME="$H_EXPORT" "$ADAPTER" export-legacy-offset >/dev/null 2>&1 || newer_status=$?
+[ "$newer_status" -ne 0 ] || fail "rollback export overwrote a newer legacy offset"
+assert_equal "$(tr -d '\n' < "$H_EXPORT/state/.telegram-offset")" 3000 \
+  "failed rollback export changed the newer offset"
+pass "rollback preparation exports the transactional offset forward and never backward"
+
+# --- end to end message capture, adapter read/ack, and generic handled -------
+H_E2E="$TMP_ROOT/e2e-message"
+E2E_ENV="$TMP_ROOT/e2e-message.env"
+arm_home "$H_E2E" "$E2E_ENV"
+FM_HOME="$H_E2E" FM_TELEGRAM_ENV_FILE="$E2E_ENV" CURL_STUB_BODY="$FIXTURES/one-text.json" \
+  "$ROOT/bin/fm-procevent.sh" reconcile >/dev/null
+for _ in $(seq 1 80); do
+  [ -e "$H_E2E/state/.wake-queue" ] && break
+  sleep 0.1
+done
+assert_present "$H_E2E/state/.wake-queue" "real runner did not publish the message"
+assert_grep 'procevent telegram telegram 1' "$H_E2E/state/.wake-queue" \
+  "real runner wake has the wrong source identity"
+E2E_RESULT="$H_E2E/state/procevent-inbox/telegram.1.result"
+assert_present "$E2E_RESULT" "real runner did not durably capture the result"
+assert_contains "$(FM_HOME="$H_E2E" "$ADAPTER" messages "$E2E_RESULT")" \
+  "ahoy from the captain" "handler could not read the captured notice"
+FM_HOME="$H_E2E" "$ADAPTER" ack "$E2E_RESULT" >/dev/null
+FM_HOME="$H_E2E" "$ROOT/bin/fm-procevent.sh" handled telegram 1 >/dev/null
+assert_equal "$(FM_HOME="$H_E2E" "$ADAPTER" classify "$E2E_RESULT")" none \
+  "fully handled runner capture remained actionable"
 FM_HOME="$H_E2E" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null
-pass "arm, the real runner's reconcile, capture, and publication all work end to end"
-
-# A permanent failure must reach firstmate through that same real chain: the
-# runner captures the blocked result, publishes a wake, and leaves the
-# captain's permanent channel armed.
-H_E2E_BLOCKED="$TMP_ROOT/e2e-blocked"; new_home "$H_E2E_BLOCKED"
-E2E_BLOCKED_ENV="$TMP_ROOT/e2e-blocked.env"; write_env_file "$E2E_BLOCKED_ENV" "$TOKEN"
-FM_HOME="$H_E2E_BLOCKED" FM_TELEGRAM_ENV_FILE="$E2E_BLOCKED_ENV" "$ADAPTER" arm >/dev/null
-CURL_STUB_BODY="$FIXTURES/one-text.json" CURL_STUB_HTTP=401 \
-  FM_HOME="$H_E2E_BLOCKED" FM_TELEGRAM_ENV_FILE="$E2E_BLOCKED_ENV" \
-  "$ROOT/bin/fm-procevent.sh" reconcile >/dev/null
-for _ in $(seq 1 50); do [ -e "$H_E2E_BLOCKED/state/.wake-queue" ] && break; sleep 0.1; done
-[ -e "$H_E2E_BLOCKED/state/.wake-queue" ] || fail "a permanent API failure never reached firstmate"
-assert_grep 'procevent telegram telegram 1' "$H_E2E_BLOCKED/state/.wake-queue" \
-  "the permanent failure is published as an ordinary Telegram wake"
-E2E_BLOCKED_CAPTURED=$(printf '%s/state/procevent-inbox/telegram.1.result' "$H_E2E_BLOCKED")
-assert_present "$E2E_BLOCKED_CAPTURED" "the runner durably captured the blocked result"
-assert_contains "$(FM_HOME="$H_E2E_BLOCKED" "$ADAPTER" classify "$E2E_BLOCKED_CAPTURED")" "blocked" \
-  "the captured result tells the handler the channel is blocked"
-term_status=0
-FM_HOME="$H_E2E_BLOCKED" "$ADAPTER" terminal "$E2E_BLOCKED_CAPTURED" || term_status=$?
-[ "$term_status" -ne 0 ] || fail "the captured blocked result retired the channel"
-assert_present "$H_E2E_BLOCKED/state/procevent/telegram.source" "the source stays armed through a permanent failure"
-FM_HOME="$H_E2E_BLOCKED" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null
-pass "a permanent API failure wakes firstmate through the real runner and leaves the source armed"
+pass "the real runner captures a stable notice whose payload and two acknowledgements complete end to end"
 
 PATH="$ORIGINAL_PATH"
 printf 'all fm-procevent-telegram tests passed\n'
