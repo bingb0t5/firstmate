@@ -1122,13 +1122,13 @@ pass "invalid UTF-8 responses stop before jq normalization"
 duplicate=$(make_home duplicate-capture-id)
 duplicate_bin=$(make_fake_curl "$duplicate")
 FAKE_CURL_LOG="$duplicate/curl.log"
-FAKE_CAPTURE_OVERSIZED=duplicate-scalar
+FAKE_CAPTURE_OVERSIZED="duplicate-scalar"
 out=$(payload 9947 "duplicate scalar id" | \
   run_capture "$duplicate" "$duplicate_bin" capture -)
 expect_code 0 $? "the last scalar capture_id should succeed"
 assert_contains "$out" "captured 9947 last" \
   "the classifier did not use the last scalar capture_id"
-FAKE_CAPTURE_OVERSIZED=duplicate-composite
+FAKE_CAPTURE_OVERSIZED="duplicate-composite"
 FAKE_CAPTURE_OVERSIZED_MATCH="duplicate composite id"
 {
   payload 9948 "duplicate composite id"
@@ -1148,7 +1148,7 @@ pass "duplicate and composite capture_ids follow last-key semantics"
 ignored=$(make_home ignored-large-response)
 ignored_bin=$(make_fake_curl "$ignored")
 FAKE_CURL_LOG="$ignored/curl.log"
-FAKE_CAPTURE_OVERSIZED=ignored-huge-string
+FAKE_CAPTURE_OVERSIZED="ignored-huge-string"
 if payload 9953 "ignored huge response" | \
   run_capture "$ignored" "$ignored_bin" capture - \
   >"$ignored/out" 2>"$ignored/err"; then
