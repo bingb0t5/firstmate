@@ -458,7 +458,7 @@ assert_present "$batch/state/telegram-brain-capture/9103" "a later valid payload
 assert_absent "$batch/state/telegram-brain-capture/9102" "an unsupported payload was receipted"
 pass "an uncapturable payload is skipped without dropping later valid ones"
 
-# --- a failed write still lets later payloads through, then fails -----------
+# --- a failed write stops the batch instead of retrying every payload -------
 wfail=$(make_home write-fail)
 wfail_bin=$(make_fake_curl "$wfail")
 FAKE_CURL_LOG="$wfail/curl.log"
@@ -466,6 +466,7 @@ FAKE_CAPTURE_FAIL_MATCH="brain says no"
 {
   payload 9201 "brain says no"
   payload 9202 "brain says yes"
+  payload 9203 "brain says yes again"
 } > "$wfail/batch.jsonl"
 if run_capture "$wfail" "$wfail_bin" capture - < "$wfail/batch.jsonl" >"$wfail/out" 2>"$wfail/err"; then
   fail "a failed brain write must stay fail-closed"
@@ -473,9 +474,86 @@ fi
 FAKE_CAPTURE_FAIL_MATCH=
 assert_grep "HTTP 500" "$wfail/err" "the failed write was not reported"
 assert_absent "$wfail/state/telegram-brain-capture/9201" "the failed write left a receipt"
-assert_grep "captured 9202" "$wfail/out" "a failed write dropped the next valid payload"
-assert_present "$wfail/state/telegram-brain-capture/9202" "the next valid payload was never receipted"
-pass "a failed brain write keeps walking the batch and still exits non-zero"
+assert_grep "unattempted 2" "$wfail/out" "the unattempted remainder was not reported"
+assert_absent "$wfail/state/telegram-brain-capture/9202" "a payload after the failure was still posted"
+assert_absent "$wfail/state/telegram-brain-capture/9203" "a payload after the failure was still posted"
+wfail_posts=$(grep -c '^url=' "$wfail/curl.log")
+expect_code 1 "$wfail_posts" "a failed write kept POSTing the rest of the batch"
+pass "a failed brain write stops the batch and reports the unattempted remainder"
+
+# --- the retry after a brain outage captures the remainder ------------------
+FAKE_CURL_LOG="$wfail/curl.retry.log"
+out=$(run_capture "$wfail" "$wfail_bin" capture - < "$wfail/batch.jsonl")
+expect_code 0 $? "the retry after a recovered brain should succeed"
+assert_contains "$out" "captured 9201 cap-1" "the retry did not capture the failed payload"
+assert_contains "$out" "captured 9203 cap-1" "the retry did not capture the unattempted remainder"
+assert_present "$wfail/state/telegram-brain-capture/9202" "the retry left a payload uncaptured"
+pass "the retry a missing Telegram ack guarantees captures the whole batch"
+
+# --- a Unicode line separator inside text never shreds a payload ------------
+sep=$(make_home line-separator)
+sep_bin=$(make_fake_curl "$sep")
+FAKE_CURL_LOG="$sep/curl.log"
+python3 - "$sep/batch.jsonl" <<'PY_SEP'
+import json, sys
+payload = {
+    "chat_id": 4242,
+    "date": 1700000000,
+    "from_id": 909,
+    "text": "buy milk\u2028and eggs\u2029today\u0085please",
+    "update_id": 9701,
+}
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+PY_SEP
+out=$(run_capture "$sep" "$sep_bin" capture - < "$sep/batch.jsonl")
+expect_code 0 $? "a payload carrying U+2028 should capture"
+assert_contains "$out" "captured 9701 cap-1" "a Unicode line separator shredded the payload"
+assert_not_contains "$out" "skipped:unsupported" "a Unicode line separator was treated as a record break"
+assert_present "$sep/state/telegram-brain-capture/9701" "a payload carrying U+2028 was never receipted"
+pass "U+2028, U+2029 and U+0085 inside text do not end a record"
+
+# --- a dangling credential symlink is unusable, not unconfigured ------------
+dangle=$(make_home dangling-cred)
+dangle_bin=$(make_fake_curl "$dangle")
+rm -f "$dangle/secrets/mcp.env"
+ln -s "$dangle/secrets/never-mounted/mcp.env" "$dangle/secrets/mcp.env"
+FAKE_CURL_LOG="$dangle/curl.log"
+if payload 9801 "must not be silently dropped" | \
+  run_capture "$dangle" "$dangle_bin" capture - >"$dangle/out" 2>"$dangle/err"; then
+  fail "a dangling credential symlink must stay fail-closed"
+fi
+assert_not_contains "$(cat "$dangle/out")" "capture-unconfigured" \
+  "a present but unusable credential file was treated as never configured"
+assert_absent "$dangle/curl.log" "a dangling credential symlink still called curl"
+assert_absent "$dangle/state/telegram-brain-capture/9801" "a dangling credential symlink wrote a receipt"
+pass "a dangling credential symlink is an operator fault, not an unconfigured home"
+
+# --- the receipt digest ignores the optional date ---------------------------
+datedrift=$(make_home date-drift)
+datedrift_bin=$(make_fake_curl "$datedrift")
+FAKE_CURL_LOG="$datedrift/curl.log"
+out=$(payload 9901 "the same thought" | run_capture "$datedrift" "$datedrift_bin" capture -)
+expect_code 0 $? "the first capture should succeed"
+assert_contains "$out" "captured 9901 cap-1" "the first capture did not report the capture_id"
+out=$(printf '{"chat_id":%s,"from_id":%s,"text":"the same thought","update_id":9901}\n' \
+  "$CAPTAIN_CHAT" "$CAPTAIN_USER" | run_capture "$datedrift" "$datedrift_bin" capture -)
+expect_code 0 $? "the same thought without a date must not disagree with its receipt"
+assert_contains "$out" "already-captured 9901 cap-1" "a dropped date was read as a receipt mismatch"
+pass "the receipt digest survives the optional date appearing or disappearing"
+
+# --- a genuine receipt content mismatch stays fail-closed -------------------
+tamper=$(make_home receipt-tamper)
+tamper_bin=$(make_fake_curl "$tamper")
+FAKE_CURL_LOG="$tamper/curl.log"
+out=$(payload 9902 "the original thought" | run_capture "$tamper" "$tamper_bin" capture -)
+expect_code 0 $? "the original capture should succeed"
+if payload 9902 "a different thought" | \
+  run_capture "$tamper" "$tamper_bin" capture - >/dev/null 2>"$tamper/err"; then
+  fail "a receipt content mismatch must stay fail-closed"
+fi
+assert_grep "disagrees with the payload" "$tamper/err" "the receipt mismatch was not reported"
+pass "a receipt whose content disagrees with the payload is still refused"
 
 # --- a third-party private DM is never captured -----------------------------
 dm=$(make_home third-party-dm)
