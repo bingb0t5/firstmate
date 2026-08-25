@@ -55,7 +55,7 @@ import {
   type ExtensionAPI,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Box, Container, Text } from "@earendil-works/pi-tui";
+import { Box, Container, getKeybindings, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
   type CalmPresentationState,
@@ -809,7 +809,7 @@ ${context.command}
       shellState.call = new Text(theme.fg("toolTitle", theme.bold("fm_branch_outcomes")), 0, 0);
       return refreshOutcomesToolShell(shellState, theme, context);
     },
-    renderResult: (result, _options, theme, context) => {
+    renderResult: (result, options, theme, context) => {
       if (calmPresentation.stockExportRendering) throw new Error("Use Pi stock export rendering");
       if (calmHides("tool-result")) return new Container();
       const output = result.content
@@ -817,7 +817,30 @@ ${context.command}
         .map((item) => normalizeOutcomesToolOutput(item.text))
         .join("\n");
       const shellState = context.state as OutcomesToolShellState;
-      shellState.result = output ? new Text(theme.fg("toolOutput", output), 0, 0) : new Container();
+      const lines = output.split("\n");
+      let renderedOutput: string;
+      if ("executionStarted" in context) {
+        const displayLines = options.expanded ? lines : lines.slice(0, 10);
+        const remaining = lines.length - displayLines.length;
+        renderedOutput = displayLines.map((line) => theme.fg("toolOutput", line)).join("\n");
+        if (remaining > 0) {
+          const expandKeys = getKeybindings()
+            .getKeys("app.tools.expand")
+            .join("/")
+            .split("/")
+            .map((key) =>
+              key
+                .split("+")
+                .map((part) => (process.platform === "darwin" && part.toLowerCase() === "alt" ? "option" : part))
+                .join("+"),
+            )
+            .join("/");
+          renderedOutput += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${theme.fg("dim", expandKeys)}${theme.fg("muted", " to expand")}${theme.fg("muted", ")")}`;
+        }
+      } else {
+        renderedOutput = theme.fg("toolOutput", output);
+      }
+      shellState.result = output ? new Text(renderedOutput, 0, 0) : new Container();
       refreshOutcomesToolShell(shellState, theme, context);
       return new Container();
     },
