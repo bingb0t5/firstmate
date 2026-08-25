@@ -59,6 +59,7 @@ mkdir -p "$FIXTURES"
 TOKEN='123456:SEKRIT-TEST-TOKEN-7f3a9c'
 CAPTAIN_CHAT_ID=555
 CAPTAIN_USER_ID=909
+CAPTAIN_SECRET_TEXT="deploy the fleet at dawn"
 
 fixture() {
   printf '%s\n' "$2" > "$FIXTURES/$1.json"
@@ -183,6 +184,62 @@ assert_no_curl() {
 
 clear_curl_calls() {
   : > "$CURL_CALLS"
+}
+
+assert_printable() {
+  printf '%s' "$1" | LC_ALL=C tr -d '\n' | LC_ALL=C grep -q '[[:cntrl:]]' \
+    && fail "$2"
+  return 0
+}
+
+doctor_cause() {
+  FM_HOME="$1" "$ADAPTER" doctor | sed -n 's/^migration_cause=//p'
+}
+
+blocked_cause_case() {
+  local case_name=$1 home="$TMP_ROOT/cause-$1" env_file="$TMP_ROOT/cause-$1.env"
+  local expected_artifact=$2
+  new_home "$home"
+  write_env_file "$env_file" "$TOKEN"
+  printf '1002\n' > "$home/state/.telegram-offset"
+  mkdir -p "$home/state/telegram-inbox"
+  case "$case_name" in
+    control-byte-name)
+      printf 'x' > "$home/state/telegram-inbox/$(printf 'bad :\033.json')"
+      ;;
+    unknown-entry)
+      printf 'notes\n' > "$home/state/telegram-inbox/notes.txt"
+      ;;
+    filename-id-mismatch)
+      printf '{"update_id":8,"date":1,"chat_id":555,"from_id":909,"text":"%s"}\n' \
+        "$CAPTAIN_SECRET_TEXT" > "$home/state/telegram-inbox/7.json"
+      ;;
+    torn-payload)
+      : > "$home/state/telegram-inbox/1002.json"
+      ;;
+  esac
+  local status=0 out
+  out=$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate 2>&1) || status=$?
+  [ "$status" -ne 0 ] || fail "$case_name reported migration success"
+  assert_contains "$out" "blocked: migration-ambiguous" \
+    "$case_name did not reach the blocked cutover"
+  assert_equal "$(db_query "$home" "SELECT migration_status FROM meta")" blocked \
+    "$case_name did not persist a blocked cutover"
+  assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 0 \
+    "$case_name guessed an offset"
+  local cause
+  cause=$(doctor_cause "$home")
+  assert_contains "$cause" "$expected_artifact" \
+    "$case_name cause did not name its state-relative artifact"
+  assert_printable "$cause" "$case_name cause carried a raw control byte"
+  case "$cause" in
+    *"$home"*) fail "$case_name cause leaked an absolute home path" ;;
+    *"$CAPTAIN_SECRET_TEXT"*) fail "$case_name cause leaked captain message text" ;;
+    *"$TOKEN"*) fail "$case_name cause leaked the bot token" ;;
+  esac
+  [ "${#cause}" -le 240 ] || fail "$case_name cause is not bounded"
+  assert_contains "$out" "detail: $cause" \
+    "$case_name did not print the same cause it stored"
 }
 
 # --- strict credential intake and explicit first arm ------------------------
@@ -806,12 +863,31 @@ assert_contains "$archive_fail_out" "could not be archived completely" \
   "an incomplete archive did not explain itself"
 assert_contains "$archive_fail_out" "no database exists" \
   "an incomplete archive did not state that no cutover happened"
+assert_contains "$archive_fail_out" "telegram-inbox/1002.json" \
+  "an incomplete archive did not name the artifact it told the operator to repair"
+assert_printable "$archive_fail_out" "the archive refusal carried a raw control byte"
+case "$archive_fail_out" in
+  *"$H_ARCHIVE_FAIL"*) fail "the archive refusal leaked an absolute home path" ;;
+esac
 [ ! -e "$H_ARCHIVE_FAIL/state/telegram/channel.db" ] \
   || fail "an incomplete archive still published a cutover database"
+[ ! -e "$H_ARCHIVE_FAIL/state/telegram-migration-archive" ] \
+  || fail "an incomplete archive left a published archive behind"
+[ -z "$(find "$H_ARCHIVE_FAIL/state" -maxdepth 1 -name '.telegram-migration-staging-*')" ] \
+  || fail "an incomplete archive left its private staging copy behind"
 assert_present "$H_ARCHIVE_FAIL/state/telegram-inbox/1002.json" \
   "an incomplete archive deleted the legacy artifact it could not copy"
 assert_equal "$(tr -d '\n' < "$H_ARCHIVE_FAIL/state/.telegram-offset")" 1002 \
   "an incomplete archive changed the legacy offset"
+archive_fail_repeat_status=0
+archive_fail_repeat=$(FM_HOME="$H_ARCHIVE_FAIL" FM_TELEGRAM_ENV_FILE="$ARCHIVE_FAIL_ENV" \
+  "$ADAPTER" migrate 2>&1) || archive_fail_repeat_status=$?
+assert_equal "$archive_fail_repeat_status" "$archive_fail_status" \
+  "a repeated incomplete archive changed its exit status"
+assert_equal "$archive_fail_repeat" "$archive_fail_out" \
+  "a repeated incomplete archive changed its output"
+[ ! -e "$H_ARCHIVE_FAIL/state/telegram-migration-archive" ] \
+  || fail "a repeated incomplete archive accumulated a published archive"
 rm -f "$H_ARCHIVE_FAIL/state/telegram-inbox/1002.json"
 printf '{"update_id":1002,"date":1,"chat_id":555,"from_id":909,"text":"repaired"}\n' \
   > "$H_ARCHIVE_FAIL/state/telegram-inbox/1002.json"
@@ -822,6 +898,11 @@ archive_repaired=$(FM_HOME="$H_ARCHIVE_FAIL" FM_TELEGRAM_ENV_FILE="$ARCHIVE_FAIL
   "$ADAPTER" migrate)
 assert_contains "$archive_repaired" "migrated: archive=" \
   "migration stayed refused after the unarchivable artifact was repaired"
+assert_equal "$(find "$H_ARCHIVE_FAIL/state/telegram-migration-archive" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" 1 \
+  "the sealed archive parent holds more than the one complete archive"
+repaired_archive="$H_ARCHIVE_FAIL/state/$(db_query "$H_ARCHIVE_FAIL" "SELECT migration_archive FROM meta")"
+assert_present "$repaired_archive/manifest.json" \
+  "the one published archive is not manifest-bound"
 pass "an archive that cannot be completed refuses before cutover and leaves no database"
 
 H_MIGRATE="$TMP_ROOT/migrate"
@@ -908,7 +989,6 @@ pass "ambiguous migration preserves evidence, guesses nothing, and remains visib
 
 H_CAUSE="$TMP_ROOT/migrate-blocked-cause"
 CAUSE_ENV="$TMP_ROOT/migrate-blocked-cause.env"
-CAPTAIN_SECRET_TEXT="deploy the fleet at dawn"
 new_home "$H_CAUSE"
 write_env_file "$CAUSE_ENV" "$TOKEN"
 printf '1002\n' > "$H_CAUSE/state/.telegram-offset"
@@ -941,6 +1021,20 @@ esac
 cause_stored=$(db_query "$H_CAUSE" "SELECT length(migration_cause) FROM meta")
 [ "$cause_stored" -le 240 ] || fail "the retained migration cause is not bounded"
 pass "a blocked cutover retains a bounded non-secret cause that doctor reports"
+
+blocked_cause_case control-byte-name "telegram-inbox/bad"
+blocked_cause_case unknown-entry "telegram-inbox/notes.txt"
+blocked_cause_case filename-id-mismatch "telegram-inbox/7.json"
+blocked_cause_case torn-payload "telegram-inbox/1002.json"
+H_CTRL="$TMP_ROOT/cause-control-byte-name"
+CTRL_ENV="$TMP_ROOT/cause-control-byte-name.env"
+FM_HOME="$H_CTRL" FM_TELEGRAM_ENV_FILE="$CTRL_ENV" "$ADAPTER" arm >/dev/null
+clear_curl_calls
+ctrl_poll=$(poll_once "$H_CTRL" "$CTRL_ENV" "$FIXTURES/one-text.json")
+assert_contains "$ctrl_poll" "blocked: migration-blocked ambiguous" \
+  "a control-byte artifact name left the channel unbringable instead of blocked"
+assert_no_curl "a blocked control-byte migration still called Telegram"
+pass "every malformed legacy artifact shape blocks with a printable state-relative cause"
 
 H_RECEIPT_HANDLED="$TMP_ROOT/migrate-receipt-handled"
 RECEIPT_HANDLED_ENV="$TMP_ROOT/migrate-receipt-handled.env"

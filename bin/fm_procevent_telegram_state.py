@@ -61,6 +61,8 @@ CONDITION_KINDS = {
 }
 DETAIL_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
 MIGRATION_CAUSE_RE = re.compile(r"^[^\x00-\x1f\x7f]{1,240}$")
+CONTROL_BYTE_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+FOREIGN_PATH_RE = re.compile(r"(?<![\w.\-/])/[^\s:'\"]+")
 NOTICE_TOKEN_RE = re.compile(
     r"^(?P<state>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
     r"[0-9a-f]{4}-[0-9a-f]{12}):(?P<notice>[1-9][0-9]*)$"
@@ -187,11 +189,35 @@ def state_fingerprint(code: str, detail: object) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
-def migration_cause_text(error: BaseException) -> str:
-    detail = clean_error_detail(error)
+def migration_cause_text(state: Path, error: BaseException) -> str:
+    text = str(error)
     if not isinstance(error, UserError):
-        detail = "%s: %s" % (error.__class__.__name__, detail)
-    return (detail or error.__class__.__name__)[:240]
+        text = "%s: %s" % (error.__class__.__name__, text)
+    text = relative_to_state(state, text)
+    text = FOREIGN_PATH_RE.sub("<path>", text)
+    text = CONTROL_BYTE_RE.sub("?", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = text[:240] or error.__class__.__name__
+    if not MIGRATION_CAUSE_RE.fullmatch(text):
+        return "unprintable migration failure detail (%s)" % error.__class__.__name__
+    return text
+
+
+def relative_to_state(state: Path, text: str) -> str:
+    prefix = str(state)
+    text = text.replace(prefix + os.sep, "")
+    return text.replace(prefix, "<state>")
+
+
+def copy_failure_detail(state: Path, error: BaseException) -> str:
+    if isinstance(error, shutil.Error) and error.args:
+        reasons = []
+        for item in error.args[0] if isinstance(error.args[0], list) else []:
+            if isinstance(item, tuple) and len(item) == 3:
+                reasons.append("%s (%s)" % (relative_to_state(state, str(item[0])), item[2]))
+        if reasons:
+            return "; ".join(reasons[:3])
+    return str(error)
 
 
 def local_block_line(error: object) -> str:
@@ -1386,6 +1412,81 @@ def archive_manifest_entries(root: Path) -> List[Dict[str, object]]:
     return entries
 
 
+def remove_tree_forcibly(path: Path) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    for base, _, _ in os.walk(str(path), topdown=True):
+        try:
+            os.chmod(base, 0o700)
+        except OSError:
+            pass
+    shutil.rmtree(str(path), ignore_errors=True)
+
+
+def stage_migration_archive(state: Path, staging: Path, paths: Sequence[Path]) -> None:
+    staging.mkdir(mode=0o700)
+    copied = staging / "state"
+    copied.mkdir(mode=0o700)
+    for source in paths:
+        relative = source.relative_to(state)
+        destination = copied / relative
+        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = source.lstat()
+        try:
+            if stat.S_ISLNK(info.st_mode):
+                destination.symlink_to(os.readlink(str(source)))
+            elif stat.S_ISDIR(info.st_mode):
+                shutil.copytree(source, destination, symlinks=True)
+            elif stat.S_ISREG(info.st_mode):
+                shutil.copy2(source, destination, follow_symlinks=False)
+            else:
+                raise UserError(
+                    "legacy artifact %s has an unsupported file type" % relative.as_posix()
+                )
+        except UserError:
+            raise
+        except Exception as exc:
+            raise UserError(
+                "legacy artifact %s could not be archived: %s"
+                % (relative.as_posix(), copy_failure_detail(state, exc))
+            )
+    entries = archive_manifest_entries(copied)
+    manifest = {
+        "schema": "fm-telegram-migration-archive.v1",
+        "created_at": now_epoch(),
+        "entries": entries,
+    }
+    manifest_path = staging / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    with manifest_path.open("rb") as handle:
+        os.fsync(handle.fileno())
+    verify_staged_archive(state, copied, manifest_path, paths)
+
+
+def verify_staged_archive(
+    state: Path, copied: Path, manifest_path: Path, paths: Sequence[Path]
+) -> None:
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise UserError("the staged Telegram archive manifest is unreadable: %s" % exc)
+    entries = manifest.get("entries")
+    if not isinstance(entries, list) or entries != archive_manifest_entries(copied):
+        raise UserError("the staged Telegram archive does not match its manifest")
+    present = {entry.get("path") for entry in entries if isinstance(entry, dict)}
+    missing = sorted(
+        source.relative_to(state).as_posix()
+        for source in paths
+        if source.relative_to(state).as_posix() not in present
+    )
+    if missing:
+        raise UserError(
+            "the staged Telegram archive is missing %s" % ", ".join(missing[:5])
+        )
+
+
 def make_migration_archive(state: Path, paths: Sequence[Path]) -> Path:
     archive_parent = state / "telegram-migration-archive"
     if archive_parent.exists() or archive_parent.is_symlink():
@@ -1394,46 +1495,44 @@ def make_migration_archive(state: Path, paths: Sequence[Path]) -> Path:
         archive_parent.mkdir(mode=0o700)
         fsync_directory(state)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    archive = archive_parent / ("%s-%s" % (stamp, uuid.uuid4().hex[:8]))
-    archive.mkdir(mode=0o700)
-    copied = archive / "state"
-    copied.mkdir(mode=0o700)
-    for source in paths:
-        relative = source.relative_to(state)
-        destination = copied / relative
-        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        info = source.lstat()
-        if stat.S_ISLNK(info.st_mode):
-            destination.symlink_to(os.readlink(str(source)))
-        elif stat.S_ISDIR(info.st_mode):
-            shutil.copytree(source, destination, symlinks=True)
-        elif stat.S_ISREG(info.st_mode):
-            shutil.copy2(source, destination, follow_symlinks=False)
-        else:
-            raise UserError("legacy state has an unsupported file type: %s" % source)
-    manifest = {
-        "schema": "fm-telegram-migration-archive.v1",
-        "created_at": now_epoch(),
-        "entries": archive_manifest_entries(copied),
-    }
-    manifest_path = archive / "manifest.json"
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    with manifest_path.open("rb") as handle:
-        os.fsync(handle.fileno())
-    for base, directories, files in os.walk(str(archive), topdown=False):
-        for name in files:
-            path = Path(base) / name
-            if not path.is_symlink():
-                os.chmod(path, 0o400)
-        for name in directories:
-            path = Path(base) / name
-            if not path.is_symlink():
-                os.chmod(path, 0o500)
-    os.chmod(archive, 0o500)
-    fsync_directory(archive_parent)
+    suffix = uuid.uuid4().hex[:8]
+    staging = state / (".telegram-migration-staging-%d-%s" % (os.getpid(), suffix))
+    archive = archive_parent / ("%s-%s" % (stamp, suffix))
+    try:
+        stage_migration_archive(state, staging, paths)
+        for base, directories, files in os.walk(str(staging), topdown=False):
+            for name in files:
+                path = Path(base) / name
+                if not path.is_symlink():
+                    os.chmod(path, 0o400)
+            for name in directories:
+                path = Path(base) / name
+                if not path.is_symlink():
+                    os.chmod(path, 0o500)
+        os.replace(str(staging), str(archive))
+        os.chmod(archive, 0o500)
+        fsync_directory(archive_parent)
+    except BaseException:
+        remove_tree_forcibly(staging)
+        raise
     return archive
+
+
+def discard_migration_archive(archive: Path) -> None:
+    remove_tree_forcibly(archive)
+
+
+def prune_empty_archive_parent(state: Path) -> None:
+    archive_parent = state / "telegram-migration-archive"
+    if archive_parent.is_symlink() or not archive_parent.is_dir():
+        return
+    try:
+        if any(archive_parent.iterdir()):
+            return
+        archive_parent.rmdir()
+        fsync_directory(state)
+    except OSError:
+        pass
 
 
 def seal_migration_archive_parent(state: Path) -> None:
@@ -1662,45 +1761,53 @@ def command_migrate(state: Path) -> int:
     paths = legacy_paths_present(state)
     try:
         archive = make_migration_archive(state, paths)
-    except UserError:
-        raise
     except Exception as exc:
+        prune_empty_archive_parent(state)
         raise UserError(
             "legacy Telegram state could not be archived completely, so no cutover was "
             "attempted and no database exists: %s; repair the reported artifact and rerun "
-            "migrate" % migration_cause_text(exc)
+            "migrate" % migration_cause_text(state, exc)
         )
     relative_archive = archive.relative_to(state).as_posix()
+    plan: Optional[MigrationPlan] = None
+    cause: Optional[str] = None
+    fingerprint: Optional[str] = None
     try:
-        plan = build_migration_plan(state)
-    except Exception as exc:
-        cause = migration_cause_text(exc)
-        fingerprint = state_fingerprint("migration-ambiguous", exc)
-        conn = create_store(
-            state,
-            "blocked",
-            relative_archive,
-            fingerprint,
-            plan=None,
-            migration_cause=cause,
-        )
+        try:
+            plan = build_migration_plan(state)
+        except Exception as exc:
+            cause = migration_cause_text(state, exc)
+            fingerprint = state_fingerprint("migration-ambiguous", exc)
+        if plan is None:
+            conn = create_store(
+                state,
+                "blocked",
+                relative_archive,
+                fingerprint,
+                plan=None,
+                migration_cause=cause,
+            )
+        else:
+            conn = create_store(
+                state,
+                "complete",
+                relative_archive,
+                None,
+                plan=plan,
+            )
         conn.close()
-        seal_migration_archive_parent(state)
+    except Exception:
+        discard_migration_archive(archive)
+        prune_empty_archive_parent(state)
+        raise
+    seal_migration_archive_parent(state)
+    if plan is None:
         print(
             "blocked: migration-ambiguous fingerprint=%s archive=%s"
             % (fingerprint, relative_archive)
         )
         print("detail: %s" % cause)
         return 1
-    conn = create_store(
-        state,
-        "complete",
-        relative_archive,
-        None,
-        plan=plan,
-    )
-    conn.close()
-    seal_migration_archive_parent(state)
     print("migrated: archive=%s offset=%d" % (relative_archive, plan.offset))
     return 0
 
