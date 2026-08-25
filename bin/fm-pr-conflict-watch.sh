@@ -200,6 +200,7 @@ FIRSTMATE_SLUG=
 SWEPT_REPOS=
 SEEN_KEYS=
 SWEEP_COMPLETE=1
+DISCOVERY_COMPLETE=1
 RESOLVED_STATE=
 RESOLVED_HEAD=
 
@@ -366,11 +367,16 @@ discover_repos() {
   local project slug owner
   DISCOVERED_REPOS=
   REPO_OWNER_MAP=
+  DISCOVERY_COMPLETE=1
   load_project_owners
   FIRSTMATE_SLUG=$(firstmate_repo_slug 2>/dev/null) || FIRSTMATE_SLUG=
+  [ -n "$FIRSTMATE_SLUG" ] || DISCOVERY_COMPLETE=0
   while IFS= read -r project; do
     [ -n "$project" ] || continue
-    slug=$(resolve_project_repo "$project" 2>/dev/null) || continue
+    # A project whose clone or origin cannot be read names no slug, so the sweep
+    # cannot tell which repository went unread. That leaves the whole discovery
+    # partial rather than this one entry skippable.
+    slug=$(resolve_project_repo "$project" 2>/dev/null) || { DISCOVERY_COMPLETE=0; continue; }
     case " $DISCOVERED_REPOS " in
       *" $slug "*) continue ;;
     esac
@@ -483,10 +489,13 @@ record_remove_key() {
 # forever. A repository whose whole open-PR page was read keeps only the keys
 # that page carried; a repository the sweep did not finish keeps all of its
 # keys, because absence there means unread rather than resolved. Keys for
-# repositories this fleet no longer works in are dropped only when the sweep
-# reached every discovered repository and discovery named at least one: a sweep
-# that discovered nothing inspected nothing, so its empty repository set is a
-# failed read rather than proof the fleet stopped working in those repositories.
+# repositories this fleet no longer works in are dropped only when discovery
+# resolved every project it enumerated and the sweep then reached every
+# repository discovery named. A discovery that skipped a project whose clone or
+# origin could not be read - including the degenerate case where it resolved
+# nothing at all - left behind an unread repository it cannot even name, so
+# absence from its repository set is a failed read rather than proof the fleet
+# stopped working in those repositories.
 seen_key() {
   local key=$1
   case ";$SEEN_KEYS;" in
@@ -507,7 +516,8 @@ record_prune() {
         esac
         ;;
       *)
-        if [ "$SWEEP_COMPLETE" -eq 1 ] && [ -n "$DISCOVERED_REPOS" ]; then
+        if [ "$SWEEP_COMPLETE" -eq 1 ] && [ "$DISCOVERY_COMPLETE" -eq 1 ] \
+          && [ -n "$DISCOVERED_REPOS" ]; then
           case " $DISCOVERED_REPOS " in
             *" $repo "*) ;;
             *) continue ;;
