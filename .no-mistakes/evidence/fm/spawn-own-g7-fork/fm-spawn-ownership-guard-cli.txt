@@ -1,0 +1,50 @@
+# fm-spawn.sh secondmate ownership guard - CLI walkthrough
+
+All commands below are real bin/fm-spawn.sh invocations against a throwaway
+firstmate home. The backend is a stub that announces the window it would open,
+so any line reading '[fake tmux] would open the agent window here' proves the
+spawn got past the ownership guard into real spawn work.
+
+data/secondmates.md registry under test:
+
+    # Second mates
+    
+    - design - owns the design system (home: /tmp/fm-own-demo/run/homes/design; scope: design system and tokens; projects: design-system; added 2026-06-22)
+    - docs - owns docs (home: /tmp/fm-own-demo/run/homes/docs; scope: documentation; projects: projects/design-system, handbook; added 2026-06-22)
+
+$ fm-spawn.sh ship-a1 projects/design-system claude --mode no-mistakes --yolo off
+error: project design-system is registered to secondmate(s) design,docs; spawn the worker in a registered secondmate home or pass --allow-primary-spawn for a deliberate primary-home exception
+  -> exit 1
+  -> state/ship-a1.meta: not created
+
+$ fm-spawn.sh scout-b1 projects/design-system --scout
+error: project design-system is registered to secondmate(s) design,docs; spawn the worker in a registered secondmate home or pass --allow-primary-spawn for a deliberate primary-home exception
+  -> exit 1
+  -> state/scout-b1.meta: not created
+
+$ fm-spawn.sh scout-b2 projects/design-system --scout --allow-primary-spawn
+notice: --allow-primary-spawn bypasses secondmate ownership for design-system (registered owner(s): design,docs); route future work to that secondmate unless this exception remains deliberate
+[fake tmux] would open the agent window here
+  -> exit 1 (fake backend refuses the window; the guard let it through)
+
+$ fm-spawn.sh free-c1 projects/unclaimed-tool claude --mode no-mistakes --yolo off
+warning: project unclaimed-tool is not on any registered secondmate projects: list; confirm primary-home work or route in-scope work to a secondmate - registered: design (scope: design system and tokens); docs (scope: documentation)
+[fake tmux] would open the agent window here
+  -> exit 1 (fake backend refuses the window; the guard warned and continued)
+
+$ corrupt one registry record, then retry the unowned project
+error: malformed secondmate registry entry: - broken - typo entry (home: /tmp/fm-own-demo/run/homes/x; scope: triage; projects: handbook)
+error: refusing this spawn because secondmate project ownership cannot be resolved from /tmp/fm-own-demo/run/firstmate-home/data/secondmates.md; repair the registry (bin/fm-home-seed.sh validate reports the same records) and retry
+  -> exit 1
+
+----------------------------------------------------------------------
+Deliberate override driven to a published task record (live-lifecycle backend):
+
+$ fm-spawn.sh ship-override-x1 projects/design-system claude --mode no-mistakes --yolo off --allow-primary-spawn
+notice: --allow-primary-spawn bypasses secondmate ownership for design-system (registered owner(s): design,docs); route future work to that secondmate unless this exception remains deliberate
+spawned ship-override-x1 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-ship-override-x1 worktree=/tmp/fm-own-demo/meta/wt
+  -> exit 0
+
+$ grep primary_spawn_override state/ship-override-x1.meta
+    primary_spawn_override=1
+    primary_spawn_override_owners=design,docs

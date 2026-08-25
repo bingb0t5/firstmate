@@ -1,0 +1,16 @@
+ok - fm-spawn: a fresh crewmate spawn into a secondmate-owned project refuses before metadata exists
+ok - fm-spawn: a refusal names every registered owner the same way at any arity
+ok - fm-spawn: a projects: entry claims its project as a bare name, projects/<name>, or absolute path
+ok - fm-spawn: a projects: metacharacter is compared literally, never expanded against the caller's cwd
+ok - fm-spawn: a fresh scout spawn is refused on an owned project and passes with the deliberate override
+ok - fm-spawn: --allow-primary-spawn bypasses the ownership guard on an owned project
+ok - fm-spawn: --allow-primary-spawn is refused on --relaunch and --secondmate spawns
+ok - fm-spawn: --secondmate spawns are unaffected by the ownership guard
+ok - fm-spawn: --relaunch into a secondmate-owned project is unaffected by the ownership guard
+ok - fm-spawn: a deliberate override records every bypassed owner on the task record
+ok - fm-spawn: unowned projects and missing or entry-less registries pass the ownership guard
+ok - fm-spawn: a project-less secondmate's scope text is never an ownership claim
+ok - fm-spawn: an unparseable registry entry refuses rather than silently voiding its ownership claim
+ok - fm-spawn: an unsafe registry path refuses rather than reading as an empty registry
+ok - fm-spawn: batch dispatch forwards --allow-primary-spawn to every pair
+# all fm-spawn-secondmate-ownership tests passed
