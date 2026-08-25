@@ -925,8 +925,13 @@ if run_capture "$named" "$named_bin" capture - < "$named/batch.jsonl" \
 fi
 assert_grep "error: 9970 receipt mode is not 600" "$named/err" \
   "the refusal did not name the payload the documented recovery needs"
-assert_grep "captured 9971" "$named/out" "a named refusal blocked a later payload"
-pass "a per-line refusal names the update_id an operator must recover"
+assert_grep "unattempted 1" "$named/out" \
+  "an unusable receipt did not count the remaining payload"
+assert_absent "$named/state/telegram-brain-capture/9971" \
+  "an unusable receipt still POSTed the next payload"
+named_posts=$(grep -c '^url=' "$named/curl.log")
+expect_code 1 "$named_posts" "an unusable receipt kept POSTing the batch"
+pass "an unusable receipt stops the batch and names the update_id"
 
 # --- a credential-systemic 401 still stops the batch ------------------------
 denied=$(make_home http-denied)

@@ -328,17 +328,17 @@ def read_receipt(path: Path) -> Dict[str, object]:
     try:
         info = path.lstat()
     except OSError as exc:
-        raise CaptureError("cannot read receipt: %s" % exc)
+        raise UserError("cannot read receipt: %s" % exc)
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-        raise CaptureError("receipt is not a regular file")
+        raise UserError("receipt is not a regular file")
     if stat.S_IMODE(info.st_mode) != 0o600:
-        raise CaptureError("receipt mode is not 600")
+        raise UserError("receipt mode is not 600")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise CaptureError("receipt is not valid JSON: %s" % exc)
+        raise UserError("receipt is not valid JSON: %s" % exc)
     if not isinstance(data, dict):
-        raise CaptureError("receipt is not an object")
+        raise UserError("receipt is not an object")
     return data
 
 
@@ -535,6 +535,8 @@ def capture_line(
         )
     except CaptureError as exc:
         raise CaptureError("%d %s" % (update_id, exc))
+    except UserError as exc:
+        raise UserError("%d %s" % (update_id, exc))
 
 
 def capture_payload(
@@ -558,7 +560,7 @@ def capture_payload(
         if existing.get("payload_sha256") != digest:
             raise CaptureError("receipt disagrees with the payload")
         capture_id = validated_capture_id(
-            existing.get("capture_id"), "receipt", CaptureError
+            existing.get("capture_id"), "receipt", UserError
         )
         return "already-captured %d %s" % (update_id, capture_id)
     capture_id = post_capture(
