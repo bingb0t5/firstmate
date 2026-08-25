@@ -17,8 +17,11 @@ Load this before any credential-touching firstmate operation.
 
 Use the guarded tools in `bin/`:
 
-- `bin/fm-coolify-env.sh` sets Coolify application env vars; firstmate only sees `ok:` or a value-free error.
+- `bin/fm-coolify-env.sh` is the credential-blind transport for an exact Coolify env mutation requested by the active ship worker; firstmate invokes it and sees only `ok:` or a value-free error, while the worker and selected delivery path continue to own the project change.
 - `bin/fm-beanz-manifest.sh` regenerates the beanz credential index README from validated assignment keys, file names, built-in metadata, and sidecars without emitting credential values.
+
+Do not use credential access as a reason for firstmate to originate project work or bypass worker delegation.
+Invoke `bin/fm-coolify-env.sh` only for the exact service, key, and source requested by the active ship worker after its delivery path is resolved.
 
 Never source or dot a credential file.
 Never pass a secret on a command line where it could reach `ps` or shell history.

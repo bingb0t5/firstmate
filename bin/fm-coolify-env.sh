@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # fm-coolify-env.sh - set a Coolify application env var without exposing secrets.
 #
-# Firstmate invokes this tool; the secret never enters an agent session. Values
-# are read through bin/fm-credential-lib.sh (never source/dot), sent to Coolify
-# over HTTPS with Authorization in a private header file (never argv), and
-# operational results pass through registered redaction patterns.
+# An active ship worker and its selected delivery path must own and request the
+# exact mutation. Firstmate invokes this credential-blind transport for that
+# request; it does not use the tool to originate or bypass project work. The
+# secret never enters an agent session. Values are read through
+# bin/fm-credential-lib.sh (never source/dot), sent to Coolify over HTTPS with
+# Authorization in a private header file (never argv), and operational results
+# pass through registered redaction patterns.
 #
 # Usage:
 #   fm-coolify-env.sh set <service> <KEY> --value-from <source>
@@ -63,6 +66,10 @@ trap 'coolify_cleanup; exit 129' HUP
 usage() {
   cat <<'EOF'
 fm-coolify-env.sh - set a Coolify application environment variable safely.
+
+This is a credential-blind transport for an exact mutation requested by the
+active ship worker. The worker and its selected delivery path remain the owners
+of the project change.
 
 Usage:
   fm-coolify-env.sh set <service> <KEY> --value-from <source>
