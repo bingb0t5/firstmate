@@ -24,6 +24,8 @@
 #      by this repo, so presence gates: only a payload that parses as a round
 #      number strictly below 3 stands the gate down, and an empty or
 #      unrecognized payload refuses rather than guessing it meant "not yet".
+#      That refusal says the round could not be read and names the marker; it
+#      never asserts a round number this repo did not actually read.
 #
 # Exemptions (callers must still skip secondmate spawns):
 #   - First implementation worker (no spawn_gen= in meta yet)
@@ -66,15 +68,23 @@ fm_second_attempt_nm_third_fix_round_marker() {
   printf '%s/%s.nm-third-fix-round' "${1%/}" "$2"
 }
 
-# fm_second_attempt_nm_fix_round_gate_active <state-dir> <task-id>
-# True when the durable third-fix-round marker is present and does not record a
-# round below 3. A present-but-unreadable marker is gate-active: the producer
-# lives outside this repo, so an unrecognized payload must not silently stand a
-# fail-closed gate down.
-fm_second_attempt_nm_fix_round_gate_active() {
+# fm_second_attempt_nm_fix_round_state <state-dir> <task-id>
+# Prints nothing. Always sets FM_SECOND_ATTEMPT_NM_MARKER_STATE to exactly one
+# of:
+#   absent      no marker file
+#   below       payload read as a round number strictly below 3
+#   reached     payload read as a round number of 3 or more
+#   unreadable  marker present, payload not a round number this repo can read
+# Only `below` stands the gate down. `unreadable` is deliberately gate-active -
+# the producer lives outside this repo, so an unrecognized payload must not
+# silently stand a fail-closed gate down - but it stays a distinct state so the
+# refusal can report what was actually observed.
+fm_second_attempt_nm_fix_round_state() {
   local marker round
+  FM_SECOND_ATTEMPT_NM_MARKER_STATE=absent
   marker=$(fm_second_attempt_nm_third_fix_round_marker "$1" "$2")
-  [ -f "$marker" ] || return 1
+  [ -f "$marker" ] || return 0
+  FM_SECOND_ATTEMPT_NM_MARKER_STATE=unreadable
   round=$(tr -d '[:space:]' < "$marker" 2>/dev/null || true)
   case "$round" in
     ''|*[!0-9]*) return 0 ;;
@@ -82,25 +92,36 @@ fm_second_attempt_nm_fix_round_gate_active() {
   while [ "${#round}" -gt 1 ] && [ "${round#0}" != "$round" ]; do
     round=${round#0}
   done
-  [ "${#round}" -eq 1 ] || return 0
-  [ "$round" -ge 3 ]
+  if [ "${#round}" -gt 1 ] || [ "$round" -ge 3 ]; then
+    FM_SECOND_ATTEMPT_NM_MARKER_STATE=reached
+  else
+    FM_SECOND_ATTEMPT_NM_MARKER_STATE=below
+  fi
 }
 
 # fm_second_attempt_gate_reason <state-dir> <data-dir> <task-id> <meta-path> <trigger>
 # Prints nothing. Always sets FM_SECOND_ATTEMPT_GATE_REASON to exactly one of
-# none, relaunch, replacement_spawn, or nm_third_fix_round, and read the gate
-# only from that variable: a command substitution around this call captures an
-# empty string, which matches no label and would read as an inactive gate.
+# none, relaunch, replacement_spawn, nm_third_fix_round, or
+# nm_fix_round_unreadable, and read the gate only from that variable: a command
+# substitution around this call captures an empty string, which matches no label
+# and would read as an inactive gate.
 fm_second_attempt_gate_reason() {
   local state=$1 data=$2 id=$3 meta=$4 trigger=$5 kind
   FM_SECOND_ATTEMPT_GATE_REASON=none
   kind=$(fm_meta_get "$meta" kind)
   [ -n "$kind" ] || kind=ship
   [ "$kind" = ship ] || return 0
-  if fm_second_attempt_nm_fix_round_gate_active "$state" "$id"; then
-    FM_SECOND_ATTEMPT_GATE_REASON=nm_third_fix_round
-    return 0
-  fi
+  fm_second_attempt_nm_fix_round_state "$state" "$id"
+  case "$FM_SECOND_ATTEMPT_NM_MARKER_STATE" in
+    reached)
+      FM_SECOND_ATTEMPT_GATE_REASON=nm_third_fix_round
+      return 0
+      ;;
+    unreadable)
+      FM_SECOND_ATTEMPT_GATE_REASON=nm_fix_round_unreadable
+      return 0
+      ;;
+  esac
   case "$trigger" in
     relaunch|replacement_spawn)
       if fm_second_attempt_meta_had_implementation "$meta"; then
@@ -115,7 +136,7 @@ fm_second_attempt_gate_reason() {
 # and the spec is absent; returns 0 otherwise. Callers own the exit.
 fm_second_attempt_refuse_if_needed() {
   local state=$1 data=$2 id=$3 meta=$4 trigger=$5
-  local reason spec next
+  local reason spec next marker
   fm_second_attempt_gate_reason "$state" "$data" "$id" "$meta" "$trigger"
   reason=$FM_SECOND_ATTEMPT_GATE_REASON
   [ "$reason" != none ] || return 0
@@ -131,6 +152,10 @@ fm_second_attempt_refuse_if_needed() {
       ;;
     nm_third_fix_round)
       echo "error: ship task $id reached no-mistakes fix round 3 without a Sol spec at $spec; $next" >&2
+      ;;
+    nm_fix_round_unreadable)
+      marker=$(fm_second_attempt_nm_third_fix_round_marker "$state" "$id")
+      echo "error: ship task $id has a no-mistakes fix-round marker at $marker whose round could not be read, and no Sol spec at $spec; $next" >&2
       ;;
     *)
       echo "error: ship task $id refused - no Sol spec at $spec; $next" >&2
