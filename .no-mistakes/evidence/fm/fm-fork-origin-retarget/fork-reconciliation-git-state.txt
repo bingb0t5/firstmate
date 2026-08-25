@@ -1,0 +1,7 @@
+$ git remote -v
+origin	https://github.com/bingb0t5/firstmate.git (fetch)
+origin	https://github.com/bingb0t5/firstmate.git (push)
+$ git merge-base --is-ancestor 15a930fca3b58fef13a1da0168d6e4849e3657ee HEAD
+base-history-preserved=0
+$ git show --no-patch --pretty=%P 38c1393
+15a930fca3b58fef13a1da0168d6e4849e3657ee 6a2cd6cd2c642c9422bb43dccedbd91103285fb0
