@@ -72,6 +72,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -111,10 +112,10 @@ cmd_arm() {
     || die "cannot resolve the artifact path: $artifact"
   # This adapter's own listener command, which runs the plain blocking form with
   # no --timeout-ms so completion is a server event, and absorbs only the exact
-  # transient interruption. Registering raw poll output is what let that
-  # interruption reach the runner as a captured result.
-  "$SCRIPT_DIR/fm-procevent.sh" register lavish "$id" \
-    -- "$SCRIPT_DIR/fm-procevent-lavish.sh" poll "$real" || exit 1
+  # transient interruption. See the fm-procevent.sh header for the arm contract.
+  fm_procevent_arm "$STATE" lavish "$id" \
+    "$SCRIPT_DIR/fm-procevent-lavish.sh" poll "$real" \
+    || die "cannot publish the registration"
   printf 'armed: %s\n' "$id"
   printf 'artifact: %s\n' "$real"
 }
