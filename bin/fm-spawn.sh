@@ -424,6 +424,14 @@ else
   fi
 fi
 
+# A marked secondmate home has no authority to create a fresh domain mate.
+# Enforce this before backend or harness preparation so missing local runtime
+# tools cannot mask the primary-only domain boundary.
+if [ "$KIND" = secondmate ] && [ "$RELAUNCH" -ne 1 ] && [ -f "$FM_HOME/$SUB_HOME_MARKER" ]; then
+  echo "error: a secondmate home cannot seed or spawn another secondmate; only the primary home may create a domain mate" >&2
+  exit 1
+fi
+
 spawn_remote_secondmate() {
   local id=$1 remote host root home harness positional model effort backend out rc meta tmp
   local remote_backend remote_target remote_harness remote_herdr_session registry_lock remote_lock remote_generation
@@ -1626,10 +1634,6 @@ fi
 
 if [ "$KIND" = secondmate ]; then
   [ -n "$FIRSTMATE_HOME" ] || { echo "error: no firstmate home supplied or registered for $ID" >&2; exit 1; }
-  if [ "$RELAUNCH" -ne 1 ] && [ -f "$FM_HOME/$SUB_HOME_MARKER" ]; then
-    echo "error: a secondmate home cannot seed or spawn another secondmate; only the primary home may create a domain mate" >&2
-    exit 1
-  fi
   PROJ_ABS=$(validate_firstmate_home_for_spawn "$ID" "$FIRSTMATE_HOME")
   if [ -e "$DATA/secondmates.md" ] || [ -L "$DATA/secondmates.md" ]; then
     if ! secondmate_registry_validate_bindings "$DATA/secondmates.md" resolve_path "$ID" "$FIRSTMATE_HOME"; then
