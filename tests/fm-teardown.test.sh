@@ -316,6 +316,20 @@ land_equivalent_patch_on_origin_branch() {
   git -C "$case_dir/project" rev-parse "refs/remotes/origin/$branch"
 }
 
+# Override GitHub lookups to report the recorded PR as OPEN and unmerged.
+add_gh_pr_open_for_head() {
+  local case_dir=$1 head=$2
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+case "\${1:-} \${2:-}" in
+  "pr view") printf '%s\\t%s\\n' 'OPEN' '$head' ; exit 0 ;;
+esac
+echo "error: pull request not found" >&2
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/gh"
+}
+
 # Override gh-axi so every call fails, simulating an API/network error.
 add_gh_axi_error() {
   local case_dir=$1
@@ -693,6 +707,42 @@ test_no_mistakes_origin_remote_allows() {
   grep -F 'blockers are gone and date is due' "$case_dir/stdout" >/dev/null \
     || fail "nm-origin: teardown manual prompt did not preserve date-gate check"
   pass "no-mistakes worktree with HEAD on origin is torn down (no regression)"
+}
+
+# This is the exact false-merge fixture: no-mistakes reports a passed run and
+# metadata records a PR, but the forge still reports that PR as OPEN. Teardown
+# must independently refuse the unlanded work even if crew state once rendered
+# the old false `PR merged/closed` detail.
+test_no_mistakes_passed_open_pr_still_refuses() {
+  local case_dir rc head
+  case_dir=$(make_case nm-passed-open-pr)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "open PR work"
+  append_pr_meta_url "$case_dir"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_open_for_head "$case_dir" "$head"
+  FM_FAKE_AXI_STATUS=$(cat <<EOF
+run:
+  id: "01RUN3060"
+  branch: fm/task-x1
+  status: completed
+  head: "$head"
+  pr: "https://github.com/example/repo/pull/7"
+  findings: none
+outcome: passed
+EOF
+)
+  export FM_FAKE_AXI_STATUS
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "nm-passed-open-pr: teardown should refuse"
+  grep -q REFUSED "$case_dir/stderr" \
+    || fail "nm-passed-open-pr: no REFUSED line in stderr"
+  pass "passed run with open PR is refused as unlanded"
 }
 
 test_no_mistakes_truly_unpushed_refuses() {
@@ -2619,6 +2669,7 @@ test_teardown_manual_backend_prompts_hand_edit_even_when_tasks_axi_present
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
+test_no_mistakes_passed_open_pr_still_refuses
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_teardown_missing_busy_sidecar_completes

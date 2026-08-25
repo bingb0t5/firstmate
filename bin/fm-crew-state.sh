@@ -73,6 +73,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 
 ID=${1:-}
 [ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
@@ -338,6 +340,18 @@ nm_effective_ci_step_status() {
 # for the MOST RECENT recognized marker (the log is append-only/chronological,
 # so the last match is current): green with nothing red after it means CI is
 # green right now, still only waiting on merge/close.
+# A completed no-mistakes run is not itself merge evidence: stopping a worker
+# after CI concluded can leave outcome=passed while the recorded PR is still
+# open. The owned PR poll writes this identity-bound marker only after a forge
+# read observed MERGED; use it to corroborate a passed run without making a
+# network call from this deterministic state reader.
+pr_merge_observed() {
+  fm_pr_metadata_identity_parse "$META" || return 1
+  fm_pr_poll_merge_already_notified "$STATE" "$ID" \
+    "$FM_PR_META_PROVIDER" "$FM_PR_META_HOST" "$FM_PR_META_PATH" \
+    "$FM_PR_META_NUMBER"
+}
+
 nm_ci_checks_state() {
   local run_id log_tail marker
   run_id=$(strip_quotes "$(nm_field id)")
@@ -502,7 +516,16 @@ if [ "$HAVE_RUN" = 1 ]; then
     case "$status" in running|fixing|ci) active_status=1 ;; esac
     if [ -n "$outcome" ] && [ "$active_status" -eq 0 ]; then
       case "$outcome" in
-        passed)        RUN_STATE="done"; RUN_DETAIL="run passed: PR merged/closed" ;;
+        passed)
+          RUN_STATE="done"
+          if pr_merge_observed; then
+            RUN_DETAIL="run passed: PR merged/closed"
+          elif fm_pr_metadata_identity_parse "$META"; then
+            RUN_DETAIL="run passed: PR merge unverified"
+          else
+            RUN_DETAIL="run passed"
+          fi
+          ;;
         checks-passed) RUN_STATE="done"; RUN_DETAIL="checks green: PR ready for review" ;;
         failed)        RUN_STATE=failed; RUN_DETAIL="run failed" ;;
         cancelled)     RUN_STATE=failed; RUN_DETAIL="run cancelled" ;;
