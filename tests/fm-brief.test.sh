@@ -835,6 +835,30 @@ $wait_line" "$ROOT/bin/fm-brief.sh" "sol-bound-$i" firstmate --mode no-mistakes 
   pass "fm-brief.sh: ship scaffold refuses Wait: lines with empty bound=/escape= values"
 }
 
+test_ship_sol_exemption_refuses_vacuous_bound_and_escape() {
+  local home out status value field wait_line i=0
+  for value in forever none unbounded never n/a infinite inf FoReVeR NONE; do
+    for field in bound escape; do
+      i=$((i + 1))
+      home="$TMP_ROOT/sol-vacuous-home-$i"
+      mkdir -p "$home/data"
+      status=0
+      if [ "$field" = bound ]; then
+        wait_line="Wait: CI bound=$value escape=append-blocked"
+      else
+        wait_line="Wait: CI bound=30m escape=$value"
+      fi
+      out=$(FM_HOME="$home" FM_TASK="Acceptance command: \`make test\`
+$wait_line" "$ROOT/bin/fm-brief.sh" "sol-vacuous-$i" firstmate --mode no-mistakes 2>&1) || status=$?
+      expect_code 1 "$status" "vacuous $field value must refuse: $value"
+      assert_contains "$out" "bound=" "refusal must name the bound/escape requirement"
+      assert_absent "$home/data/sol-vacuous-$i/brief.md" \
+        "refused vacuous-value scaffold must not write a brief"
+    done
+  done
+  pass "fm-brief.sh: vacuous wait bounds and escapes cannot earn exemption"
+}
+
 # Regression: any line containing the token `wait` was refused, so a backticked
 # command name such as `wait-for-ci.sh` made a legitimate ship task unscaffoldable.
 test_ship_sol_exemption_ignores_backticked_command_names() {
@@ -852,6 +876,24 @@ Run `wait-for-ci.sh` as part of setup, then land `await-queue.py`.' \
   grep -qx "Sol exemption: earned" "$brief" \
     || fail "brief missing the machine-readable Sol exemption line"
   pass "fm-brief.sh: wait scan skips backticked spans"
+}
+
+test_ship_sol_exemption_refuses_backticked_wait_tokens() {
+  local home out status token i=0
+  for token in wait waits waited waiting await awaits awaiting WAIT Awaiting; do
+    i=$((i + 1))
+    home="$TMP_ROOT/sol-backtick-token-home-$i"
+    mkdir -p "$home/data"
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="Acceptance command: \`make test\`
+Then \`$token\` before shipping." \
+      "$ROOT/bin/fm-brief.sh" "sol-backtick-token-$i" firstmate --mode no-mistakes 2>&1) || status=$?
+    expect_code 1 "$status" "backticked wait-family token must refuse: $token"
+    assert_contains "$out" "unbounded wait" "refusal must name the unbounded wait"
+    assert_absent "$home/data/sol-backtick-token-$i/brief.md" \
+      "refused backticked-wait scaffold must not write a brief"
+  done
+  pass "fm-brief.sh: exact backticked wait tokens remain visible to validation"
 }
 
 # FM_TASK is a ship-only input; scout and secondmate must refuse it loudly rather
@@ -1200,7 +1242,9 @@ test_ship_sol_exemption_succeeds_with_evidence
 test_ship_sol_exemption_refuses_unbounded_wait
 test_ship_sol_exemption_refuses_inflected_waits
 test_ship_sol_exemption_refuses_valueless_bound_and_escape
+test_ship_sol_exemption_refuses_vacuous_bound_and_escape
 test_ship_sol_exemption_ignores_backticked_command_names
+test_ship_sol_exemption_refuses_backticked_wait_tokens
 test_fm_task_refused_on_scout_and_secondmate
 test_refused_scaffold_leaves_no_task_directory
 test_sol_exemption_block_spacing_is_stable

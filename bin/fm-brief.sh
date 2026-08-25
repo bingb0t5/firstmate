@@ -47,10 +47,11 @@
 #   Acceptance command: `...`
 # line naming a concrete executable command, and every wait mention is expressed as a
 #   Wait: ... bound=... escape=...
-# line whose bound= and escape= both carry a non-empty value. The wait scan covers
+# line whose bound= and escape= both carry a non-empty, non-vacuous value. The wait scan covers
 # the whole wait word family (wait/waits/waited/waiting/await/awaits/awaiting) and
 # ignores whitespace-free backticked command or token names, so `wait-for-ci.sh`
-# does not read as an unbounded wait while backticked prose still does. Without both
+# does not read as an unbounded wait while an exact backticked wait-family token
+# still does. Without both
 # kinds of evidence, a filled ship task refuses to scaffold and writes nothing. An
 # unfilled {TASK} placeholder skips this gate and emits no exemption line. When
 # evidence passes, the brief records a fixed machine-readable "Sol exemption: earned"
@@ -194,10 +195,10 @@ if [ "$NO_PROJECTS" -eq 1 ] && [ "$KIND" != secondmate ]; then
 fi
 
 # Ship Sol-exemption evidence is mechanical. A Wait: line is bounded only when it
-# carries non-empty bound= and escape= values; a value that is just the other key
-# (bound=escape=...) is not a bound.
+# carries non-empty, non-vacuous bound= and escape= values; a value that is just
+# the other key (bound=escape=...) is not a bound.
 fm_brief_wait_is_bounded() {
-  local line=$1 field value
+  local line=$1 field value normalized
   for field in bound escape; do
     case "$line" in
       *[[:space:]]"$field="*) ;;
@@ -209,8 +210,29 @@ fm_brief_wait_is_bounded() {
     case "$value" in
       bound=*|escape=*) return 1 ;;
     esac
+    normalized=${value,,}
+    case "$normalized" in
+      forever|none|unbounded|never|n/a|infinite|inf) return 1 ;;
+    esac
   done
   return 0
+}
+
+fm_brief_strip_backticked_names() {
+  local remaining=$1 result='' token normalized suffix
+  # shellcheck disable=SC2016 # Backticks in the expression are literal evidence delimiters.
+  local backtick_re='^([^`]*)`([^`[:space:]]*)`(.*)$'
+  while [[ $remaining =~ $backtick_re ]]; do
+    result+=${BASH_REMATCH[1]}
+    token=${BASH_REMATCH[2]}
+    suffix=${BASH_REMATCH[3]}
+    normalized=${token,,}
+    if [[ $normalized =~ ^a?wait(s|ed|ing)?$ ]]; then
+      result+=$token
+    fi
+    remaining=$suffix
+  done
+  printf '%s' "$result$remaining"
 }
 
 fm_brief_acceptance_is_executable() {
@@ -278,11 +300,9 @@ fm_brief_sol_scan() {
         prose=
         ;;
       *)
-        # A whitespace-free backticked span is a command or token name, not prose:
-        # `wait-for-ci.sh` must not read as a wait. A span containing whitespace is
-        # prose and stays in the scan, so `wait for review` cannot hide there.
-        # shellcheck disable=SC2016 # Backticks in the sed script are literal evidence syntax.
-        prose=$(printf '%s' "$line" | sed 's/`[^`[:space:]]*`//g')
+        # A whitespace-free backticked command name is not prose, but an exact
+        # wait-family token remains visible to the wait scan.
+        prose=$(fm_brief_strip_backticked_names "$line")
         ;;
     esac
     if [ "$saw_unbounded" -eq 0 ] \
