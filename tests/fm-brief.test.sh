@@ -985,7 +985,8 @@ Acceptance command: `b`' \
 
 test_ship_sol_exemption_refuses_non_command_acceptance_payloads() {
   local home out status payload i=0
-  for payload in ' ' '&&' '>'; do
+  for payload in ' ' '&&' '>' '# tests not implemented' '   # tests not implemented' \
+                 'FOO=bar' 'make test &&'; do
     i=$((i + 1))
     home="$TMP_ROOT/sol-non-command-home-$i"
     mkdir -p "$home/data"
