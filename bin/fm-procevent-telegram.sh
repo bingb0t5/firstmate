@@ -144,6 +144,9 @@
 # argv, database state, captured results, or message payloads.
 # A text is a captain command only when both its chat id and sender id match the
 # configured values.
+# A text carrying no sender at all, as an anonymous group administrator post
+# does, is simply not the captain: it is skipped and consumed with its batch
+# rather than rejected as malformed.
 #
 # LIMITS.
 # getUpdates called with offset=N irreversibly confirms every update below N.
@@ -225,6 +228,10 @@ cmd_migrate() {
 
 cmd_classify() {
   [ "$#" -eq 1 ] || usage
+  if ! engine_available; then
+    printf 'blocked\n'
+    return 0
+  fi
   run_engine classify "$1"
 }
 
@@ -235,6 +242,10 @@ cmd_messages() {
 
 cmd_ack() {
   [ "$#" -eq 1 ] || usage
+  if ! engine_available; then
+    printf 'unacknowledgeable: local-state\n'
+    return 0
+  fi
   run_engine ack "$1"
 }
 

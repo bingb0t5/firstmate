@@ -460,26 +460,23 @@ assert_equal "$(db_query "$H_NON_TEXT" "SELECT committed_offset FROM meta")" 200
 assert_equal "$(db_query "$H_NON_TEXT" "SELECT count(*) FROM messages")" 0 \
   "non-text update became a command"
 
-for identity_case in untrusted no-sender; do
-  home="$TMP_ROOT/$identity_case"
-  env_file="$TMP_ROOT/$identity_case.env"
+for identity_case in untrusted:2502 no-sender:2503; do
+  identity_name=${identity_case%%:*}
+  identity_offset=${identity_case##*:}
+  home="$TMP_ROOT/$identity_name"
+  env_file="$TMP_ROOT/$identity_name.env"
   arm_home "$home" "$env_file"
   identity_status=0
-  identity_out=$(poll_once "$home" "$env_file" "$FIXTURES/$identity_case.json") \
+  identity_out=$(poll_once "$home" "$env_file" "$FIXTURES/$identity_name.json") \
     || identity_status=$?
-  if [ "$identity_case" = untrusted ]; then
-    [ "$identity_status" -ne 0 ] || fail "another sender became the captain"
-    assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 2502 \
-      "unauthorized sender was not safely consumed"
-  else
-    [ "$identity_status" -eq 0 ] || fail "malformed sender did not announce a protocol block"
-    assert_contains "$identity_out" "blocked: protocol-blocked" \
-      "missing sender died silently"
-    assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 0 \
-      "malformed sender advanced the offset"
-  fi
+  [ "$identity_status" -ne 0 ] || fail "$identity_name woke firstmate as the captain"
+  assert_equal "$identity_out" "" "$identity_name produced a captured result"
+  assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" "$identity_offset" \
+    "$identity_name was not safely consumed"
   assert_equal "$(db_query "$home" "SELECT count(*) FROM messages")" 0 \
-    "$identity_case created a captain message"
+    "$identity_name created a captain message"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM conditions")" 0 \
+    "$identity_name raised a channel condition"
 done
 
 H_GAPS="$TMP_ROOT/noncontiguous"
@@ -1520,7 +1517,33 @@ ambiguous_poll=$(poll_once "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$FIXTURES/one-text.j
 assert_contains "$ambiguous_poll" "blocked: migration-blocked ambiguous" \
   "blocked migration did not announce through the channel"
 assert_no_curl "blocked migration called Telegram from a guessed offset"
-pass "ambiguous migration preserves evidence, guesses nothing, and remains visibly blocked"
+ack_result "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$ambiguous_poll" >/dev/null \
+  || fail "the first blocked-migration notice could not be acknowledged"
+ambiguous_repeat_status=0
+ambiguous_repeat=$(poll_once "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$FIXTURES/one-text.json") \
+  || ambiguous_repeat_status=$?
+[ "$ambiguous_repeat_status" -eq 0 ] \
+  || fail "an acknowledged blocked migration fell into the runner's silent nonzero path"
+assert_contains "$ambiguous_repeat" "blocked: local-state fingerprint=" \
+  "an acknowledged blocked migration stopped producing an actionable result"
+ambiguous_again=$(poll_once "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$FIXTURES/one-text.json")
+assert_equal "$ambiguous_again" "$ambiguous_repeat" \
+  "the blocked-migration fingerprint is not stable across polls"
+write_result "$ambiguous_repeat"
+assert_equal \
+  "$(FM_HOME="$H_AMBIGUOUS" FM_TELEGRAM_ENV_FILE="$AMBIGUOUS_ENV" "$ADAPTER" classify "$RESULT_FILE")" \
+  blocked "a recurring blocked migration did not classify as blocked"
+assert_equal \
+  "$(FM_HOME="$H_AMBIGUOUS" FM_TELEGRAM_ENV_FILE="$AMBIGUOUS_ENV" "$ADAPTER" ack "$RESULT_FILE")" \
+  "unacknowledgeable: local-state" \
+  "a recurring blocked migration could be acknowledged away"
+ambiguous_persist=$(poll_once "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$FIXTURES/one-text.json")
+assert_equal "$ambiguous_persist" "$ambiguous_repeat" \
+  "a blocked migration went silent after an acknowledgement attempt"
+assert_no_curl "a recurring blocked migration called Telegram from a guessed offset"
+assert_equal "$(db_query "$H_AMBIGUOUS" "SELECT committed_offset FROM meta")" 0 \
+  "a recurring blocked migration guessed an offset"
+pass "ambiguous migration preserves evidence, guesses nothing, and stays unacknowledgeably blocked"
 
 H_CAUSE="$TMP_ROOT/migrate-blocked-cause"
 CAUSE_ENV="$TMP_ROOT/migrate-blocked-cause.env"
@@ -1804,6 +1827,58 @@ FM_HOME="$H_EXPORT" "$ADAPTER" export-legacy-offset >/dev/null 2>&1 || newer_sta
 assert_equal "$(tr -d '\n' < "$H_EXPORT/state/.telegram-offset")" 3000 \
   "failed rollback export changed the newer offset"
 pass "rollback preparation exports the transactional offset forward and never backward"
+
+# --- a state path carrying URI metacharacters opens the same way it was built -
+H_URI="$TMP_ROOT/uri%25pct#frag?query"
+URI_ENV="$TMP_ROOT/uri-metachars.env"
+arm_home "$H_URI" "$URI_ENV"
+uri_out=$(poll_once "$H_URI" "$URI_ENV" "$FIXTURES/one-text.json")
+assert_contains "$uri_out" "message:" \
+  "a state path with URI metacharacters could not be reopened after creation"
+assert_equal "$(db_query "$H_URI" "SELECT committed_offset FROM meta")" 1002 \
+  "a state path with URI metacharacters lost its committed offset"
+write_result "$uri_out"
+assert_contains \
+  "$(FM_HOME="$H_URI" FM_TELEGRAM_ENV_FILE="$URI_ENV" "$ADAPTER" messages "$RESULT_FILE")" \
+  "ahoy from the captain" \
+  "a state path with URI metacharacters hid the captain payload"
+assert_contains "$(FM_HOME="$H_URI" "$ADAPTER" doctor)" "integrity=ok" \
+  "doctor could not read a state path with URI metacharacters"
+pass "creation and reopen agree for state paths containing URI metacharacters"
+
+# --- a missing engine stays capturable, classifiable, and disposable ---------
+H_NO_ENGINE="$TMP_ROOT/engine-unavailable"
+NO_ENGINE_ENV="$TMP_ROOT/engine-unavailable.env"
+arm_home "$H_NO_ENGINE" "$NO_ENGINE_ENV"
+NO_PYTHON_BIN="$TMP_ROOT/no-python-bin"
+mkdir -p "$NO_PYTHON_BIN"
+for required_tool in bash dirname; do
+  ln -sf "$(command -v "$required_tool")" "$NO_PYTHON_BIN/$required_tool"
+done
+PATH="$NO_PYTHON_BIN" command -v python3 >/dev/null 2>&1 \
+  && fail "the engine-unavailable fixture still exposes python3"
+no_engine_poll_status=0
+no_engine_poll=$(PATH="$NO_PYTHON_BIN" FM_HOME="$H_NO_ENGINE" \
+  FM_TELEGRAM_ENV_FILE="$NO_ENGINE_ENV" "$ADAPTER" poll) || no_engine_poll_status=$?
+[ "$no_engine_poll_status" -eq 0 ] || fail "a missing engine made poll uncapturable"
+assert_contains "$no_engine_poll" "blocked: local-state fingerprint=" \
+  "a missing engine did not announce a local-state block"
+write_result "$no_engine_poll"
+no_engine_classify_status=0
+no_engine_classify=$(PATH="$NO_PYTHON_BIN" FM_HOME="$H_NO_ENGINE" \
+  FM_TELEGRAM_ENV_FILE="$NO_ENGINE_ENV" "$ADAPTER" classify "$RESULT_FILE") \
+  || no_engine_classify_status=$?
+[ "$no_engine_classify_status" -eq 0 ] || fail "classify failed instead of reporting blocked"
+assert_equal "$no_engine_classify" blocked \
+  "a missing engine muted the documented interpretation path"
+no_engine_ack_status=0
+no_engine_ack=$(PATH="$NO_PYTHON_BIN" FM_HOME="$H_NO_ENGINE" \
+  FM_TELEGRAM_ENV_FILE="$NO_ENGINE_ENV" "$ADAPTER" ack "$RESULT_FILE") \
+  || no_engine_ack_status=$?
+[ "$no_engine_ack_status" -eq 0 ] || fail "ack failed instead of reporting unacknowledgeable"
+assert_equal "$no_engine_ack" "unacknowledgeable: local-state" \
+  "a missing engine muted the documented disposal path"
+pass "a missing engine still yields a blocked result the handler can classify and dispose"
 
 # --- end to end message capture, adapter read/ack, and generic handled -------
 H_E2E="$TMP_ROOT/e2e-message"

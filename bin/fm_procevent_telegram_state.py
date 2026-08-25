@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -520,7 +521,7 @@ def connect_existing(state: Path) -> sqlite3.Connection:
     ensure_telegram_directory(state, create=False)
     ensure_private_database(database)
     try:
-        uri = "file:%s?mode=rw" % database.as_posix()
+        uri = "file:%s?mode=rw" % urllib.parse.quote(database.as_posix())
         conn = sqlite3.connect(uri, uri=True, isolation_level=None, timeout=5)
         configure_connection(conn)
         validate_store(conn)
@@ -1035,8 +1036,12 @@ def canonical_message(
     if not isinstance(text, str) or not text:
         raise ProtocolError("message text is not a nonempty string")
     chat = raw_message.get("chat")
-    sender = raw_message.get("from")
-    if not isinstance(chat, dict) or not isinstance(sender, dict):
+    if not isinstance(chat, dict):
+        raise ProtocolError("text message identity containers are malformed")
+    if "from" not in raw_message:
+        return None
+    sender = raw_message["from"]
+    if not isinstance(sender, dict):
         raise ProtocolError("text message identity containers are malformed")
     chat_id = chat.get("id")
     sender_id = sender.get("id")
@@ -1211,11 +1216,11 @@ def command_poll(state: Path, credential_path: Path) -> int:
         pending = ensure_unannounced_condition_notice(conn)
         if pending is not None:
             return emit_notice(conn, pending)
-        migration_status = conn.execute(
-            "SELECT migration_status FROM meta WHERE singleton = 1"
-        ).fetchone()[0]
+        migration_status, migration_fingerprint = conn.execute(
+            "SELECT migration_status, migration_fingerprint FROM meta WHERE singleton = 1"
+        ).fetchone()
         if migration_status == "blocked":
-            return 3
+            raise LocalStateError("migration-blocked", migration_fingerprint or "ambiguous")
         try:
             credentials = read_credentials(credential_path)
         except CredentialError:
