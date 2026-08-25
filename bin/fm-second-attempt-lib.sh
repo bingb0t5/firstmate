@@ -17,10 +17,13 @@
 # Triggers (any one with a missing spec refuses):
 #   1. bin/fm-control.sh <id> relaunch on a ship that already published spawn_gen=
 #   2. bin/fm-spawn.sh <id> --relaunch on the same condition (replacement worker)
-#   3. state/<id>.nm-third-fix-round present with value >= 3 before another
-#      implementation worker starts (no-mistakes should write this marker when a
-#      validation run enters its third fix round; until that integration ships,
-#      firstmate refuses on the recorded marker alone)
+#   3. state/<id>.nm-third-fix-round present before another implementation
+#      worker starts (no-mistakes should write this marker when a validation run
+#      enters its third fix round; until that integration ships, firstmate
+#      refuses on the recorded marker alone). The marker's payload is not owned
+#      by this repo, so presence gates: only a payload that parses as a round
+#      number strictly below 3 stands the gate down, and an empty or
+#      unrecognized payload refuses rather than guessing it meant "not yet".
 #
 # Exemptions (callers must still skip secondmate spawns):
 #   - First implementation worker (no spawn_gen= in meta yet)
@@ -64,21 +67,30 @@ fm_second_attempt_nm_third_fix_round_marker() {
 }
 
 # fm_second_attempt_nm_fix_round_gate_active <state-dir> <task-id>
-# True when the durable third-fix-round marker is present with value >= 3.
+# True when the durable third-fix-round marker is present and does not record a
+# round below 3. A present-but-unreadable marker is gate-active: the producer
+# lives outside this repo, so an unrecognized payload must not silently stand a
+# fail-closed gate down.
 fm_second_attempt_nm_fix_round_gate_active() {
   local marker round
   marker=$(fm_second_attempt_nm_third_fix_round_marker "$1" "$2")
   [ -f "$marker" ] || return 1
   round=$(tr -d '[:space:]' < "$marker" 2>/dev/null || true)
   case "$round" in
-    ''|*[!0-9]*) return 1 ;;
+    ''|*[!0-9]*) return 0 ;;
   esac
+  while [ "${#round}" -gt 1 ] && [ "${round#0}" != "$round" ]; do
+    round=${round#0}
+  done
+  [ "${#round}" -eq 1 ] || return 0
   [ "$round" -ge 3 ]
 }
 
 # fm_second_attempt_gate_reason <state-dir> <data-dir> <task-id> <meta-path> <trigger>
-# Prints one of: none, relaunch, replacement_spawn, nm_third_fix_round. Sets
-# FM_SECOND_ATTEMPT_GATE_REASON on match.
+# Prints nothing. Always sets FM_SECOND_ATTEMPT_GATE_REASON to exactly one of
+# none, relaunch, replacement_spawn, or nm_third_fix_round, and read the gate
+# only from that variable: a command substitution around this call captures an
+# empty string, which matches no label and would read as an inactive gate.
 fm_second_attempt_gate_reason() {
   local state=$1 data=$2 id=$3 meta=$4 trigger=$5 kind
   FM_SECOND_ATTEMPT_GATE_REASON=none
@@ -99,7 +111,8 @@ fm_second_attempt_gate_reason() {
 }
 
 # fm_second_attempt_refuse_if_needed <state-dir> <data-dir> <task-id> <meta-path> <trigger>
-# Exits 1 with a concrete refusal when the gate is active and the spec is absent.
+# Returns 1 after printing a concrete refusal to stderr when the gate is active
+# and the spec is absent; returns 0 otherwise. Callers own the exit.
 fm_second_attempt_refuse_if_needed() {
   local state=$1 data=$2 id=$3 meta=$4 trigger=$5
   local reason spec next
