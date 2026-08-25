@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Behavior tests for fm-spawn.sh's secondmate project-ownership guard on fresh
-# ship and scout spawns. Every case stops before any endpoint exists: the guard
-# runs ahead of backend creation, and a fake tmux that exits non-zero backstops
-# cases meant to get past it.
+# ship and scout spawns. Refusal cases stop before any endpoint exists. Cases
+# that must get PAST the guard prove it: the refusing fake backend announces its
+# window-creation attempt, which fm-spawn only reaches well after the guard, and
+# the override and relaunch cases drive a lifecycle-modelling backend all the way
+# to a published state/<id>.meta record.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -11,23 +13,78 @@ set -u
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-secondmate-ownership)
 
+# The refusing backend fails every request, but announces a window-creation
+# attempt on stderr. fm-spawn only asks a backend for a window long after the
+# ownership guard, so BACKEND_REACHED is a marker no pre-guard exit can print.
+BACKEND_REACHED="fake-backend: refusing to create a window"
+
+scaffold_secondmate_home() {  # <path>
+  local smhome=$1
+  mkdir -p "$smhome/state" "$smhome/bin" "$smhome/data"
+  printf '%s\n' 'fixture' > "$smhome/AGENTS.md"
+  printf '%s\n' design > "$smhome/.fm-secondmate-home"
+  printf '%s\n' 'You are a persistent second mate.' > "$smhome/data/charter.md"
+}
+
 make_home() {  # <name> [<secondmate-registry-line>...]
   local name=$1 home projects fakebin smhome
   shift
   home="$TMP_ROOT/$name/home"
   projects="$TMP_ROOT/$name/projects"
-  smhome="$TMP_ROOT/$name/secondmate-home"
+  smhome="$TMP_ROOT/$name/smhome"
   fakebin="$TMP_ROOT/$name/bin"
   mkdir -p "$home/data" "$home/state" "$home/config" "$projects/ownedproj" "$projects/freeproj" "$fakebin"
-  mkdir -p "$smhome/state" "$smhome/bin"
-  printf '%s\n' 'fixture' > "$smhome/AGENTS.md"
-  printf '%s\n' design > "$smhome/.fm-secondmate-home"
-  printf '#!/bin/sh\nexit 1\n' > "$fakebin/tmux"
+  scaffold_secondmate_home "$smhome"
+  cat > "$fakebin/tmux" <<SH
+#!/bin/sh
+case "\${1:-}" in
+  new-window) printf '%s\\n' "$BACKEND_REACHED" >&2 ;;
+esac
+exit 1
+SH
   chmod +x "$fakebin/tmux"
   if [ "$#" -gt 0 ]; then
     printf '%s\n' "$@" > "$home/data/secondmates.md"
   fi
   printf '%s\n' "$home|$projects|$fakebin|$smhome"
+}
+
+# A backend that models the pane lifecycle instead of refusing, so a spawn can
+# run to a published state/<id>.meta. Shaped after the stub in
+# tests/fm-control-relaunch.test.sh: FM_FAKE_DIR/command is the pane's current
+# command (the agent-liveness read a relaunch requires) and FM_FAKE_DIR/cwd is
+# the worktree treehouse is pretending to have entered.
+make_live_backend() {  # <dir> <worktree> <pane-command> [<existing-window>] -> echoes fakebin dir
+  local dir=$1 wt=$2 command=$3 window=${4:-}
+  local fb="$dir/fakebin" fake="$dir/fake"
+  mkdir -p "$fb" "$fake"
+  printf '%s' "$command" > "$fake/command"
+  printf '%s' "$wt" > "$fake/cwd"
+  : > "$fake/windows"
+  [ -z "$window" ] || printf '%s\n' "$window" > "$fake/windows"
+  cat > "$fb/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+D=$FM_FAKE_DIR
+case "${1:-}" in
+  new-window) printf 'fakewin1\n'; exit 0 ;;
+  display-message)
+    for a in "$@"; do
+      case "$a" in
+        *pane_current_command*) cat "$D/command"; printf '\n'; exit 0 ;;
+        *pane_current_path*) cat "$D/cwd"; printf '\n'; exit 0 ;;
+        *cursor_y*) printf '1\n'; exit 0 ;;
+      esac
+    done
+    printf 'firstmate\n'; exit 0 ;;
+  capture-pane) printf 'pane\n'; exit 0 ;;
+  list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$fb/tmux"
+  fm_fake_exit0 "$fb" treehouse
+  printf '%s\n' "$fb"
 }
 
 write_brief() {  # <home> <id> [<mode>]
@@ -45,7 +102,8 @@ run_spawn() {  # <home> <fakebin> <spawn-args...>
   FM_ROOT_OVERRIDE='' FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/projects-unused" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_BACKEND=tmux PATH="$fakebin:$PATH" \
+    FM_SPAWN_NO_GUARD=1 FM_BACKEND=tmux FM_FAKE_DIR="${FM_FAKE_DIR:-}" \
+    PATH="$fakebin:$PATH" \
     "$SPAWN" "$@" 2>&1
 }
 
@@ -81,41 +139,83 @@ EOF
 }
 
 test_secondmate_spawn_is_unaffected_by_the_ownership_guard() {
-  local rec home proj fakebin smhome out
-  line="- design - design domain (home: $TMP_ROOT/secondmate/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)"
+  local rec home proj fakebin smhome out line
+  # The home directory's basename is itself on the registry's projects list, so
+  # a guard that did not exempt --secondmate would refuse this very spawn.
+  smhome="$TMP_ROOT/secondmate/design"
+  line="- design - design domain (home: $smhome; scope: design domain; projects: design, ownedproj; added 2026-06-22)"
   rec=$(make_home secondmate "$line")
-  IFS='|' read -r home proj fakebin smhome <<EOF
+  IFS='|' read -r home proj fakebin _unused <<EOF
 $rec
 EOF
-  out=$(run_spawn "$home" "$fakebin" design "$smhome" --secondmate 2>&1)
+  scaffold_secondmate_home "$smhome"
+  out=$(run_spawn "$home" "$fakebin" design "$smhome" --secondmate)
+  assert_contains "$out" "$BACKEND_REACHED" "secondmate spawn never reached the backend, so it never reached the guard position"
   assert_not_contains "$out" "registered to secondmate" "secondmate spawn hit the crewmate ownership guard"
   assert_not_contains "$out" "--allow-primary-spawn bypasses" "secondmate spawn required the primary override"
   pass "fm-spawn: --secondmate spawns are unaffected by the ownership guard"
 }
 
 test_relaunch_is_unaffected_by_the_ownership_guard() {
-  local rec home proj fakebin smhome out status
-  line="- design - design domain (home: $TMP_ROOT/relaunch/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)"
-  rec=$(make_home relaunch "$line")
-  IFS='|' read -r home proj fakebin smhome <<EOF
-$rec
-EOF
-  mkdir -p "$home/worktrees/owned"
-  cat > "$home/state/own-relaunch-c1.meta" <<EOF
-window=fm-own-relaunch-c1
-endpoint_task_id=own-relaunch-c1
-worktree=$home/worktrees/owned
-project=$proj/ownedproj
-harness=claude
-kind=ship
-mode=no-mistakes
-yolo=off
-EOF
-  out=$(run_spawn "$home" "$fakebin" own-relaunch-c1 --relaunch claude)
-  status=$?
+  local dir home wt fakebin out line
+  dir="$TMP_ROOT/own-relaunch-c1"
+  home="$dir/home"
+  wt="$dir/wt"
+  mkdir -p "$home/data/own-relaunch-c1" "$home/state" "$home/config"
+  fm_git_worktree "$dir/ownedproj" "$wt" task-own-relaunch-c1
+  line="- design - design domain (home: $dir/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)"
+  printf '%s\n' "$line" > "$home/data/secondmates.md"
+  printf '# brief\n\nDo the thing.\n' > "$home/data/own-relaunch-c1/brief.md"
+  fakebin=$(make_live_backend "$dir" "$wt" zsh fm-own-relaunch-c1)
+  fm_write_meta "$home/state/own-relaunch-c1.meta" \
+    "window=firstmate:fm-own-relaunch-c1" \
+    "endpoint_task_id=own-relaunch-c1" \
+    "worktree=$wt" \
+    "project=$dir/ownedproj" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "tasktmp=/tmp/fm-own-relaunch-c1" \
+    "model=default" \
+    "effort=default"
+  FM_FAKE_DIR="$dir/fake"
+  out=$(run_spawn "$home" "$fakebin" own-relaunch-c1 --relaunch --harness claude)
   assert_not_contains "$out" "registered to secondmate" "relaunch hit the crewmate ownership guard"
-  [ "$status" -ne 0 ] || fail "relaunch should still fail later on the refusing fake backend"
-  pass "fm-spawn: --relaunch is unaffected by the ownership guard"
+  assert_contains "$out" "spawned own-relaunch-c1" "relaunch did not complete into its recorded endpoint"
+  assert_present "$home/state/own-relaunch-c1.meta" "relaunch did not keep the task record"
+  unset FM_FAKE_DIR
+  rm -rf /tmp/fm-own-relaunch-c1
+  pass "fm-spawn: --relaunch into a secondmate-owned project is unaffected by the ownership guard"
+}
+
+test_override_spawn_records_every_bypassed_owner_on_the_task_record() {
+  local dir home wt fakebin out status meta
+  dir="$TMP_ROOT/own-override-b2"
+  home="$dir/home"
+  wt="$dir/wt"
+  meta="$home/state/own-override-b2.meta"
+  mkdir -p "$home/data/own-override-b2" "$home/state" "$home/config"
+  fm_git_worktree "$dir/ownedproj" "$wt" task-own-override-b2
+  {
+    printf -- '- design - design domain (home: %s/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)\n' "$dir"
+    printf -- '- triage - triage domain (home: %s/smhome2; scope: triage; projects: ownedproj, other; added 2026-06-22)\n' "$dir"
+  } > "$home/data/secondmates.md"
+  printf '# brief\n\n# Definition of done\nDelivery contract: mode=no-mistakes\n' > "$home/data/own-override-b2/brief.md"
+  fakebin=$(make_live_backend "$dir" "$wt" claude)
+  FM_FAKE_DIR="$dir/fake"
+  out=$(run_spawn "$home" "$fakebin" own-override-b2 "$dir/ownedproj" claude \
+    --mode no-mistakes --yolo off --allow-primary-spawn)
+  status=$?
+  unset FM_FAKE_DIR
+  [ "$status" -eq 0 ] || fail "override spawn should complete"$'\n'"$out"
+  assert_contains "$out" "--allow-primary-spawn bypasses secondmate ownership" "override did not print a loud notice"
+  assert_present "$meta" "override spawn published no task record"
+  assert_grep 'primary_spawn_override=1' "$meta" "task record did not record the deliberate override"
+  assert_grep 'primary_spawn_override_owners=design,triage' "$meta" \
+    "task record did not name every bypassed owner"
+  rm -rf /tmp/fm-own-override-b2
+  pass "fm-spawn: a deliberate override records every bypassed owner on the task record"
 }
 
 test_unowned_project_or_missing_registry_spawns_past_the_guard() {
@@ -138,6 +238,24 @@ EOF
   assert_not_contains "$out" "registered to secondmate" "unowned spawn with a registry hit the ownership guard"
   assert_contains "$out" "not on any registered secondmate projects: list" "unowned spawn did not warn about registered scopes"
   pass "fm-spawn: unowned projects and missing registries pass the ownership guard"
+}
+
+test_project_less_secondmate_never_claims_ownership_through_its_scope_text() {
+  local rec home proj fakebin out status line
+  line="- design - design domain (home: $TMP_ROOT/projectless/smhome; scope: docs, freeproj, release notes; projects: ; added 2026-06-22)"
+  rec=$(make_home projectless "$line")
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  write_brief "$home" own-scope-h1 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" own-scope-h1 "$proj/freeproj" claude --mode no-mistakes --yolo off)
+  status=$?
+  assert_not_contains "$out" "registered to secondmate" "a project-less secondmate claimed ownership through its scope text"
+  assert_contains "$out" "$BACKEND_REACHED" "the spawn was stopped before the backend despite no ownership claim"
+  assert_contains "$out" "design (scope: docs, freeproj, release notes)" \
+    "the unowned-project warning dropped the scope it exists to surface"
+  [ "$status" -ne 0 ] || fail "the refusing fake backend should still fail the spawn"
+  pass "fm-spawn: a project-less secondmate's scope text is never an ownership claim"
 }
 
 test_unparseable_registry_entry_refuses_instead_of_voiding_ownership() {
@@ -200,7 +318,9 @@ test_fresh_spawn_into_owned_project_refuses_and_writes_no_meta
 test_allow_primary_spawn_override_passes_the_ownership_guard
 test_secondmate_spawn_is_unaffected_by_the_ownership_guard
 test_relaunch_is_unaffected_by_the_ownership_guard
+test_override_spawn_records_every_bypassed_owner_on_the_task_record
 test_unowned_project_or_missing_registry_spawns_past_the_guard
+test_project_less_secondmate_never_claims_ownership_through_its_scope_text
 test_unparseable_registry_entry_refuses_instead_of_voiding_ownership
 test_unreadable_registry_symlink_refuses_the_spawn
 test_batch_dispatch_carries_the_deliberate_override_to_every_pair

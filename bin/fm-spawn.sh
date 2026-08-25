@@ -1342,7 +1342,7 @@ spawn_secondmate_ownership_guard() {
   fi
   [ "$rc" -eq 0 ] || return 0
   scope_line=
-  while IFS=$'\t' read -r id projects scope; do
+  while IFS=$SECONDMATE_REGISTRY_FIELD_SEP read -r id projects scope; do
     [ -n "$id" ] || continue
     if secondmate_registry_projects_field_has "$projects" "$proj_name"; then
       owner_ids+=("$id")
