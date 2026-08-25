@@ -512,7 +512,7 @@ task_json_lines() {
   rows_file="$SNAPSHOT_TMPDIR/task-rows"
   snapshot_write "$rows_file" ""
 
-  for meta in "${META_PATHS[@]}"; do
+  for meta in ${META_PATHS[@]+"${META_PATHS[@]}"}; do
     id=$(basename "$meta" .meta)
     kind=$(meta_value "$meta" kind)
     [ -n "$kind" ] || kind=ship
@@ -1626,7 +1626,7 @@ else
   shopt -s nullglob dotglob
   META_PATHS=("$STATE"/*.meta)
   shopt -u nullglob dotglob
-  for meta in "${META_PATHS[@]}"; do
+  for meta in ${META_PATHS[@]+"${META_PATHS[@]}"}; do
     id=$(basename "$meta" .meta)
     if [ -L "$meta" ] || [ ! -f "$meta" ] || [ ! -r "$meta" ] ||
        ! fm_task_id_creation_valid "$id"; then
