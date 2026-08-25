@@ -183,7 +183,7 @@ Without this launcher, reconcile would silently fail to start a runner on macOS 
 ## Scope
 
 The runner is domain-neutral and creates no endpoint, task metadata, or backlog item, so the supported primary harnesses and runtime backends are unaffected except through the existing `check` and status-signal wake paths they already consume.
-Adapters extend the runner through `bin/fm-procevent-<adapter>.sh`; the `when` adapter also uses the runner library's locked registration publisher so its private trust state and source registration are serialized under one source boundary.
+Adapters extend the runner through `bin/fm-procevent-<adapter>.sh`; the `when` adapter enters the runner library's shared locked arm seam so its private trust state and source registration are serialized under one source boundary.
 An adapter's `terminal` command is optional and defaults to keeping the source armed.
 Its `autohandle` command is optional in the same way and defaults to leaving the captured result unacknowledged, so it keeps being announced to a handler exactly as before.
 The optional `self-announcing` declaration changes ordering only for an adapter with its own durable downstream announcement; the operating contract in `docs/configuration.md` owns that boundary.
