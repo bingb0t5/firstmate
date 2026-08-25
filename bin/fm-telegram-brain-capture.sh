@@ -32,10 +32,14 @@
 # A refusal already scoped to one update_id fails that line, keeps walking, and
 # exits non-zero without acking: a receipt whose content disagrees with the
 # payload, or a brain that rejects this one message with a 4xx other than 401,
-# 403, or 429.
-# Only a systemic failure stops the batch: a transport failure, HTTP 5xx, 429,
-# 401 or 403, an unusable credential or config, or a receipt store this home
-# cannot use.
+# 403, 404, 405, or 429.
+# Every such refusal names its update_id first, as `error: <update_id> <reason>`,
+# so the failing payload stays attributable when the batch walks past it.
+# Only a systemic failure stops the batch: a transport failure, any 3xx or 5xx,
+# HTTP 429, 401, 403, 404 or 405, an unusable credential or config, or a receipt
+# store this home cannot use.
+# 404 and 405 say the configured origin has no capture endpoint, which is true
+# of every payload, so they stop rather than blaming one message.
 # A stop prints `unattempted <count>`, counting the payloads behind it that
 # would have been posted, not the input lines it stopped reading.
 # One brain outage therefore costs one timeout rather than one per payload, and
@@ -62,7 +66,9 @@
 # GROUP DISCUSSION.
 # Captain direct messages are captured by default.
 # Group discussion means a Telegram group, supergroup, or channel, which is
-# exactly a negative chat_id.
+# exactly a negative chat_id, other than the captain chat itself.
+# A configured captain chat is always captured as `firstmate-telegram`, even
+# when its id is negative because the captain channel is a group.
 # A private chat that is not the captain's is never captured, on or off flag.
 # Group discussion is off until config/telegram-brain-capture-group contains the
 # bare word `on`, or FM_TELEGRAM_BRAIN_CAPTURE_GROUP=on for one run.
@@ -92,6 +98,9 @@
 # Files are opened without following symlinks.
 # The brain token reaches curl only through stdin config and never appears in
 # argv, receipts, or printed output.
+# curl runs with -q so no ambient .curlrc can change the wire, and redirects are
+# never followed, so the token is only ever offered to the configured origin.
+# A capture succeeds on any 2xx whose body carries a usable capture_id.
 #
 # RECEIPTS.
 # Successful writes are recorded under state/telegram-brain-capture/<update_id>

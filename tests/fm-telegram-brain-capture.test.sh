@@ -607,6 +607,59 @@ assert_present "$reject/state/telegram-brain-capture/9922" \
   "a payload-scoped rejection blocked a later payload"
 pass "a 4xx confined to one message fails its line, keeps walking, and exits non-zero"
 
+# --- an endpoint-level 404 is systemic and stops the batch ------------------
+gone=$(make_home http-gone)
+gone_bin=$(make_fake_curl "$gone")
+FAKE_CURL_LOG="$gone/curl.log"
+FAKE_CAPTURE_CODE=404
+{
+  payload 9950 "no endpoint here"
+  payload 9951 "a later thought"
+  payload 9952 "a last thought"
+} > "$gone/batch.jsonl"
+if run_capture "$gone" "$gone_bin" capture - < "$gone/batch.jsonl" \
+  >"$gone/out" 2>"$gone/err"; then
+  fail "a missing capture endpoint must stay fail-closed"
+fi
+FAKE_CAPTURE_CODE=
+assert_grep "HTTP 404" "$gone/err" "the missing endpoint was not reported"
+assert_grep "unattempted 2" "$gone/out" "an endpoint-level 404 was blamed on one message"
+gone_posts=$(grep -c '^url=' "$gone/curl.log")
+expect_code 1 "$gone_posts" "a missing endpoint kept POSTing the rest of the batch"
+pass "an endpoint-level 404 stops the batch instead of blaming one message"
+
+# --- a 2xx other than 200 is a successful capture ---------------------------
+created=$(make_home http-created)
+created_bin=$(make_fake_curl "$created")
+FAKE_CURL_LOG="$created/curl.log"
+FAKE_CAPTURE_CODE=201
+out=$(payload 9960 "accepted for creation" | run_capture "$created" "$created_bin" capture -)
+expect_code 0 $? "a 201 carrying a capture_id should succeed"
+FAKE_CAPTURE_CODE=
+assert_contains "$out" "captured 9960 cap-1" "a 201 was not read as a successful capture"
+assert_present "$created/state/telegram-brain-capture/9960" "a 201 wrote no receipt"
+pass "any 2xx carrying a usable capture_id is a successful capture"
+
+# --- a per-line refusal names the payload that failed -----------------------
+named=$(make_home named-refusal)
+named_bin=$(make_fake_curl "$named")
+FAKE_CURL_LOG="$named/curl.log"
+out=$(payload 9970 "the first thought" | run_capture "$named" "$named_bin" capture -)
+expect_code 0 $? "the original capture should succeed"
+chmod 644 "$named/state/telegram-brain-capture/9970"
+{
+  payload 9970 "the first thought"
+  payload 9971 "a later thought"
+} > "$named/batch.jsonl"
+if run_capture "$named" "$named_bin" capture - < "$named/batch.jsonl" \
+  >"$named/out" 2>"$named/err"; then
+  fail "an unusable receipt must stay fail-closed"
+fi
+assert_grep "error: 9970 receipt mode is not 600" "$named/err" \
+  "the refusal did not name the payload the documented recovery needs"
+assert_grep "captured 9971" "$named/out" "a named refusal blocked a later payload"
+pass "a per-line refusal names the update_id an operator must recover"
+
 # --- a credential-systemic 401 still stops the batch ------------------------
 denied=$(make_home http-denied)
 denied_bin=$(make_fake_curl "$denied")
