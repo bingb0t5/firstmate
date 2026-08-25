@@ -26,15 +26,6 @@ export PATH="$FAKEBIN:$PATH"
 cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
 set -u
-out=
-i=1
-args=("$@")
-while [ "$i" -le "$#" ]; do
-  if [ "${args[$((i - 1))]}" = -o ]; then
-    out=${args[$i]}
-  fi
-  i=$((i + 1))
-done
 config=$(cat)
 if [ -n "${CURL_STUB_CALL_LOG:-}" ]; then
   printf '%s\n' "$config" >> "$CURL_STUB_CALL_LOG"
@@ -42,10 +33,16 @@ fi
 if [ -n "${CURL_STUB_CAPTURE:-}" ]; then
   printf '%s\n' "$config" > "$CURL_STUB_CAPTURE"
 fi
-if [ -n "$out" ] && [ -n "${CURL_STUB_BODY:-}" ]; then
-  cp "$CURL_STUB_BODY" "$out"
+if [ -n "${CURL_STUB_BULK_BYTES:-}" ]; then
+  head -c "$CURL_STUB_BULK_BYTES" /dev/zero | tr '\0' 'x'
+elif [ -n "${CURL_STUB_BODY:-}" ]; then
+  cat "$CURL_STUB_BODY"
 fi
-printf '%s' "${CURL_STUB_HTTP:-200}"
+case "${CURL_STUB_TRAILER:-full}" in
+  full)    printf '\n%s' "${CURL_STUB_HTTP:-200}" ;;
+  partial) printf '\n%s' "$(printf '%s' "${CURL_STUB_HTTP:-200}" | cut -c1-2)" ;;
+  absent)  ;;
+esac
 exit "${CURL_STUB_EXIT:-0}"
 SH
 chmod +x "$FAKEBIN/curl"
@@ -388,14 +385,20 @@ arm_unsafe_status=0
 arm_unsafe_out=$(FM_HOME="$H_ARM_CRASH" FM_TELEGRAM_ENV_FILE="$ARM_CRASH_ENV" \
   "$ADAPTER" arm 2>&1) || arm_unsafe_status=$?
 [ "$arm_unsafe_status" -ne 0 ] || fail "arm accepted ambiguous database staging"
-assert_contains "$arm_unsafe_out" "inspect and remove it manually" \
-  "ambiguous staging did not refuse arm actionably"
+assert_contains "$arm_unsafe_out" "inspect and remove it manually, then rerun arm" \
+  "ambiguous staging during arm told the operator to rerun the wrong command"
+case "$arm_unsafe_out" in
+  *"rerun migrate"*) fail "arm suggested consuming the one-time migration cutover" ;;
+esac
 assert_absent "$H_ARM_CRASH/state/telegram/channel.db" \
   "a refused arm still created state"
 assert_present "$H_ARM_CRASH/state/telegram/.channel.db.stray" \
   "a refused arm swept the ambiguous leftover by name"
-assert_absent "$H_ARM_CRASH/state/procevent/telegram" \
-  "a refused arm still registered the source"
+assert_absent "$H_ARM_CRASH/state/procevent/telegram.source" \
+  "a refused arm still published a source registration record"
+case "$(FM_HOME="$H_ARM_CRASH" "$ROOT/bin/fm-procevent.sh" list 2>&1)" in
+  *telegram*) fail "a refused arm still registered the source" ;;
+esac
 pass "an interrupted fresh arm reconciles its own staging and refuses ambiguous leftovers"
 
 # --- stable message notice, identity, acknowledgement, and secrecy -----------
@@ -817,66 +820,93 @@ assert_no_curl "real runner called Telegram from malformed local state"
 FM_HOME="$H_E2E_BLOCK" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null
 pass "the real runner durably announces internal corruption and keeps the source permanent"
 
-# --- raw poll response bodies are private, owned, and reaped ---
-H_POLL_TEMP="$TMP_ROOT/poll-response-leftover"
-POLL_TEMP_ENV="$TMP_ROOT/poll-response-leftover.env"
-arm_home "$H_POLL_TEMP" "$POLL_TEMP_ENV"
-DEAD_PID=$(python3 -c 'import os; pid = os.fork()
-if pid == 0:
-    os._exit(0)
-os.waitpid(pid, 0)
-print(pid)')
-DEAD_BODY="$H_POLL_TEMP/state/telegram/.poll-response.$DEAD_PID.cccccccccccccccccccccccccccccccc"
-REUSED_BODY="$H_POLL_TEMP/state/telegram/.poll-response.$$.dddddddddddddddddddddddddddddddd"
-printf '{"ok":true,"result":[{"update_id":7,"message":{"text":"%s"}}]}\n' \
-  "$CAPTAIN_SECRET_TEXT" > "$DEAD_BODY"
-chmod 600 "$DEAD_BODY"
-printf '{"ok":true,"result":[{"update_id":8,"message":{"text":"%s"}}]}\n' \
-  "$CAPTAIN_SECRET_TEXT" > "$REUSED_BODY"
-chmod 600 "$REUSED_BODY"
-clear_curl_calls
-poll_temp_out=$(poll_once "$H_POLL_TEMP" "$POLL_TEMP_ENV" "$FIXTURES/one-text.json")
-assert_contains "$poll_temp_out" "message: 1" \
-  "reaping stale poll bodies broke the ordinary message path"
-assert_absent "$DEAD_BODY" "a poll body left by a dead generation was never reaped"
-assert_absent "$REUSED_BODY" \
-  "a poll body whose recorded pid was reused by a live process survived the reap"
-assert_equal "$(find "$H_POLL_TEMP/state/telegram" -maxdepth 1 -name '.poll-response.*' \
-  | wc -l | tr -d ' ')" 0 \
-  "the completed poll left a response body behind"
-assert_equal "$(db_query "$H_POLL_TEMP" "SELECT committed_offset FROM meta")" 1002 \
-  "reaping stale poll bodies disturbed the committed offset"
-SHORT_CIRCUIT_BODY="$H_POLL_TEMP/state/telegram/.poll-response.$DEAD_PID.ffffffffffffffffffffffffffffffff"
-printf '{"ok":true,"result":[{"update_id":9,"message":{"text":"%s"}}]}\n' \
-  "$CAPTAIN_SECRET_TEXT" > "$SHORT_CIRCUIT_BODY"
-chmod 600 "$SHORT_CIRCUIT_BODY"
-clear_curl_calls
-short_circuit_out=$(poll_once "$H_POLL_TEMP" "$POLL_TEMP_ENV" "$FIXTURES/next-text.json")
-assert_equal "$short_circuit_out" "$poll_temp_out" \
-  "the unacknowledged notice was not re-announced unchanged"
-assert_no_curl "a poll holding an unacknowledged notice still reached Telegram"
-assert_absent "$SHORT_CIRCUIT_BODY" \
-  "a poll that short-circuits before the request never reaped the stale response body"
-pass "every poll reaps orphaned response bodies without depending on pid liveness"
+# --- the raw response never touches the filesystem and its framing is exact ---
+telegram_dir_entries() {
+  find "$1/state/telegram" -mindepth 1 -maxdepth 1 | sed "s|.*/||" | LC_ALL=C sort | tr '\n' ' '
+}
 
-H_POLL_UNSAFE="$TMP_ROOT/poll-response-unsafe"
-POLL_UNSAFE_ENV="$TMP_ROOT/poll-response-unsafe.env"
-arm_home "$H_POLL_UNSAFE" "$POLL_UNSAFE_ENV"
-ln -s "$H_POLL_UNSAFE/state" \
-  "$H_POLL_UNSAFE/state/telegram/.poll-response.1.eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-clear_curl_calls
-unsafe_first=$(poll_once "$H_POLL_UNSAFE" "$POLL_UNSAFE_ENV" "$FIXTURES/one-text.json")
-unsafe_second=$(poll_once "$H_POLL_UNSAFE" "$POLL_UNSAFE_ENV" "$FIXTURES/one-text.json")
-assert_contains "$unsafe_first" "blocked: local-state fingerprint=" \
-  "an unsafe poll response leftover did not announce a blocked result"
-assert_equal "$unsafe_second" "$unsafe_first" \
-  "an unsafe poll response leftover did not produce a stable fingerprint"
-assert_no_curl "an unsafe poll response leftover still reached Telegram"
-assert_equal "$(db_query "$H_POLL_UNSAFE" "SELECT committed_offset FROM meta")" 0 \
-  "an unsafe poll response leftover advanced the committed offset"
-assert_present "$H_POLL_UNSAFE/state/telegram/.poll-response.1.eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" \
-  "an unsafe poll response leftover was swept by name"
-pass "an unsafe poll response leftover blocks the channel instead of being swept"
+fixture trailer-bait \
+  '{"ok":true,"result":[{"update_id":1001,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"bait"}}]}'
+printf '{"ok":true,"result":[{"update_id":1001,"message":{"date":\n200\n,"chat":{"id":555},"from":{"id":909},"text":"embedded trailer bytes"}}]}\n' \
+  > "$FIXTURES/embedded-trailer.json"
+printf '{"ok":true,"result":[]}\n200' > "$FIXTURES/bait-tail.json"
+
+H_FRAME="$TMP_ROOT/response-framing"
+FRAME_ENV="$TMP_ROOT/response-framing.env"
+arm_home "$H_FRAME" "$FRAME_ENV"
+frame_ok=$(poll_once "$H_FRAME" "$FRAME_ENV" "$FIXTURES/embedded-trailer.json")
+assert_contains "$frame_ok" "message: 1" \
+  "a body carrying trailer-like bytes was not framed correctly"
+write_result "$frame_ok"
+assert_contains "$(FM_HOME="$H_FRAME" "$ADAPTER" messages "$RESULT_FILE")" \
+  "embedded trailer bytes" "the framed body was truncated at its embedded trailer bytes"
+FM_HOME="$H_FRAME" "$ADAPTER" ack "$RESULT_FILE" >/dev/null
+assert_equal "$(db_query "$H_FRAME" "SELECT committed_offset FROM meta")" 1002 \
+  "a correctly framed body did not advance the committed offset"
+assert_equal "$(telegram_dir_entries "$H_FRAME")" "channel.db " \
+  "a completed poll left response state on the filesystem"
+pass "a response body carrying trailer-like bytes is framed by its exact status suffix"
+
+H_BAIT="$TMP_ROOT/response-bait"
+BAIT_ENV="$TMP_ROOT/response-bait.env"
+arm_home "$H_BAIT" "$BAIT_ENV"
+bait_out=$(CURL_STUB_HTTP=409 poll_once "$H_BAIT" "$BAIT_ENV" "$FIXTURES/bait-tail.json" 409)
+assert_contains "$bait_out" "blocked: api-blocked 409" \
+  "a body ending in trailer-like bytes was split at the wrong suffix"
+assert_equal "$(db_query "$H_BAIT" "SELECT committed_offset FROM meta")" 0 \
+  "a misframed response advanced the committed offset"
+pass "only the exact final status suffix frames the response, never body content"
+
+framing_failure_case() {
+  local case_name=$1 home="$TMP_ROOT/frame-$1" env_file="$TMP_ROOT/frame-$1.env"
+  arm_home "$home" "$env_file"
+  local status=0 out
+  case "$case_name" in
+    absent-trailer)
+      out=$(CURL_STUB_TRAILER=absent poll_once "$home" "$env_file" \
+        "$FIXTURES/one-text.json") || status=$? ;;
+    partial-trailer)
+      out=$(CURL_STUB_TRAILER=partial poll_once "$home" "$env_file" \
+        "$FIXTURES/one-text.json") || status=$? ;;
+    nonzero-curl)
+      out=$(CURL_STUB_EXIT=7 poll_once "$home" "$env_file" \
+        "$FIXTURES/one-text.json") || status=$? ;;
+    empty-transfer)
+      out=$(CURL_STUB_TRAILER=absent poll_once "$home" "$env_file" \
+        "$FIXTURES/empty-file") || status=$? ;;
+  esac
+  [ "$status" -ne 0 ] || fail "$case_name was accepted as a framed response"
+  assert_equal "$out" "" "$case_name announced a result instead of staying silent"
+  assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 0 \
+    "$case_name advanced the committed offset"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM messages")" 0 \
+    "$case_name committed a message"
+  assert_equal "$(db_query "$home" "SELECT consecutive_failures FROM meta")" 1 \
+    "$case_name was not counted as one transport failure"
+  assert_equal "$(telegram_dir_entries "$home")" "channel.db " \
+    "$case_name left response state on the filesystem"
+}
+
+: > "$FIXTURES/empty-file"
+for frame_case in absent-trailer partial-trailer nonzero-curl empty-transfer; do
+  framing_failure_case "$frame_case"
+done
+pass "an absent, partial, or interrupted status frame is a transport failure, never a batch"
+
+H_OVERSIZE="$TMP_ROOT/response-oversize"
+OVERSIZE_ENV="$TMP_ROOT/response-oversize.env"
+arm_home "$H_OVERSIZE" "$OVERSIZE_ENV"
+oversize_out=$(CURL_STUB_BULK_BYTES=$((8 * 1024 * 1024 + 1)) \
+  FM_HOME="$H_OVERSIZE" FM_TELEGRAM_ENV_FILE="$OVERSIZE_ENV" "$ADAPTER" poll)
+assert_contains "$oversize_out" "blocked: protocol-blocked response-too-large" \
+  "an oversized response did not announce a bounded protocol block"
+assert_equal "$(db_query "$H_OVERSIZE" "SELECT committed_offset FROM meta")" 0 \
+  "an oversized response advanced the committed offset"
+assert_equal "$(db_query "$H_OVERSIZE" "SELECT count(*) FROM messages")" 0 \
+  "an oversized response committed a message"
+assert_equal "$(telegram_dir_entries "$H_OVERSIZE")" "channel.db " \
+  "an oversized response left response state on the filesystem"
+pass "an oversized response is bounded, blocked, and leaves no response state"
 
 # --- offline migration archives everything and never guesses ----------------
 H_LEGACY_REFUSE="$TMP_ROOT/legacy-refuse"
@@ -1275,8 +1305,8 @@ leftover_refusal_case() {
   local status=0 out
   out=$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate 2>&1) || status=$?
   [ "$status" -ne 0 ] || fail "$case_name leftover did not refuse migration"
-  assert_contains "$out" "inspect and remove it manually" \
-    "$case_name leftover was not refused actionably"
+  assert_contains "$out" "inspect and remove it manually, then rerun migrate" \
+    "$case_name leftover was not refused actionably for the running command"
   assert_contains "$out" "$expected_reason" \
     "$case_name leftover was refused by a check other than the one it exercises"
   if [ "$case_name" != archive-parent-mode ] \
@@ -1632,6 +1662,46 @@ assert_contains "$(doctor_cause "$H_SPARSE_PENDING")" \
 assert_equal "$(db_query "$H_SPARSE_PENDING" "SELECT committed_offset FROM meta")" 0 \
   "a blocked sparse-pending cutover guessed an offset"
 pass "a legacy row still awaiting delivery must carry coherent identity or block the cutover"
+
+pending_date_case() {
+  local case_name=$1 payload=$2 expect=$3
+  local home="$TMP_ROOT/pending-date-$1" env_file="$TMP_ROOT/pending-date-$1.env"
+  new_home "$home"
+  write_env_file "$env_file" "$TOKEN"
+  printf '1000\n' > "$home/state/.telegram-offset"
+  mkdir -p "$home/state/.telegram-delivery-receipts"
+  printf '%s\n' "$payload" > "$home/state/.telegram-delivery-receipts/1500.json"
+  local status=0 out
+  out=$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate 2>&1) || status=$?
+  if [ "$expect" = migrated ]; then
+    [ "$status" -eq 0 ] || fail "$case_name refused a coherent undelivered payload: $out"
+    assert_contains "$out" "migrated: archive=" "$case_name did not complete the cutover"
+    assert_equal "$(db_query "$home" \
+      "SELECT count(*) FROM messages WHERE payload LIKE '%\"date\":1700000000%'")" 1 \
+      "$case_name did not import the exact legacy date"
+    return
+  fi
+  [ "$status" -ne 0 ] || fail "$case_name migrated an incoherent undelivered date"
+  assert_contains "$out" "blocked: migration-ambiguous" \
+    "$case_name did not block the cutover"
+  assert_contains "$(doctor_cause "$home")" "coherent integer date" \
+    "$case_name did not name the incoherent date as its cause"
+  assert_present "$home/state/$(db_query "$home" "SELECT migration_archive FROM meta")/manifest.json" \
+    "$case_name blocked without archiving the legacy evidence"
+  assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 0 \
+    "$case_name guessed an offset"
+}
+
+pending_date_case exact-date \
+  '{"update_id":1500,"date":1700000000,"chat_id":555,"from_id":909,"text":"hi"}' migrated
+pending_date_case missing-date '{"update_id":1500,"chat_id":555,"from_id":909,"text":"hi"}' blocked
+pending_date_case null-date \
+  '{"update_id":1500,"date":null,"chat_id":555,"from_id":909,"text":"hi"}' blocked
+pending_date_case boolean-date \
+  '{"update_id":1500,"date":true,"chat_id":555,"from_id":909,"text":"hi"}' blocked
+pending_date_case string-date \
+  '{"update_id":1500,"date":"1700000000","chat_id":555,"from_id":909,"text":"hi"}' blocked
+pass "an undelivered legacy payload needs an exact integer date or the cutover blocks"
 
 tombstone_identity_case() {
   local case_name=$1 payload=$2

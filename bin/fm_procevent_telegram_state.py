@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import re
+import select
 import shlex
 import shutil
 import sqlite3
@@ -75,9 +76,8 @@ DATABASE_TEMP_GLOB = ".channel.db.*"
 DATABASE_TEMP_RE = re.compile(r"^\.channel\.db\.[0-9]+\.[0-9a-f]{32}$")
 DATABASE_STAGING_SCHEMA = "fm-telegram-database-staging.v1"
 DATABASE_JOURNAL_SUFFIX = "-journal"
-POLL_RESPONSE_PREFIX = ".poll-response."
-POLL_RESPONSE_GLOB = ".poll-response.*"
-POLL_RESPONSE_RE = re.compile(r"^\.poll-response\.([0-9]+)\.[0-9a-f]{32}$")
+STATUS_TRAILER_BYTES = 4
+STATUS_TRAILER_RE = re.compile(rb"\n[0-9]{3}")
 ARCHIVE_ENTRY_TYPES = ("file", "directory", "symlink", "other")
 NOTICE_TOKEN_RE = re.compile(
     r"^(?P<state>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
@@ -924,74 +924,98 @@ def poll_configuration() -> Tuple[int, int, int]:
     return timeout, curl_max, budget
 
 
-def reap_poll_responses(telegram_dir: Path) -> None:
-    for path in sorted(telegram_dir.glob(POLL_RESPONSE_GLOB)):
-        if path.is_symlink() or not path.is_file():
-            raise LocalStateError("poll-response-unsafe", path.name)
-        if POLL_RESPONSE_RE.fullmatch(path.name) is None:
-            raise LocalStateError("poll-response-unknown", path.name)
-        if stat.S_IMODE(path.lstat().st_mode) != 0o600:
-            raise LocalStateError("poll-response-mode", path.name)
-        unlink_quietly(path)
+def read_bounded_stream(
+    stream: object, limit: int, deadline: float
+) -> Tuple[bytes, bytes, int, bool, bool]:
+    chunks: List[bytes] = []
+    tail = b""
+    total = 0
+    overflow = False
+    descriptor = stream.fileno()
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return b"".join(chunks), tail, total, overflow, True
+        try:
+            ready, _, _ = select.select([descriptor], [], [], min(remaining, 1.0))
+        except OSError:
+            return b"".join(chunks), tail, total, overflow, True
+        if not ready:
+            continue
+        try:
+            chunk = os.read(descriptor, 65536)
+        except OSError:
+            return b"".join(chunks), tail, total, overflow, True
+        if not chunk:
+            return b"".join(chunks), tail, total, overflow, False
+        total += len(chunk)
+        tail = (tail + chunk)[-STATUS_TRAILER_BYTES:]
+        if overflow or total > limit:
+            overflow = True
+            chunks = []
+            continue
+        chunks.append(chunk)
 
 
 def run_curl(
     state: Path, credentials: Credentials, offset: int, timeout: int, curl_max: int
 ) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
-    telegram_dir = ensure_telegram_directory(state, create=False)
-    body_path = telegram_dir / (
-        "%s%d.%s" % (POLL_RESPONSE_PREFIX, os.getpid(), uuid.uuid4().hex)
-    )
-    fd = os.open(str(body_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    os.close(fd)
+    ensure_telegram_directory(state, create=False)
     config = (
         'url = "https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=%d"\n'
         % (credentials.token, offset, timeout)
     )
     try:
+        process = subprocess.Popen(
+            [
+                "curl",
+                "-s",
+                "-w",
+                "\\n%{http_code}",
+                "--max-time",
+                str(curl_max),
+                "-K",
+                "-",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return None, None, "transport"
+    deadline = time.monotonic() + curl_max + 5
+    try:
         try:
-            completed = subprocess.run(
-                [
-                    "curl",
-                    "-s",
-                    "-o",
-                    str(body_path),
-                    "-w",
-                    "%{http_code}",
-                    "--max-time",
-                    str(curl_max),
-                    "-K",
-                    "-",
-                ],
-                input=config.encode("utf-8"),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                timeout=curl_max + 5,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            return None, None, "transport"
-        if completed.returncode != 0:
-            return None, None, "transport"
-        try:
-            status_text = completed.stdout.decode("ascii").strip()
-        except UnicodeDecodeError:
-            return None, None, "transport"
-        if not re.fullmatch(r"[0-9]{3}", status_text):
-            return None, None, "transport"
-        try:
-            size = body_path.stat().st_size
-            if size > MAX_RESPONSE_BYTES:
-                return int(status_text), None, "response-too-large"
-            body = body_path.read_bytes()
+            process.stdin.write(config.encode("utf-8"))
+            process.stdin.close()
         except OSError:
             return None, None, "transport"
-        return int(status_text), body, None
+        captured, tail, total, overflow, timed_out = read_bounded_stream(
+            process.stdout, MAX_RESPONSE_BYTES + STATUS_TRAILER_BYTES, deadline
+        )
+        if timed_out:
+            return None, None, "transport"
+        try:
+            returncode = process.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            return None, None, "transport"
+        if returncode != 0:
+            return None, None, "transport"
+        if total < STATUS_TRAILER_BYTES or STATUS_TRAILER_RE.fullmatch(tail) is None:
+            return None, None, "transport"
+        status = int(tail[1:])
+        if overflow or total - STATUS_TRAILER_BYTES > MAX_RESPONSE_BYTES:
+            return status, None, "response-too-large"
+        return status, captured[: total - STATUS_TRAILER_BYTES], None
     finally:
-        try:
-            body_path.unlink()
-        except OSError:
-            pass
+        if process.poll() is None:
+            process.kill()
+        for handle in (process.stdin, process.stdout):
+            try:
+                handle.close()
+            except OSError:
+                pass
+        process.wait()
 
 
 def canonical_message(
@@ -1181,7 +1205,6 @@ def announce(conn: sqlite3.Connection, notice_id: Optional[int]) -> int:
 def command_poll(state: Path, credential_path: Path) -> int:
     conn = connect_existing(state)
     try:
-        reap_poll_responses(ensure_telegram_directory(state, create=False))
         pending = pending_notice(conn)
         if pending is not None:
             return emit_notice(conn, pending)
@@ -1439,7 +1462,7 @@ def command_arm_state(state: Path) -> int:
         raise UserError(
             "legacy Telegram state exists; run fm-procevent-telegram.sh migrate before arm"
         )
-    reconcile_database_staging(state)
+    reconcile_database_staging(state, "arm")
     conn = create_store(state, "fresh", None, None)
     conn.close()
     print("state: initialized")
@@ -1544,28 +1567,28 @@ def marked_schema(path: Path) -> Optional[str]:
     return schema if isinstance(schema, str) else None
 
 
-def refuse_leftover(name: str, reason: str) -> None:
+def refuse_leftover(command: str, name: str, reason: str) -> None:
     raise UserError(
-        "Telegram migration leftover %s %s; inspect and remove it manually before "
-        "rerunning migrate" % (name, reason)
+        "Telegram state leftover %s %s; inspect and remove it manually, then rerun %s"
+        % (name, reason, command)
     )
 
 
-def refuse_unsafe_telegram_directory(state: Path) -> bool:
+def refuse_unsafe_telegram_directory(state: Path, command: str) -> bool:
     telegram_dir, _ = state_paths(state)
     if telegram_dir.is_symlink() or (telegram_dir.exists() and not telegram_dir.is_dir()):
-        refuse_leftover("telegram", "is not a private state directory")
+        refuse_leftover(command, "telegram", "is not a private state directory")
     if not telegram_dir.exists():
         return False
     mode = stat.S_IMODE(telegram_dir.lstat().st_mode)
     if mode != 0o700:
-        refuse_leftover("telegram", "has an unexpected mode %o" % mode)
+        refuse_leftover(command, "telegram", "has an unexpected mode %o" % mode)
     return True
 
 
-def reconcile_database_staging(state: Path) -> None:
+def reconcile_database_staging(state: Path, command: str) -> None:
     telegram_dir, _ = state_paths(state)
-    if not refuse_unsafe_telegram_directory(state):
+    if not refuse_unsafe_telegram_directory(state, command):
         return
     entries = sorted(telegram_dir.glob(DATABASE_TEMP_GLOB))
     reaped = set()
@@ -1576,13 +1599,19 @@ def reconcile_database_staging(state: Path) -> None:
         if path.name.endswith(DATABASE_JOURNAL_SUFFIX):
             continue
         if path.is_symlink() or not path.is_file():
-            refuse_leftover(name, "is not a private database staging file")
+            refuse_leftover(command, name, "is not a private database staging file")
         if not DATABASE_TEMP_RE.fullmatch(path.name):
-            refuse_leftover(name, "does not carry this migrator's database staging name")
+            refuse_leftover(
+                command, name, "does not carry this migrator's database staging name"
+            )
         if stat.S_IMODE(path.lstat().st_mode) != 0o600:
-            refuse_leftover(name, "is not a private mode-0600 database staging file")
+            refuse_leftover(
+                command, name, "is not a private mode-0600 database staging file"
+            )
         if marked_schema(staging_marker_path(path)) != DATABASE_STAGING_SCHEMA:
-            refuse_leftover(name, "has no valid private database staging ownership marker")
+            refuse_leftover(
+                command, name, "has no valid private database staging ownership marker"
+            )
         unlink_quietly(path)
         unlink_quietly(staging_marker_path(path))
         unlink_quietly(database_journal_path(path))
@@ -1593,10 +1622,14 @@ def reconcile_database_staging(state: Path) -> None:
             if not path.exists() and not path.is_symlink():
                 continue
             if path.is_symlink() or not path.is_file():
-                refuse_leftover(name, "is not a private database staging ownership marker")
+                refuse_leftover(
+                    command, name, "is not a private database staging ownership marker"
+                )
             if marked_schema(path) != DATABASE_STAGING_SCHEMA:
                 refuse_leftover(
-                    name, "is not a valid private database staging ownership marker"
+                    command,
+                    name,
+                    "is not a valid private database staging ownership marker",
                 )
             unlink_quietly(path)
         elif path.name.endswith(DATABASE_JOURNAL_SUFFIX):
@@ -1604,62 +1637,74 @@ def reconcile_database_staging(state: Path) -> None:
             if base in reaped:
                 continue
             if path.is_symlink() or not path.is_file():
-                refuse_leftover(name, "is not a private database staging journal")
+                refuse_leftover(
+                    command, name, "is not a private database staging journal"
+                )
             if not DATABASE_TEMP_RE.fullmatch(base):
                 refuse_leftover(
-                    name, "does not carry this migrator's database staging name"
+                    command, name, "does not carry this migrator's database staging name"
                 )
             if stat.S_IMODE(path.lstat().st_mode) != 0o600:
                 refuse_leftover(
-                    name, "is not a private mode-0600 database staging journal"
+                    command, name, "is not a private mode-0600 database staging journal"
                 )
             unlink_quietly(path)
 
 
-def reconcile_migration_leftovers(state: Path) -> None:
+def reconcile_migration_leftovers(state: Path, command: str) -> None:
     for path in sorted(state.glob(STAGING_GLOB)):
         if path.name.endswith(STAGING_MARKER_SUFFIX):
             continue
         if path.is_symlink() or not path.is_dir():
-            refuse_leftover(path.name, "is not a private staging directory")
+            refuse_leftover(command, path.name, "is not a private staging directory")
         if not STAGING_NAME_RE.fullmatch(path.name):
-            refuse_leftover(path.name, "does not carry this migrator's staging name")
+            refuse_leftover(
+                command, path.name, "does not carry this migrator's staging name"
+            )
         if marked_schema(staging_marker_path(path)) != STAGING_SCHEMA:
-            refuse_leftover(path.name, "has no valid private staging ownership marker")
+            refuse_leftover(
+                command, path.name, "has no valid private staging ownership marker"
+            )
         remove_tree_forcibly(path)
         unlink_quietly(staging_marker_path(path))
     for path in sorted(state.glob(STAGING_GLOB)):
         if not path.name.endswith(STAGING_MARKER_SUFFIX):
             continue
         if path.is_symlink() or not path.is_file():
-            refuse_leftover(path.name, "is not a private staging ownership marker")
+            refuse_leftover(command, path.name, "is not a private staging ownership marker")
         if marked_schema(path) != STAGING_SCHEMA:
-            refuse_leftover(path.name, "is not a valid private staging ownership marker")
+            refuse_leftover(
+                command, path.name, "is not a valid private staging ownership marker"
+            )
         unlink_quietly(path)
-    reconcile_database_staging(state)
-    reconcile_orphan_archives(state)
+    reconcile_database_staging(state, command)
+    reconcile_orphan_archives(state, command)
 
 
-def reconcile_orphan_archives(state: Path) -> None:
+def reconcile_orphan_archives(state: Path, command: str) -> None:
     archive_parent = state / ARCHIVE_PARENT_NAME
     if archive_parent.is_symlink():
-        refuse_leftover(ARCHIVE_PARENT_NAME, "is a symlink rather than a directory")
+        refuse_leftover(
+            command, ARCHIVE_PARENT_NAME, "is a symlink rather than a directory"
+        )
     if not archive_parent.exists():
         return
     if not archive_parent.is_dir():
-        refuse_leftover(ARCHIVE_PARENT_NAME, "is not a directory")
+        refuse_leftover(command, ARCHIVE_PARENT_NAME, "is not a directory")
     mode = stat.S_IMODE(archive_parent.lstat().st_mode)
     if mode not in (0o500, 0o700):
-        refuse_leftover(ARCHIVE_PARENT_NAME, "has an unexpected mode %o" % mode)
+        refuse_leftover(
+            command, ARCHIVE_PARENT_NAME, "has an unexpected mode %o" % mode
+        )
     if mode != 0o700:
         os.chmod(archive_parent, 0o700)
     for entry in sorted(archive_parent.iterdir()):
         if entry.is_symlink() or not entry.is_dir():
-            refuse_leftover(entry.name, "is not a published archive directory")
+            refuse_leftover(command, entry.name, "is not a published archive directory")
         if not ARCHIVE_NAME_RE.fullmatch(entry.name):
-            refuse_leftover(entry.name, "does not carry a published archive name")
+            refuse_leftover(command, entry.name, "does not carry a published archive name")
         if marked_schema(entry / "manifest.json") != ARCHIVE_SCHEMA:
-            refuse_leftover(entry.name, "is not a complete manifest-bound archive")
+            refuse_leftover(command, entry.name, "is not a complete manifest-bound archive")
         remove_tree_forcibly(entry)
     prune_empty_archive_parent(state)
 
@@ -1911,9 +1956,9 @@ def parse_legacy_payload(path: Path, require_payload: bool) -> PlannedMessage:
             "legacy payload awaiting delivery has no coherent chat or sender identity: %s"
             % path
         )
-    if data.get("date") is not None and type(data.get("date")) is not int:
+    if type(data.get("date")) is not int:
         raise UserError(
-            "legacy payload awaiting delivery has no coherent date: %s" % path
+            "legacy payload awaiting delivery has no coherent integer date: %s" % path
         )
     canonical = json.dumps(
         {
@@ -2120,7 +2165,7 @@ def command_migrate(state: Path) -> int:
     if database.exists() or database.is_symlink():
         raise UserError("Telegram state database already exists; migration is single-use")
     refuse_unhandled_legacy_results(state)
-    reconcile_migration_leftovers(state)
+    reconcile_migration_leftovers(state, "migrate")
     paths = legacy_paths_present(state)
     try:
         archive = make_migration_archive(state, paths)

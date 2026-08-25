@@ -77,8 +77,12 @@
 # Its rollback journal is private, owned, and reaped from a positively
 # identified previous generation, by a fresh arm as well as by a rerun of
 # migrate.
-# Every poll reaps any previously staged raw response body before doing anything
-# else, so no termination leaves captain bytes outside the store.
+# A poll never stages the raw response on disk: curl streams it to a bounded
+# in-memory buffer whose exact final newline-plus-three-digit suffix is the only
+# status frame accepted, so no termination can leave captain bytes outside the
+# store.
+# An absent, partial, or interrupted frame is one transport failure and never a
+# batch.
 #
 # TRANSACTION AND VALIDATION.
 # bin/fm_procevent_telegram_state.py is the sole reader and writer of live
@@ -103,8 +107,8 @@
 # whole identity is that one identifier: it can suppress a later replay of that
 # id without a wake or a payload comparison, and never advances the offset by
 # itself.
-# A legacy message still awaiting delivery must carry coherent identity and text
-# or the cutover blocks.
+# A legacy message still awaiting delivery must carry coherent text, chat and
+# sender identity, and an exact integer date, or the cutover blocks.
 # Batches with duplicate identifiers, identifiers below the committed offset,
 # or malformed update/message identity shapes are rejected as a whole.
 # Contiguous identifiers are not required.
