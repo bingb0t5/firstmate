@@ -1626,11 +1626,11 @@ fi
 
 if [ "$KIND" = secondmate ]; then
   [ -n "$FIRSTMATE_HOME" ] || { echo "error: no firstmate home supplied or registered for $ID" >&2; exit 1; }
-  PROJ_ABS=$(validate_firstmate_home_for_spawn "$ID" "$FIRSTMATE_HOME")
-  if [ -f "$FM_HOME/$SUB_HOME_MARKER" ] && [ "$PROJ_ABS" != "$(resolved_existing_dir "$FM_HOME")" ]; then
+  if [ "$RELAUNCH" -ne 1 ] && [ -f "$FM_HOME/$SUB_HOME_MARKER" ]; then
     echo "error: a secondmate home cannot seed or spawn another secondmate; only the primary home may create a domain mate" >&2
     exit 1
   fi
+  PROJ_ABS=$(validate_firstmate_home_for_spawn "$ID" "$FIRSTMATE_HOME")
   if [ -e "$DATA/secondmates.md" ] || [ -L "$DATA/secondmates.md" ]; then
     if ! secondmate_registry_validate_bindings "$DATA/secondmates.md" resolve_path "$ID" "$FIRSTMATE_HOME"; then
       echo "error: $SECONDMATE_REGISTRY_ERROR" >&2

@@ -74,7 +74,7 @@ test_snapshot_attention_and_local_mode() {
 }
 
 test_unreadable_inventory_fails_closed() {
-  local home fifo_home linked_home out rc=0
+  local home fifo_home hidden_home linked_home out rc=0
   home=$(make_home unreadable)
   ln -s "$home/state/missing-target" "$home/state/broken.meta"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
@@ -91,6 +91,20 @@ test_unreadable_inventory_fails_closed() {
   out=$(FM_HOME="$linked_home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
   printf '%s' "$out" | jq -e '.attention.valid == false' >/dev/null \
     || fail "resolved metadata symlink was reported as a complete inventory: $out"
+  hidden_home=$(make_home unreadable-hidden)
+  printf 'kind=ship\n' > "$hidden_home/state/.worker.meta"
+  mkdir -p "$hidden_home/data/queued-task"
+  printf '# brief\n' > "$hidden_home/data/queued-task/brief.md"
+  add_task "$hidden_home" queued-task 1
+  out=$(FM_HOME="$hidden_home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
+  printf '%s' "$out" | jq -e '.attention.valid == false' >/dev/null \
+    || fail "hidden metadata identity was omitted from inventory validation: $out"
+  rc=0
+  out=$(FM_HOME="$hidden_home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start queued-task "$ROOT" \
+    --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "pull admitted an inventory containing hidden metadata"
+  assert_contains "$out" 'attention facts are invalid' "pull did not fail closed on hidden metadata"
+  assert_absent "$hidden_home/state/queued-task.meta" "hidden metadata refusal published task metadata"
   mkdir -p "$home/data/direct" "$home/data/batch"
   printf '# brief\n' > "$home/data/direct/brief.md"
   printf '# brief\n' > "$home/data/batch/brief.md"
@@ -189,7 +203,8 @@ test_nested_secondmate_refusals() {
   local home peer out rc=0
   home=$(make_home nested)
   peer=$(make_home nested-peer)
-  mkdir -p "$peer/bin"
+  mkdir -p "$home/bin" "$peer/bin"
+  printf '# Firstmate\n' > "$home/AGENTS.md"
   printf '# Firstmate\n' > "$peer/AGENTS.md"
   printf 'child\n' > "$peer/.fm-secondmate-home"
   printf 'nested\n' > "$home/.fm-secondmate-home"
@@ -200,6 +215,10 @@ test_nested_secondmate_refusals() {
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-spawn.sh" child "$peer" --secondmate --harness pi 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "nested secondmate spawn succeeded"
   assert_contains "$out" 'only the primary home' "nested spawn refusal was not explicit"
+  rc=0
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-spawn.sh" nested "$home" --secondmate --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "nested home spawned a secondmate endpoint for itself"
+  assert_contains "$out" 'only the primary home' "same-home nested spawn refusal was not explicit"
   pass "secondmate homes cannot create nested secondmates"
 }
 
