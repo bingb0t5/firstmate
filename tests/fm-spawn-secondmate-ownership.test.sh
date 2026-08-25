@@ -124,6 +124,44 @@ EOF
   pass "fm-spawn: a fresh crewmate spawn into a secondmate-owned project refuses before metadata exists"
 }
 
+test_registry_entry_path_forms_state_the_same_ownership_claim() {
+  local rec home proj fakebin out status
+  rec=$(make_home pathforms \
+    "- design - design domain (home: $TMP_ROOT/pathforms/smhome; scope: design domain; projects: projects/ownedproj; added 2026-06-22)" \
+    "- triage - triage domain (home: $TMP_ROOT/pathforms/smhome2; scope: triage; projects: $TMP_ROOT/pathforms/projects/ownedproj; added 2026-06-22)")
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  write_brief "$home" own-path-j1 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" own-path-j1 "$proj/ownedproj" claude --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a projects/<name> or absolute-path registry entry should still refuse"
+  assert_contains "$out" "registered to secondmate(s) design,triage" \
+    "path-form registry entries did not state the same ownership claim as a bare name"
+  assert_absent "$home/state/own-path-j1.meta" "refused spawn wrote task metadata"
+  pass "fm-spawn: a projects: entry claims its project as a bare name, projects/<name>, or absolute path"
+}
+
+test_projects_field_metacharacter_is_never_expanded_against_the_working_directory() {
+  local rec home proj fakebin cwd out status line
+  line="- design - design domain (home: $TMP_ROOT/glob/smhome; scope: design domain; projects: owned*; added 2026-06-22)"
+  rec=$(make_home glob "$line")
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  cwd="$TMP_ROOT/glob/cwd"
+  mkdir -p "$cwd"
+  : > "$cwd/ownedproj"
+  write_brief "$home" own-glob-k1 no-mistakes
+  out=$(cd "$cwd" && run_spawn "$home" "$fakebin" own-glob-k1 "$proj/ownedproj" claude --mode no-mistakes --yolo off)
+  status=$?
+  assert_not_contains "$out" "registered to secondmate" \
+    "a projects: glob expanded against the working directory and invented an ownership claim"
+  assert_contains "$out" "$BACKEND_REACHED" "the invented ownership claim stopped the spawn before the backend"
+  [ "$status" -ne 0 ] || fail "the refusing fake backend should still fail the spawn"
+  pass "fm-spawn: a projects: metacharacter is compared literally, never expanded against the caller's cwd"
+}
+
 test_refusal_names_every_owner_when_several_claim_the_project() {
   local rec home proj fakebin out status
   rec=$(make_home multiowner \
@@ -381,6 +419,8 @@ EOF
 
 test_fresh_spawn_into_owned_project_refuses_and_writes_no_meta
 test_refusal_names_every_owner_when_several_claim_the_project
+test_registry_entry_path_forms_state_the_same_ownership_claim
+test_projects_field_metacharacter_is_never_expanded_against_the_working_directory
 test_allow_primary_spawn_override_passes_the_ownership_guard
 test_allow_primary_spawn_is_refused_outside_a_fresh_ship_or_scout_spawn
 test_secondmate_spawn_is_unaffected_by_the_ownership_guard

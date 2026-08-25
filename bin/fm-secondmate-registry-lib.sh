@@ -313,13 +313,24 @@ secondmate_registry_validate_bindings() {
 }
 
 # The generated field is comma-joined, but a hand-edited list separated by
-# whitespace still states a claim, so both separators split it.
+# whitespace still states a claim, so both separators split it. Each entry is
+# then reduced to its path basename, so a bare `alpha`, a `projects/alpha`, and
+# an absolute clone path all state the same claim the spawn side derives from
+# its own project argument. The split reads into an array instead of
+# word-splitting an unquoted expansion: pathname expansion would otherwise
+# resolve a metacharacter in the field against the caller's working directory
+# and silently rewrite the ownership set in either direction.
 secondmate_registry_projects_field_has() {
   local field=$1 project=$2 entry
-  local IFS=$', \t'
+  local -a entries=()
   [ -n "$project" ] || return 1
   [ -n "$field" ] || return 1
-  for entry in $field; do
+  IFS=$', \t' read -ra entries <<< "$field"
+  for entry in "${entries[@]+"${entries[@]}"}"; do
+    while [ "$entry" != "${entry%/}" ]; do
+      entry=${entry%/}
+    done
+    entry=${entry##*/}
     [ -n "$entry" ] || continue
     [ "$entry" = "$project" ] && return 0
   done
