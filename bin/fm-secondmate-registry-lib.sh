@@ -28,6 +28,7 @@ SECONDMATE_REGISTRY_MATCH_PROJECTS=
 SECONDMATE_REGISTRY_MATCH_REMOTE=0
 SECONDMATE_REGISTRY_ERROR=
 SECONDMATE_REGISTRY_ENTRIES=
+SECONDMATE_REGISTRY_FIELD_SEP=$'\x1f'
 
 secondmate_registry_lock_path() { printf '%s/.secondmate-registry.lock\n' "$1"; }
 secondmate_reply_lifecycle_lock_path() { printf '%s/.remote-reply-lifecycle-%s.lock\n' "$1" "$2"; }
@@ -312,11 +313,7 @@ secondmate_registry_validate_bindings() {
 }
 
 secondmate_registry_project_basename() {
-  local path=$1
-  case "$path" in
-    projects/*) path=${path#projects/} ;;
-  esac
-  basename "$path"
+  basename "$1"
 }
 
 # The generated field is comma-joined, but a hand-edited list separated by
@@ -334,13 +331,17 @@ secondmate_registry_projects_field_has() {
 }
 
 # Collect every registry record into SECONDMATE_REGISTRY_ENTRIES, one
-# `id<TAB>projects<TAB>scope` line per entry, so a caller reads the registry
-# once. Status: 0 records collected, 1 no registry file or no records, 2 the
-# registry cannot be trusted (unsafe path, unreadable, or an entry no
-# operational parser can consume) with the reason in SECONDMATE_REGISTRY_ERROR.
-# A caller that acts on ownership must treat 2 as unresolved ownership rather
-# than as an absent claim; silently skipping an unparseable entry would void
-# that secondmate's claim exactly when the registry is least trustworthy.
+# `id<SEP>projects<SEP>scope` line per entry, so a caller reads the registry
+# once. The separator is SECONDMATE_REGISTRY_FIELD_SEP, deliberately not IFS
+# whitespace: a project-less secondmate has an empty projects field, and a
+# whitespace separator would let `read` collapse it and hand the scope text to
+# the next field. Read a record back with `IFS=$SECONDMATE_REGISTRY_FIELD_SEP`.
+# Status: 0 records collected, 1 no registry file or no records, 2 the registry
+# cannot be trusted (unsafe path, unreadable, or an entry no operational parser
+# can consume) with the reason in SECONDMATE_REGISTRY_ERROR. A caller that acts
+# on ownership must treat 2 as unresolved ownership rather than as an absent
+# claim; silently skipping an unparseable entry would void that secondmate's
+# claim exactly when the registry is least trustworthy.
 secondmate_registry_entries() {
   local reg=$1 line found=0
   SECONDMATE_REGISTRY_ENTRIES=
@@ -360,14 +361,14 @@ secondmate_registry_entries() {
           SECONDMATE_REGISTRY_ERROR="malformed secondmate registry entry: $line"
           return 2
         fi
-        case "$SECONDMATE_REGISTRY_PROJECTS" in
-          *$'\t'*)
+        case "$SECONDMATE_REGISTRY_ID$SECONDMATE_REGISTRY_PROJECTS$SECONDMATE_REGISTRY_SCOPE" in
+          *"$SECONDMATE_REGISTRY_FIELD_SEP"*)
             SECONDMATE_REGISTRY_ENTRIES=
-            SECONDMATE_REGISTRY_ERROR="unsafe secondmate project list for $SECONDMATE_REGISTRY_ID"
+            SECONDMATE_REGISTRY_ERROR="unsafe secondmate registry entry for $SECONDMATE_REGISTRY_ID"
             return 2
             ;;
         esac
-        SECONDMATE_REGISTRY_ENTRIES="${SECONDMATE_REGISTRY_ENTRIES}${SECONDMATE_REGISTRY_ID}"$'\t'"${SECONDMATE_REGISTRY_PROJECTS}"$'\t'"${SECONDMATE_REGISTRY_SCOPE}"$'\n'
+        SECONDMATE_REGISTRY_ENTRIES="${SECONDMATE_REGISTRY_ENTRIES}${SECONDMATE_REGISTRY_ID}${SECONDMATE_REGISTRY_FIELD_SEP}${SECONDMATE_REGISTRY_PROJECTS}${SECONDMATE_REGISTRY_FIELD_SEP}${SECONDMATE_REGISTRY_SCOPE}"$'\n'
         found=1
         ;;
     esac
