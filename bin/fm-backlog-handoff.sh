@@ -20,11 +20,14 @@
 #     (.fm-secondmate-home marker, AGENTS.md + bin/), never a project clone, the
 #     active home, or the firstmate repo;
 #   - moving only `## Queued` items, refusing `## In flight` and historical
-#     `## Done` records, which must stay with their home for pruning or
-#     archiving;
+#     `## Done` records even on an idempotent retry, which must stay with their
+#     home for pruning or archiving;
+#   - resolving the dependency-closed move set and requiring every queued row
+#     in it to carry an explicit priority from 0 through 4 before mutation or
+#     receiver notification;
 #   - the multi-key classification and idempotent per-key reporting: a key
-#     already present in the secondmate backlog is reported and skipped, and if
-#     any key matches neither backlog nothing is moved;
+#     already present under the secondmate backlog's Queued section is reported
+#     and skipped, and if any key matches neither backlog nothing is moved;
 #   - warning, after a successful move, when a moved key still owes a public
 #     relay reply bound to main/<key>, or when this home has an open public loop
 #     with nothing owed, because routing work out does not close that loop. The
