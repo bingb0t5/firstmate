@@ -181,7 +181,7 @@ PY
 
 fm_credential_env_get() {
   fm_credential_xtrace_off
-  local file=$1 key=$2 line line_key count=0 value= nul_rc
+  local file=$1 key=$2 line line_key count=0 value='' nul_rc
   [ -f "$file" ] && [ -r "$file" ] || return 1
   fm_credential_file_has_nul "$file" 2>/dev/null
   nul_rc=$?
