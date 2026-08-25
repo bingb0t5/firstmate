@@ -118,10 +118,29 @@ EOF
   out=$(run_spawn "$home" "$fakebin" own-refuse-a1 "$proj/ownedproj" claude --mode no-mistakes --yolo off)
   status=$?
   [ "$status" -ne 0 ] || fail "owned-project spawn should exit non-zero"
-  assert_contains "$out" "registered to secondmate design" "refusal did not name the owning secondmate"
+  assert_contains "$out" "registered to secondmate(s) design" "refusal did not name the owning secondmate"
   assert_contains "$out" "--allow-primary-spawn" "refusal did not name the deliberate override"
   assert_absent "$home/state/own-refuse-a1.meta" "refused spawn wrote task metadata"
   pass "fm-spawn: a fresh crewmate spawn into a secondmate-owned project refuses before metadata exists"
+}
+
+test_refusal_names_every_owner_when_several_claim_the_project() {
+  local rec home proj fakebin out status
+  rec=$(make_home multiowner \
+    "- design - design domain (home: $TMP_ROOT/multiowner/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)" \
+    "- triage - triage domain (home: $TMP_ROOT/multiowner/smhome2; scope: triage; projects: ownedproj, other; added 2026-06-22)" \
+    "- docs - docs domain (home: $TMP_ROOT/multiowner/smhome3; scope: docs; projects: ownedproj; added 2026-06-22)")
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  write_brief "$home" own-refuse-a2 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" own-refuse-a2 "$proj/ownedproj" claude --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "multi-owner spawn should exit non-zero"
+  assert_contains "$out" "registered to secondmate(s) design,triage,docs" \
+    "refusal did not name every owner in one consistently joined list"
+  assert_absent "$home/state/own-refuse-a2.meta" "refused spawn wrote task metadata"
+  pass "fm-spawn: a refusal names every registered owner the same way at any arity"
 }
 
 test_allow_primary_spawn_override_passes_the_ownership_guard() {
@@ -304,17 +323,18 @@ $rec
 EOF
   write_brief "$home" own-batch-g1 no-mistakes
   out=$(run_spawn "$home" "$fakebin" "own-batch-g1=$proj/ownedproj" --mode no-mistakes --yolo off)
-  assert_contains "$out" "registered to secondmate design" "batch pair did not hit the ownership guard"
+  assert_contains "$out" "registered to secondmate(s) design" "batch pair did not hit the ownership guard"
 
   write_brief "$home" own-batch-g2 no-mistakes
   out=$(run_spawn "$home" "$fakebin" "own-batch-g2=$proj/ownedproj" --mode no-mistakes --yolo off --allow-primary-spawn)
   assert_contains "$out" "--allow-primary-spawn bypasses secondmate ownership" \
     "batch dispatch dropped the deliberate override before the per-pair guard"
-  assert_not_contains "$out" "registered to secondmate design" "batch pair refused despite the deliberate override"
+  assert_not_contains "$out" "registered to secondmate(s) design" "batch pair refused despite the deliberate override"
   pass "fm-spawn: batch dispatch forwards --allow-primary-spawn to every pair"
 }
 
 test_fresh_spawn_into_owned_project_refuses_and_writes_no_meta
+test_refusal_names_every_owner_when_several_claim_the_project
 test_allow_primary_spawn_override_passes_the_ownership_guard
 test_secondmate_spawn_is_unaffected_by_the_ownership_guard
 test_relaunch_is_unaffected_by_the_ownership_guard

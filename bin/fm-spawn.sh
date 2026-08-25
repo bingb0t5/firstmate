@@ -1354,19 +1354,14 @@ spawn_secondmate_ownership_guard() {
     fi
   done <<< "$SECONDMATE_REGISTRY_ENTRIES"
   if [ "${#owner_ids[@]}" -gt 0 ]; then
+    owners=$(IFS=,; printf '%s' "${owner_ids[*]}")
     if [ "$ALLOW_PRIMARY_SPAWN" -eq 1 ]; then
-      owners=$(IFS=,; printf '%s' "${owner_ids[*]}")
       echo "notice: --allow-primary-spawn bypasses secondmate ownership for $proj_name (registered owner(s): $owners); route future work to that secondmate unless this exception remains deliberate" >&2
       PRIMARY_SPAWN_OVERRIDE=1
       PRIMARY_SPAWN_OVERRIDE_OWNERS=$owners
       return 0
     fi
-    case "${#owner_ids[@]}" in
-      1) owners=${owner_ids[0]} ;;
-      2) owners="${owner_ids[0]} and ${owner_ids[1]}" ;;
-      *) owners=$(printf '%s, ' "${owner_ids[@]}" | sed 's/, $//') ;;
-    esac
-    echo "error: project $proj_name is registered to secondmate $owners; spawn the worker in that secondmate home or pass --allow-primary-spawn for a deliberate primary-home exception" >&2
+    echo "error: project $proj_name is registered to secondmate(s) $owners; spawn the worker in a registered secondmate home or pass --allow-primary-spawn for a deliberate primary-home exception" >&2
     return 1
   fi
   [ -n "$scope_line" ] || return 0
