@@ -64,7 +64,9 @@ For whole-fleet read-only review, `bin/fm-fleet-snapshot.sh --json` emits schema
 `bin/fm-fleet-view.sh` renders that snapshot as Markdown for humans, while `bin/fm-bearings-snapshot.sh` provides the bounded bearings projection, so both views consume one structured contract instead of reparsing raw fleet files.
 The script header owns the exact JSON schema.
 
-On a Pi primary with project-specific supervision grants, the watcher extension hands each wholly in-scope ordinary actionable wake to a persistent in-process supervision conversation instead of the captain's, which handles it, stores the outcome durably, and merges an append-only note back; [docs/pi-supervision-branch.md](pi-supervision-branch.md) owns that architecture, and every other harness keeps the wake-to-main path unchanged.
+On a Pi primary, supervision is default-on: the watcher extension hands each wholly in-scope ordinary actionable wake, plus each bare fleet-wide `heartbeat` emitted after the cheap bash-level scan flags a possibly captain-relevant finding, to a persistent in-process supervision conversation instead of the captain's, which handles it, stores the outcome durably, and merges an append-only note back.
+A captain-facing outcome instead opens exactly one follow-up turn on the captain's conversation without printing or rendering a separate note - that turn is the captain-visible result.
+[docs/pi-supervision-branch.md](pi-supervision-branch.md) owns that architecture, and every other harness keeps the wake-to-main path unchanged.
 
 ### Registered secondmate current state
 
@@ -328,6 +330,7 @@ It is deliberately not a reconciliation of durable records against repository or
 Task-scoped notes use `tasks-axi show <id> --full` followed by `tasks-axi update <id> --body-file <path>`, adding `--archive-body` when the prior body should remain recoverable.
 The stow pass never writes a skill, but a separately executed, captain-approved migration may move conditional knowledge into a user-owned local skill excluded from the Firstmate clone; changes to Firstmate's tracked skills remain deliberate repository work through the normal PR pipeline.
 Invoked in a primary home, `/stow` then cascades the same sweep to every registered secondmate, enumerated through `bin/fm-stow-cascade.sh`: each home is accounted and curated against its own startup-memory allowance, a live secondmate sweeps its own session, and a slow or unreachable home is reported as an exception rather than blocking the primary.
+Automatic triggers for the same skill - a lock-owning compact/clear re-emit and a staleness-gated heartbeat check - are owned by [configuration.md](configuration.md#automatic-stow).
 
 ## Local clones stay fresh
 

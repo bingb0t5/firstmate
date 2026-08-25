@@ -13,6 +13,7 @@ The tracked code root contains the shared instruction, skill, documentation, wor
 `data/` holds durable private fleet records such as the project and secondmate registries, captain preferences, optional shared captain preferences, learnings, backlog, briefs, and scout reports.
 `state/` holds runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, inactive terminal-outcome receipts under `state/terminal-outcomes/`, away-mode state, generated Relay artifacts, private secondmate config-reread generations with their retry and quarantine state, per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`), and parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
 `config/` holds local gitignored operating choices, and `projects/` holds the local project clones that Firstmate reads but changes only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.
+Untracked files and directories whose names begin with `scratchpad` are also gitignored, so temporary scratch does not make porcelain-based secondmate sync guards treat a home as dirty.
 
 `bin/fm-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
 The producing PR and Relay helpers own the fields they append, `bin/fm-classify-lib.sh` owns status-event vocabulary, and `bin/fm-crew-state.sh` owns current-state reconciliation.
@@ -33,15 +34,18 @@ The `/calm` command replaces the file atomically before changing live presentati
 The extension reloads this preference on every Pi `session_start`, including startup, new, resume, fork, and reload reasons.
 This preference is local to each Firstmate home and is not part of secondmate inherited configuration.
 
-## Pi supervision branch (config/pi-supervision-branch)
+## Pi supervision branch
 
-On a Pi primary, ordinary actionable fleet wakes that pass the unchanged watcher classifier are handled by a persistent in-process supervision branch that keeps the captain's conversation clean; [docs/pi-supervision-branch.md](pi-supervision-branch.md) owns the architecture.
-The gitignored `config/pi-supervision-branch` file under the effective home is the captain's explicit, project-local autonomy grant. It contains one or more exact `project=<value>` lines, where each value exactly matches the `project=` field in task metadata; blank lines and `#` comments are allowed. A wake is delegated only when every unread queue row is task-local and every task's project is listed. Fleet-wide, unresolvable, mixed-scope, absent, unreadable, empty, legacy `on`, `off`, or otherwise malformed grants stay on the captain-facing main path and activate no branch-owned runtime state or lease cleanup.
-The grant enables only the Pi-primary routing and bounded supervision role in the captain-approved architecture: sharing a home does not extend authority to unlisted projects, the branch cannot merge a PR, land local work, or freshly spawn, and every existing captain gate remains unchanged.
-The file is read fresh at every wake offer, so an edit takes effect without restarting Pi.
-Homes on any other primary harness never read this file and are entirely unaffected.
+On a Pi primary, ordinary actionable fleet wakes that pass the unchanged watcher classifier, plus heartbeat scans that the cheap bash-level scan flags as possibly captain-relevant, are handled by a persistent in-process supervision branch that keeps the captain's conversation clean; [docs/pi-supervision-branch.md](pi-supervision-branch.md) owns the architecture.
+Supervision is default-on: once a Pi primary session owns this home's fleet lock, the branch is eligible for every task with no captain grant file required.
+A wake is delegated only when every row observed by its unread-queue eligibility checks is either a resolvable task-local signal or stale event or a heartbeat; a genuinely no-op heartbeat is absorbed in bash and never reaches Pi, while an observed fleet-wide or unresolvable wake and every watcher-failure alarm stays on the captain-facing main path.
+The branch repeats the eligibility check immediately before prompting the branch to drain; [docs/pi-supervision-branch.md](pi-supervision-branch.md) owns the accepted confused-agent-grade race limit between that final check and drain startup.
+Away mode still declines every wake offer, and a broken branch still falls back to today's wake-to-main path.
+The branch's role stays bounded exactly as the captain-approved architecture set it: it cannot merge a PR, land local work, or freshly spawn, and every existing captain gate remains unchanged.
+Homes on any other primary harness never load this feature and are entirely unaffected.
 Runtime state lives in `state/branch-outcomes.jsonl` with its `.branch-outcomes-cursor`, the persistent conversation under `state/branch-session/` with its `.branch-session` pointer and `.branch-mirror-cursor`, and per-task `state/.lease-<task>` files; `bin/fm-branch-outcome.sh` and `bin/fm-lease-lib.sh` own those formats.
-This grant is local to each Firstmate home and is not part of secondmate inherited configuration; each home remains disabled until its captain explicitly writes `on`.
+A captain-facing (verdict `captain`) branch outcome opens exactly one follow-up turn on main - that turn is the captain-visible result, and Pi never separately prints or renders the merge note itself.
+A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=true` is delivered silently with no rendered note, while every other routine outcome still appends a rendered, sailboat-prefixed note.
 
 ## Backlog backend (.tasks.toml / config/backlog-backend)
 
@@ -182,6 +186,20 @@ Opt in for a home that stows often enough that entries never sit unreinforced fo
 The flag is per home and is not inherited by secondmate homes, because stow cadence is a property of the home doing the stowing.
 Only the file's presence is read, so its contents are ignored; remove it to return to the default contract on the next pass.
 The skill text owns the marker spelling, the tick order, and the reinforcement rule.
+
+## Automatic /stow
+
+Create the home-local, gitignored `config/auto-stow` file to grant automatic memory curation for that home; its contents are ignored, and removing it disables both triggers.
+This explicit captain opt-in satisfies `VISION.md`'s authority boundary while letting two existing turns decide whether to run the internal [`/stow` skill](../.agents/skills/stow/SKILL.md) instead of waiting for the captain to type it.
+
+1. An enabled, lock-owning compact/clear session-start re-emit prepends one `STOW DUE:` line when `state/.last-stow-attempt` is missing or older than `FM_AUTO_STOW_INTERVAL_SECS` (default 86400), and stays silent when the marker is current, automatic stow is disabled, or the session could not verify fleet-lock ownership (`bin/fm-session-start.sh`).
+2. Enabled heartbeat handling in `AGENTS.md` section 8 rule 4 runs `/stow` first when the same marker is due, using that same larger interval so a pass does not run on every heartbeat wake.
+
+`FM_AUTO_STOW_INTERVAL_SECS` accepts whole seconds from 1 through 31536000 (365 days); empty, non-numeric, zero, or larger values fall back to 86400.
+The stow skill touches `state/.last-stow-attempt` at the end of every pass, reset-safe or not, and touches `state/.last-stow` only when the pass is reset-safe.
+The automatic triggers read the attempt marker, so a home holding an exception `/stow` cannot clear still waits out the full interval.
+Away-mode heartbeats stay bash-only and never run `/stow`.
+On a default Pi primary, heartbeat wakes go to the supervision branch, which does not currently run the `AGENTS.md` check; compact/clear re-emit remains the automatic path there ([Pi supervision branch](pi-supervision-branch.md#heartbeat-routing)).
 
 ## Secondmate routes (data/secondmates.md)
 
@@ -334,14 +352,14 @@ An absent or incompatible `lavish-axi` reports `MISSING: lavish-axi (install: np
 An absent or too-old `quota-axi` reports `MISSING: quota-axi (install: npm install -g quota-axi)`; firstmate cannot resolve a profile array without a compatible binary.
 Bootstrap also reports a `TANGLE:` line when `FM_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
 In a read-only session that did not get the fleet lock, the same line is advisory and omits the checkout command.
-The locked session-start deferred network stage runs bootstrap's best-effort project clone refresh through `fm-fleet-sync.sh`.
+The locked session-start deferred network stage runs bootstrap's best-effort project clone refresh through `fm-fleet-sync.sh`; [`fm-bootstrap.sh`'s header](../bin/fm-bootstrap.sh) owns the exact clone-refresh overlap, liveness-before-convergence, per-mate concurrency, ordered diagnostic replay, and sequential-fallback contract.
 It emits `FLEET_SYNC:` for skipped refreshes that may matter, recovered self-heals, and `STUCK:` alarms.
 Normal completed runs keep local-only and no-origin skips silent.
 If bootstrap kills a timed-out refresh, it replays any completed `fm-fleet-sync.sh` output before the aggregate timeout skip so no finished result is lost.
 A killed refresh (or a teardown process kill) can leave an orphaned `.git/packed-refs.lock` in a clone, which makes the next refresh's fetch fail with Git's `Unable to create '...packed-refs.lock': File exists`.
 On that signature only, `fm-fleet-sync.sh` retries the fetch with a bounded wait for the lock to self-clear, then removes the lock and retries once more only when it can prove the lock stale, exactly like the `fm-teardown.sh` `index.lock` recovery.
 It never removes a live lock, leaves any other failure shape untouched, and prints every wait, retry, and removal to stderr plus a one-line `recovered:` summary to stdout on success so that this session-start relay still surfaces the recovery.
-The same deferred network stage runs bootstrap's guarded secondmate sync for recorded live homes, then propagates declared inherited local material into each validated live home.
+The same deferred network stage performs guarded tracked-file sync and propagates declared inherited local material into each validated live home under that sequencing contract.
 Local routes use direct guarded filesystem operations, while remote routes delegate sync and allowlisted transfer through their configured SSH host without probing any unconfigured fleet.
 It emits `SECONDMATE_SYNC:` only when a home was skipped for an actionable sync reason, inheritance failed, or a divergent shared captain-preference copy was quarantined.
 When a running home advances and its loaded instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`) changed, bootstrap sends the re-read nudge itself through the stable `fm-<id>` selector and reports the exact completed send as `BOOTSTRAP_INFO:`.
@@ -648,6 +666,7 @@ FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops
 CMUX_SOCKET_PASSWORD=   # cmux-only: socket password fallback when config/cmux-socket-password is absent (docs/cmux-backend.md)
 FM_SESSION_START_STATUS_TAIL=5   # state/*.status lines printed per task in the session-start digest; each line is capped by bin/fm-line-cap-lib.sh
 FM_SESSION_START_QUEUED_LIMIT=20   # plain queued backlog rows in the session-start digest; in-flight, held, and blocked rows are never bounded and done rows are never listed
+FM_AUTO_STOW_INTERVAL_SECS=86400   # 1..31536000 seconds; invalid or larger values fall back to 86400; gates automatic /stow against state/.last-stow-attempt's mtime (see "Automatic /stow" above)
 FM_BOOTSTRAP_DETECT_ONLY=0   # internal/read-only session-start mode: skip bootstrap's mutating sweeps and print advisory TANGLE wording
 FM_BOOTSTRAP_NETWORK=all   # internal session-start phase split: all, skip (local steps only), or only (network steps only); see bin/fm-bootstrap.sh
 FM_STARTUP_NETWORK_TIMEOUT=120   # seconds bounding the whole deferred network stage; hitting it prints an actionable NETWORK_CHECKS line
