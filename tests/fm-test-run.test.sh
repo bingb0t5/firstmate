@@ -117,6 +117,13 @@ init_changed_fixture_repo() {
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
   : >"$repo/bin/fm-supervisor-target-lib.sh"
   : >"$repo/bin/unmapped-source.sh"
+  # A shared module reached only through the one script that imports it, and
+  # therefore named in no test file: the basename reference scan cannot find a
+  # consuming suite for it, so its mapping has to come from the importer.
+  printf '#!/usr/bin/env bash\n# bin/fm-procevent-telegram.sh\n' \
+    >"$repo/tests/fm-procevent-telegram.test.sh"
+  chmod +x "$repo/tests/fm-procevent-telegram.test.sh"
+  : >"$repo/bin/fm_procevent_telegram_validation.py"
   printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
     >>"$repo/tests/fm-cd-pretool-check.test.sh"
   printf '# .pi/extensions/fm-primary-pi-watch.ts\n' >>"$repo/tests/fm-pi-watch-extension.test.sh"
@@ -169,6 +176,14 @@ test_changed_dependency_selection_and_unmapped_failure() {
   assert_contains "$listed" "tests/fm-pi-watch-extension.test.sh" "Pi source selects watcher coverage"
   git -C "$repo" add .agents .claude .pi
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm non-bin-source-change
+
+  printf '\n' >>"$repo/bin/fm_procevent_telegram_validation.py"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD) \
+    || fail "an importer-only shared module must not fail the changed selection"
+  assert_contains "$listed" "tests/fm-procevent-telegram.test.sh" \
+    "importer-only shared module selects its importing script's coverage"
+  git -C "$repo" add bin/fm_procevent_telegram_validation.py
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm validator-change
 
   printf '\n' >>"$repo/src/unmapped.ts"
   set +e
