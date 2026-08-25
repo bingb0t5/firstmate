@@ -638,6 +638,9 @@ else
   # The pre-marker answer text, kept for the closing resolved note so the
   # durable ledger records the plain answer without marker or corr bytes.
   RESOLVE_ANSWER_TEXT=$MESSAGE
+  if [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
+    fm_message_mark_from_firstmate "$MESSAGE" MESSAGE
+  fi
   # Data-plane selection (see the header): text addressed to a task selector
   # resolved through this home's metadata rides the inbox plane, unless it is
   # a LOCAL harness-native invocation that must reach the harness's own parser
@@ -674,7 +677,7 @@ else
       existing_corr_explicit=1
       existing_corr=$FM_PENDING_REPLY_EXISTING_CORR
     else
-      existing_corr=$(fm_pending_reply_extract_corr "$MESSAGE")
+      existing_corr=
     fi
     if [ -n "$existing_corr" ] \
       && fm_pending_reply_corr_reusable "$STATE" "$existing_corr" "$TARGET_TASK_ID"; then
@@ -693,7 +696,7 @@ else
       PENDING_REPLY_CREATED=1
     fi
     if [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
-      fm_pending_reply_embed_corr "$MESSAGE" "$PENDING_REPLY_CORR" MESSAGE
+      fm_pending_reply_embed_corr "$RESOLVE_ANSWER_TEXT" "$PENDING_REPLY_CORR" MESSAGE
     else
       fm_pending_reply_embed_corr "$MESSAGE" "$PENDING_REPLY_CORR" MESSAGE plain
     fi

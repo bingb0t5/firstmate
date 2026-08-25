@@ -550,6 +550,17 @@ fm_pending_reply_find_resolve_line() {  # <status-file> <corr_id>
   return 0
 }
 
+fm_pending_reply_find_crew_terminal_line() {  # <state-dir> <record-path> <status-file>
+  local state=$1 rec=$2 status_file=$3 task_id meta line
+  task_id=$(fm_pending_reply_get "$rec" task_id)
+  meta="$state/$task_id.meta"
+  [ -f "$meta" ] || return 0
+  [ "$(fm_meta_get "$meta" kind)" != secondmate ] || return 0
+  line=$(last_status_line "$status_file")
+  status_is_terminal_verb "$line" || return 0
+  printf '%s' "$line"
+}
+
 fm_pending_reply_file_signature() {  # <path>
   local path=$1
   [ -f "$path" ] || { printf 'missing'; return 0; }
@@ -636,6 +647,9 @@ _fm_pending_reply_try_resolve_locked() {  # <state-dir> <corr_id> [status-file-o
     [ "$signature" != "$previous" ] || return 1
   fi
   line=$(fm_pending_reply_find_resolve_line "$status_file" "$corr")
+  if [ -z "$line" ]; then
+    line=$(fm_pending_reply_find_crew_terminal_line "$state" "$rec" "$status_file")
+  fi
   if [ -z "$line" ]; then
     if [ -z "$status_override" ] && [ "$unconfirmed" = 0 ]; then
       fm_pending_reply_set "$rec" parent_status_scan_signature "$signature" || return 1
@@ -1237,13 +1251,16 @@ fm_pending_reply_detect_wrong_home() {  # <state-dir> <corr_id> <secondmate-home
 # secondmate_home may be empty when unknown.
 fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-home]
   local state=$1 corr=$2 busy_state=$3 sm_home=${4-}
-  local rec phase delivered
+  local rec phase delivered task_id target_kind
   rec=$(fm_pending_reply_path "$state" "$corr")
   [ -f "$rec" ] || return 1
+  task_id=$(fm_pending_reply_get "$rec" task_id)
+  target_kind=$(fm_meta_get "$state/$task_id.meta" kind)
   fm_pending_reply_reconcile_delivery "$state" "$corr" || true
   phase=$(fm_pending_reply_get "$rec" phase)
   delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
   if [ -z "$delivered" ]; then
+    [ -z "$target_kind" ] || [ "$target_kind" = secondmate ] || return 0
     case "$phase" in
       delivery_unknown) fm_pending_reply_maybe_escalate "$state" "$corr" 2>/dev/null || true ;;
       escalated) fm_pending_reply_try_resolve "$state" "$corr" >/dev/null 2>&1 || true ;;
@@ -1252,6 +1269,9 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
   fi
   # Correlated parent report always wins and is idempotent.
   if fm_pending_reply_try_resolve "$state" "$corr"; then
+    return 0
+  fi
+  if [ -n "$target_kind" ] && [ "$target_kind" != secondmate ]; then
     return 0
   fi
   phase=$(fm_pending_reply_get "$rec" phase)
@@ -1427,7 +1447,8 @@ fm_pending_reply_list_open() {  # <state-dir>
       .*) continue ;;
     esac
     phase=$(fm_pending_reply_get "$rec" phase)
-    [ -n "$phase" ] && [ "$phase" != resolved ] || continue
+    [ "$phase" != resolved ] || continue
+    [ -n "$phase" ] || phase=unknown
     corr=$(fm_pending_reply_get "$rec" corr_id)
     [ -n "$corr" ] || corr=$(basename "$rec")
     task_id=$(fm_pending_reply_get "$rec" task_id)
@@ -1439,7 +1460,7 @@ fm_pending_reply_list_open() {  # <state-dir>
       return 1
     }
   done
-  LC_ALL=C sort -t "$(printf '\t')" -k4,4n -k1,1 "$tmp" || rc=$?
+  LC_ALL=C sort -t "$(printf '\t')" -k4.9,4n -k1,1 "$tmp" || rc=$?
   rm -f "$tmp"
   return "$rc"
 }

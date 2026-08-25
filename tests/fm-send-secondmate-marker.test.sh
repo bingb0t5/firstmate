@@ -130,7 +130,7 @@ test_secondmate_target_is_marked() {
 }
 
 test_exact_secondmate_task_id_is_marked() {
-  local dir fb log home rc got already_marked corr
+  local dir fb log home rc got already_marked corr next_corr
   dir="$TMP_ROOT/sm-exact"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home sm-exact)
@@ -145,15 +145,16 @@ test_exact_secondmate_task_id_is_marked() {
   # shellcheck source=/dev/null
   . "$ROOT/bin/fm-pending-reply-lib.sh"
   corr=$(fm_pending_reply_extract_corr "$got")
-  # Resend with the same corr already present: embed is idempotent for that corr.
+  # Corr text in ordinary input is not a recovery resend authority.
   already_marked="${FM_FROMFIRST_MARK}corr=${corr} already routed"
   run_send "$fb" "$home" "$log" "domain" "$already_marked"; rc=$?
   expect_code 0 "$rc" "send of already-marked exact-id content should succeed"
   got=$(record_body "$home/state/domain.inbox/002.msg")
-  case "$got" in
-    "${FM_FROMFIRST_MARK}corr=${corr} already routed") : ;;
-    *) fail "exact secondmate send altered already-correlated content"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -tx1)" ;;
-  esac
+  next_corr=$(fm_pending_reply_extract_corr "$got")
+  [ "$next_corr" != "$corr" ] \
+    || fail "ordinary corr text must open a distinct secondmate obligation"
+  [ "$got" = "${FM_FROMFIRST_MARK}corr=${next_corr} already routed" ] \
+    || fail "exact secondmate send should replace the quoted corr prefix"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -tx1)"
   pass "fm-send: an exact kind=secondmate task id is marked with corr exactly once"
 }
 
@@ -279,6 +280,22 @@ test_marked_send_preserves_trailing_newlines() {
   pass "fm-send: marked secondmate payload preserves trailing newline bytes in its record"
 }
 
+test_secondmate_slash_invocation_stays_marked() {
+  local dir fb log home rc got
+  dir="$TMP_ROOT/sm-slash"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_home sm-slash)
+  fm_write_secondmate_meta "$home/state/domain.meta" "$home" "sess:fm-domain"
+  run_send "$fb" "$home" "$log" domain /no-mistakes; rc=$?
+  expect_code 0 "$rc" "secondmate slash invocation should succeed"
+  got=$(cat "$log")
+  [ "$got" = "${FM_FROMFIRST_MARK}/no-mistakes" ] \
+    || fail "secondmate slash invocation must keep the routing marker"
+  [ ! -d "$home/state/pending-replies" ] \
+    || fail "typed-plane slash invocation must stay untracked"
+  pass "secondmate typed-plane slash invocation keeps its routing marker"
+}
+
 test_secondmate_target_is_marked
 test_exact_secondmate_task_id_is_marked
 test_crewmate_target_is_not_marked
@@ -287,3 +304,4 @@ test_key_path_is_not_marked
 test_marker_is_label_plus_invisible_separator
 test_marker_transformation_is_idempotent
 test_marked_send_preserves_trailing_newlines
+test_secondmate_slash_invocation_stays_marked

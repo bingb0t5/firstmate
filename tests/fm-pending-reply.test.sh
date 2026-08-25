@@ -866,15 +866,56 @@ test_answered_obligation_leaves_the_open_list() {
   [ "${#corr}" -eq 16 ] || fail "expected corr in recorded body"
   listed=$(list_open "$home")
   assert_contains "$listed" "corr=$corr" "precondition: obligation should be open"
-  printf 'done [corr=%s]: duplicate closed\n' "$corr" > "$home/state/build.status"
+  printf 'done: duplicate closed\n' > "$home/state/build.status"
   fm_pending_reply_try_resolve "$home/state" "$corr" \
-    || fail "correlated status should resolve the obligation"
+    || fail "terminal crewmate status should resolve the obligation"
   listed=$(list_open "$home")
   case "$listed" in
     *"corr=$corr"*) fail "answered obligation must leave the open list:"$'\n'"$listed" ;;
   esac
   [ -z "$listed" ] || fail "open list should be empty after the only obligation is answered:"$'\n'"$listed"
   pass "an answered obligation leaves the open list"
+}
+
+test_quoted_corr_opens_a_distinct_obligation() {
+  local dir fb log home rc first second listed
+  dir="$TMP_ROOT/quoted-corr"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_parent quoted-corr)
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+  run_send "$fb" "$home" "$log" build "fix the first bug"; rc=$?
+  expect_code 0 "$rc" "first crewmate send should succeed"
+  first=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  run_send "$fb" "$home" "$log" build "separate request quoting corr=$first"; rc=$?
+  expect_code 0 "$rc" "second crewmate send should succeed"
+  second=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  [ "$first" != "$second" ] || fail "quoted corr must not reuse an obligation"
+  listed=$(list_open "$home")
+  assert_contains "$listed" "corr=$first" "first obligation should remain open"
+  assert_contains "$listed" "corr=$second" "second obligation should be distinct"
+  pass "quoted corr text does not reuse an obligation"
+}
+
+test_open_list_orders_by_epoch_and_surfaces_malformed_records() {
+  local home state older newer listed first_line
+  home=$(setup_parent list-integrity)
+  state="$home/state"
+  export FM_PENDING_REPLY_NOW=900
+  newer=$(fm_pending_reply_create "$home" "$state" build newer)
+  export FM_PENDING_REPLY_NOW=100
+  older=$(fm_pending_reply_create "$home" "$state" build older)
+  printf 'schema=%s\ncorr_id=malformed\ntask_id=build\ncreated_epoch=50\nrequest_summary=damaged\n' \
+    "$FM_PENDING_REPLY_SCHEMA" > "$(fm_pending_reply_dir "$state")/malformed"
+  listed=$(list_open "$home")
+  first_line=${listed%%$'\n'*}
+  assert_contains "$first_line" "phase=unknown" "malformed record should stay visible"
+  [ "$(printf '%s\n' "$listed" | sed -n '2p' | cut -f1)" = "corr=$older" ] \
+    || fail "older valid obligation should sort before newer one:"$'\n'"$listed"
+  [ "$(printf '%s\n' "$listed" | sed -n '3p' | cut -f1)" = "corr=$newer" ] \
+    || fail "newer obligation should sort last:"$'\n'"$listed"
+  pass "open list orders by epoch and surfaces malformed records"
 }
 
 test_typed_plane_and_key_stay_off_the_open_list() {
@@ -1342,6 +1383,8 @@ test_restart_preserves_expectation_and_parent_destination
 test_wrong_home_detected_not_acknowledged
 test_crewmate_inbox_send_opens_pending_obligation
 test_answered_obligation_leaves_the_open_list
+test_quoted_corr_opens_a_distinct_obligation
+test_open_list_orders_by_epoch_and_surfaces_malformed_records
 test_typed_plane_and_key_stay_off_the_open_list
 test_list_refuses_without_explicit_home
 test_fm_send_marked_secondmate_creates_pending_and_embeds_corr
