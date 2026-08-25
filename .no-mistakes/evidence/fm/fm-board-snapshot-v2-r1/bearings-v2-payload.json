@@ -1,0 +1,26 @@
+{
+  "schema": "fm-bearings-board.v2",
+  "home": "main",
+  "generated": "2026-08-25T12:00:00Z",
+  "prs_live": false,
+  "domains": [
+    {"owner":"main","attention":{"count":1,"limit":4},"freshness":{"status":"fresh","observed_at":"2026-08-25T12:00:00Z","age_seconds":0},"validity":{"valid":true,"reason":null}},
+    {"owner":"ops-mate","attention":{"count":3,"limit":4},"freshness":{"status":"timed_out","observed_at":"2026-08-25T11:58:00Z","age_seconds":120},"validity":{"valid":false,"reason":"Home snapshot timed out; actions are disabled."}}
+  ],
+  "captains_call": [
+    {"id":"release-choice","key":"release-choice","owner":"main","repo":"firstmate","priority":0,"stage":"captain_held","claim_authority":"home-local","pull_eligible":false,"pull_reason":"captain_held","type":"decision","title":"Choose the release window","about":"Board v2 rollout","decide":"Ship tonight or tomorrow morning","options":[{"value":"tonight","label":"Tonight","hint":"Use the current green build"},{"value":"tomorrow","label":"Tomorrow morning","hint":"Allow another observation window"}],"recommend_value":"tonight"},
+    {"id":"ops-credential","key":"ops-credential","owner":"ops-mate","repo":"operations","priority":1,"stage":"captain_held","claim_authority":"home-local","pull_eligible":false,"pull_reason":"home_unavailable","type":"credential","title":"Approve operations credential","options":[{"value":"approve","label":"Approve"}]}
+  ],
+  "underway": [
+    {"id":"board-v2","owner":"main","repo":"firstmate","priority":0,"stage":"validating","claim_authority":"home-local","pull_eligible":false,"pull_reason":"already underway","state":"working","doing":"Validating the read-only Bearings board","kind":"ship"},
+    {"id":"ops-sync","owner":"ops-mate","repo":"operations","priority":1,"stage":"unknown","claim_authority":"home-local","pull_eligible":false,"pull_reason":"home_unavailable","state":"unknown","doing":"Current state could not be read","kind":"ship"}
+  ],
+  "landed": [
+    {"id":"snapshot-contract","owner":"main","repo":"firstmate","priority":0,"stage":"landed","claim_authority":"home-local","pull_eligible":false,"pull_reason":"not_queued","what":"Compact snapshot projection landed"}
+  ],
+  "charted": [
+    {"id":"main-followup","owner":"main","repo":"firstmate","priority":2,"stage":"queued","claim_authority":"home-local","pull_eligible":true,"pull_reason":null,"title":"Document the compatibility window","reason":"Ready in the main home","dispatchable":true},
+    {"id":"ops-followup","owner":"ops-mate","repo":"operations","priority":null,"stage":"queued","claim_authority":"home-local","pull_eligible":false,"pull_reason":"missing_priority","title":"Reconcile operations inventory","reason":"Priority unavailable while home is timed out","dispatchable":false}
+  ],
+  "charted_more": 0
+}

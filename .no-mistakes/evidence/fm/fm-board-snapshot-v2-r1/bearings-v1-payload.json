@@ -1,0 +1,11 @@
+{
+  "schema": "fm-bearings-board.v1",
+  "home": "main",
+  "generated": "2026-08-25T12:00:00Z",
+  "prs_live": false,
+  "captains_call": [],
+  "underway": [{"id":"legacy-task","repo":"firstmate","state":"working","doing":"Legacy board remains readable","kind":"ship"}],
+  "landed": [{"id":"legacy-done","repo":"firstmate","what":"Previous board generation","owner":"main"}],
+  "charted": [{"id":"legacy-next","repo":"firstmate","title":"Upgrade on the next rebuild","reason":"One-release compatibility","dispatchable":false}],
+  "charted_more": 0
+}
