@@ -33,6 +33,7 @@ CAPTAIN_SOURCE = "firstmate-telegram"
 GROUP_SOURCE = "firstmate-telegram-group"
 UPDATE_ID_RE = re.compile(r"^[1-9][0-9]*$")
 BRAIN_URL_RE = re.compile(r"https://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
+MAX_CAPTURE_ID_CHARS = 200
 
 
 class UserError(Exception):
@@ -139,6 +140,16 @@ def telegram_env_path() -> Path:
     return Path.home() / ".config" / "beanz" / "telegram.env"
 
 
+def validated_capture_id(value: object, origin: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise UserError("%s has no capture_id" % origin)
+    if len(value) > MAX_CAPTURE_ID_CHARS:
+        raise UserError("%s returned an oversized capture_id" % origin)
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise UserError("%s returned a capture_id with control bytes" % origin)
+    return value
+
+
 def brain_url_from(values: Dict[str, str]) -> str:
     url = values.get("BEANZ_MCP_URL") or DEFAULT_BRAIN_URL
     if not BRAIN_URL_RE.fullmatch(url):
@@ -156,6 +167,14 @@ def brain_credentials() -> Tuple[str, str]:
     if not token:
         raise UserError("BEANZ_MCP_TOKEN is missing from %s" % path)
     return token, brain_url_from(values)
+
+
+def unconfigured_reason() -> Optional[str]:
+    if not brain_env_path().exists():
+        return "brain-credentials"
+    if not os.environ.get("FM_TELEGRAM_CAPTAIN_CHAT_ID") and not telegram_env_path().exists():
+        return "captain-chat"
+    return None
 
 
 def captain_chat_id() -> int:
@@ -389,9 +408,7 @@ def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Pa
         except (UnicodeDecodeError, ValueError):
             raise UserError("brain capture returned no capture_id")
         capture_id = response.get("capture_id") if isinstance(response, dict) else None
-        if not isinstance(capture_id, str) or not capture_id:
-            raise UserError("brain capture returned no capture_id")
-        return capture_id
+        return validated_capture_id(capture_id, "brain capture")
     finally:
         for path in (body_path, resp_path):
             try:
@@ -422,9 +439,9 @@ def capture_line(
         existing = read_receipt(path)
         if existing.get("payload_sha256") != digest:
             raise UserError("receipt for update %d disagrees with the payload" % update_id)
-        capture_id = existing.get("capture_id")
-        if not isinstance(capture_id, str) or not capture_id:
-            raise UserError("receipt for update %d has no capture_id" % update_id)
+        capture_id = validated_capture_id(
+            existing.get("capture_id"), "receipt for update %d" % update_id
+        )
         return "already-captured %d %s" % (update_id, capture_id)
     capture_id = post_capture(token, brain_url, str(payload["text"]), source, receipts)
     failpoint("before-receipt")
@@ -449,6 +466,10 @@ def iter_payload_lines(raw: str) -> Iterable[str]:
 
 def command_capture(state: Path, config: Path) -> int:
     raw = sys.stdin.read()
+    missing = unconfigured_reason()
+    if missing:
+        print("capture-unconfigured %s" % missing)
+        return 0
     token, brain_url = brain_credentials()
     captain_chat = captain_chat_id()
     group_on = group_capture_enabled(config)

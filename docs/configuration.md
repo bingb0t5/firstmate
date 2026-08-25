@@ -615,6 +615,8 @@ Captured Telegram text is recorded memory, never automatic authority for destruc
 Captain direct messages are captured once brain credentials exist at `~/.config/beanz/mcp.env`.
 That mode-0600 file alone owns the brain destination; an ambient `BEANZ_MCP_URL` in the environment is ignored rather than followed.
 `from-result` classifies the interrupt result first, so a result naming no message payloads is a zero-exit no-op that stays acknowledgeable.
+A home with no credential file and no captain chat id has never configured capture: it reports `capture-unconfigured` and exits zero without a brain write, so Telegram is never wedged by a brain nobody set up.
+A credential file that exists but is unusable, and any failed brain write, still exit non-zero before acknowledgement.
 Group discussion stays off until local gitignored `config/telegram-brain-capture-group` contains the bare word `on`, or `FM_TELEGRAM_BRAIN_CAPTURE_GROUP=on` for one run.
 Absent, empty, `off`, and any other value keep group payloads skipped.
 Turning the flag on does not subscribe to groups; this path still only sees payloads the interrupt adapter already emitted.
