@@ -15,5 +15,9 @@
 # the empty string rather than a guess.
 
 fm_repo_slug() {  # <url>
-  printf '%s' "$1" | sed -n 's#.*github\.com[:/]\([^/]*/[^/]*\)#\1#p' | sed 's#\.git$##; s#/pull/.*$##; s#/$##'
+  printf '%s' "$1" | sed -n \
+    -e 's#^https://github\.com/\([^/]*/[^/]*\)#\1#p' \
+    -e 's#^git@github\.com:\([^/]*/[^/]*\)#\1#p' \
+    -e 's#^ssh://git@github\.com/\([^/]*/[^/]*\)#\1#p' \
+    | sed 's#\.git$##; s#/pull/.*$##; s#/$##'
 }

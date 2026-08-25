@@ -286,12 +286,18 @@ add_pr_sequence() {
     && mv "$lf.tmp" "$lf"
   : > "$vf.parts"
   for m in "$@"; do
-    # Each entry is "mergeable[:head]", so a reread can settle on a head the
-    # listing never carried.
-    local state=${m%%:*} h=$head
-    case "$m" in *:*) h=${m#*:} ;; esac
-    jq -nc --arg h "$h" --arg m "$state" \
-      '{headRefOid:$h, isDraft:false, mergeable:$m}' >> "$vf.parts"
+    # Each entry is "mergeable[:head[:draft]]", so a reread can settle on
+    # metadata the listing never carried.
+    local state=${m%%:*} h=$head d=false rest
+    case "$m" in
+      *:*)
+        rest=${m#*:}
+        h=${rest%%:*}
+        case "$rest" in *:*) d=${rest#*:} ;; esac
+        ;;
+    esac
+    jq -nc --arg h "$h" --arg m "$state" --argjson d "$d" \
+      '{headRefOid:$h, isDraft:$d, mergeable:$m}' >> "$vf.parts"
   done
   jq -s '.' "$vf.parts" > "$vf"
   rm -f "$vf.parts"
@@ -380,6 +386,9 @@ https://github.com/acme/alpha/pull/12|acme/alpha
 git@github.com:acme/alpha.git|acme/alpha
 ssh://git@github.com/acme/alpha.git|acme/alpha
 https://gitlab.com/acme/alpha.git|
+https://notgithub.com/acme/alpha.git|
+https://github.com.evil.example/acme/alpha.git|
+git@notgithub.com:acme/alpha.git|
 /home/example/projects/alpha|
 CASES
   pass "the shared remote parser resolves GitHub slugs and refuses to guess"
@@ -677,6 +686,35 @@ test_draft_conflicts_are_reported() {
   assert_contains "$(cat "$out")" "draft=yes" "draft conflict must be marked"
   assert_contains "$(cat "$out")" "owner-team=team-b" "draft repo routes to owning team"
   pass "conflicted draft PRs are reported"
+}
+
+test_unknown_wake_uses_the_draft_state_the_reread_judged() {
+  local home out
+  home=$(make_home unknown-draft)
+  add_pr_sequence "$home" "$REPO_A" 7 "$HEAD_ONE" "Became draft" \
+    "CONFLICTING:$HEAD_ONE:true"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "draft=yes" \
+    "a settled reread must replace the listing's stale draft flag"
+  pass "lazy mergeability rereads carry their settled draft state"
+}
+
+test_failed_output_does_not_acknowledge_the_conflict() {
+  local home out status=0
+  home=$(make_home output-failure)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false CONFLICTING "Retry delivery"
+  env FM_CHECK_TIMEOUT=30 FM_PR_CONFLICT_INTERVAL=0 FM_PR_CONFLICT_UNKNOWN_WAIT=0 \
+    FM_HOME="$home" FM_ROOT="$ROOT" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROJECTS_OVERRIDE="$home/projects" FM_STATE_OVERRIDE="$home/state" \
+    FM_TEST_PR_CONFLICT_FIXTURE="$home/fixture" \
+    PATH="$home/fakebin:$BASE_PATH" "$WATCH" >/dev/full 2>/dev/null || status=$?
+  [ "$status" -ne 0 ] || fail "a failed wake write must fail the check"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "title=Retry delivery" \
+    "a conflict whose wake write failed must retry"
+  pass "failed output leaves the conflict unacknowledged"
 }
 
 # GitHub blips constantly, so a repository that has only just started failing is
@@ -1145,6 +1183,8 @@ test_deregistered_project_leaves_the_record
 test_unknown_rereads_stop_at_the_sweep_deadline
 test_clean_fleet_is_silent
 test_draft_conflicts_are_reported
+test_unknown_wake_uses_the_draft_state_the_reread_judged
+test_failed_output_does_not_acknowledge_the_conflict
 test_transient_read_failure_stays_silent_and_keeps_the_record
 test_persistent_read_failure_is_disclosed_once
 test_read_failure_inside_the_grace_stays_silent

@@ -244,6 +244,7 @@ SWEEP_COMPLETE=1
 DISCOVERY_COMPLETE=1
 RESOLVED_STATE=
 RESOLVED_HEAD=
+RESOLVED_DRAFT=
 
 # Split a delimited accumulator into one part per line. `read -r -a` is not used
 # anywhere here because expanding a declared-but-empty array under `set -u` is a
@@ -872,9 +873,10 @@ pr_view_record() {
 # finding it made and repeats that loss on every poll. An unsettled read stays
 # unknown, which is silent, and never becomes clean or conflicted.
 pr_mergeable_resolved() {
-  local repo=$1 number=$2 attempt=0 record mergeable head
+  local repo=$1 number=$2 attempt=0 record mergeable head draft
   RESOLVED_STATE=unknown
   RESOLVED_HEAD=
+  RESOLVED_DRAFT=
   while :; do
     if budget_exhausted; then
       RESOLVED_STATE=unknown
@@ -885,15 +887,18 @@ pr_mergeable_resolved() {
     record=$GH_API_BODY
     mergeable=$(printf '%s' "$record" | jq -r '.mergeable // "UNKNOWN"' 2>/dev/null) || return 2
     head=$(printf '%s' "$record" | jq -r '.headRefOid // ""' 2>/dev/null) || return 2
+    draft=$(printf '%s' "$record" | jq -r '.isDraft | tostring' 2>/dev/null) || return 2
     case "$mergeable" in
       MERGEABLE)
         RESOLVED_STATE=clean
         RESOLVED_HEAD=$head
+        RESOLVED_DRAFT=$draft
         return 0
         ;;
       CONFLICTING)
         RESOLVED_STATE=conflicted
         RESOLVED_HEAD=$head
+        RESOLVED_DRAFT=$draft
         return 0
         ;;
       UNKNOWN|'')
@@ -962,6 +967,7 @@ evaluate_repo() {
           return 1
         fi
         state=$RESOLVED_STATE
+        [ -z "$RESOLVED_DRAFT" ] || draft=$RESOLVED_DRAFT
         if [ -n "$RESOLVED_HEAD" ] && [ "$RESOLVED_HEAD" != "$head" ]; then
           record_remove_key "$(conflict_key "$repo" "$number" "$head")"
           head=$RESOLVED_HEAD
@@ -1066,12 +1072,17 @@ EOF
     line=$FM_LINE_CAP_LINE
   fi
 
+  if [ -n "$line" ]; then
+    if ! printf '%s\n' "$line"; then
+      record_prune
+      coverage_prune
+      record_write "$REPORTED_KEYS" || true
+      return 1
+    fi
+  fi
   ack_delivered
   record_prune
   coverage_prune
-  if [ -n "$line" ]; then
-    printf '%s\n' "$line"
-  fi
   record_write "$REPORTED_KEYS" || true
   return 0
 }
