@@ -69,6 +69,9 @@ FLEET="$SCRIPT_DIR/fm-fleet-snapshot.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-repo-slug-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-repo-slug-lib.sh"
 
 # Bounds (overridable for tests / large fleets).
 FM_BEARINGS_LANDED=${FM_BEARINGS_LANDED:-6}
@@ -193,11 +196,6 @@ PR_REPOS_SHOWN=0
 PR_ROWS_CAPPED=0
 PR_ROWS_MIN_TOTAL=0
 
-# Parse owner/repo from an https or ssh GitHub remote/PR URL; empty if not GitHub.
-repo_slug() {  # <url>
-  printf '%s' "$1" | sed -n 's#.*github\.com[:/]\([^/]*/[^/]*\)#\1#p' | sed 's#\.git$##; s#/pull/.*$##; s#/$##'
-}
-
 # Bounded gh call; prints stdout, non-zero on timeout/failure. gh only.
 # bin/fm-timeout-lib.sh owns the bound itself.
 gh_bounded() {  # <args...>
@@ -213,7 +211,7 @@ if [ "$INCLUDE_PRS" = 1 ]; then
     repos=""
     while IFS= read -r u; do
       [ -n "$u" ] || continue
-      s=$(repo_slug "$u"); [ -n "$s" ] || continue
+      s=$(fm_repo_slug "$u"); [ -n "$s" ] || continue
       case " $repos " in *" $s "*) : ;; *) repos="$repos $s" ;; esac
     done <<EOF
 $(printf '%s' "$SNAP" | jq -r '.tasks[].pr.url // empty')
@@ -222,7 +220,7 @@ EOF
       [ -n "$wt" ] || continue
       [ -d "$wt" ] || continue
       u=$(git -C "$wt" remote get-url origin 2>/dev/null) || continue
-      s=$(repo_slug "$u"); [ -n "$s" ] || continue
+      s=$(fm_repo_slug "$u"); [ -n "$s" ] || continue
       case " $repos " in *" $s "*) : ;; *) repos="$repos $s" ;; esac
     done <<EOF
 $(printf '%s' "$SNAP" | jq -r '.tasks[] | select(.kind != "secondmate") | .paths.worktree.path // empty')

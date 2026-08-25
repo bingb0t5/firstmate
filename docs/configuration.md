@@ -451,13 +451,16 @@ Draft pull requests are included; a conflicted draft is reported with `draft=yes
 Each wake line begins with `pr-conflict:` and carries `owner-team`, `repo`, `number`, `head`, `draft`, `url`, and `title` so firstmate can route without re-deriving ownership.
 Dedupe keys are repository, pull request number, and head SHA: the same conflict on the same head is reported once, while a force-updated head that conflicts again is a new event.
 GitHub computes mergeability lazily; the check polls short rereads when `mergeable` is `UNKNOWN` and treats a persistent `UNKNOWN` as unknown rather than clean or conflicted.
+A reread that settles the state also names the head it settled for, so a branch force-updated between the listing and the reread is reported and deduped under the SHA that was actually judged.
+A sweep that finds more conflicts than one line can carry reports the ones that fit and discloses the rest as `N more omitted (line cap)`; an omitted conflict is not marked as reported, so it wakes on a later sweep instead of being lost.
+The dedupe record is cut back to the conflicts each sweep still observes, so it stays the size of the live conflict set rather than growing one entry per head forever.
 
 This is a safety net, not a cure: conflicts happen because pull requests wait unmerged while the default branch moves underneath them.
 
 `FM_PR_CONFLICT_INTERVAL` (default 300 seconds, `0` to probe on every run) sets how often sweeps run, `FM_PR_CONFLICT_PROBE_SECS` (default 5) bounds one GitHub call, and `FM_PR_CONFLICT_BUDGET_SECS` (default 20) bounds a whole sweep.
 `FM_PR_CONFLICT_UNKNOWN_ATTEMPTS` (default 3) and `FM_PR_CONFLICT_UNKNOWN_WAIT` (default 1 second) control lazy mergeability polling.
 `FM_PR_CONFLICT_PR_LIMIT` (default 30) caps open pull requests read per repository.
-The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a larger budget is cut to fit rather than refused.
+The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a larger budget is cut to fit rather than refused, and the `UNKNOWN` reread loop stops at the sweep deadline too, because a run the watcher kills prints and records nothing at all.
 
 ## Relay (.env)
 
