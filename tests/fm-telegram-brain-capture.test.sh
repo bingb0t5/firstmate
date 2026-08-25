@@ -11,7 +11,9 @@ set -uo pipefail
 
 CAPTURE="$ROOT/bin/fm-telegram-brain-capture.sh"
 TMP_ROOT=$(fm_test_tmproot fm-telegram-brain-capture)
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+PYTHON_BIN=$(command -v python3) || fail "test needs python3"
+PYTHON_BIN_DIR=$(dirname "$PYTHON_BIN")
+BASE_PATH=${FM_TEST_BASE_PATH:-$PYTHON_BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin}
 
 TOKEN='tok_test_brain_capture_secret'
 CAPTAIN_CHAT=4242
@@ -83,6 +85,21 @@ exit "${FAKE_CURL_EXIT:-0}"
 SH
   chmod +x "$fakebin/curl"
   printf '%s\n' "$fakebin"
+}
+
+make_stub_adapter() {
+  local home=$1 kind=$2
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' "[ \"\$2\" = \"$home/result\" ] || exit 3"
+    # shellcheck disable=SC2016 # $1 belongs to the stub adapter, not this test.
+    printf '%s\n' 'case "$1" in'
+    printf '%s\n' "  classify) printf '%s\\n' $(printf '%q' "$kind"); exit 0 ;;"
+    printf '%s\n' "  messages) printf 'adapter-messages-ran\\n' >> $(printf '%q' "$home/messages.calls"); cat -- $(printf '%q' "$home/messages.jsonl") ;;"
+    printf '%s\n' '  *) exit 2 ;;'
+    printf '%s\n' 'esac'
+  } > "$home/bin/fm-procevent-telegram.sh"
+  chmod +x "$home/bin/fm-procevent-telegram.sh"
 }
 
 run_capture() {
@@ -200,14 +217,7 @@ from_home=$(make_home from-result)
 from_bin=$(make_fake_curl "$from_home")
 mkdir -p "$from_home/bin"
 payload 5005 "from the adapter" > "$from_home/messages.jsonl"
-{
-  printf '%s\n' '#!/usr/bin/env bash'
-  # shellcheck disable=SC2016 # $1 belongs to the stub adapter, not this test.
-  printf '%s\n' '[ "$1" = messages ] || exit 2'
-  printf '%s\n' "[ \"\$2\" = \"$from_home/result\" ] || exit 3"
-  printf '%s\n' "cat -- $(printf '%q' "$from_home/messages.jsonl")"
-} > "$from_home/bin/fm-procevent-telegram.sh"
-chmod +x "$from_home/bin/fm-procevent-telegram.sh"
+make_stub_adapter "$from_home" message
 printf 'notice\n' > "$from_home/result"
 FAKE_CURL_LOG="$from_home/curl.log"
 FAKE_CAPTURE_BODY='{"capture_id":"cap-from","status":"captured"}'
@@ -260,6 +270,86 @@ expect_code 0 $? "retry after failpoint should succeed"
 assert_contains "$out" "captured 6006 cap-crash" "retry after failpoint did not capture"
 assert_present "$crash/curl.retry.log" "retry after failpoint skipped the POST"
 pass "a crash before the receipt can still write on retry"
+
+# --- a non-message result is a zero-exit no-op ------------------------------
+blocked=$(make_home blocked-result)
+blocked_bin=$(make_fake_curl "$blocked")
+mkdir -p "$blocked/bin"
+payload 5006 "must not be captured" > "$blocked/messages.jsonl"
+make_stub_adapter "$blocked" blocked
+printf 'notice\n' > "$blocked/result"
+out=$(PATH="$blocked/bin:$blocked_bin:$BASE_PATH" \
+  FM_HOME="$blocked" \
+  FM_STATE_OVERRIDE="$blocked/state" \
+  FM_CONFIG_OVERRIDE="$blocked/config" \
+  FM_BEANZ_ENV_FILE="$blocked/secrets/mcp.env" \
+  FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+  FAKE_CURL_LOG="$blocked/curl.log" \
+  "$CAPTURE" from-result "$blocked/result")
+expect_code 0 $? "a blocked result must stay acknowledgeable with a zero exit"
+assert_contains "$out" "no-messages blocked" "the no-op did not name the classification"
+assert_absent "$blocked/messages.calls" "a blocked result still asked for messages"
+assert_absent "$blocked/curl.log" "a blocked result still posted to the brain"
+pass "a result naming no message payloads is a zero-exit no-op"
+
+# --- an ambient BEANZ_MCP_URL never redirects the write ---------------------
+amb=$(make_home ambient-url)
+amb_bin=$(make_fake_curl "$amb")
+out=$(payload 7007 "stays on the credential destination" | \
+  PATH="$amb_bin:$BASE_PATH" \
+  FM_HOME="$amb" \
+  FM_STATE_OVERRIDE="$amb/state" \
+  FM_CONFIG_OVERRIDE="$amb/config" \
+  FM_BEANZ_ENV_FILE="$amb/secrets/mcp.env" \
+  FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+  FAKE_CURL_LOG="$amb/curl.log" \
+  BEANZ_MCP_URL=$'https://brain.test\nurl = "https://attacker.example/v1/capture"' \
+  "$CAPTURE" capture -)
+expect_code 0 $? "an ambient BEANZ_MCP_URL should not break the capture"
+assert_contains "$out" "captured 7007 cap-1" "ambient-url capture did not succeed"
+assert_grep 'url=https://brain.test/v1/capture' "$amb/curl.log" "capture left the credential destination"
+assert_no_grep "attacker.example" "$amb/curl.log" "an ambient BEANZ_MCP_URL redirected the brain write"
+pass "an ambient BEANZ_MCP_URL cannot redirect a token-bearing write"
+
+# --- an unsafe credential BEANZ_MCP_URL is refused --------------------------
+badurl=$(make_home bad-url)
+badurl_bin=$(make_fake_curl "$badurl")
+umask 077
+printf '%s\n' "BEANZ_MCP_TOKEN=$TOKEN" > "$badurl/secrets/mcp.env"
+printf '%s\n' 'BEANZ_MCP_URL="https://brain.test/x y"' >> "$badurl/secrets/mcp.env"
+chmod 600 "$badurl/secrets/mcp.env"
+if payload 7008 "should not send" | \
+  run_capture "$badurl" "$badurl_bin" capture - >/dev/null 2>"$badurl/err"; then
+  fail "an unsafe BEANZ_MCP_URL must be refused"
+fi
+assert_grep "not a plain https URL" "$badurl/err" "unsafe BEANZ_MCP_URL was not reported"
+assert_absent "$badurl/curl.log" "unsafe BEANZ_MCP_URL still called curl"
+pass "an unsafe credential BEANZ_MCP_URL is refused before the write"
+
+# --- an unreadable group flag reports an error line -------------------------
+badflag=$(make_home bad-group-flag)
+badflag_bin=$(make_fake_curl "$badflag")
+printf 'on\n' > "$badflag/config/telegram-brain-capture-group"
+chmod 000 "$badflag/config/telegram-brain-capture-group"
+if [ -r "$badflag/config/telegram-brain-capture-group" ]; then
+  printf 'skip: running as a user that ignores mode 000\n'
+else
+  set +e
+  PATH="$badflag_bin:$BASE_PATH" \
+    FM_HOME="$badflag" \
+    FM_STATE_OVERRIDE="$badflag/state" \
+    FM_CONFIG_OVERRIDE="$badflag/config" \
+    FM_BEANZ_ENV_FILE="$badflag/secrets/mcp.env" \
+    FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+    "$CAPTURE" doctor >/dev/null 2>"$badflag/err"
+  badflag_rc=$?
+  expect_code 1 "$badflag_rc" "an unreadable group flag should exit 1"
+  assert_grep "error: cannot read telegram-brain-capture-group" "$badflag/err" \
+    "an unreadable group flag did not print an error line"
+  assert_no_grep "Traceback" "$badflag/err" "an unreadable group flag printed a traceback"
+  pass "an unreadable group flag reports an error line instead of a traceback"
+fi
+chmod 600 "$badflag/config/telegram-brain-capture-group"
 
 # --- doctor reports non-secret readiness ------------------------------------
 doc=$(make_home doctor)

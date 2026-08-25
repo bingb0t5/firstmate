@@ -32,6 +32,7 @@ DEFAULT_TIMEOUT = 30
 CAPTAIN_SOURCE = "firstmate-telegram"
 GROUP_SOURCE = "firstmate-telegram-group"
 UPDATE_ID_RE = re.compile(r"^[1-9][0-9]*$")
+BRAIN_URL_RE = re.compile(r"https://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
 
 
 class UserError(Exception):
@@ -138,21 +139,23 @@ def telegram_env_path() -> Path:
     return Path.home() / ".config" / "beanz" / "telegram.env"
 
 
+def brain_url_from(values: Dict[str, str]) -> str:
+    url = values.get("BEANZ_MCP_URL") or DEFAULT_BRAIN_URL
+    if not BRAIN_URL_RE.fullmatch(url):
+        raise UserError("BEANZ_MCP_URL is not a plain https URL")
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+        raise UserError("BEANZ_MCP_URL must be an https origin with no userinfo")
+    return url.rstrip("/")
+
+
 def brain_credentials() -> Tuple[str, str]:
     path = brain_env_path()
     values = read_env_file(path)
     token = values.get("BEANZ_MCP_TOKEN")
     if not token:
         raise UserError("BEANZ_MCP_TOKEN is missing from %s" % path)
-    url = (
-        os.environ.get("BEANZ_MCP_URL")
-        or values.get("BEANZ_MCP_URL")
-        or DEFAULT_BRAIN_URL
-    )
-    parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
-        raise UserError("BEANZ_MCP_URL must be an https origin with no userinfo")
-    return token, url.rstrip("/")
+    return token, brain_url_from(values)
 
 
 def captain_chat_id() -> int:
@@ -181,7 +184,10 @@ def group_capture_enabled(config: Path) -> bool:
         return False
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
         raise UserError("telegram-brain-capture-group is not a regular file")
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise UserError("cannot read telegram-brain-capture-group: %s" % exc)
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -215,7 +221,10 @@ def ensure_receipt_dir(state: Path) -> Path:
         if stat.S_IMODE(info.st_mode) != 0o700:
             raise UserError("receipt directory mode is not 700")
         return receipts
-    os.mkdir(str(receipts), 0o700)
+    try:
+        os.mkdir(str(receipts), 0o700)
+    except OSError as exc:
+        raise UserError("cannot create the receipt directory: %s" % exc)
     return receipts
 
 
@@ -252,19 +261,22 @@ def read_receipt(path: Path) -> Dict[str, object]:
 def write_receipt(path: Path, body: Dict[str, object]) -> None:
     encoded = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     directory = path.parent
-    fd, tmp_name = tempfile.mkstemp(prefix=".receipt.", dir=str(directory))
     try:
-        os.fchmod(fd, 0o600)
-        os.write(fd, encoded.encode("utf-8"))
-        os.fsync(fd)
-    finally:
-        os.close(fd)
-    os.replace(tmp_name, str(path))
-    dir_fd = os.open(str(directory), os.O_RDONLY)
-    try:
-        os.fsync(dir_fd)
-    finally:
-        os.close(dir_fd)
+        fd, tmp_name = tempfile.mkstemp(prefix=".receipt.", dir=str(directory))
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, encoded.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp_name, str(path))
+        dir_fd = os.open(str(directory), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except OSError as exc:
+        raise UserError("cannot write the capture receipt: %s" % exc)
 
 
 def parse_payload(line: str) -> Dict[str, object]:
@@ -296,25 +308,41 @@ def parse_payload(line: str) -> Dict[str, object]:
     }
 
 
+def curl_config_value(value: str) -> str:
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise UserError("a curl config value contains control bytes")
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Path) -> str:
     body = json.dumps({"text": text, "source": source}, ensure_ascii=False)
-    fd, body_name = tempfile.mkstemp(prefix=".beanz-body.", dir=str(workdir))
-    os.fchmod(fd, 0o600)
-    os.close(fd)
+    try:
+        fd, body_name = tempfile.mkstemp(prefix=".beanz-body.", dir=str(workdir))
+        os.fchmod(fd, 0o600)
+        os.close(fd)
+        resp_fd, resp_name = tempfile.mkstemp(prefix=".beanz-resp.", dir=str(workdir))
+        os.fchmod(resp_fd, 0o600)
+        os.close(resp_fd)
+    except OSError as exc:
+        raise UserError("cannot stage the brain capture request: %s" % exc)
     body_path = Path(body_name)
-    resp_fd, resp_name = tempfile.mkstemp(prefix=".beanz-resp.", dir=str(workdir))
-    os.fchmod(resp_fd, 0o600)
-    os.close(resp_fd)
     resp_path = Path(resp_name)
     config = (
         'url = "%s/v1/capture"\n'
         'header = "Authorization: Bearer %s"\n'
         'header = "Content-Type: application/json"\n'
         'data-binary = "@%s"\n'
-        % (brain_url, token.replace("\\", "\\\\").replace('"', '\\"'), body_path)
+        % (
+            curl_config_value(brain_url),
+            curl_config_value(token),
+            curl_config_value(str(body_path)),
+        )
     )
     try:
-        body_path.write_bytes(body.encode("utf-8"))
+        try:
+            body_path.write_bytes(body.encode("utf-8"))
+        except OSError as exc:
+            raise UserError("cannot stage the brain capture request: %s" % exc)
         timeout = timeout_seconds()
         try:
             completed = subprocess.run(
@@ -347,10 +375,13 @@ def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Pa
         if not re.fullmatch(r"[0-9]{3}", status_text):
             raise UserError("brain capture returned a malformed status")
         status = int(status_text)
-        size = resp_path.stat().st_size
-        if size > MAX_RESPONSE_BYTES:
-            raise UserError("brain capture response is too large")
-        raw = resp_path.read_bytes()
+        try:
+            size = resp_path.stat().st_size
+            if size > MAX_RESPONSE_BYTES:
+                raise UserError("brain capture response is too large")
+            raw = resp_path.read_bytes()
+        except OSError as exc:
+            raise UserError("cannot read the brain capture response: %s" % exc)
         if status != 200:
             raise UserError("brain capture failed with HTTP %s" % status)
         try:
