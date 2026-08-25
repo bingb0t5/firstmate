@@ -1,0 +1,45 @@
+FM_TEST_BEGIN 2026-08-25T19:09:06Z tests/fm-second-attempt.test.sh family=backend-dispatch expected_gate_skip=none
+ok - fm-spawn: first ship spawn is not blocked without a Sol spec
+ok - fm-control: relaunch refuses without a Sol spec and does not replace the agent
+ok - fm-control: relaunch proceeds once data/<id>/spec.md exists
+ok - fm-control: data/<id>/report.md does not satisfy the Sol-spec gate
+ok - fm-spawn: --relaunch refuses without a Sol spec
+ok - fm-control: scout relaunch after an existing attempt remains ungated
+ok - fm-spawn: a secondmate relaunch is exempt from the second-attempt gate
+ok - fm-control: a recorded third fix round refuses the relaunch by name
+ok - fm-control: an unreadable third fix-round marker refuses without claiming a round
+ok - fm-control: a non-numeric fix-round payload refuses without claiming a round
+ok - fm-control: a marker below round 3 does not claim the third-fix-round reason
+ok - fm-second-attempt-lib: third fix-round marker refuses until a spec exists
+# all fm-second-attempt tests passed
+FM_TEST_END 2026-08-25T19:09:09Z tests/fm-second-attempt.test.sh exit=0 duration_ms=2524 gate_skip=false
+FM_TEST_BEGIN 2026-08-25T19:09:09Z tests/fm-brief.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm-brief.sh: bash -n succeeds
+/tmp/fm-brief.Efsdln/heredoc-in-substitution.sh:2
+ok - fm-brief.sh: no heredoc is nested inside a command substitution (Bash 3.2 parse-safe)
+ok - fm-brief.sh: --help renders the complete header
+ok - fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly
+ok - fm-brief.sh: ship --mode is required and closed-set validated
+ok - fm-brief.sh: the explicit ship mode wins over the registered posture
+ok - fm-brief.sh: --yolo and scout/secondmate --mode are refused, never silently dropped
+ok - fm-brief.sh: faster paths use configured authority without stacked review
+ok - fm-brief.sh: no-mistakes DOD keeps its apostrophe prose, now parse-safe
+ok - fm-brief.sh: ship project-memory wording carries the AGENTS.md authoring bar
+ok - fm-brief.sh: --herdr-lab emits the complete hard safety contract
+ok - fm-brief.sh: --herdr-lab uses its quoted Firstmate-owned helper path
+ok - fm-brief.sh: ship and scout scaffolds make omitted Herdr intent fail-visible
+ok - fm-brief.sh: the documented {TASK} fill cannot corrupt the Herdr safety gate
+ok - fm-brief.sh: Herdr lab contract covers scouts and rejects secondmate misuse
+ok - fm-brief.sh: --no-projects scaffolds a project-less charter and guards misuse
+ok - fm-brief.sh: marked requests avoid generic acknowledgements and preserve material reporting
+ok - fm-brief.sh: relative directory inputs ignore CDPATH, render stable absolute charter paths, or fail loudly
+ok - fm-brief.sh: custom pause verb renders in every scaffold
+ok - fm-brief.sh: investigation and visual-review completions load the shared decision policy
+ok - fm-brief: Sol spec scouts produce spec.md through the existing scout workflow
+ok - fm-brief: scout and secondmate code paths still scaffold well-formed briefs
+FM_TEST_END 2026-08-25T19:09:10Z tests/fm-brief.test.sh exit=0 duration_ms=1103 gate_skip=false
+FM_TEST_SUMMARY total=2 failed=0 skipped_gate=0 duration_ms=3691
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=1 duration_ms=2524 failed=0
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=1 duration_ms=1103 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-second-attempt.test.sh duration_ms=2524
+FM_TEST_SLOWEST rank=2 script=tests/fm-brief.test.sh duration_ms=1103
