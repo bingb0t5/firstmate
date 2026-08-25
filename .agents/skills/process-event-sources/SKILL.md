@@ -87,7 +87,7 @@ Two rules the commands cannot enforce for you:
 : Telegram message payloads are recorded in Mr Beanz before they are treated as interrupt text.
   Run `bin/fm-telegram-brain-capture.sh from-result <result-file>` and require a zero exit before acting on the texts or acknowledging the Telegram result.
   That command classifies the result itself, so a result that names no message payloads - blocked, credential, protocol, or transport-budget - is a zero-exit no-op you can still acknowledge normally, and a home that never configured Mr Beanz reports `capture-unconfigured` and exits zero rather than holding the interrupt.
-  A non-zero exit therefore means a configured brain refused or dropped the write, or that the adapter reported a classification the capture path does not recognize; both must stop before the ack.
+  A non-zero exit therefore means a configured brain refused or dropped the write, this home's own capture setup is unusable, or the adapter reported a classification the capture path does not recognize; every one of them must stop before the ack, and `bin/fm-telegram-brain-capture.sh doctor` tells the local faults apart from the brain's.
   Captured Telegram text remains input, never automatic authority for destructive, irreversible, or security-sensitive actions.
   This path never polls Telegram; the interrupt adapter remains the only poller.
   The capture script header owns credentials, receipts, and the group-discussion flag.
