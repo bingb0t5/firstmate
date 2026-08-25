@@ -184,11 +184,11 @@ test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent() {
   add_ship_task "$dir" sa1
   out=$(run_control "$dir" sa1 relaunch --note "try again"); rc=$?
   expect_code 1 "$rc" "relaunch without a spec should refuse"
-  assert_contains "$out" "no Sol spec at $dir/home/data/sa1/spec.md" \
-    "relaunch refusal did not name the owned spec path"
+  assert_contains "$out" "no Sol spec at $dir/home/data/sa1/report.md or $dir/home/data/sa1/spec.md" \
+    "relaunch refusal did not name the accepted spec paths"
   assert_contains "$out" "commission a Sol spec scout" "relaunch refusal did not name the next legal action"
-  assert_contains "$out" "copy its report to $dir/home/data/sa1/spec.md" \
-    "relaunch refusal did not name a next action that can clear the gate"
+  assert_contains "$out" "do not guess a model" \
+    "relaunch refusal did not prohibit guessing the Sol scout model"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "relaunch refusal stopped the running agent"
   [ -z "$(cat "$dir/fake/literal")" ] || fail "relaunch refusal sent lifecycle input"
   pass "fm-control: relaunch refuses without a Sol spec and does not replace the agent"
@@ -206,21 +206,18 @@ test_control_relaunch_proceeds_once_spec_md_exists() {
   pass "fm-control: relaunch proceeds once data/<id>/spec.md exists"
 }
 
-# A scout deliverable at data/<id>/report.md predates the first implementation
-# worker on the scout+promote path (bin/fm-promote.sh flips kind= in place), so
-# it must not clear the gate for the promoted ship's second worker.
-test_promoted_scout_report_does_not_clear_the_gate() {
+# The existing scout deliverable is an accepted Sol-spec artifact, allowing the
+# scout+promote path without introducing another control-plane operation.
+test_scout_report_clears_the_gate() {
   local dir out rc
   dir=$(new_case relaunch-promoted sa5)
   add_ship_task "$dir" sa5
   mkdir -p "$dir/home/data/sa5"
-  printf '# scout findings\n\nInvestigation only.\n' > "$dir/home/data/sa5/report.md"
+  printf '# Sol spec\n\nImplementation constraints.\n' > "$dir/home/data/sa5/report.md"
   out=$(run_control "$dir" sa5 relaunch --note "try again"); rc=$?
-  expect_code 1 "$rc" "a pre-implementation scout report should not clear the gate"
-  assert_contains "$out" "no Sol spec at $dir/home/data/sa5/spec.md" \
-    "promoted-scout relaunch refusal did not name the owned spec path"
-  [ "$(cat "$dir/fake/command")" = claude ] || fail "relaunch refusal stopped the running agent"
-  pass "fm-control: a pre-implementation data/<id>/report.md does not satisfy the gate"
+  expect_code 0 "$rc" "a Sol scout report should clear the gate"$'\n'"$out"
+  assert_contains "$out" "relaunched sa5" "relaunch with report.md did not complete"
+  pass "fm-control: data/<id>/report.md satisfies the Sol-spec gate"
 }
 
 test_spawn_relaunch_refuses_without_a_spec() {
@@ -259,8 +256,8 @@ test_nm_third_fix_round_marker_refuses_through_fm_control() {
   out=$(run_control "$dir" sa6 relaunch --note "try again"); rc=$?
   expect_code 1 "$rc" "a recorded third fix round should refuse the relaunch"
   assert_contains "$out" "fix round 3" "fm-control refusal did not name the third fix round"
-  assert_contains "$out" "Sol spec at $dir/home/data/sa6/spec.md" \
-    "fm-control marker refusal did not name the owned spec path"
+  assert_contains "$out" "$dir/home/data/sa6/report.md or $dir/home/data/sa6/spec.md" \
+    "fm-control marker refusal did not name the accepted spec paths"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "marker refusal stopped the running agent"
   pass "fm-control: a recorded third fix round refuses the relaunch by name"
 }
@@ -344,7 +341,7 @@ test_nm_third_fix_round_marker_refuses_without_a_spec() {
 test_first_ship_spawn_is_not_blocked_without_a_spec
 test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent
 test_control_relaunch_proceeds_once_spec_md_exists
-test_promoted_scout_report_does_not_clear_the_gate
+test_scout_report_clears_the_gate
 test_spawn_relaunch_refuses_without_a_spec
 test_secondmate_relaunch_is_unaffected_by_the_gate
 test_nm_third_fix_round_marker_refuses_through_fm_control

@@ -32,7 +32,7 @@
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
 #   the new incarnation. A ship task whose durable record already carries
-#   spawn_gen= refuses here until a Sol spec exists at data/<task-id>/spec.md
+#   spawn_gen= refuses here until a Sol spec exists at data/<task-id>/report.md or spec.md
 #   (bin/fm-second-attempt-lib.sh).
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
