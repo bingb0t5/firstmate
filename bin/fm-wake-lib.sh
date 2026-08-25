@@ -1176,20 +1176,37 @@ fm_wake_queued_keys_locked() {
     "$FM_WAKE_QUEUE" 2>/dev/null || true
 }
 
-fm_wake_secondmate_stall_marker_write() { # <task> <row-key>
-  local task=$1 row_key=$2 marker tmp
+# Record <row-key> in a per-mate marker under $STATE, refusing any pre-existing
+# path that is not a plain regular file so a marker can never be aimed at a
+# target outside the state directory. Shared by the stall marker and the
+# supervising-skip cache, which differ only in prefix and lifetime.
+_fm_wake_secondmate_marker_write() { # <prefix> <task> <row-key>
+  local prefix=$1 task=$2 row_key=$3 marker tmp
   case "$task" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
   case "$row_key" in ''|*[!0-9-]*) return 1 ;; esac
-  marker="$STATE/.secondmate-wake-stall-$task"
+  marker="$STATE/$prefix$task"
   if [ -e "$marker" ] || [ -L "$marker" ]; then
     [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
   fi
-  tmp=$(mktemp "$STATE/.secondmate-wake-stall.XXXXXX") || return 1
+  tmp=$(mktemp "$STATE/.secondmate-marker.XXXXXX") || return 1
   if ! printf '%s\n' "$row_key" > "$tmp" || ! chmod 0600 "$tmp" \
     || ! _fm_atomic_replace "$tmp" "$marker"; then
     rm -f -- "$tmp"
     return 1
   fi
+}
+
+fm_wake_secondmate_stall_marker_write() { # <task> <row-key>
+  _fm_wake_secondmate_marker_write '.secondmate-wake-stall-' "$1" "$2"
+}
+
+# The supervising-skip cache: <row-key> plus this file's mtime record that the
+# child probe already found live work for that row, so the skip can be re-taken
+# for one stall cadence without re-forking a fm-crew-state read per child on
+# every poll. Bounded on purpose - once the mtime ages past the cadence the
+# probe re-runs, so a row whose children have since finished still escalates.
+fm_wake_secondmate_supervising_marker_write() { # <task> <row-key>
+  _fm_wake_secondmate_marker_write '.secondmate-supervising-' "$1" "$2"
 }
 
 fm_wake_secondmate_stall_receipt_write() { # <task> <row-key>

@@ -1203,15 +1203,25 @@ mate_home_has_active_child_work() {  # <home>
 }
 
 # 0 when task <id>'s recorded kind=secondmate home still has active child work.
+# What counts as "this manager's home" is exactly what bin/fm-watch.sh's
+# wake-loop check already requires before reading a mate's foreign state, so the
+# two callers cannot disagree: a mate recording remote_host= keeps its home on
+# the REMOTE host, where a captain host with the same absolute layout would
+# otherwise read unrelated local crews as that mate's children, and the home
+# must still name this task in its own .fm-secondmate-home ownership file.
 manager_has_active_child_work() {  # <id> <state-dir>
-  local id=$1 state=$2 meta kind home
+  local id=$1 state=$2 meta kind home owner
   [ -n "$id" ] || return 1
   meta="$state/$id.meta"
   [ -f "$meta" ] || return 1
   kind=$(grep '^kind=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
   [ "$kind" = secondmate ] || return 1
+  [ -z "$(grep '^remote_host=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)" ] || return 1
   home=$(grep '^home=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
   [ -n "$home" ] || return 1
+  owner="$home/.fm-secondmate-home"
+  [ -f "$owner" ] && [ ! -L "$owner" ] || return 1
+  [ "$(cat "$owner" 2>/dev/null || true)" = "$id" ] || return 1
   mate_home_has_active_child_work "$home"
 }
 
@@ -1262,17 +1272,37 @@ crew_absorb_class() {  # <id>
   printf 'none'
 }
 
+# 0 when task <id>'s own status log holds nothing the captain still owes an
+# answer to: no verified captain-held transfer, no legacy captain-relevant line,
+# and no still-open keyed decision. The open-decision fold is what makes the
+# last test durable - last_status_line alone CANNOT see a needs-decision that a
+# later unrelated line masked (the status-fold contract above states this
+# plainly), so a manager sitting on an open decision would otherwise read as
+# quiet. Every read here is a pure file read, which is what lets the classifier
+# and the watcher's wake-loop gate share one definition of "quiet" without
+# either paying for a fm-crew-state fork to find out.
+manager_owes_captain_nothing() {  # <id> <state-dir>
+  local id=$1 state=$2 status last
+  [ -n "$id" ] && [ -n "$state" ] || return 1
+  status="$state/$id.status"
+  last=$(last_status_line "$status")
+  status_is_captain_relevant "$last" && return 1
+  status_is_captain_held "$last" && return 1
+  [ -z "$(status_open_decisions "$status")" ] || return 1
+  return 0
+}
+
 # 0 when task <id> is a kind=secondmate manager that may inherit `working` from a
 # child crew: it has active child work AND its own status log holds nothing the
 # captain still owes an answer to. Split out of crew_absorb_class so the two
-# conditions that make the inheritance safe stay stated in one place.
+# conditions that make the inheritance safe stay stated in one place. The pure
+# status read runs first so a manager the captain still owes an answer never
+# pays for the forking child probe.
 manager_inherits_child_work() {  # <id>
-  local id=$1 meta_dir last
+  local id=$1 meta_dir
   meta_dir="${FM_STATE_OVERRIDE:-${STATE:-}}"
   [ -n "$meta_dir" ] || return 1
-  last=$(last_status_line "$meta_dir/$id.status")
-  status_is_captain_relevant "$last" && return 1
-  status_is_captain_held "$last" && return 1
+  manager_owes_captain_nothing "$id" "$meta_dir" || return 1
   manager_has_active_child_work "$id" "$meta_dir"
 }
 
