@@ -660,14 +660,36 @@ test_herdr_ci_family_run_has_a_step_timeout() {
   # The required Herdr lane's hang tripwire is the family-run *step* bound, not
   # the 75-minute job cap. Parse the workflow as YAML so nested `with.name`
   # artifact keys cannot masquerade as the step contract.
-  command -v ruby >/dev/null 2>&1 \
-    || fail "ruby is required to parse .github/workflows/ci.yml as YAML"
   local json job_timeout step_timeout
-  json=$(ruby -ryaml -rjson -e '
+  if command -v python3 >/dev/null 2>&1 \
+    && python3 -c 'import yaml' >/dev/null 2>&1; then
+    json=$(python3 -c '
+import json
+import sys
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as workflow:
+    doc = yaml.safe_load(workflow)
+job = doc["jobs"]["tests-herdr"]
+step = next(
+    candidate for candidate in job["steps"]
+    if isinstance(candidate, dict)
+    and candidate.get("name") == "Run real-Herdr family (serial, required)"
+)
+if "timeout-minutes" not in step:
+    raise KeyError("family-run step has no timeout-minutes")
+print(json.dumps({
+    "job_timeout": job["timeout-minutes"],
+    "step_timeout": step["timeout-minutes"],
+}))
+' "$ROOT/.github/workflows/ci.yml") \
+      || fail "could not parse tests-herdr timeouts from ci.yml"
+  elif command -v ruby >/dev/null 2>&1; then
+    json=$(ruby -ryaml -rjson -e '
 doc = YAML.load_file(ARGV[0])
 job = doc.fetch("jobs").fetch("tests-herdr")
-step = job.fetch("steps").find { |s|
-  s.is_a?(Hash) && s["name"] == "Run real-Herdr family (serial, required)"
+step = job.fetch("steps").find { |candidate|
+  candidate.is_a?(Hash) && candidate["name"] == "Run real-Herdr family (serial, required)"
 }
 raise "missing family-run step" if step.nil?
 raise "family-run step has no timeout-minutes" unless step.key?("timeout-minutes")
@@ -676,7 +698,10 @@ puts JSON.generate(
   "step_timeout" => step.fetch("timeout-minutes")
 )
 ' "$ROOT/.github/workflows/ci.yml") \
-    || fail "could not parse tests-herdr timeouts from ci.yml"
+      || fail "could not parse tests-herdr timeouts from ci.yml"
+  else
+    fail "python3 with PyYAML or ruby is required to parse .github/workflows/ci.yml as YAML"
+  fi
   job_timeout=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["job_timeout"])' <<<"$json") \
     || fail "could not read job timeout from parsed workflow"
   step_timeout=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["step_timeout"])' <<<"$json") \
