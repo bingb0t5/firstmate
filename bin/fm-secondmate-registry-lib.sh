@@ -312,10 +312,6 @@ secondmate_registry_validate_bindings() {
   return 0
 }
 
-secondmate_registry_project_basename() {
-  basename "$1"
-}
-
 # The generated field is comma-joined, but a hand-edited list separated by
 # whitespace still states a claim, so both separators split it.
 secondmate_registry_projects_field_has() {

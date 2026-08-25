@@ -103,7 +103,7 @@ run_spawn() {  # <home> <fakebin> <spawn-args...>
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/projects-unused" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_BACKEND=tmux FM_FAKE_DIR="${FM_FAKE_DIR:-}" \
-    PATH="$fakebin:$PATH" \
+    TMUX='' PATH="$fakebin:$PATH" \
     "$SPAWN" "$@" 2>&1
 }
 
@@ -238,14 +238,28 @@ test_override_spawn_records_every_bypassed_owner_on_the_task_record() {
 }
 
 test_unowned_project_or_missing_registry_spawns_past_the_guard() {
-  local rec home proj fakebin out
+  local rec home proj fakebin out line
   rec=$(make_home unowned)
   IFS='|' read -r home proj fakebin _smhome <<EOF
 $rec
 EOF
+  assert_absent "$home/data/secondmates.md" "the missing-registry fixture wrote a registry"
   write_brief "$home" own-free-d1 no-mistakes
   out=$(run_spawn "$home" "$fakebin" own-free-d1 "$proj/freeproj" claude --mode no-mistakes --yolo off)
   assert_not_contains "$out" "registered to secondmate" "unowned spawn with no registry hit the ownership guard"
+  assert_contains "$out" "$BACKEND_REACHED" "a missing registry stopped the spawn before the backend"
+  assert_not_contains "$out" "not on any registered secondmate" "a missing registry warned about registered scopes"
+
+  rec=$(make_home empty-reg)
+  IFS='|' read -r home proj fakebin _smhome <<EOF
+$rec
+EOF
+  printf '%s\n' '# Second mates' > "$home/data/secondmates.md"
+  write_brief "$home" own-free-d3 no-mistakes
+  out=$(run_spawn "$home" "$fakebin" own-free-d3 "$proj/freeproj" claude --mode no-mistakes --yolo off)
+  assert_not_contains "$out" "registered to secondmate" "unowned spawn with an entry-less registry hit the ownership guard"
+  assert_contains "$out" "$BACKEND_REACHED" "an entry-less registry stopped the spawn before the backend"
+  assert_not_contains "$out" "not on any registered secondmate" "an entry-less registry warned about registered scopes"
 
   line="- design - design domain (home: $TMP_ROOT/unowned/smhome; scope: design domain; projects: ownedproj; added 2026-06-22)"
   rec=$(make_home unowned-reg "$line")
@@ -256,7 +270,7 @@ EOF
   out=$(run_spawn "$home" "$fakebin" own-free-d2 "$proj/freeproj" claude --mode no-mistakes --yolo off)
   assert_not_contains "$out" "registered to secondmate" "unowned spawn with a registry hit the ownership guard"
   assert_contains "$out" "not on any registered secondmate projects: list" "unowned spawn did not warn about registered scopes"
-  pass "fm-spawn: unowned projects and missing registries pass the ownership guard"
+  pass "fm-spawn: unowned projects and missing or entry-less registries pass the ownership guard"
 }
 
 test_project_less_secondmate_never_claims_ownership_through_its_scope_text() {

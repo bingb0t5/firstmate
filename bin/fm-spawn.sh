@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--allow-primary-spawn]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--allow-primary-spawn]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -17,19 +17,6 @@
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
 #   refused as a flag value.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
-#   --allow-primary-spawn is a deliberate override for a fresh ship or scout spawn
-#   when data/secondmates.md lists the target project on a secondmate's projects:
-#   field. Without it, those spawns REFUSE rather than drift a secondmate-owned
-#   repository into the primary home. The refusal names every registered owner and
-#   is checked before any task metadata exists. With it, the spawn continues,
-#   prints a loud stderr notice naming the bypassed owner(s), and records
-#   primary_spawn_override=1 plus primary_spawn_override_owners=<ids> on the task.
-#   Scope text is never matched; when the project is on no projects: list but the
-#   registry is non-empty, a stderr warning names every registered secondmate and
-#   its scope for judgment, then the spawn continues. A registry that cannot be
-#   read, or any entry no operational parser can consume, refuses the spawn
-#   rather than silently voiding that secondmate's claim. Missing or empty
-#   registries, --secondmate spawns, and --relaunch are unaffected.
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
 #   the launch half of the control plane (bin/fm-control.sh relaunch), which
@@ -45,6 +32,19 @@
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
 #   the new incarnation.
+#   --allow-primary-spawn is a deliberate override for a fresh ship or scout spawn
+#   when data/secondmates.md lists the target project on a secondmate's projects:
+#   field. Without it, those spawns REFUSE rather than drift a secondmate-owned
+#   repository into the primary home. The refusal names every registered owner and
+#   is checked before any task metadata exists. With it, the spawn continues,
+#   prints a loud stderr notice naming the bypassed owner(s), and records
+#   primary_spawn_override=1 plus primary_spawn_override_owners=<ids> on the task.
+#   Scope text is never matched; when the project is on no projects: list but the
+#   registry is non-empty, a stderr warning names every registered secondmate and
+#   its scope for judgment, then the spawn continues. A registry that cannot be
+#   read, or any entry no operational parser can consume, refuses the spawn
+#   rather than silently voiding that secondmate's claim. Missing or empty
+#   registries, --secondmate spawns, and --relaunch are unaffected.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
@@ -1333,7 +1333,7 @@ secondmate_registry_value() {
 spawn_secondmate_ownership_guard() {
   local proj_abs=$1 proj_name reg=$DATA/secondmates.md owners scope_line id projects scope rc=0
   local -a owner_ids=()
-  proj_name=$(secondmate_registry_project_basename "$proj_abs")
+  proj_name=$(basename "$proj_abs")
   secondmate_registry_entries "$reg" || rc=$?
   if [ "$rc" -eq 2 ]; then
     echo "error: ${SECONDMATE_REGISTRY_ERROR:-secondmate registry is unusable: $reg}" >&2

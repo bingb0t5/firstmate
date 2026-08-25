@@ -118,6 +118,7 @@ init_changed_fixture_repo() {
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
   : >"$repo/bin/fm-supervisor-target-lib.sh"
   : >"$repo/bin/fm-secondmate-registry-lib.sh"
+  : >"$repo/bin/fm-brief.sh"
   : >"$repo/bin/unmapped-source.sh"
   printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
     >>"$repo/tests/fm-cd-pretool-check.test.sh"
@@ -168,6 +169,14 @@ test_changed_dependency_selection_and_unmapped_failure() {
     "registry parser selects the ownership-guard coverage that consumes it"
   git -C "$repo" add bin/fm-secondmate-registry-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm registry-lib-change
+
+  printf '\n' >>"$repo/bin/fm-brief.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-brief.test.sh" "brief scaffolder selects its own contract coverage"
+  assert_contains "$listed" "tests/fm-secondmate-safety.test.sh" \
+    "brief scaffolder selects the secondmate coverage that pins its generated charter note"
+  git -C "$repo" add bin/fm-brief.sh
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm brief-change
 
   printf '\n' >>"$repo/.agents/skills/example/SKILL.md"
   printf '\n' >>"$repo/.claude/settings.json"
