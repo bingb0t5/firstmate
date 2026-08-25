@@ -256,6 +256,7 @@ def ensure_receipt_dir(state: Path) -> Path:
         return receipts
     try:
         os.mkdir(str(receipts), 0o700)
+        os.chmod(str(receipts), 0o700)
     except OSError as exc:
         raise UserError("cannot create the receipt directory: %s" % exc)
     return receipts
@@ -512,7 +513,7 @@ def iter_payload_lines(raw: str) -> Iterable[str]:
 
 
 def pending_post_count(
-    lines: list, state: Path, captain_chat: int, group_on: bool
+    lines: list, state: Path, captain_chat: Optional[int], group_on: bool
 ) -> int:
     receipts = state / "telegram-brain-capture"
     count = 0
@@ -521,14 +522,23 @@ def pending_post_count(
             payload = parse_payload(line)
         except PayloadError:
             continue
-        source, _ = classify_chat(int(payload["chat_id"]), captain_chat, group_on)
-        if source is None:
-            continue
+        if captain_chat is not None:
+            source, _ = classify_chat(int(payload["chat_id"]), captain_chat, group_on)
+            if source is None:
+                continue
         path = receipts / str(int(payload["update_id"]))
         if path.exists() or path.is_symlink():
             continue
         count += 1
     return count
+
+
+def report_unattempted(
+    lines: list, state: Path, captain_chat: Optional[int], group_on: bool
+) -> None:
+    remaining = pending_post_count(lines, state, captain_chat, group_on)
+    if remaining:
+        print("unattempted %d" % remaining)
 
 
 def decode_payload_input(data: bytes) -> str:
@@ -548,11 +558,18 @@ def command_capture(state: Path, config: Path) -> int:
         print("capture-unconfigured %s" % missing)
         return 0
     raw = decode_payload_input(data)
-    token, brain_url = brain_credentials()
-    captain_chat = captain_chat_id()
-    group_on = group_capture_enabled(config)
-    failed = False
     lines = list(iter_payload_lines(raw))
+    captain_chat = None
+    group_on = False
+    try:
+        group_on = group_capture_enabled(config)
+        captain_chat = captain_chat_id()
+        token, brain_url = brain_credentials()
+    except UserError as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        report_unattempted(lines, state, captain_chat, group_on)
+        return 1
+    failed = False
     for index, line in enumerate(lines):
         try:
             print(capture_line(line, state, token, brain_url, captain_chat, group_on))
@@ -565,11 +582,7 @@ def command_capture(state: Path, config: Path) -> int:
         except UserError as exc:
             print("error: %s" % exc, file=sys.stderr)
             failed = True
-            remaining = pending_post_count(
-                lines[index + 1:], state, captain_chat, group_on
-            )
-            if remaining:
-                print("unattempted %d" % remaining)
+            report_unattempted(lines[index + 1:], state, captain_chat, group_on)
             break
     return 1 if failed else 0
 
@@ -578,7 +591,7 @@ def command_doctor(state: Path, config: Path) -> int:
     brain_path = brain_env_path()
     telegram_path = telegram_env_path()
     brain_state = "missing"
-    brain_url = DEFAULT_BRAIN_URL
+    brain_url = "unknown"
     try:
         _, brain_url = brain_credentials()
         brain_state = "present"
@@ -594,7 +607,10 @@ def command_doctor(state: Path, config: Path) -> int:
             "FM_TELEGRAM_CAPTAIN_CHAT_ID"
         ):
             chat_state = "unreadable"
-    group_state = "on" if group_capture_enabled(config) else "off"
+    try:
+        group_state = "on" if group_capture_enabled(config) else "off"
+    except UserError:
+        group_state = "unreadable"
     receipts = state / "telegram-brain-capture"
     if receipts.is_dir() and not receipts.is_symlink():
         receipt_state = "present"

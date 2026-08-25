@@ -389,19 +389,31 @@ if [ -r "$badflag/config/telegram-brain-capture-group" ]; then
   printf 'skip: running as a user that ignores mode 000\n'
 else
   set +e
-  PATH="$badflag_bin:$BASE_PATH" \
+  payload 8801 "must not be captured" | \
+    run_capture "$badflag" "$badflag_bin" capture - >/dev/null 2>"$badflag/err"
+  badflag_rc=$?
+  expect_code 1 "$badflag_rc" "an unreadable group flag should stop a capture"
+  assert_grep "error: cannot read telegram-brain-capture-group" "$badflag/err" \
+    "an unreadable group flag did not print an error line"
+  assert_no_grep "Traceback" "$badflag/err" "an unreadable group flag printed a traceback"
+  pass "an unreadable group flag reports an error line instead of a traceback"
+
+  badflag_out=$(PATH="$badflag_bin:$BASE_PATH" \
     FM_HOME="$badflag" \
     FM_STATE_OVERRIDE="$badflag/state" \
     FM_CONFIG_OVERRIDE="$badflag/config" \
     FM_BEANZ_ENV_FILE="$badflag/secrets/mcp.env" \
     FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
-    "$CAPTURE" doctor >/dev/null 2>"$badflag/err"
-  badflag_rc=$?
-  expect_code 1 "$badflag_rc" "an unreadable group flag should exit 1"
-  assert_grep "error: cannot read telegram-brain-capture-group" "$badflag/err" \
-    "an unreadable group flag did not print an error line"
-  assert_no_grep "Traceback" "$badflag/err" "an unreadable group flag printed a traceback"
-  pass "an unreadable group flag reports an error line instead of a traceback"
+    "$CAPTURE" doctor)
+  expect_code 0 $? "doctor must still report when one input is broken"
+  assert_contains "$badflag_out" "group-capture: unreadable" \
+    "doctor did not report the broken group flag as a field"
+  assert_contains "$badflag_out" "brain-env: present" \
+    "one broken input cost the whole readiness report"
+  assert_contains "$badflag_out" "captain-chat: configured" \
+    "one broken input cost the whole readiness report"
+  assert_contains "$badflag_out" "receipts: " "one broken input cost the whole readiness report"
+  pass "doctor degrades one field instead of aborting the readiness report"
 fi
 chmod 600 "$badflag/config/telegram-brain-capture-group"
 
@@ -553,10 +565,12 @@ badbytes_bin=$(make_fake_curl "$badbytes")
 FAKE_CURL_LOG="$badbytes/curl.log"
 printf '{"chat_id":4242,"text":"caf\xe9","update_id":9402}\n' > "$badbytes/batch.jsonl"
 if run_capture "$badbytes" "$badbytes_bin" capture - < "$badbytes/batch.jsonl" \
-  >/dev/null 2>"$badbytes/err"; then
+  >"$badbytes/out" 2>"$badbytes/err"; then
   fail "a batch that is not UTF-8 must fail closed"
 fi
 assert_grep "payload input is not UTF-8" "$badbytes/err" "the undecodable batch was not reported"
+assert_not_contains "$(cat "$badbytes/out")" "unattempted" \
+  "an undecodable batch claimed a payload count it cannot know"
 assert_no_grep "Traceback" "$badbytes/err" "an undecodable batch printed a traceback"
 assert_absent "$badbytes/curl.log" "an undecodable batch still called curl"
 assert_absent "$badbytes/state/telegram-brain-capture/9402" "an undecodable batch wrote a receipt"
@@ -846,6 +860,67 @@ FAKE_CURL_EXIT=
 assert_grep "transport failed: curl exit 7" "$trans/err" "the curl exit code was not reported"
 assert_absent "$trans/state/telegram-brain-capture/9601" "a transport failure left a receipt"
 pass "a transport failure names curl exit code for the operator"
+
+# --- a stop before the first write still counts the batch -------------------
+preflight=$(make_home preflight-stop)
+preflight_bin=$(make_fake_curl "$preflight")
+umask 077
+printf '%s\n' "BEANZ_MCP_TOKEN=$TOKEN" > "$preflight/secrets/mcp.env"
+chmod 644 "$preflight/secrets/mcp.env"
+FAKE_CURL_LOG="$preflight/curl.log"
+{
+  payload 8701 "first pending memory"
+  payload 8702 "group chatter" -100888 "$CAPTAIN_USER"
+  payload 8703 "second pending memory"
+} > "$preflight/batch.jsonl"
+if run_capture "$preflight" "$preflight_bin" capture - < "$preflight/batch.jsonl" \
+  >"$preflight/out" 2>"$preflight/err"; then
+  fail "an unusable credential file must stay fail-closed"
+fi
+assert_grep "mode is not 600" "$preflight/err" "the unusable credential file was not reported"
+assert_grep "unattempted 2" "$preflight/out" \
+  "a stop before the first write reported no pending count"
+assert_absent "$preflight/curl.log" "a stop before the first write still called curl"
+pass "a systemic stop before the first write reports the payloads left behind"
+
+# --- doctor never asserts a destination it did not read ---------------------
+urldoc=$(make_home doctor-bad-url)
+urldoc_bin=$(make_fake_curl "$urldoc")
+umask 077
+printf '%s\n' "BEANZ_MCP_TOKEN=$TOKEN" > "$urldoc/secrets/mcp.env"
+printf '%s\n' 'BEANZ_MCP_URL=https://staging.brain.test' >> "$urldoc/secrets/mcp.env"
+chmod 644 "$urldoc/secrets/mcp.env"
+out=$(PATH="$urldoc_bin:$BASE_PATH" \
+  FM_HOME="$urldoc" \
+  FM_STATE_OVERRIDE="$urldoc/state" \
+  FM_CONFIG_OVERRIDE="$urldoc/config" \
+  FM_BEANZ_ENV_FILE="$urldoc/secrets/mcp.env" \
+  FM_TELEGRAM_CAPTAIN_CHAT_ID="$CAPTAIN_CHAT" \
+  "$CAPTURE" doctor)
+expect_code 0 $? "doctor should still report on an unreadable credential file"
+assert_contains "$out" "brain-env: unreadable" "doctor did not report the unreadable credentials"
+assert_contains "$out" "brain-url: unknown" \
+  "doctor asserted a destination the credential file never supplied"
+assert_not_contains "$out" "brain.mrbea.nz" "doctor printed the default brain URL as fact"
+pass "doctor reports an unknown destination rather than a default it never read"
+
+# --- the receipt directory survives a restrictive umask ---------------------
+umaskhome=$(make_home umask)
+umaskhome_bin=$(make_fake_curl "$umaskhome")
+FAKE_CURL_LOG=
+(
+  umask 0200
+  payload 8601 "first under a restrictive umask" | \
+    run_capture "$umaskhome" "$umaskhome_bin" capture - >/dev/null
+) || fail "the first capture under a restrictive umask should succeed"
+out=$(payload 8602 "second after the directory exists" | \
+  run_capture "$umaskhome" "$umaskhome_bin" capture -)
+expect_code 0 $? "a later run must not refuse a receipt directory this code created"
+assert_contains "$out" "captured 8602 cap-1" "the umask left an unusable receipt directory"
+umask_mode=$(stat -c '%a' "$umaskhome/state/telegram-brain-capture" 2>/dev/null \
+  || stat -f '%Lp' "$umaskhome/state/telegram-brain-capture")
+assert_contains "$umask_mode" "700" "the receipt directory was not created at mode 700"
+pass "the receipt directory is 700 whatever the ambient umask says"
 
 # --- doctor reports non-secret readiness ------------------------------------
 doc=$(make_home doctor)

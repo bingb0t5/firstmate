@@ -618,7 +618,8 @@ That mode-0600 file alone owns the brain destination; an ambient `BEANZ_MCP_URL`
 A home with no credential file and no captain chat id has never configured capture: it reports `capture-unconfigured` and exits zero without a brain write, so Telegram is never wedged by a brain nobody set up.
 A credential file that exists but is unusable, and any failed brain write, still exit non-zero before acknowledgement.
 A line the canonical shape rejects is skipped rather than aborting the run, and a refusal scoped to a single update_id - a disagreeing receipt, or a brain that rejects just that message with a 4xx - fails that line and keeps walking; only a systemic failure such as a transport error, a 3xx or 5xx, or HTTP 429, 401, 403, 404 or 405 stops the batch, so one outage costs one timeout rather than one per payload.
-Every per-line refusal names its update_id first, so the payload that failed stays attributable when the batch walks past it.
+Every per-line refusal names its update_id first, so the payload that failed stays attributable when the batch walks past it, and a stop reports `unattempted <count>` for the payloads behind it whether it happened mid-batch or before the first write.
+`doctor` degrades field by field rather than aborting, so one broken input still leaves the rest of the readiness report readable.
 An adapter classification that is empty or outside the script header's named non-message kinds is refused, because a kind nobody claimed cannot be told apart from silently dropping the payloads it carried.
 Group discussion means a Telegram group, supergroup, or channel; a private chat that is not the captain's is never captured whatever the flag says.
 Group discussion stays off until local gitignored `config/telegram-brain-capture-group` contains the bare word `on`, or `FM_TELEGRAM_BRAIN_CAPTURE_GROUP=on` for one run.
