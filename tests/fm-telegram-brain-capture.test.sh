@@ -244,6 +244,27 @@ assert_contains "$out" "capture-unconfigured captain-chat" \
 assert_absent "$nochat/curl.log" "an absent captain chat id still called curl"
 pass "an absent captain chat id skips with a zero exit and no network call"
 
+# --- credential lookup failures are not unconfigured -----------------------
+cred_lookup=$(make_home credential-lookup-error)
+cred_lookup_bin=$(make_fake_curl "$cred_lookup")
+rm -f "$cred_lookup/secrets/mcp.env"
+rmdir "$cred_lookup/secrets"
+ln -s secrets "$cred_lookup/secrets"
+if payload 4007 "must not acknowledge" | \
+  run_capture "$cred_lookup" "$cred_lookup_bin" capture - \
+  >"$cred_lookup/out" 2>"$cred_lookup/err"; then
+  fail "a credential lookup error must stay fail-closed"
+fi
+assert_grep "cannot inspect brain credentials" "$cred_lookup/err" \
+  "the credential lookup error was not reported"
+assert_grep "unattempted 1" "$cred_lookup/out" \
+  "the credential lookup error did not count the batch"
+assert_not_contains "$(cat "$cred_lookup/out")" "capture-unconfigured" \
+  "the credential lookup error was treated as absent"
+assert_absent "$cred_lookup/curl.log" \
+  "the credential lookup error still called the brain"
+pass "a credential lookup error stops and counts the batch"
+
 # --- a present but unusable credential file still refuses -------------------
 brokencred=$(make_home broken-cred)
 brokencred_bin=$(make_fake_curl "$brokencred")
@@ -385,6 +406,45 @@ fi
 assert_grep "not a plain https URL" "$badurl/err" "unsafe BEANZ_MCP_URL was not reported"
 assert_absent "$badurl/curl.log" "unsafe BEANZ_MCP_URL still called curl"
 pass "an unsafe credential BEANZ_MCP_URL is refused before the write"
+
+# --- a credential URL must be an origin ------------------------------------
+endpoint_url=$(make_home endpoint-url)
+endpoint_url_bin=$(make_fake_curl "$endpoint_url")
+umask 077
+printf '%s\n' "BEANZ_MCP_TOKEN=$TOKEN" > "$endpoint_url/secrets/mcp.env"
+printf '%s\n' 'BEANZ_MCP_URL=https://brain.test?tenant=a' \
+  >> "$endpoint_url/secrets/mcp.env"
+chmod 600 "$endpoint_url/secrets/mcp.env"
+if payload 7009 "should not send" | \
+  run_capture "$endpoint_url" "$endpoint_url_bin" capture - \
+  >"$endpoint_url/out" 2>"$endpoint_url/err"; then
+  fail "a BEANZ_MCP_URL query must be refused"
+fi
+assert_grep "must be an https origin" "$endpoint_url/err" \
+  "the non-origin BEANZ_MCP_URL was not reported"
+assert_grep "unattempted 1" "$endpoint_url/out" \
+  "the non-origin BEANZ_MCP_URL did not count the batch"
+assert_absent "$endpoint_url/curl.log" \
+  "the non-origin BEANZ_MCP_URL still called curl"
+pass "a BEANZ_MCP_URL query is refused before endpoint construction"
+
+# --- group flag lookup failures are not flag-off ---------------------------
+flag_lookup=$(make_home group-flag-lookup-error)
+flag_lookup_bin=$(make_fake_curl "$flag_lookup")
+rmdir "$flag_lookup/config"
+ln -s config "$flag_lookup/config"
+if payload 7010 "must not acknowledge" | \
+  run_capture "$flag_lookup" "$flag_lookup_bin" capture - \
+  >"$flag_lookup/out" 2>"$flag_lookup/err"; then
+  fail "a group flag lookup error must stay fail-closed"
+fi
+assert_grep "cannot inspect telegram-brain-capture-group" "$flag_lookup/err" \
+  "the group flag lookup error was not reported"
+assert_grep "unattempted 1" "$flag_lookup/out" \
+  "the group flag lookup error did not count the batch"
+assert_absent "$flag_lookup/curl.log" \
+  "the group flag lookup error still called the brain"
+pass "a group flag lookup error stops and counts the batch"
 
 # --- an unreadable group flag reports an error line -------------------------
 badflag=$(make_home bad-group-flag)

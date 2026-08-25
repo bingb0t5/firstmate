@@ -172,7 +172,15 @@ def brain_url_from(values: Dict[str, str]) -> str:
     if not BRAIN_URL_RE.fullmatch(url):
         raise UserError("BEANZ_MCP_URL is not a plain https URL")
     parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
         raise UserError("BEANZ_MCP_URL must be an https origin with no userinfo")
     return url.rstrip("/")
 
@@ -186,11 +194,21 @@ def brain_credentials() -> Tuple[str, str]:
     return token, brain_url_from(values)
 
 
+def path_is_absent(path: Path, name: str) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return True
+    except OSError as exc:
+        raise UserError("cannot inspect %s: %s" % (name, exc))
+    return False
+
+
 def unconfigured_reason() -> Optional[str]:
-    if not os.path.lexists(str(brain_env_path())):
+    if path_is_absent(brain_env_path(), "brain credentials"):
         return "brain-credentials"
-    if not os.environ.get("FM_TELEGRAM_CAPTAIN_CHAT_ID") and not os.path.lexists(
-        str(telegram_env_path())
+    if not os.environ.get("FM_TELEGRAM_CAPTAIN_CHAT_ID") and path_is_absent(
+        telegram_env_path(), "Telegram credentials"
     ):
         return "captain-chat"
     return None
@@ -218,8 +236,10 @@ def group_capture_enabled(config: Path) -> bool:
     path = config / "telegram-brain-capture-group"
     try:
         info = path.lstat()
-    except OSError:
+    except FileNotFoundError:
         return False
+    except OSError as exc:
+        raise UserError("cannot inspect telegram-brain-capture-group: %s" % exc)
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
         raise UserError("telegram-brain-capture-group is not a regular file")
     try:
@@ -600,7 +620,17 @@ def command_capture(state: Path, config: Path) -> int:
         data = sys.stdin.buffer.read()
     except OSError as exc:
         raise UserError("cannot read the payload batch: %s" % exc)
-    missing = unconfigured_reason()
+    try:
+        missing = unconfigured_reason()
+    except UserError as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        try:
+            raw = decode_payload_input(data)
+            lines = list(iter_payload_lines(raw))
+        except UserError:
+            lines = []
+        report_unattempted(lines, state, None, False)
+        return 1
     if missing:
         print("capture-unconfigured %s" % missing)
         return 0
@@ -649,16 +679,22 @@ def command_doctor(state: Path, config: Path) -> int:
         _, brain_url = brain_credentials()
         brain_state = "present"
     except UserError:
-        if os.path.lexists(str(brain_path)):
+        try:
+            brain_missing = path_is_absent(brain_path, "brain credentials")
+        except UserError:
+            brain_missing = False
+        if not brain_missing:
             brain_state = "unreadable"
     chat_state = "missing"
     try:
         captain_chat_id()
         chat_state = "configured"
     except UserError:
-        if os.path.lexists(str(telegram_path)) or os.environ.get(
-            "FM_TELEGRAM_CAPTAIN_CHAT_ID"
-        ):
+        try:
+            chat_missing = path_is_absent(telegram_path, "Telegram credentials")
+        except UserError:
+            chat_missing = False
+        if not chat_missing or os.environ.get("FM_TELEGRAM_CAPTAIN_CHAT_ID"):
             chat_state = "unreadable"
     try:
         group_state = "on" if group_capture_enabled(config) else "off"
