@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # fm-second-attempt-lib.sh - fail-closed Sol-spec gate for second+ implementation workers.
 #
-# Contract: a ship task's second implementation worker, or any
-# later one, must not start until a Sol spec artifact exists for that task.
+# Contract: a ship task whose durable record already carries spawn_gen= must
+# not relaunch or start a replacement until a Sol spec exists for that task.
 # Prose in AGENTS.md is not the safeguard; these entrypoints refuse mechanically.
 #
 # Accepted Sol-spec artifact:
@@ -49,7 +49,7 @@ fm_second_attempt_spec_present() {
 }
 
 # fm_second_attempt_meta_had_implementation <meta-path>
-# A published spawn_gen= means at least one implementation worker already ran.
+# A published spawn_gen= means at least one worker incarnation already ran.
 fm_second_attempt_meta_had_implementation() {
   local meta=$1
   [ -n "$meta" ] && [ -f "$meta" ] || return 1
