@@ -1083,6 +1083,35 @@ test_ship_sol_exemption_refuses_non_command_acceptance_payloads() {
   pass "fm-brief.sh: non-command acceptance payloads cannot earn Sol exemption"
 }
 
+test_ship_sol_exemption_scans_acceptance_command_waits() {
+  local home out status command i=0
+  for command in wait waits waited waiting await awaits awaiting; do
+    i=$((i + 1))
+    home="$TMP_ROOT/sol-acceptance-wait-home-$i"
+    mkdir -p "$home/data"
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="Acceptance command: \`$command\`" \
+      "$ROOT/bin/fm-brief.sh" "sol-acceptance-wait-$i" firstmate --mode no-mistakes 2>&1) || status=$?
+    expect_code 1 "$status" "acceptance command with an exact wait token must refuse"
+    assert_contains "$out" "unbounded wait" \
+      "refusal must name the acceptance command's unbounded wait"
+    assert_absent "$home/data/sol-acceptance-wait-$i/brief.md" \
+      "refused acceptance-command wait must not write a brief"
+  done
+
+  home="$TMP_ROOT/sol-acceptance-wait-command-home"
+  mkdir -p "$home/data"
+  status=0
+  # shellcheck disable=SC2016 # Backticks in the task body are literal evidence syntax.
+  FM_HOME="$home" FM_TASK='Acceptance command: `wait-for-ci.sh`' \
+    "$ROOT/bin/fm-brief.sh" sol-acceptance-wait-command firstmate --mode no-mistakes \
+    >/dev/null 2>&1 || status=$?
+  expect_code 0 "$status" "ordinary acceptance command names containing wait must scaffold"
+  assert_present "$home/data/sol-acceptance-wait-command/brief.md" \
+    "ordinary acceptance command name did not produce a brief"
+  pass "fm-brief.sh: acceptance commands cannot hide exact wait tokens"
+}
+
 # The brief's machine-readable contract lines are scaffold-owned. bin/fm-spawn.sh
 # resolves the delivery mode from the FIRST such line, so a task body that forges
 # one would win over the mode this scaffold was given.
@@ -1276,6 +1305,7 @@ test_ship_sol_exemption_accepts_trailing_acceptance_text
 test_ship_sol_exemption_refuses_trailing_acceptance_wait
 test_ship_sol_exemption_refusals_are_never_silent
 test_ship_sol_exemption_refuses_non_command_acceptance_payloads
+test_ship_sol_exemption_scans_acceptance_command_waits
 test_fm_task_cannot_forge_scaffold_owned_contract_lines
 test_sol_evidence_block_records_every_validated_wait
 test_ship_sol_exemption_refuses_backticked_prose_wait

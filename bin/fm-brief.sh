@@ -317,12 +317,7 @@ fm_brief_sol_scan() {
           FM_BRIEF_SOL_ERRORS+=('Acceptance command must use backticks around a concrete executable command')
         fi
         FM_BRIEF_SOL_EVIDENCE+=("$line")
-        case "$line" in
-          Acceptance\ command:\ \`*\`*)
-            prose=${line#Acceptance command: \`}
-            prose=${prose#*\`}
-            ;;
-        esac
+        prose=$(fm_brief_strip_backticked_names "$line")
         ;;
       Wait:*)
         fm_brief_wait_is_bounded "$line" \
