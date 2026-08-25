@@ -908,6 +908,9 @@ families_for_changed_path() {
       # resolution in the caller; emit a marker family of __script__
       printf '%s\n' "__script__:$(basename "$path")"
       ;;
+    bin/fm-telegram-brain-capture.sh|bin/fm_telegram_brain_capture.py)
+      printf '%s\n' "__script__:fm-telegram-brain-capture.test.sh"
+      ;;
     bin/fm-test-run.sh|bin/fm-test-isolation-proof.sh)
       printf '%s\n' pure-contract-unit
       ;;
