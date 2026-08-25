@@ -36,14 +36,13 @@ This preference is local to each Firstmate home and is not part of secondmate in
 
 ## Pi supervision branch
 
-On a Pi primary, ordinary actionable fleet wakes that pass the unchanged watcher classifier, plus heartbeat scans that the cheap bash-level scan flags as possibly captain-relevant, are handled by a persistent in-process supervision branch that keeps the captain's conversation clean; [docs/pi-supervision-branch.md](pi-supervision-branch.md) owns the architecture.
+On a Pi primary, a persistent in-process supervision branch handles eligible task-local wake rows and selected heartbeat reviews while keeping main-only rows on the captain-facing path; [docs/pi-supervision-branch.md](pi-supervision-branch.md) owns row eligibility, mixed-queue dispatch, heartbeat routing, and the pre-drain recheck.
 Supervision is default-on: once a Pi primary session owns this home's fleet lock, the branch is eligible for every task with no captain grant file required.
-A wake is delegated only when every row observed by its unread-queue eligibility checks is either a resolvable task-local signal or stale event or a heartbeat; a genuinely no-op heartbeat is absorbed in bash and never reaches Pi, while an observed fleet-wide or unresolvable wake and every watcher-failure alarm stays on the captain-facing main path.
-The branch repeats the eligibility check immediately before prompting the branch to drain; [docs/pi-supervision-branch.md](pi-supervision-branch.md) owns the accepted confused-agent-grade race limit between that final check and drain startup.
+A genuinely no-op heartbeat is absorbed in bash and never reaches Pi, and every watcher-failure alarm stays on the captain-facing main path.
 Away mode still declines every wake offer, and a broken branch still falls back to today's wake-to-main path.
 The branch's role stays bounded exactly as the captain-approved architecture set it: it cannot merge a PR, land local work, or freshly spawn, and every existing captain gate remains unchanged.
 Homes on any other primary harness never load this feature and are entirely unaffected.
-Runtime state lives in `state/branch-outcomes.jsonl` with its `.branch-outcomes-cursor`, the persistent conversation under `state/branch-session/` with its `.branch-session` pointer and `.branch-mirror-cursor`, and per-task `state/.lease-<task>` files; `bin/fm-branch-outcome.sh` and `bin/fm-lease-lib.sh` own those formats.
+`AGENTS.md`'s `state/` inventory routes the branch's runtime files to their format and lifecycle owners.
 A captain-facing (verdict `captain`) branch outcome opens exactly one follow-up turn on main - that turn is the captain-visible result, and Pi never separately prints or renders the merge note itself.
 A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=true` is delivered silently with no rendered note, while every other routine outcome still appends a rendered, sailboat-prefixed note.
 
@@ -432,6 +431,63 @@ A sweep that runs out of budget says which tool it did not reach rather than rep
 The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the watcher kills prints nothing and records nothing and would then repeat that silence on every poll.
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
+
+## PR merge conflict watch
+
+`bin/fm-pr-conflict-watch.sh` polls open GitHub pull requests for merge conflicts across the repositories this home works in.
+It is detection and routing only: it never resolves conflicts, rebases branches, or calls GitHub's update-branch API.
+
+Repositories are derived from `data/projects.md` by reading each registered project's clone under `projects/` and parsing its `origin` remote into an `owner/repo` slug.
+The firstmate checkout's own `origin` remote is included too, so the captain's firstmate fork is covered without hardcoding its name.
+The `owner-team` a wake is routed to comes from `data/secondmates.md`: a registered project named in a secondmate's `projects:` list routes to that secondmate's id, the firstmate repository routes to `main`, and anything unmapped falls back to `main`.
+That list stays the non-exclusive clone list the [`secondmate-provisioning` skill](../.agents/skills/secondmate-provisioning/SKILL.md#routing-table) defines; it decides where a conflict wake is delivered first, not who exclusively owns the work.
+
+Arm once per home with `bin/fm-pr-conflict-watch.sh arm`.
+That writes `state/pr-conflict-watch.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence and turns a newly conflicted pull request into one `check:` wake line.
+`bin/fm-pr-conflict-watch.sh disarm` removes the shim, trust binding, and dedupe record.
+The check prints nothing when no new conflict exists, apart from the cut-budget disclosure described below and a coverage-hole when a target has stayed unaccounted for longer than the grace period.
+Draft pull requests are included; a conflicted draft is reported with `draft=yes`.
+
+Each wake line begins with `pr-conflict:` and carries `owner-team`, `repo`, `number`, `head`, `draft`, `url`, and `title` so firstmate can route without re-deriving ownership.
+Dedupe keys are repository, pull request number, and head SHA: the same conflict on the same head is reported once, while a force-updated head that conflicts again is a new event.
+GitHub is read through `gh-axi api`, whose replies arrive as an axi envelope rather than as raw JSON.
+One GraphQL read per repository carries the bounded open-pull-request page together with mergeability and `pageInfo.hasNextPage`, so sweep cost scales with the number of repositories rather than with the number of pull requests.
+When `hasNextPage` is true, the repository is an unobserved coverage gap rather than a complete open set.
+GitHub computes mergeability lazily; a pull request that comes back `UNKNOWN` is reread on its own, and a persistently unknown state is treated as unknown rather than clean or conflicted.
+A GraphQL read of a repository that cannot be resolved answers with a null repository rather than an error, which would otherwise be indistinguishable from a repository with no open pull requests, so the query refuses that shape and the repository is an unobserved GitHub coverage gap instead.
+A reread that settles the state also names the head it settled for, so a branch force-updated between the listing and the reread is reported and deduped under the SHA that was actually judged.
+A sweep that finds more conflicts than one line can carry reports the ones that fit and discloses the rest as `N more omitted (line cap)`; an omitted conflict is not marked as reported, so it wakes on a later sweep instead of being lost.
+For a repository whose complete open set was observed, the dedupe record is cut back to the conflicts that sweep still observes instead of retaining resolved or superseded heads.
+A repository the sweep never reached, or whose open list was cut short by `FM_PR_CONFLICT_PR_LIMIT`, keeps its recorded keys instead: unread is not the same as resolved, and dropping those keys would re-report every one of them.
+A sweep whose repository discovery was incomplete keeps the whole record for the same reason: an unreadable `data/projects.md`, or a registered project whose clone or `origin` remote could not be read this sweep, names no repository at all, so the repositories discovery did name are not the full set this home works in.
+That covers the degenerate case where discovery reads nothing as well as the partial case where it reads some clones and fails on others.
+
+This is a safety net, not a cure: conflicts happen because pull requests wait unmerged while the default branch moves underneath them.
+Silence is not a proof that every repository was checked.
+Conflicts found and coverage holes are two models that share a sweep because coverage decides which conflict conclusions are justified.
+A conflict is a positive observation keyed by repository, pull request number, and head SHA.
+A coverage gap is an absence of a trustworthy observation keyed by a stable target: `repo:<owner/repo>` for a valid repository, `project:<name>` when a registered project's clone or origin cannot resolve to a valid repository, and `source:projects-registry` or `source:firstmate-origin` when discovery fails before a repository can be named.
+`bin/fm-repo-slug-lib.sh` owns structural GitHub identity parsing for HTTPS and SSH URLs with optional userinfo and numeric ports, SCP-style SSH remotes, and canonical HTTPS pull request URLs.
+It accepts only the exact `github.com` host after case normalization and never retains origin authority or credentials.
+The durable fact is that the target has remained unaccounted for since it first failed; the latest cause of that failure is metadata on the gap, not a second gap.
+A cause change does not reset age and does not notify again after the gap has been disclosed.
+GitHub fails transiently often enough that waking on each blip would be noise, so a gap is disclosed only once it has stayed open for longer than `FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800 seconds, `0` to disclose on the first sweep).
+That disclosure is one `coverage-hole` item naming the target, the valid repository when one is known, how long it has been unaccounted for, and `latest-cause` (`github`, `budget`, `truncated`, `invalid-origin`, `unsupported-host`, `unsupported-transport`, `discovery`, or `dependency-missing`).
+If an armed watch later loses `jq` or `gh-axi`, the stable targets are `source:runtime-jq` and `source:runtime-gh-axi`; their gaps close when the dependency returns.
+It is not a conflict, and it does not claim a root cause the sweep did not observe: malformed identity is `invalid-origin`, a different forge is `unsupported-host`, an unsupported URL scheme is `unsupported-transport`, a local deadline is `budget`, and a cut tool envelope is `truncated`.
+A coverage item that does not fit the line is not counted as disclosed, so it is repeated on a later sweep.
+A sweep is complete only when every expected target was observed and discovery itself completed; an incomplete sweep prunes nothing it did not see.
+A sweep that runs out of budget still names the targets it never reached, so they are coverage gaps rather than silent clean repositories.
+The sweep order is fixed, so a fleet too large for one budget leaves the same tail unaccounted for on every poll.
+Raise `FM_PR_CONFLICT_BUDGET_SECS` with `FM_CHECK_TIMEOUT` when the fleet outgrows one sweep.
+
+`FM_PR_CONFLICT_INTERVAL` (default 300 seconds, `0` to probe on every run) sets how often sweeps run, `FM_PR_CONFLICT_PROBE_SECS` (default 5) bounds one GitHub call, and `FM_PR_CONFLICT_BUDGET_SECS` (default 20) bounds a whole sweep.
+`FM_PR_CONFLICT_UNKNOWN_ATTEMPTS` (default 3) and `FM_PR_CONFLICT_UNKNOWN_WAIT` (default 1 second) control lazy mergeability polling.
+`FM_PR_CONFLICT_PR_LIMIT` (default 30) caps open pull requests read per repository.
+`FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800) sets how long a target must stay unaccounted for before the resulting coverage gap is disclosed.
+The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a larger budget is cut to fit rather than refused, and the `UNKNOWN` reread loop stops at the sweep deadline too, because a run the watcher kills prints and records nothing at all.
+A cut budget is disclosed at the head of the line and, like a matured coverage hole, can appear without a conflict behind it.
+Because the cut-budget disclosure describes a setting rather than an event, it repeats on every sweep until the two settings agree.
 
 ## Relay (.env)
 
