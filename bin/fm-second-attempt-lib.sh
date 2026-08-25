@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fm-second-attempt-lib.sh - fail-closed Sol-spec gate for second+ implementation workers.
 #
-# Fable change 1 (2026-08-25): a ship task's second implementation worker, or any
+# Contract: a ship task's second implementation worker, or any
 # later one, must not start until a Sol spec artifact exists for that task.
 # Prose in AGENTS.md is not the safeguard; these entrypoints refuse mechanically.
 #
@@ -27,7 +27,7 @@
 #   - First implementation worker (no spawn_gen= in meta yet)
 #   - Recovery that does not start another implementation worker
 #
-# Refusal names both missing artifact paths and the next legal action -
+# Refusal names the missing artifact path and the next legal action -
 # commission a Sol spec scout for this task; it never guesses a model.
 #
 # Sourced by bin/fm-control.sh and bin/fm-spawn.sh. No side effects on source.
