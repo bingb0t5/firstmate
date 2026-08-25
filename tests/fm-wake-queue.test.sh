@@ -318,6 +318,82 @@ SH
   pass "foreign secondmate queue stalls notify once, remain byte-stable, and stay quiet when empty or healthy"
 }
 
+test_secondmate_wake_stall_skips_idle_manager_with_busy_children() {
+  local dir state sub fakebin out
+  dir=$(make_case secondmate-stall-busy-child)
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state" "$sub/data"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+    "$sub" > "$state/mate.meta"
+  printf 'window=firstmate:fm-child\nkind=ship\n' > "$sub/state/child.meta"
+  printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - 10 ))" > "$sub/state/.wake-queue"
+  fakebin="$dir/fakebin"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-windows) printf '%s\n' "${FM_FAKE_TMUX_WINDOW:-}" ;;
+  capture-pane) cat "${FM_FAKE_TMUX_CAPTURE:-/dev/null}" ;;
+  display-message) printf '0\n' ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod +x "$fakebin/tmux"
+  make_fake_crew_state "$fakebin" >/dev/null
+  out="$dir/watch.out"
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_FAKE_TMUX_LOG="$dir/tmux.log" FM_FAKE_TMUX_CAPTURE="$dir/fake-tmux/pane.txt" \
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 3 > "$out" 2> "$dir/watch.err" || true
+  ! grep -F 'secondmate wake-loop stalled' "$out" >/dev/null \
+    || fail "aged foreign row woke while manager had a busy child and empty inbox: $(cat "$out")"
+  pass "secondmate wake-loop stall stays quiet when manager supervises active child work"
+}
+
+test_secondmate_wake_stall_still_fires_with_unread_manager_inbox() {
+  local dir state sub fakebin out
+  dir=$(make_case secondmate-stall-unread-inbox)
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state" "$sub/data" "$state/mate.inbox"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+    "$sub" > "$state/mate.meta"
+  printf 'window=firstmate:fm-child\nkind=ship\n' > "$sub/state/child.meta"
+  printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - 10 ))" > "$sub/state/.wake-queue"
+  printf 'schema=fm-task-inbox.v1\nat=2026-08-25T00:00:00Z\n--\nplease acknowledge\n' \
+    > "$state/mate.inbox/001.msg"
+  fakebin="$dir/fakebin"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-windows) printf '%s\n' "${FM_FAKE_TMUX_WINDOW:-}" ;;
+  capture-pane) cat "${FM_FAKE_TMUX_CAPTURE:-/dev/null}" ;;
+  display-message) printf '0\n' ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod +x "$fakebin/tmux"
+  make_fake_crew_state "$fakebin" >/dev/null
+  out="$dir/watch.out"
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_FAKE_TMUX_LOG="$dir/tmux.log" FM_FAKE_TMUX_CAPTURE="$dir/fake-tmux/pane.txt" \
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 3 > "$out" 2> "$dir/watch.err" || true
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$out" >/dev/null \
+    || fail "unread manager inbox with aged foreign row did not wake: $(cat "$out")"
+  pass "secondmate wake-loop stall still fires when the manager has unread instructions"
+}
+
 test_secondmate_stall_marker_rejects_symlink() {
   local dir state sub fakebin marker outside expected
   dir=$(make_case secondmate-stall-marker-symlink)
@@ -1200,6 +1276,8 @@ test_historical_annotation_skips_announced_status() {
 
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_secondmate_foreign_queue_stall_is_one_shot_and_read_only
+test_secondmate_wake_stall_skips_idle_manager_with_busy_children
+test_secondmate_wake_stall_still_fires_with_unread_manager_inbox
 test_secondmate_stall_marker_rejects_symlink
 test_acknowledged_stall_publication_survives_pre_marker_crash
 test_empty_prefix_mate_preserves_other_mate_receipt

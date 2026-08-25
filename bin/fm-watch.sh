@@ -438,6 +438,15 @@ EOF
     age=$((now - epoch))
     [ "$age" -ge "$threshold" ] || continue
     row_key="$epoch-$seq"
+    # A quiet manager supervising live child work in its registered home is
+    # healthy even when its foreign wake queue still holds an aged row: the
+    # manager has nothing to append while workers run. Skip only when the
+    # manager's own instruction inbox is also empty so unread steers still
+    # surface.
+    if mate_home_has_active_child_work "$home" \
+      && ! fm_task_inbox_oldest_unhandled "$STATE" "$task" >/dev/null 2>&1; then
+      continue
+    fi
     receipt="$receipt_dir/$row_key"
     if [ -e "$marker" ] || [ -L "$marker" ]; then
       [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
