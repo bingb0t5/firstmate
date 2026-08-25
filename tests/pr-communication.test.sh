@@ -125,7 +125,7 @@ test_cli_rejects_untouched_module_boundary_template() {
 
 test_transient_remote_failure_uses_local_pin() {
   local mode out rc
-  for mode in network 503; do
+  for mode in network 408 429 503; do
     set +e
     out=$(PR_COMMUNICATION_FETCH_FAILURE="$mode" PR_COMMUNICATION_SOT_TOKEN=test-token \
       node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
@@ -154,15 +154,103 @@ test_required_remote_failure_fails_closed() {
 }
 
 test_auth_remote_failure_fails_closed() {
+  local mode out rc
+  for mode in 401 403 404; do
+    set +e
+    out=$(PR_COMMUNICATION_FETCH_FAILURE="$mode" PR_COMMUNICATION_SOT_TOKEN=invalid \
+      node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "remote authentication failure ($mode)"
+    assert_contains "$out" "$mode" \
+      "remote authentication failure ($mode) did not report its status"
+  done
+  pass "401, 403, and 404 remote failures fail closed"
+}
+
+test_invalid_token_header_fails_closed() {
   local out rc
   set +e
-  out=$(PR_COMMUNICATION_FETCH_FAILURE=401 PR_COMMUNICATION_SOT_TOKEN=invalid \
+  out=$(PR_COMMUNICATION_SOT_TOKEN=$'invalid\nheader' node "$DRIFT" 2>&1)
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "invalid token header"
+  assert_not_contains "$out" "Using the verified local pin" \
+    "invalid token header incorrectly used the local pin"
+  pass "invalid token header fails closed"
+}
+
+test_tampered_entrypoint_fails_closed() {
+  local candidate out rc
+  candidate=$(mktemp -d "$ROOT/.pr-communication-candidate.XXXXXX")
+  mkdir -p "$candidate/scripts/pr-communication"
+  cp "$CHECK" "$candidate/scripts/check-pr-communication.ts"
+  cp "$ROOT/scripts/pr-communication/prCommunication.ts" \
+    "$candidate/scripts/pr-communication/prCommunication.ts"
+  cp "$ROOT/scripts/pr-communication/SOURCE.sha256" \
+    "$candidate/scripts/pr-communication/SOURCE.sha256"
+  printf '\n// tampered\n' >> "$candidate/scripts/check-pr-communication.ts"
+  set +e
+  out=$(PR_COMMUNICATION_CANDIDATE_ROOT="${candidate#"$ROOT"/}" \
+    PR_COMMUNICATION_SOT_TOKEN=test-token node "$DRIFT" 2>&1)
+  rc=$?
+  set -e
+  rm -rf "$candidate"
+  expect_code 1 "$rc" "tampered PR communication entrypoint"
+  assert_contains "$out" "entrypoint does not match" \
+    "tampered entrypoint did not fail its trusted pin"
+  pass "tampered entrypoint fails closed"
+}
+
+test_candidate_pin_cannot_authorize_tampered_assessor() {
+  local candidate out rc
+  candidate=$(mktemp -d "$ROOT/.pr-communication-candidate.XXXXXX")
+  mkdir -p "$candidate/scripts/pr-communication"
+  cp "$CHECK" "$candidate/scripts/check-pr-communication.ts"
+  cp "$ROOT/scripts/pr-communication/prCommunication.ts" \
+    "$candidate/scripts/pr-communication/prCommunication.ts"
+  printf '\n// tampered\n' >> "$candidate/scripts/pr-communication/prCommunication.ts"
+  node -e \
+    'const fs=require("node:fs"),c=require("node:crypto"); const p=process.argv[1]; const s=fs.readFileSync(p,"utf8"); const b=s.slice(s.indexOf("\n\n")+2); process.stdout.write(c.createHash("sha256").update(b).digest("hex")+"\n")' \
+    "$candidate/scripts/pr-communication/prCommunication.ts" \
+    > "$candidate/scripts/pr-communication/SOURCE.sha256"
+  set +e
+  out=$(PR_COMMUNICATION_CANDIDATE_ROOT="${candidate#"$ROOT"/}" \
+    PR_COMMUNICATION_FETCH_FAILURE=503 PR_COMMUNICATION_SOT_TOKEN=test-token \
     node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
   rc=$?
   set -e
-  expect_code 1 "$rc" "remote authentication failure"
-  assert_contains "$out" "401" "remote authentication failure did not report its status"
-  pass "remote authentication failures fail closed"
+  rm -rf "$candidate"
+  expect_code 1 "$rc" "candidate-controlled assessor pin"
+  assert_contains "$out" "does not match trusted SOURCE.sha256" \
+    "candidate-controlled pin authorized a tampered assessor"
+  pass "candidate pin cannot authorize a tampered assessor"
+}
+
+test_remote_sot_authorizes_synchronized_assessor() {
+  local candidate body out rc
+  candidate=$(mktemp -d "$ROOT/.pr-communication-candidate.XXXXXX")
+  mkdir -p "$candidate/scripts/pr-communication"
+  cp "$CHECK" "$candidate/scripts/check-pr-communication.ts"
+  cp "$ROOT/scripts/pr-communication/prCommunication.ts" \
+    "$candidate/scripts/pr-communication/prCommunication.ts"
+  printf '\n// synchronized update\n' >> "$candidate/scripts/pr-communication/prCommunication.ts"
+  body="$candidate/remote.ts"
+  sed '1,/^$/d' "$candidate/scripts/pr-communication/prCommunication.ts" > "$body"
+  node -e \
+    'const fs=require("node:fs"),c=require("node:crypto"); const p=process.argv[1]; process.stdout.write(c.createHash("sha256").update(fs.readFileSync(p,"utf8")).digest("hex")+"\n")' \
+    "$body" > "$candidate/scripts/pr-communication/SOURCE.sha256"
+  set +e
+  out=$(PR_COMMUNICATION_CANDIDATE_ROOT="${candidate#"$ROOT"/}" \
+    PR_COMMUNICATION_FETCH_BODY_PATH="$body" PR_COMMUNICATION_SOT_TOKEN=test-token \
+    node --import "$FETCH_FIXTURE" "$DRIFT" 2>&1)
+  rc=$?
+  set -e
+  rm -rf "$candidate"
+  expect_code 0 "$rc" "synchronized remote assessor update"
+  assert_contains "$out" "Remote SoT matches" \
+    "remote SoT did not authorize its synchronized assessor update"
+  pass "remote SoT authorizes a synchronized assessor update"
 }
 
 test_cli_accepts_complete_description() {
@@ -189,3 +277,7 @@ test_cli_accepts_complete_description
 test_transient_remote_failure_uses_local_pin
 test_required_remote_failure_fails_closed
 test_auth_remote_failure_fails_closed
+test_invalid_token_header_fails_closed
+test_tampered_entrypoint_fails_closed
+test_candidate_pin_cannot_authorize_tampered_assessor
+test_remote_sot_authorizes_synchronized_assessor

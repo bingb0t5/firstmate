@@ -3,10 +3,11 @@
  * Fail if the vendored assessor drifts from the pinned SoT hash, or (when
  * reachable) from bingb0t5/lalo-admin@main:src/shared/prCommunication.ts.
  *
- * Default GITHUB_TOKEN cannot read private sibling repos. Set repo secret
- * PR_COMMUNICATION_SOT_TOKEN (fine-scoped PAT or GitHub App token with
- * contents:read on lalo-admin) to enable the remote comparison. Until then
- * SOURCE.sha256 is the hard local pin.
+ * Remote comparison requires PR_COMMUNICATION_SOT_TOKEN. GITHUB_TOKEN and
+ * GH_TOKEN are not substitutes. A missing or unusable token fails closed so
+ * a PR cannot compare the vendored file against SOURCE.sha256 alone.
+ * Local-pin fallback is only for network errors, HTTP 408, 429, and 5xx.
+ * HTTP 401, 403, and 404 fail closed.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -18,7 +19,10 @@ const ROOT = process.env.PR_COMMUNICATION_CANDIDATE_ROOT
   ? join(TRUSTED_ROOT, process.env.PR_COMMUNICATION_CANDIDATE_ROOT)
   : TRUSTED_ROOT;
 const VENDORED_PATH = join(ROOT, 'scripts/pr-communication/prCommunication.ts');
-const PIN_PATH = join(ROOT, 'scripts/pr-communication/SOURCE.sha256');
+const CANDIDATE_PIN_PATH = join(ROOT, 'scripts/pr-communication/SOURCE.sha256');
+const TRUSTED_PIN_PATH = join(TRUSTED_ROOT, 'scripts/pr-communication/SOURCE.sha256');
+const ENTRYPOINT_PATH = join(ROOT, 'scripts/check-pr-communication.ts');
+const ENTRYPOINT_PIN_PATH = join(TRUSTED_ROOT, 'scripts/pr-communication/ENTRYPOINT.sha256');
 const SOURCE_REPO = 'bingb0t5/lalo-admin';
 const SOURCE_PATH = 'src/shared/prCommunication.ts';
 const SOURCE_REF = 'main';
@@ -58,11 +62,12 @@ async function fetchSourceOfTruth(token) {
 
 const vendoredBody = stripSourceHeader(readFileSync(VENDORED_PATH, 'utf8'));
 const actualHash = sha256(vendoredBody);
-const pinnedHash = readFileSync(PIN_PATH, 'utf8').trim();
+const candidatePinnedHash = readFileSync(CANDIDATE_PIN_PATH, 'utf8').trim();
+const trustedPinnedHash = readFileSync(TRUSTED_PIN_PATH, 'utf8').trim();
 
-if (actualHash !== pinnedHash) {
+if (actualHash !== candidatePinnedHash) {
   console.error('Vendored PR communication assessor does not match SOURCE.sha256.');
-  console.error(`expected: ${pinnedHash}`);
+  console.error(`expected: ${candidatePinnedHash}`);
   console.error(`actual:   ${actualHash}`);
   console.error('Re-vendor from lalo-admin and refresh SOURCE.sha256.');
   process.exit(1);
@@ -70,12 +75,19 @@ if (actualHash !== pinnedHash) {
 
 console.log(`Local pin OK (${actualHash}).`);
 
-const token = (
-  process.env.PR_COMMUNICATION_SOT_TOKEN ||
-  process.env.GITHUB_TOKEN ||
-  process.env.GH_TOKEN ||
-  ''
-).trim();
+const entrypointHash = sha256(readFileSync(ENTRYPOINT_PATH, 'utf8'));
+const pinnedEntrypointHash = readFileSync(ENTRYPOINT_PIN_PATH, 'utf8').trim();
+
+if (entrypointHash !== pinnedEntrypointHash) {
+  console.error('PR communication entrypoint does not match ENTRYPOINT.sha256.');
+  console.error(`expected: ${pinnedEntrypointHash}`);
+  console.error(`actual:   ${entrypointHash}`);
+  process.exit(1);
+}
+
+console.log(`Entrypoint pin OK (${entrypointHash}).`);
+
+const token = String(process.env.PR_COMMUNICATION_SOT_TOKEN || '').trim();
 const requireRemote = String(process.env.PR_COMMUNICATION_REQUIRE_REMOTE_SOT || '').trim() === '1';
 
 if (!token) {
@@ -97,10 +109,30 @@ try {
   console.log(`Remote SoT matches ${SOURCE_REPO}@${SOURCE_REF}:${SOURCE_PATH}.`);
 } catch (error) {
   const status = error && error.status;
+  const networkCodes = new Set([
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'EHOSTUNREACH',
+    'ENETDOWN',
+    'ENETUNREACH',
+    'ENOTFOUND',
+    'ETIMEDOUT',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_SOCKET',
+  ]);
+  const networkFailure =
+    error instanceof TypeError && networkCodes.has(error.cause && error.cause.code);
   const transientFailure =
-    status === undefined || status === 408 || status === 429 || (status >= 500 && status <= 599);
+    networkFailure || status === 408 || status === 429 || (status >= 500 && status <= 599);
   if (!transientFailure || requireRemote) {
     console.error(error.message || error);
+    process.exit(1);
+  }
+  if (actualHash !== trustedPinnedHash) {
+    console.error('Vendored PR communication assessor does not match trusted SOURCE.sha256.');
+    console.error(`expected: ${trustedPinnedHash}`);
+    console.error(`actual:   ${actualHash}`);
     process.exit(1);
   }
   console.warn(
