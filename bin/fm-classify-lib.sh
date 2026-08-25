@@ -1181,6 +1181,55 @@ signal_reason_is_actionable() {  # <file> ...
   return 1
 }
 
+# 0 when <home>/state records at least one child crew that crew_absorb_class
+# would classify as working right now. Used so an idle kind=secondmate manager
+# endpoint stays healthy while its own home still has dispatched workers under
+# way. Costs one fm-crew-state read per child meta until a working child is
+# found, so callers run it only at classification time, never every poll.
+mate_home_has_active_child_work() {  # <home>
+  local home=$1 child_meta child_id child_kind child_state class
+  local _restore_state_override _had_state_override=0
+  [ -n "$home" ] && [ -d "$home/state" ] || return 1
+  child_state="$home/state"
+  [ -n "${FM_STATE_OVERRIDE+x}" ] && _had_state_override=1
+  _restore_state_override=${FM_STATE_OVERRIDE-}
+  for child_meta in "$child_state"/*.meta; do
+    [ -e "$child_meta" ] || continue
+    child_id=${child_meta##*/}
+    child_id=${child_id%.meta}
+    child_kind=$(grep '^kind=' "$child_meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    [ "$child_kind" = secondmate ] && continue
+    class=$(FM_STATE_OVERRIDE="$child_state" crew_absorb_class "$child_id")
+    if [ "$class" = working ]; then
+      if [ "$_had_state_override" -eq 1 ]; then
+        FM_STATE_OVERRIDE=$_restore_state_override
+      else
+        unset FM_STATE_OVERRIDE
+      fi
+      return 0
+    fi
+  done
+  if [ "$_had_state_override" -eq 1 ]; then
+    FM_STATE_OVERRIDE=$_restore_state_override
+  else
+    unset FM_STATE_OVERRIDE
+  fi
+  return 1
+}
+
+# 0 when task <id>'s recorded kind=secondmate home still has active child work.
+manager_has_active_child_work() {  # <id> <state-dir>
+  local id=$1 state=$2 meta kind home
+  [ -n "$id" ] || return 1
+  meta="$state/$id.meta"
+  [ -f "$meta" ] || return 1
+  kind=$(grep '^kind=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  [ "$kind" = secondmate ] || return 1
+  home=$(grep '^home=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  [ -n "$home" ] || return 1
+  mate_home_has_active_child_work "$home"
+}
+
 # Classify WHY an idle/stale crew MIGHT be safely absorbed instead of surfaced,
 # from bin/fm-crew-state.sh's one authoritative current-state line
 # ("state: <s> · source: <src> · <detail>"). Prints exactly one token:
@@ -1198,8 +1247,19 @@ signal_reason_is_actionable() {  # <file> ...
 # run it only on no-verb signal and first-sighting stale paths, never every wake.
 # FM_CREW_STATE_BIN lets tests stub the verdict.
 crew_absorb_class() {  # <id>
-  local id=$1 line state src
+  local id=$1 line state src meta_dir kind home
   [ -n "$id" ] || { printf 'none'; return; }
+  meta_dir="${FM_STATE_OVERRIDE:-${STATE:-}}"
+  if [ -n "$meta_dir" ] && [ -f "$meta_dir/$id.meta" ]; then
+    kind=$(grep '^kind=' "$meta_dir/$id.meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    if [ "$kind" = secondmate ]; then
+      home=$(grep '^home=' "$meta_dir/$id.meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+      if [ -n "$home" ] && mate_home_has_active_child_work "$home"; then
+        printf 'working'
+        return
+      fi
+    fi
+  fi
   line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}

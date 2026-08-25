@@ -317,6 +317,62 @@ test_crew_is_provably_working_classifier() {
   pass "crew_is_provably_working: only working+run-step/pane is provable; idle/finished/parked/failed/unknown surface"
 }
 
+test_manager_with_busy_child_is_provably_working() {
+  local dir state home fakebin
+  dir=$(make_case manager-busy-child); state="$dir/state"; fakebin="$dir/fakebin"
+  home="$dir/mate-home"
+  mkdir -p "$home/state"
+  printf 'platform\n' > "$home/.fm-secondmate-home"
+  printf 'window=test:fm-platform\nkind=secondmate\nhome=%s\n' "$home" > "$state/platform.meta"
+  printf 'window=test:fm-child\nkind=ship\n' > "$home/state/child.meta"
+  export FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh"
+  export FM_FAKE_CREW_STATE
+  export FM_FAKE_CREW_STATE_child
+  export FM_STATE_OVERRIDE="$state"
+  FM_FAKE_CREW_STATE='state: unknown · source: none · idle manager'
+  FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating'
+  [ "$(crew_absorb_class platform)" = working ] \
+    || fail "idle kind=secondmate manager with a busy child was not classified working"
+  FM_FAKE_CREW_STATE_child='state: done · source: run-step · landed'
+  [ "$(crew_absorb_class platform)" != working ] \
+    || fail "idle manager was treated as working after its only child finished"
+  unset FM_FAKE_CREW_STATE FM_FAKE_CREW_STATE_child FM_STATE_OVERRIDE
+  pass "crew_absorb_class: an idle kind=secondmate manager inherits working from active child crews"
+}
+
+test_paused_manager_with_busy_child_stays_absorbed() {
+  local dir state home fakebin out capture_file statusf window key pane_hash sig pid
+  dir=$(make_case paused-manager-busy-child); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; home="$dir/mate-home"
+  window="test:fm-platform"
+  mkdir -p "$home/state"
+  printf 'platform\n' > "$home/.fm-secondmate-home"
+  printf 'window=%s\nkind=secondmate\nhome=%s\n' "$window" "$home" > "$state/platform.meta"
+  printf 'window=test:fm-child\nkind=ship\n' > "$home/state/child.meta"
+  statusf="$state/platform.status"
+  printf 'paused: supervising dispatched workers\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-platform_status"
+  printf 'idle while workers run\n' > "$capture_file"
+  key=$(printf '%s' "$window" | tr '.:/' '___')
+  pane_hash=$(hash_text "idle while workers run")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '2\n' > "$state/.count-$key"
+  printf '%s' "$pane_hash" > "$state/.stale-$key"
+  printf '%s\n' $(( $(date +%s) - 500 )) > "$state/.stale-since-$key"
+  printf '1\n' > "$state/.wedge-escalations-$key"
+  FM_FAKE_CREW_STATE_platform='state: unknown · source: none · idle manager'
+  FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating'
+  FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    watch_bg "$state" "$fakebin" "$out"
+  pid=$!
+  if ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"; fail "watcher woke for paused manager with busy child: $(cat "$out")"
+  fi
+  [ ! -s "$out" ] || { reap "$pid"; fail "paused manager with busy child printed a wake: $(cat "$out")"; }
+  reap "$pid"
+  pass "a declared-pause kind=secondmate manager with busy children stays absorbed instead of stale/wedge"
+}
+
 # status_is_paused: the shared pause verb test both consumers read (so neither
 # hardcodes the literal). Matches only the verb before the first colon, so a reason
 # that merely mentions "paused" does not false-match, and a genuine blocker stays a
@@ -2618,6 +2674,8 @@ test_stale_is_terminal_classifier
 test_scan_captain_relevant_statuses_classifier
 test_classifier_primitives
 test_crew_is_provably_working_classifier
+test_manager_with_busy_child_is_provably_working
+test_paused_manager_with_busy_child_stays_absorbed
 test_status_is_paused_classifier
 test_crew_absorb_class_classifier
 test_crew_worktree_written_since_classifier

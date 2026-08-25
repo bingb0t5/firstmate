@@ -1344,7 +1344,11 @@ EOF
     # it to `paused` would leave a mate's captain hold rotting invisibly: the
     # clear above already spares its pause tracking, but nothing would ever
     # re-surface it.
-    if [ "$kind" = secondmate ] && ! status_is_paused_or_captain_held "$last"; then
+    # An idle manager with live child work in its registered home is healthy
+    # even when the manager pane itself is quiet (and even when a declared pause
+    # was recorded only to silence a false wedge alarm).
+    if [ "$kind" = secondmate ] && { ! status_is_paused_or_captain_held "$last" \
+      || manager_has_active_child_work "$task" "$STATE"; }; then
       continue
     fi
     tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || continue
@@ -1371,6 +1375,12 @@ EOF
         if [ "$kind" = secondmate ]; then
           case "$(pause_state_class "$w" "$task")" in
             paused) handle_paused_stale "$w" "$task" "$h" ;;
+            working)
+              clear_pause_tracking "$key"
+              printf '%s' "$h" > "$sf"
+              rm -f "$ssf" "$ewf"
+              triage_log "absorbed stale (idle manager supervising active child work): $w"
+              ;;
             *)      clear_pause_tracking "$key" ;;
           esac
         elif afk_present; then
