@@ -12,7 +12,8 @@
 # real agent):
 #   1. Exact-id and stable-label kind=secondmate selectors prepend the marker
 #      to the recorded steer, never to the typed doorbell.
-#   2. Exact-id and stable-label ordinary crewmate selectors stay unmarked.
+#   2. Exact-id and stable-label ordinary crewmate selectors stay unmarked
+#      (no from-firstmate carrier) but still carry a corr token.
 #   3. Explicit endpoints stay unmarked and typed, with or without local meta.
 #   4. The --key path never carries the marker and never enqueues a record.
 #   5. Direct captain text stays unmarked, and already-marked text is idempotent.
@@ -157,7 +158,7 @@ test_exact_secondmate_task_id_is_marked() {
 }
 
 test_crewmate_target_is_not_marked() {
-  local dir fb log home rc got
+  local dir fb log home rc got corr
   dir="$TMP_ROOT/crew"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home crew)
@@ -167,14 +168,24 @@ test_crewmate_target_is_not_marked() {
   run_send "$fb" "$home" "$log" "fm-build" "fix the test"; rc=$?
   expect_code 0 "$rc" "send to a stable-label crewmate target should succeed"
   got=$(record_body "$home/state/build.inbox/001.msg")
-  [ "$got" = "fix the test" ] \
-    || fail "stable-label crewmate send: expected bare recorded text, got marker or other"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)"
+  case "$got" in
+    "$FM_FROMFIRST_MARK"*) fail "stable-label crewmate send must not carry the from-firstmate marker"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)" ;;
+  esac
+  corr=$(printf '%s' "$got" | grep -oE 'corr=[a-f0-9]{16}' | head -1 | cut -d= -f2)
+  [ "${#corr}" -eq 16 ] || fail "stable-label crewmate send must embed corr"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)"
+  [ "$got" = "corr=${corr} fix the test" ] \
+    || fail "stable-label crewmate send: expected corr-prefixed recorded text"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)"
   run_send "$fb" "$home" "$log" "build" "fix the exact test"; rc=$?
   expect_code 0 "$rc" "send to an exact-id crewmate target should succeed"
   got=$(record_body "$home/state/build.inbox/002.msg")
-  [ "$got" = "fix the exact test" ] \
-    || fail "exact-id crewmate send: expected bare recorded text, got marker or other"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)"
-  pass "fm-send: exact-id and stable-label kind=ship selectors are sent unmarked"
+  case "$got" in
+    "$FM_FROMFIRST_MARK"*) fail "exact-id crewmate send must not carry the from-firstmate marker"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)" ;;
+  esac
+  corr=$(printf '%s' "$got" | grep -oE 'corr=[a-f0-9]{16}' | head -1 | cut -d= -f2)
+  [ "${#corr}" -eq 16 ] || fail "exact-id crewmate send must embed corr"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)"
+  [ "$got" = "corr=${corr} fix the exact test" ] \
+    || fail "exact-id crewmate send: expected corr-prefixed recorded text"$'\n'"--- bytes ---"$'\n'"$(printf '%s' "$got" | od -An -c)"
+  pass "fm-send: exact-id and stable-label kind=ship selectors are unmarked but corr-tracked"
 }
 
 test_explicit_window_is_not_marked() {

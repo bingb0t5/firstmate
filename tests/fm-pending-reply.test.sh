@@ -15,13 +15,15 @@
 #   6. Unrelated events and stale correlation ids cannot resolve a request
 #   7. Restart/compaction preserves the expectation and exact parent destination
 #   8. Wrong-home reports are detected but do not silently acknowledge
-#   9. Direct unmarked captain input creates no expectation
+#   9. Inbox-plane crewmate text opens a pending-reply record (corr, no marker)
 #  10. fm-send secondmate path embeds corr and creates durable pending records
 #  11. Backend busy/idle observation works through the shared busy abstraction
 #      used by Pi/Claude secondmate backends (no conversation scrape)
 #  12. A remote mate's repost waits for its asynchronous reply mirror to be read
 #      past the turn, so a mirrored reply is never nagged and a real miss still
 #      gets its one repost
+#  13. bin/fm-pending-reply.sh list shows every open obligation and omits
+#      answered ones; typed-plane and --key sends stay off the list
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -33,6 +35,7 @@ set -u
 
 SEND="$ROOT/bin/fm-send.sh"
 REPORT="$ROOT/bin/fm-secondmate-report.sh"
+LIST="$ROOT/bin/fm-pending-reply.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pending-reply)
 
 export FM_PENDING_REPLY_GRACE_SECS=0
@@ -105,6 +108,10 @@ latest_record_body() {  # <home> <task>
   rec=$(find "$1/state/$2.inbox" -maxdepth 1 -name '*.msg' 2>/dev/null | sort | tail -1)
   [ -n "$rec" ] || return 1
   bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$rec"
+}
+
+list_open() {  # <home>
+  env FM_HOME="$1" "$LIST" list
 }
 
 # --- tests ------------------------------------------------------------------
@@ -818,22 +825,83 @@ test_wrong_home_detected_not_acknowledged() {
   pass "wrong-home reports are detected but do not silently acknowledge"
 }
 
-test_unmarked_captain_input_creates_no_expectation() {
-  local dir fb log home rc pending_count
-  dir="$TMP_ROOT/unmarked"; mkdir -p "$dir"
+test_crewmate_inbox_send_opens_pending_obligation() {
+  local dir fb log home rc got corr listed
+  dir="$TMP_ROOT/crew-tracked"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
-  home=$(setup_parent unmarked)
-  # Crewmate target stays unmarked and creates no pending-reply record.
+  home=$(setup_parent crew-tracked)
   fm_write_meta "$home/state/build.meta" \
     "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
     "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
-  run_send "$fb" "$home" "$log" "build" "captain says hello"; rc=$?
-  expect_code 0 "$rc" "unmarked crewmate send should succeed"
-  [ "$(latest_record_body "$home" build)" = "captain says hello" ] \
-    || fail "crewmate steer should be recorded unmarked"$'\n'"$(latest_record_body "$home" build | od -An -c)"
-  pending_count=$(find "$home/state/pending-replies" -type f 2>/dev/null | wc -l | tr -d ' ')
-  [ "$pending_count" = 0 ] || fail "unmarked input must create no pending-reply records (got $pending_count)"
-  pass "direct unmarked captain input creates no expectation"
+  run_send "$fb" "$home" "$log" "build" "investigate the points ledger"; rc=$?
+  expect_code 0 "$rc" "crewmate inbox send should succeed"
+  got=$(latest_record_body "$home" build)
+  case "$got" in
+    "$FM_FROMFIRST_MARK"*) fail "crewmate steer must not carry the from-firstmate marker"$'\n'"$(printf '%s' "$got" | od -An -c)" ;;
+  esac
+  corr=$(fm_pending_reply_extract_corr "$got")
+  [ "${#corr}" -eq 16 ] || fail "crewmate steer must embed corr, got '$corr'"
+  [ "$got" = "corr=${corr} investigate the points ledger" ] \
+    || fail "crewmate steer should be corr-prefixed payload"$'\n'"$got"
+  [ -f "$(fm_pending_reply_path "$home/state" "$corr")" ] \
+    || fail "crewmate send must create a pending-reply record"
+  listed=$(list_open "$home")
+  assert_contains "$listed" "corr=$corr" "open list must include the new obligation"
+  assert_contains "$listed" "task=build" "open list must name the crewmate task"
+  pass "inbox-plane crewmate text opens a pending obligation visible to list"
+}
+
+test_answered_obligation_leaves_the_open_list() {
+  local dir fb log home rc got corr listed
+  dir="$TMP_ROOT/answered-list"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_parent answered-list)
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+  run_send "$fb" "$home" "$log" "build" "reconcile the duplicate PR"; rc=$?
+  expect_code 0 "$rc" "crewmate inbox send should succeed"
+  got=$(latest_record_body "$home" build)
+  corr=$(fm_pending_reply_extract_corr "$got")
+  [ "${#corr}" -eq 16 ] || fail "expected corr in recorded body"
+  listed=$(list_open "$home")
+  assert_contains "$listed" "corr=$corr" "precondition: obligation should be open"
+  printf 'done [corr=%s]: duplicate closed\n' "$corr" > "$home/state/build.status"
+  fm_pending_reply_try_resolve "$home/state" "$corr" \
+    || fail "correlated status should resolve the obligation"
+  listed=$(list_open "$home")
+  case "$listed" in
+    *"corr=$corr"*) fail "answered obligation must leave the open list:"$'\n'"$listed" ;;
+  esac
+  [ -z "$listed" ] || fail "open list should be empty after the only obligation is answered:"$'\n'"$listed"
+  pass "an answered obligation leaves the open list"
+}
+
+test_typed_plane_and_key_stay_off_the_open_list() {
+  local dir fb log home rc listed
+  dir="$TMP_ROOT/untracked-carveouts"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_parent untracked-carveouts)
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+  run_send "$fb" "$home" "$log" "build" "/no-mistakes"; rc=$?
+  expect_code 0 "$rc" "slash invocation should succeed"
+  run_send "$fb" "$home" "$log" "build" --key Enter; rc=$?
+  expect_code 0 "$rc" "--key send should succeed"
+  run_send "$fb" "$home" "$log" "sess:win" "hello there"; rc=$?
+  expect_code 0 "$rc" "explicit-target send should succeed"
+  listed=$(list_open "$home")
+  [ -z "$listed" ] || fail "typed-plane, --key, and explicit-target sends must not open obligations:"$'\n'"$listed"
+  pass "typed-plane, --key, and explicit-target sends stay off the open list"
+}
+
+test_list_refuses_without_explicit_home() {
+  local rc err
+  err=$(env -u FM_HOME -u FM_STATE_OVERRIDE -u FM_ROOT_OVERRIDE "$LIST" list 2>&1) && rc=0 || rc=$?
+  [ "$rc" -eq 1 ] || fail "list without FM_HOME should exit 1, got $rc"
+  assert_contains "$err" "FM_HOME is not set" "list should fail closed without an explicit home"
+  pass "list refuses to resolve against an implicit home"
 }
 
 test_fm_send_marked_secondmate_creates_pending_and_embeds_corr() {
@@ -1272,7 +1340,10 @@ test_delivery_confirmation_serializes_with_reconciliation
 test_unrelated_and_stale_corr_cannot_resolve
 test_restart_preserves_expectation_and_parent_destination
 test_wrong_home_detected_not_acknowledged
-test_unmarked_captain_input_creates_no_expectation
+test_crewmate_inbox_send_opens_pending_obligation
+test_answered_obligation_leaves_the_open_list
+test_typed_plane_and_key_stay_off_the_open_list
+test_list_refuses_without_explicit_home
 test_fm_send_marked_secondmate_creates_pending_and_embeds_corr
 test_document_pointer_resolves
 test_helper_report_resolves

@@ -114,6 +114,18 @@ record_body() {  # <record>
   bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$2"
 }
 
+# Inbox-plane crewmate body is corr=<16hex> <payload>, never from-firstmate.
+assert_plain_tracked_body() {  # <body> <payload>
+  local body=$1 payload=$2 corr
+  corr=$(printf '%s' "$body" | grep -oE 'corr=[a-f0-9]{16}' | head -1 | cut -d= -f2)
+  [ "${#corr}" -eq 16 ] || fail "tracked body missing corr token:"$'\n'"$body"
+  case "$body" in
+    "$FM_FROMFIRST_MARK"*) fail "crewmate body must not carry the from-firstmate marker:"$'\n'"$body" ;;
+  esac
+  [ "$body" = "corr=${corr} ${payload}" ] \
+    || fail "tracked body should be corr + payload, got:"$'\n'"$body"
+}
+
 test_text_steer_rides_inbox() {
   local dir err rc rec body typed
   dir=$(setup_case rides); err="$dir/send.err"
@@ -122,7 +134,7 @@ test_text_steer_rides_inbox() {
   rec="$dir/home/state/t1.inbox/001.msg"
   [ -f "$rec" ] || fail "the steer was not durably recorded at $rec"
   body=$(record_body _ "$rec")
-  [ "$body" = "please rebase onto main" ] || fail "the recorded body differs: $body"
+  assert_plain_tracked_body "$body" "please rebase onto main"
   typed=$(cat "$dir/send.log")
   assert_contains "$typed" "Firstmate instruction waiting: list $dir/home/state/t1.inbox/*.msg" \
     "the doorbell should direct the worker to drain the inbox"
@@ -138,8 +150,7 @@ test_multiline_steer_is_legal() {
   run_send "$dir" "$err" -- t1 $'first line\nsecond line\nthird: with punctuation'; rc=$?
   expect_code 0 "$rc" "a multi-line steer should succeed"
   body=$(record_body _ "$dir/home/state/t1.inbox/001.msg")
-  [ "$body" = $'first line\nsecond line\nthird: with punctuation' ] \
-    || fail "the multi-line body did not round-trip:"$'\n'"$body"
+  assert_plain_tracked_body "$body" $'first line\nsecond line\nthird: with punctuation'
   case "$(cat "$dir/send.log")" in
     *"second line"*) fail "a payload line leaked onto the typed channel" ;;
   esac

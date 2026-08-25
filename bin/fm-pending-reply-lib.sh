@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# fm-pending-reply-lib.sh - parent-owned secondmate missed-report guards.
+# fm-pending-reply-lib.sh - parent-owned pending-obligation records.
 #
-# When the main firstmate delivers a marked from-firstmate request to a
-# secondmate, this library records a durable parent-owned pending-reply
-# expectation BEFORE delivery, embeds a privacy-safe correlation id in the
-# outbound message, and later resolves that expectation only from a correlated
-# parent status line or status-pointed document - never from transport success,
-# chat content, or unrelated status activity.
+# When fm-send delivers inbox-plane text to a task recorded in this home, this
+# library records a durable parent-owned pending-reply expectation BEFORE
+# delivery, embeds a privacy-safe correlation id in the outbound message, and
+# later resolves that expectation only from a correlated parent status line or
+# status-pointed document - never from transport success, chat content, a grep
+# of another task's journal, or unrelated status activity. bin/fm-pending-reply.sh
+# list is the authoritative open-obligation listing for this home.
+#
+# Secondmate requests still also receive the from-firstmate marker; crewmate
+# and scout requests receive the corr token without that marker.
 #
 # Safety property (captain direction 2026-07-22): a secondmate agent may ignore
 # the marker and answer only in its visible conversation. The parent must notice
@@ -25,7 +29,7 @@
 # Each record is a key=value file owned by this library. Schema:
 #   schema=fm-pending-reply.v1
 #   corr_id=                privacy-safe correlation token
-#   task_id=                secondmate task id in the parent home
+#   task_id=                task id in the parent home
 #   parent_home=            absolute parent FM_HOME
 #   parent_status=          absolute path of parent state/<task_id>.status
 #   parent_status_scan_signature=
@@ -69,8 +73,9 @@
 # or a remote mate's mirrored line - can take the key over or clear it; see the
 # reserved-key rule in bin/fm-classify-lib.sh.
 #
-# Sourced by bin/fm-send.sh, bin/fm-watch.sh, bin/fm-secondmate-report.sh, and
-# tests. No side effects on source. set -u / set -e safe.
+# Sourced by bin/fm-send.sh, bin/fm-pending-reply.sh, bin/fm-watch.sh,
+# bin/fm-secondmate-report.sh, and tests. No side effects on source.
+# set -u / set -e safe.
 #
 # Tunables (env):
 #   FM_PENDING_REPLY_GRACE_SECS   default 120
@@ -213,17 +218,30 @@ fm_pending_reply_set() {  # <record-path> <key> <value>
   mv -f "$tmp" "$rec"
 }
 
-# Embed or replace a correlation token after the from-firstmate marker.
+# Embed or replace a correlation token. Default (marked) places it after the
+# from-firstmate marker. Pass plain as the fourth argument to prefix corr
+# without that marker (crewmate/scout inbox steers); a leftover marker is
+# stripped so a secondmate recovery body re-sent to a crewmate stays plain.
 # Idempotent for the same corr; replaces a different leading corr token.
 # Result is assigned to <result-var>.
 # Trailing newlines in the request body are preserved: never strip via bare
 # $(...) on the body (command substitution removes trailing newlines).
-fm_pending_reply_embed_corr() {  # <message> <corr_id> <result-var>
-  local message=$1 corr=$2 result_var=$3 body token marked existing
+fm_pending_reply_embed_corr() {  # <message> <corr_id> <result-var> [plain]
+  local message=$1 corr=$2 result_var=$3 mode=${4:-marked}
+  local body token marked existing prefix
   [ -n "$result_var" ] || return 2
   token=$(fm_pending_reply_corr_token "$corr")
-  fm_message_mark_from_firstmate "$message" marked
-  body=${marked#"$FM_FROMFIRST_MARK"}
+  if [ "$mode" = plain ]; then
+    body=$message
+    case "$body" in
+      "$FM_FROMFIRST_MARK"*) body=${body#"$FM_FROMFIRST_MARK"} ;;
+    esac
+    prefix=
+  else
+    fm_message_mark_from_firstmate "$message" marked
+    body=${marked#"$FM_FROMFIRST_MARK"}
+    prefix=$FM_FROMFIRST_MARK
+  fi
   # Strip a leading corr=<16hex> plus following blanks (space/tab only).
   existing=${body:0:21}
   case "$existing" in
@@ -233,7 +251,7 @@ fm_pending_reply_embed_corr() {  # <message> <corr_id> <result-var>
       while [ "${body#$'\t'}" != "$body" ]; do body=${body#$'\t'}; done
       ;;
   esac
-  printf -v "$result_var" '%s' "${FM_FROMFIRST_MARK}${token} ${body}"
+  printf -v "$result_var" '%s' "${prefix}${token} ${body}"
 }
 
 # Create a durable pending-reply expectation. Prints corr_id on success.
@@ -854,7 +872,7 @@ fm_pending_reply_recovery_message() {  # <record-path>
   corr=$(fm_pending_reply_get "$rec" corr_id)
   summary=$(fm_pending_reply_get "$rec" request_summary)
   token=$(fm_pending_reply_corr_token "$corr")
-  msg="REPOST REQUIRED: previous marked request had no correlated parent report. Reply on the parent status channel including ${token}. Original request: ${summary}"
+  msg="REPOST REQUIRED: previous request had no correlated parent report. Reply on the parent status channel including ${token}. Original request: ${summary}"
   fm_pending_reply_embed_corr "$msg" "$corr" msg
   printf '%s' "$msg"
 }
@@ -1390,6 +1408,40 @@ fm_pending_reply_tick() {  # <state-dir>
     fm_pending_reply_tick_one "$state" "$corr" "$busy" "$sm_home" || true
   done
   return 0
+}
+
+# Print every still-open (non-resolved) pending obligation in <state-dir>.
+# One TSV line per record, sorted by created_epoch then corr_id:
+#   corr=<id><TAB>task=<id><TAB>phase=<phase><TAB>created=<epoch><TAB>summary=<text>
+# Prints nothing and returns 0 when none are open. Skips dotfiles and
+# delivery-confirmation markers. Absence from this listing is the
+# authoritative "not requested or already closed" answer for this home.
+fm_pending_reply_list_open() {  # <state-dir>
+  local state=$1 dir rec corr task_id phase created summary tmp rc=0
+  dir=$(fm_pending_reply_dir "$state")
+  [ -d "$dir" ] || return 0
+  tmp=$(mktemp "${TMPDIR:-/tmp}/fm-pending-list.XXXXXX") || return 1
+  for rec in "$dir"/*; do
+    [ -f "$rec" ] || continue
+    case "$(basename "$rec")" in
+      .*) continue ;;
+    esac
+    phase=$(fm_pending_reply_get "$rec" phase)
+    [ -n "$phase" ] && [ "$phase" != resolved ] || continue
+    corr=$(fm_pending_reply_get "$rec" corr_id)
+    [ -n "$corr" ] || corr=$(basename "$rec")
+    task_id=$(fm_pending_reply_get "$rec" task_id)
+    created=$(fm_pending_reply_get "$rec" created_epoch)
+    summary=$(fm_pending_reply_get "$rec" request_summary)
+    printf 'corr=%s\ttask=%s\tphase=%s\tcreated=%s\tsummary=%s\n' \
+      "$corr" "$task_id" "$phase" "$created" "$summary" >> "$tmp" || {
+      rm -f "$tmp"
+      return 1
+    }
+  done
+  LC_ALL=C sort -t "$(printf '\t')" -k4,4n -k1,1 "$tmp" || rc=$?
+  rm -f "$tmp"
+  return "$rc"
 }
 
 # True when any open (non-resolved) pending reply exists for a task.

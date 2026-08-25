@@ -92,11 +92,15 @@
 # an explicit backend-target escape-hatch target, and the --key path are never
 # marked - their behavior is unchanged.
 #
-# Parent-owned pending-reply expectation: every newly marked secondmate request
-# also receives a privacy-safe correlation id and a durable parent record under
-# state/pending-replies/ before delivery (bin/fm-pending-reply-lib.sh). Delivery
-# success and reply success are separate facts: delivery never resolves the
-# expectation. On the inbox plane the durable enqueue IS delivery to the task's
+# Parent-owned pending-reply expectation: every inbox-plane text steer to a
+# task selector recorded in this home receives a privacy-safe correlation id
+# and a durable parent record under state/pending-replies/ before delivery
+# (bin/fm-pending-reply-lib.sh). A send that cannot open that record refuses
+# rather than delivering the instruction untracked. Delivery success and reply
+# success are separate facts: delivery never resolves the expectation.
+# Secondmate targets still also receive the from-firstmate marker; crewmate
+# and scout targets receive the corr token without that marker.
+# On the inbox plane the durable enqueue IS delivery to the task's
 # record, so the expectation is marked delivered at enqueue time; when that
 # bookkeeping commit fails after its durable recovery marker is stored, the
 # send remains successful and watcher reconciliation owns the repair, and when
@@ -107,7 +111,9 @@
 # it armed rather than dropping it, and only a proven send failure discards it.
 # Set FM_PENDING_REPLY_EXISTING_CORR=<id> when re-sending a recovery request
 # for an already-open expectation so a second record is not created. Direct
-# unmarked captain input never creates one.
+# unmarked captain input, the --key path, typed-plane harness invocations,
+# and explicit backend-target sends never create one. bin/fm-pending-reply.sh
+# list is the authoritative open-obligation listing for this home.
 #
 # Remote secondmate delivery: the send crosses fm-on.sh to a host-local leg
 # (bin/fm-remote-secondmate-control.sh cmd_send) that writes the message as a
@@ -461,6 +467,8 @@ fi
 # secondmate then routes its reply via the status path (see fm-marker-lib.sh).
 # An explicit backend target (the escape hatch for endpoints outside this home)
 # and any crewmate/scout target are left unmarked, and so is the --key path.
+# Inbox-plane text to ANY recorded task still opens a pending-reply record;
+# only the from-firstmate marker is secondmate-only.
 MARK_FROM_FIRSTMATE=0
 PENDING_REPLY_CORR=
 PENDING_REPLY_CREATED=0
@@ -473,9 +481,11 @@ fm_send_known_undelivered_cleanup() {
     fm_pending_reply_reset_known_undelivered "$STATE" "$PENDING_REPLY_CORR"
   fi
 }
-if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ] && [ "$(fm_meta_get "$TARGET_META" kind)" = secondmate ]; then
-  MARK_FROM_FIRSTMATE=1
+if [ -n "$TARGET_SELECTOR" ] && [ -n "$TARGET_META" ]; then
   TARGET_TASK_ID=$(fm_send_id_from_meta "$TARGET_META")
+  if [ "$(fm_meta_get "$TARGET_META" kind)" = secondmate ]; then
+    MARK_FROM_FIRSTMATE=1
+  fi
 fi
 
 # Validate the answerer-closes request before any durable mutation or send: the
@@ -628,53 +638,6 @@ else
   # The pre-marker answer text, kept for the closing resolved note so the
   # durable ledger records the plain answer without marker or corr bytes.
   RESOLVE_ANSWER_TEXT=$MESSAGE
-  if [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
-    # Reuse an existing correlation id for recovery resends; otherwise create a
-    # durable parent expectation before delivery. Transport success never
-    # resolves that expectation (see fm-pending-reply-lib.sh).
-    existing_corr_explicit=0
-    if [ "${FM_PENDING_REPLY_EXISTING_CORR+x}" = x ]; then
-      existing_corr_explicit=1
-      existing_corr=$FM_PENDING_REPLY_EXISTING_CORR
-    else
-      existing_corr=$(fm_pending_reply_extract_corr "$MESSAGE")
-    fi
-    if [ -n "$existing_corr" ] \
-      && fm_pending_reply_corr_reusable "$STATE" "$existing_corr" "$TARGET_TASK_ID"; then
-      PENDING_REPLY_CORR=$existing_corr
-    else
-      if [ "$existing_corr_explicit" = 1 ]; then
-        echo "error: explicitly requested pending-reply correlation '${existing_corr:-empty}' is not reusable for $TARGET_TASK_ID; refusing to mint a replacement correlation" >&2
-        exit 1
-      fi
-      if [ -z "$TARGET_TASK_ID" ]; then
-        echo "error: cannot create pending-reply expectation without a resolvable secondmate task id" >&2
-        exit 1
-      fi
-      PENDING_REPLY_CORR=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$TARGET_TASK_ID" "$MESSAGE") \
-        || { echo "error: failed to create parent pending-reply expectation for $TARGET_TASK_ID" >&2; exit 1; }
-      PENDING_REPLY_CREATED=1
-    fi
-    fm_pending_reply_embed_corr "$MESSAGE" "$PENDING_REPLY_CORR" MESSAGE
-    if [ "$PENDING_REPLY_CREATED" != 1 ] \
-      && fm_pending_reply_delivery_attempt_unresolved "$STATE" "$PENDING_REPLY_CORR"; then
-      if [ "$TARGET_BACKEND" = remote ]; then
-        if ! fm_pending_reply_reset_known_undelivered "$STATE" "$PENDING_REPLY_CORR"; then
-          echo "error: pending-reply delivery for $TARGET_TASK_ID could not be reset for an idempotent remote resend of correlation $PENDING_REPLY_CORR" >&2
-          exit 1
-        fi
-      else
-        echo "error: pending-reply delivery for $TARGET_TASK_ID is unresolved; refusing to resend correlation $PENDING_REPLY_CORR" >&2
-        exit 1
-      fi
-    fi
-    if ! fm_pending_reply_prepare_delivery "$STATE" "$PENDING_REPLY_CORR"; then
-      [ "$PENDING_REPLY_CREATED" != 1 ] \
-        || fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
-      echo "error: failed to durably prepare pending-reply delivery for $TARGET_TASK_ID" >&2
-      exit 1
-    fi
-  fi
   # Data-plane selection (see the header): text addressed to a task selector
   # resolved through this home's metadata rides the inbox plane, unless it is
   # a LOCAL harness-native invocation that must reach the harness's own parser
@@ -699,6 +662,58 @@ else
         \$*) [ "$TARGET_HARNESS" = codex ] || INBOX_PLANE=1 ;;
         *) INBOX_PLANE=1 ;;
       esac
+    fi
+  fi
+  if [ "$INBOX_PLANE" = 1 ]; then
+    # Reuse an existing correlation id for recovery resends; otherwise create a
+    # durable parent expectation before delivery. Transport success never
+    # resolves that expectation (see fm-pending-reply-lib.sh). Inbox-plane
+    # text that cannot open a record is refused rather than delivered untracked.
+    existing_corr_explicit=0
+    if [ "${FM_PENDING_REPLY_EXISTING_CORR+x}" = x ]; then
+      existing_corr_explicit=1
+      existing_corr=$FM_PENDING_REPLY_EXISTING_CORR
+    else
+      existing_corr=$(fm_pending_reply_extract_corr "$MESSAGE")
+    fi
+    if [ -n "$existing_corr" ] \
+      && fm_pending_reply_corr_reusable "$STATE" "$existing_corr" "$TARGET_TASK_ID"; then
+      PENDING_REPLY_CORR=$existing_corr
+    else
+      if [ "$existing_corr_explicit" = 1 ]; then
+        echo "error: explicitly requested pending-reply correlation '${existing_corr:-empty}' is not reusable for $TARGET_TASK_ID; refusing to mint a replacement correlation" >&2
+        exit 1
+      fi
+      if [ -z "$TARGET_TASK_ID" ]; then
+        echo "error: cannot create pending-reply expectation without a resolvable task id; refusing to deliver the instruction untracked" >&2
+        exit 1
+      fi
+      PENDING_REPLY_CORR=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$TARGET_TASK_ID" "$MESSAGE") \
+        || { echo "error: failed to create parent pending-reply expectation for $TARGET_TASK_ID; refusing to deliver the instruction untracked" >&2; exit 1; }
+      PENDING_REPLY_CREATED=1
+    fi
+    if [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
+      fm_pending_reply_embed_corr "$MESSAGE" "$PENDING_REPLY_CORR" MESSAGE
+    else
+      fm_pending_reply_embed_corr "$MESSAGE" "$PENDING_REPLY_CORR" MESSAGE plain
+    fi
+    if [ "$PENDING_REPLY_CREATED" != 1 ] \
+      && fm_pending_reply_delivery_attempt_unresolved "$STATE" "$PENDING_REPLY_CORR"; then
+      if [ "$TARGET_BACKEND" = remote ]; then
+        if ! fm_pending_reply_reset_known_undelivered "$STATE" "$PENDING_REPLY_CORR"; then
+          echo "error: pending-reply delivery for $TARGET_TASK_ID could not be reset for an idempotent remote resend of correlation $PENDING_REPLY_CORR" >&2
+          exit 1
+        fi
+      else
+        echo "error: pending-reply delivery for $TARGET_TASK_ID is unresolved; refusing to resend correlation $PENDING_REPLY_CORR" >&2
+        exit 1
+      fi
+    fi
+    if ! fm_pending_reply_prepare_delivery "$STATE" "$PENDING_REPLY_CORR"; then
+      [ "$PENDING_REPLY_CREATED" != 1 ] \
+        || fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
+      echo "error: failed to durably prepare pending-reply delivery for $TARGET_TASK_ID" >&2
+      exit 1
     fi
   fi
   if [ "$INBOX_PLANE" = 1 ] && [ "$TARGET_BACKEND" = remote ]; then

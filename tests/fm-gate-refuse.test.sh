@@ -247,7 +247,7 @@ run_send() {
 }
 
 test_send_refuses_and_admits() {
-  local home fakebin log out rc
+  local home fakebin log out rc body
   home="$TMP/send-home"; mkdir -p "$home/state"
   fakebin=$(make_send_fakebin "$TMP/send-fake")
   log="$TMP/send-tmux.log"
@@ -273,9 +273,12 @@ test_send_refuses_and_admits() {
   expect_code 0 "$rc" "send: a normal session must still send"
   assert_not_contains "$out" "$ENV_MSG" "send: normal send must not print the gate refusal"
   assert_not_contains "$out" "$PATH_MSG" "send: normal send must not print the backstop refusal"
-  [ "$(bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" \
-      "$home/state/lane-ok.inbox/001.msg")" = "hello captain" ] \
-    || fail "send: normal steer was not durably enqueued"
+  body=$(bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" \
+      "$home/state/lane-ok.inbox/001.msg")
+  case "$body" in
+    corr=[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]" hello captain") : ;;
+    *) fail "send: normal steer was not durably enqueued with a corr token (got '$body')" ;;
+  esac
   assert_not_contains "$(cat "$log")" "literal=1 arg=hello captain" \
     "send: normal steer payload must not be typed"
   assert_contains "$(cat "$log")" "target=sess:fm-lane-ok literal=1 arg=Firstmate instruction waiting" \
