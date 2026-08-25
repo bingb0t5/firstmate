@@ -117,6 +117,13 @@ init_changed_fixture_repo() {
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
   : >"$repo/bin/fm-supervisor-target-lib.sh"
   : >"$repo/bin/unmapped-source.sh"
+  # A shared module reached only through the one script that imports it, and
+  # therefore named in no test file: the basename reference scan cannot find a
+  # consuming suite for it, so its mapping has to come from the importer.
+  printf '#!/usr/bin/env bash\n# bin/fm-procevent-telegram.sh\n' \
+    >"$repo/tests/fm-procevent-telegram.test.sh"
+  chmod +x "$repo/tests/fm-procevent-telegram.test.sh"
+  : >"$repo/bin/fm_procevent_telegram_validation.py"
   printf '# .claude/settings.json\n# .pi/extensions/fm-primary-turnend-guard.ts\n' \
     >>"$repo/tests/fm-cd-pretool-check.test.sh"
   printf '# .pi/extensions/fm-primary-pi-watch.ts\n' >>"$repo/tests/fm-pi-watch-extension.test.sh"
@@ -169,6 +176,14 @@ test_changed_dependency_selection_and_unmapped_failure() {
   assert_contains "$listed" "tests/fm-pi-watch-extension.test.sh" "Pi source selects watcher coverage"
   git -C "$repo" add .agents .claude .pi
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm non-bin-source-change
+
+  printf '\n' >>"$repo/bin/fm_procevent_telegram_validation.py"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD) \
+    || fail "an importer-only shared module must not fail the changed selection"
+  assert_contains "$listed" "tests/fm-procevent-telegram.test.sh" \
+    "importer-only shared module selects its importing script's coverage"
+  git -C "$repo" add bin/fm_procevent_telegram_validation.py
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm validator-change
 
   printf '\n' >>"$repo/src/unmapped.ts"
   set +e
@@ -631,10 +646,33 @@ test_herdr_ci_family_run_has_a_step_timeout() {
   # The required Herdr lane's hang tripwire is the family-run *step* bound, not
   # the 75-minute job cap. Parse the workflow as YAML so nested `with.name`
   # artifact keys cannot masquerade as the step contract.
-  command -v ruby >/dev/null 2>&1 \
-    || fail "ruby is required to parse .github/workflows/ci.yml as YAML"
+  # python3 is already this suite's parser of choice; ruby stays as the
+  # fallback for hosts whose python3 has no YAML module.
   local json job_timeout step_timeout
-  json=$(ruby -ryaml -rjson -e '
+  if python3 -c 'import yaml' >/dev/null 2>&1; then
+    json=$(python3 -c '
+import json, sys, yaml
+
+doc = yaml.safe_load(open(sys.argv[1]))
+job = doc["jobs"]["tests-herdr"]
+step = next(
+    (s for s in job["steps"]
+     if isinstance(s, dict)
+     and s.get("name") == "Run real-Herdr family (serial, required)"),
+    None,
+)
+if step is None:
+    raise SystemExit("missing family-run step")
+if "timeout-minutes" not in step:
+    raise SystemExit("family-run step has no timeout-minutes")
+print(json.dumps({
+    "job_timeout": job["timeout-minutes"],
+    "step_timeout": step["timeout-minutes"],
+}))
+' "$ROOT/.github/workflows/ci.yml") \
+      || fail "could not parse tests-herdr timeouts from ci.yml"
+  elif command -v ruby >/dev/null 2>&1; then
+    json=$(ruby -ryaml -rjson -e '
 doc = YAML.load_file(ARGV[0])
 job = doc.fetch("jobs").fetch("tests-herdr")
 step = job.fetch("steps").find { |s|
@@ -647,7 +685,10 @@ puts JSON.generate(
   "step_timeout" => step.fetch("timeout-minutes")
 )
 ' "$ROOT/.github/workflows/ci.yml") \
-    || fail "could not parse tests-herdr timeouts from ci.yml"
+      || fail "could not parse tests-herdr timeouts from ci.yml"
+  else
+    fail "a YAML reader (python3 with PyYAML, or ruby) is required to parse .github/workflows/ci.yml"
+  fi
   job_timeout=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["job_timeout"])' <<<"$json") \
     || fail "could not read job timeout from parsed workflow"
   step_timeout=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["step_timeout"])' <<<"$json") \
