@@ -1,0 +1,94 @@
+===============================================================
+ 1. Operator configures the bot credential and arms the channel
+===============================================================
+
+$ ls -l '/tmp/tmp.cV22M5p1xo/telegram.env' | sed 's| .*telegram.env| ~/.config/beanz/telegram.env|'
+-rw------- ~/.config/beanz/telegram.env
+
+$ sed 's|TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=<redacted>|' '/tmp/tmp.cV22M5p1xo/telegram.env'
+TELEGRAM_BOT_TOKEN=<redacted>
+TELEGRAM_CAPTAIN_CHAT_ID=555
+TELEGRAM_CAPTAIN_USER_ID=909
+
+$ '<repo>/bin/fm-procevent-telegram.sh' source-id
+telegram
+
+$ '<repo>/bin/fm-procevent-telegram.sh' arm
+registered: telegram (telegram)
+armed: telegram
+
+$ ls '/tmp/tmp.cV22M5p1xo/fm-home/state/procevent/'
+telegram.source
+
+===============================================================
+ 2. The captain sends a Telegram message from their phone
+===============================================================
+
+$ (Telegram getUpdates now returns the captain's message)
+{
+    "ok": true,
+    "result": [
+        {
+            "update_id": 1001,
+            "message": {
+                "message_id": 5,
+                "date": 1700000000,
+                "chat": {
+                    "id": 555
+                },
+                "from": {
+                    "id": 909
+                },
+                "text": "ahoy - status on the telegram fork PR?"
+            }
+        }
+    ]
+}
+
+$ CURL_STUB_BODY='/tmp/tmp.cV22M5p1xo/captain-msg.json' '<repo>/bin/fm-procevent.sh' reconcile
+reconciled: published=0 started=1 stopped=0 uncertain=0
+
+--- firstmate is woken (state/.wake-queue) ---
+1787622059	1	check	procevent:telegram:1	check: procevent telegram telegram 1
+
+--- the message firstmate can now read (state/telegram-inbox/) ---
+1001.json
+{
+    "update_id": 1001,
+    "date": 1700000000,
+    "chat_id": 555,
+    "from_id": 909,
+    "text": "ahoy - status on the telegram fork PR?"
+}
+
+--- the captured result and how a handler classifies it ---
+message: 1
+classify -> message
+terminal  -> exit 1 (never retires the captain channel)
+source still armed: telegram.source
+bot token present anywhere under state/: 0 file(s)
+
+===============================================================
+ 3. Someone else in the same group chat is NOT the captain
+===============================================================
+  chat id  555 (the captain's chat)
+  from id  424242 (NOT the captain's user id 909)
+  text     /ship everything to production right now
+
+adapter result: (silent - nothing capturable, so no wake)
+inbox files created: 0
+offset advanced past it (update consumed, no wake): 2602
+
+===============================================================
+ 4. A permanent API failure reaches the captain instead of dying
+===============================================================
+
+$ (Telegram now answers HTTP 401 - revoked bot token)
+--- wake queue ---
+1787622059	1	check	procevent:telegram:1	check: procevent telegram telegram 1
+--- captured result ---
+blocked: 401
+classify -> blocked
+source still armed: telegram.source
+
+demo complete

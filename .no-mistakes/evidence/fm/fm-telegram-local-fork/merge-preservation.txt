@@ -1,0 +1,30 @@
+Byte-for-byte preservation of the five validated files
+upstream PR 2966 head : e7dd9178b7920dc50982f8915fcf7e8a48fae337
+merged fork head      : d59128d7ff98ba81d9def82cb149395448cdd83a
+
+STATUS       BLOB                                         FILE
+IDENTICAL    85609d8c8036580707b92bdf2bda41544ac71c46     bin/fm-procevent-telegram.sh
+IDENTICAL    5e13cb10bcf1a57df50b79640762301afe8c1046     bin/fm_procevent_telegram_validation.py
+IDENTICAL    4695999f8a2f2e7761333f19c68d5cad88e1ac5e     tests/fm-procevent-telegram.test.sh
+IDENTICAL    694d631143b3e23c45c7efb083b8b4015d6fd9cd     .agents/skills/process-event-sources/SKILL.md
+IDENTICAL    d6eecee01c3ea5d58d562f4854cce1e82ef23be5     docs/verification/process-event-sources.md
+
+History shape (no force-push, reset, or discarded commits):
+  HEAD    d59128d  parents: 489c6f8 e7dd917  Merge remote-tracking branch 'refs/remotes/origin/pr-2966' into fm/fm-telegram-local-fork
+  parent1 489c6f8  parents: d904e24 5468189  Merge remote-tracking branch 'refs/remotes/fork/main' into fm/fm-telegram-local-fork
+  fork main 5468189 is an ancestor of HEAD (merge, not replace)
+  upstream PR2966 e7dd917 is an ancestor of HEAD (merge, not cherry-pick)
+
+What the merge adds on top of fork main 5468189:
+   .agents/skills/process-event-sources/SKILL.md |   6 +-
+   AGENTS.md                                     |   1 +
+   bin/fm-procevent-telegram.sh                  | 809 ++++++++++++++++++++++
+   bin/fm_procevent_telegram_validation.py       |  21 +
+   docs/configuration.md                         |   3 +
+   docs/verification/process-event-sources.md    |   6 +-
+   tests/fm-procevent-telegram.test.sh           | 941 ++++++++++++++++++++++++++
+   7 files changed, 1785 insertions(+), 2 deletions(-)
+
+New test is claimed by a CI lane:
+  FM_TEST_COVERAGE ok total=165 parallel=24 serial=129 serial_shards=4 herdr=12
+  lane portable-serial contains tests/fm-procevent-telegram.test.sh

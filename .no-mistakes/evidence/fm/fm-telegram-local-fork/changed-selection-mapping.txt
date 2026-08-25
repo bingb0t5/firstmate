@@ -1,0 +1,41 @@
+The merge adds bin/fm_procevent_telegram_validation.py. It is imported only by
+bin/fm-procevent-telegram.sh, so the runner's basename reference scan finds no
+consuming suite and the documented changed-file selection (CONTRIBUTING.md:87)
+fails closed on it.
+
+Reproduction: touch only that file, then ask for the changed selection.
+
+--- BEFORE (bin/fm-test-run.sh as merged at d59128d) ---
+$ bin/fm-test-run.sh --list --changed --base HEAD
+fm-test-run: no changed-test mapping for source path: bin/fm_procevent_telegram_validation.py
+  [exit 2]
+
+--- AFTER (importer-resolved mapping added to bin/fm-test-run.sh) ---
+$ bin/fm-test-run.sh --list --changed --base HEAD
+tests/fm-backend-herdr-focus-flash-e2e.test.sh
+tests/fm-branch-supervision.test.sh
+tests/fm-busy-adapter-wiring.test.sh
+tests/fm-busy-state.test.sh
+tests/fm-claude-stop-autoarm-live-e2e.test.sh
+tests/fm-claude-stop-autoarm.test.sh
+tests/fm-cursor-harness.test.sh
+tests/fm-gitignore-config.test.sh
+tests/fm-peek-remote.test.sh
+tests/fm-pending-reply.test.sh
+tests/fm-pi-branch-extension.test.sh
+tests/fm-procevent-telegram.test.sh
+tests/fm-procevent-when.test.sh
+tests/fm-procevent.test.sh
+tests/fm-project-origin.test.sh
+tests/fm-public-followup.test.sh
+tests/fm-quota-dashboard-serve.test.sh
+tests/fm-remote-entrypoint.test.sh
+tests/fm-remote-secondmate-parent-binding.test.sh
+tests/fm-send-remote-delivery.test.sh
+tests/fm-spawn-pool-base-freshen.test.sh
+tests/fm-test-fixture-cleanup.test.sh
+tests/fm-voice-relay.test.sh
+tests/fm-wake-drain-open-decisions-cursor.test.sh
+tests/fm-wake-drain-open-decisions.test.sh
+tests/pr-communication.test.sh
+  [exit 0]

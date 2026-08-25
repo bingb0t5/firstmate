@@ -1,0 +1,5 @@
+Changed-file selection now resolves the new validator (at final head f18b369)
+
+$ bin/fm-test-run.sh --list --changed --base <fork main 5468189> | grep telegram
+tests/fm-procevent-telegram.test.sh
+  [exit 0 - selection succeeds and picks the adapter suite]

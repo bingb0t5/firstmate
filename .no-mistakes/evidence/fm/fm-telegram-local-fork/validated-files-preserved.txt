@@ -1,0 +1,22 @@
+Validated-file preservation check
+upstream PR 2966 head : e7dd9178b7920dc50982f8915fcf7e8a48fae337
+fork main integrated  : 54681894c5ab839fe6d5c2f0170a1d94aa427361
+branch head           : f18b3699be28f13b8f96e7721bd36a2bba02ed11
+
+FILE                                           STATUS     blob sha (upstream = branch = worktree)
+bin/fm-procevent-telegram.sh                   IDENTICAL  85609d8c8036580707b92bdf2bda41544ac71c46
+bin/fm_procevent_telegram_validation.py        IDENTICAL  5e13cb10bcf1a57df50b79640762301afe8c1046
+tests/fm-procevent-telegram.test.sh            IDENTICAL  4695999f8a2f2e7761333f19c68d5cad88e1ac5e
+.agents/skills/process-event-sources/SKILL.md  IDENTICAL  694d631143b3e23c45c7efb083b8b4015d6fd9cd
+docs/verification/process-event-sources.md     IDENTICAL  d6eecee01c3ea5d58d562f4854cce1e82ef23be5
+
+History shape (no force-push / reset / discarded commits):
+  upstream PR 2966 head e7dd917 is an ancestor of the branch head : yes
+  fork main 5468189 is an ancestor of the branch head              : yes
+  integration commits:
+    d59128d Merge remote-tracking branch 'refs/remotes/origin/pr-2966' into fm/fm-telegram-local-fork
+    489c6f8 Merge remote-tracking branch 'refs/remotes/fork/main' into fm/fm-telegram-local-fork
+    5468189 Merge pull request #7 from bingb0t5/fm/fm-gnhf-companion-integration-fork
+
+git diff e7dd917..HEAD over the five validated files (expect empty):
+  (empty - byte-for-byte preserved)

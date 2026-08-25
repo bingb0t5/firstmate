@@ -1,0 +1,75 @@
+
+== 1. An unconfigured home refuses to arm the channel at all ==
+$ bin/fm-procevent-telegram.sh arm
+error: no readable Telegram credential at /tmp/tg-demo.kpZw39/config/telegram.env
+  [exit 1]
+
+== 2. The captain installs credentials (mode 600) and arms the channel ==
+$ ls -l ~/.config/beanz/telegram.env
+-rw------- ... telegram.env
+$ bin/fm-procevent-telegram.sh arm
+registered: telegram (telegram)
+armed: telegram
+  [exit 0]
+$ fm-procevent.sh list
+SOURCE                       ADAPTER      OWNER      PENDING
+telegram                     telegram     none       0
+
+== 3. The captain, away from the terminal, texts the bot: 'ahoy from the captain' ==
+$ fm-procevent.sh reconcile   # runner starts the long poll, captures, publishes
+
+$ cat state/.wake-queue          # what firstmate is woken with
+1787621380	1	check	procevent:telegram:1	check: procevent telegram telegram 1
+
+$ ls state/telegram-inbox/
+1001.json
+
+$ cat state/telegram-inbox/1001.json   # the captain text firstmate acts on
+{"update_id": 1001, "date": 1700000000, "chat_id": 555, "from_id": 909, "text": "ahoy from the captain"}
+
+$ cat state/procevent-inbox/telegram.1.result   # captured result line
+message: 1
+$ fm-procevent-telegram.sh classify <result>
+message
+$ fm-procevent-telegram.sh terminal <result>   # the captain channel never retires itself
+  [exit 1 -> stays armed]
+$ grep -rl SEKRIT-TEST-TOKEN-7f3a9c state/ ; echo "matches: $?"   # the bot token in durable output
+  no file under state/ contains the token
+$ cat state/.telegram-offset
+1002
+
+
+== 4. Firstmate handles the message and archives it ==
+$ ls state/telegram-inbox/ state/telegram-inbox/handled/
+handled
+1001.json
+
+== 5. Someone else in the captain's group chat tries to issue an order ==
+$ fm-procevent-telegram.sh poll   # sender id 424242 is not the captain
+  [exit 1 -> no stdout, no capture, no wake]
+$ ls state/telegram-inbox/   # nothing delivered
+  (empty)
+$ cat state/.telegram-offset   # but the update is consumed, not replayed forever
+2602
+
+
+== 6. The bot token gets revoked: Telegram answers 401 ==
+$ fm-procevent.sh handled telegram 1   # firstmate acknowledges the first wake
+handled: telegram 1
+$ fm-procevent.sh reconcile
+$ cat state/.wake-queue
+1787621380	2	check	procevent:telegram:2	check: procevent telegram telegram 2
+$ cat state/procevent-inbox/telegram.2.result
+blocked: 401
+$ fm-procevent-telegram.sh classify <result>
+blocked
+$ fm-procevent-telegram.sh poll   # a second 401 is NOT announced again
+  [exit 1 -> silent; announced once per episode]
+$ ls state/procevent/   # the captain channel is still armed
+telegram.source
+
+== 7. The operator deliberately retires the channel ==
+$ bin/fm-procevent.sh retire telegram
+retired: telegram
+  [exit 0]
+$ ls state/procevent/ 2>/dev/null

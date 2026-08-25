@@ -1,0 +1,9 @@
+CI-timeout guard: same host, no ruby installed (ruby: not installed)
+
+--- BEFORE (tests/fm-test-run.test.sh as merged at d59128d) ---
+not ok - ruby is required to parse .github/workflows/ci.yml as YAML
+  [exit 1]
+
+--- AFTER (python3 yaml parse with ruby fallback, at f18b369) ---
+ok - Herdr CI family-run step times out at 20 min under a 75 min job backstop
+  [exit 0]

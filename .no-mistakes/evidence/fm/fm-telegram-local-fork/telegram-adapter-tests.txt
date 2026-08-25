@@ -1,0 +1,41 @@
+ok - arm refuses to register a source with no readable credential file
+ok - arm refuses to register without a captain chat id
+ok - chat id alone is not captain identity: arm refuses and poll stays inert without a user id
+ok - arm registers with the real runner, list shows it, and retire cleans it up
+ok - a new text message is written to the inbox, and the offset advances past it
+ok - an absent credential file exits zero, silent, and touches nothing
+ok - mode-0644 credentials make arm refuse and poll exit silent
+ok - a non-text update advances the offset and produces no capturable result
+ok - a non-captain text advances the offset without capture or wake
+ok - text in the captain's own chat from anyone but the captain is never a captain command
+ok - positive control: a message from the configured captain user id is still delivered
+ok - an empty long-poll result is silent and advances nothing
+ok - an empty receipt directory does not wedge later polling
+ok - an abandoned temp payload stays out of the inbox and is swept by the next poll
+ok - a mid-batch write failure leaves the offset untouched and the batch safely redelivers
+ok - a pending-marker write failure cannot hide an already-published message
+ok - receipt cleanup completes before a pending wake is published
+ok - pending cleanup completes before a wake is published
+ok - receipt recovery never resurrects a message firstmate already handled
+ok - receipt recovery rebuilds a missing inbox tree rather than wedging the channel forever
+ok - receipt recovery refuses an inbox replaced by a symlink
+ok - receipt recovery rejects boolean update identifiers
+ok - malformed update shapes are consumed without crashing or wedging the offset
+ok - an update that is not an object blocks its batch cleanly instead of crashing
+ok - polling rejects boolean and unsupported update identifiers
+ok - a legacy mid-write blocks the batch without corrupting or duplicating, and resolves once it finishes
+ok - a handled update is never redelivered even after its live inbox copy is gone
+ok - pending recovery stays silent and inert until credentials return
+ok - a permanent API failure wakes firstmate exactly once, and never retires the channel
+ok - a malformed HTTP success cannot clear a sticky 401
+ok - rejected responses and invalid updates cannot clear a sticky 401
+ok - a cleared blockage resumes delivery and lets a later permanent failure announce again
+ok - retiring and re-arming cannot clear a sticky 401
+ok - retire preserves a continuous 409 episode
+ok - every non-permanent failure keeps retrying silently, exactly as before
+ok - the bot token reaches curl alone and never appears in any durable output
+ok - the Telegram channel's terminal command never reports terminal
+ok - classify distinguishes a delivered message from nothing to act on
+ok - arm, the real runner's reconcile, capture, and publication all work end to end
+ok - a permanent API failure wakes firstmate through the real runner and leaves the source armed
+all fm-procevent-telegram tests passed
