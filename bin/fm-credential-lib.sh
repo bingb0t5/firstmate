@@ -26,21 +26,22 @@
 #       Redacted stderr message and exit (default 1).
 #
 #   fm_credential_assignment_key <line>
-#       Prints the key of a well-formed <IDENTIFIER>=<value> line and exits 0;
-#       exits 1 for anything else. The single owner of "is this line an
-#       assignment" for every parser in these tools, so a continuation line or
-#       binary noise cannot be mistaken for a key by one reader and rejected by
-#       another.
+#       Prints the key of an uppercase <IDENTIFIER>=<value> line and exits 0.
+#       Values must be nonempty and may not begin with `=`. Coolify service keys
+#       additionally allow mixed-case service suffixes. The function exits 1
+#       for anything else and is the single assignment-shape owner for these
+#       tools, so continuation lines cannot be mistaken for keys.
 #
 #   fm_credential_env_get <file> <KEY>
 #       Reads exactly one KEY=value assignment from a credential file using
 #       line-at-a-time parsing (never source/dot). Exit 0 and prints the value
 #       on success; exit 1 when the key is missing or duplicated; exit 2 when
-#       the file contains an ambiguous non-assignment line, or when the
-#       assignment itself is ambiguous (quoted value, embedded carriage return,
-#       or NUL byte). Quoted and control-byte forms are rejected rather than
-#       guessed: this library does not implement shell dequoting, so passing them
-#       through would silently transmit the wrong credential.
+#       the file contains a line rejected by fm_credential_assignment_key, or
+#       when the requested assignment itself is ambiguous (quoted value,
+#       embedded carriage return, or NUL byte). Quoted and control-byte forms
+#       are rejected rather than guessed: this library does not implement shell
+#       dequoting, so passing them through would silently transmit the wrong
+#       credential.
 #
 #   fm_credential_brain_token_for_identity <BRAIN_TOKENS> <identity>
 #       Returns the token for identity from a comma-separated token:identity

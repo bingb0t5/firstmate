@@ -3,8 +3,8 @@
 #
 # Firstmate invokes this tool; the secret never enters an agent session. Values
 # are read through bin/fm-credential-lib.sh (never source/dot), sent to Coolify
-# over HTTPS with Authorization in a private header file (never argv), and every
-# stdout/stderr byte is filtered through registered redaction patterns.
+# over HTTPS with Authorization in a private header file (never argv), and
+# operational results pass through registered redaction patterns.
 #
 # Usage:
 #   fm-coolify-env.sh set <service> <KEY> --value-from <source>

@@ -2,8 +2,9 @@
 # fm-beanz-manifest.sh - generate ~/.config/beanz/README.md from local metadata.
 #
 # Builds a human-readable credential index listing each service, its credential
-# file, each key's purpose, and where to obtain it. The generator never reads
-# secret values: only file names, key names, and documentation sidecars.
+# file, each key's purpose, and where to obtain it. The generator parses each
+# credential file only to validate and list assignment keys; it never emits
+# values. Service descriptions and key purposes come from built-ins or sidecars.
 #
 # Sidecar format (<file>.env.beanz), optional per credential file:
 #   service=Short service name

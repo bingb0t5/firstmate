@@ -18,7 +18,7 @@ Load this before any credential-touching firstmate operation.
 Use the guarded tools in `bin/`:
 
 - `bin/fm-coolify-env.sh` sets Coolify application env vars; firstmate only sees `ok:` or a value-free error.
-- `bin/fm-beanz-manifest.sh` regenerates the beanz credential index README from file names and sidecar metadata.
+- `bin/fm-beanz-manifest.sh` regenerates the beanz credential index README from validated assignment keys, file names, built-in metadata, and sidecars without emitting credential values.
 
 Never source or dot a credential file.
 Never pass a secret on a command line where it could reach `ps` or shell history.
