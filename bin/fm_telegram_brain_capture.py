@@ -35,7 +35,7 @@ UPDATE_ID_RE = re.compile(r"^[1-9][0-9]*$")
 BRAIN_URL_RE = re.compile(r"https://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
 MAX_CAPTURE_ID_CHARS = 200
 RECEIPT_IDENTITY_FIELDS = ("update_id", "text", "chat_id")
-SYSTEMIC_HTTP_STATUSES = (401, 403, 429)
+SYSTEMIC_HTTP_STATUSES = (401, 403, 404, 405, 429)
 
 
 class UserError(Exception):
@@ -380,6 +380,7 @@ def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Pa
             completed = subprocess.run(
                 [
                     "curl",
+                    "-q",
                     "-s",
                     "-o",
                     str(resp_path),
@@ -416,7 +417,7 @@ def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Pa
             raw = resp_path.read_bytes()
         except OSError as exc:
             raise UserError("cannot read the brain capture response: %s" % exc)
-        if status != 200:
+        if not 200 <= status < 300:
             raise http_failure_error(status)(
                 "brain capture failed with HTTP %s" % status
             )
@@ -456,6 +457,23 @@ def capture_line(
 ) -> str:
     payload = parse_payload(line)
     update_id = int(payload["update_id"])
+    try:
+        return capture_payload(
+            payload, state, token, brain_url, captain_chat, group_on
+        )
+    except CaptureError as exc:
+        raise CaptureError("%d %s" % (update_id, exc))
+
+
+def capture_payload(
+    payload: Dict[str, object],
+    state: Path,
+    token: str,
+    brain_url: str,
+    captain_chat: int,
+    group_on: bool,
+) -> str:
+    update_id = int(payload["update_id"])
     chat_id = int(payload["chat_id"])
     source, skipped = classify_chat(chat_id, captain_chat, group_on)
     if source is None:
@@ -466,13 +484,9 @@ def capture_line(
     if path.exists() or path.is_symlink():
         existing = read_receipt(path)
         if existing.get("payload_sha256") != digest:
-            raise CaptureError(
-                "receipt for update %d disagrees with the payload" % update_id
-            )
+            raise CaptureError("receipt disagrees with the payload")
         capture_id = validated_capture_id(
-            existing.get("capture_id"),
-            "receipt for update %d" % update_id,
-            CaptureError,
+            existing.get("capture_id"), "receipt", CaptureError
         )
         return "already-captured %d %s" % (update_id, capture_id)
     capture_id = post_capture(token, brain_url, str(payload["text"]), source, receipts)
