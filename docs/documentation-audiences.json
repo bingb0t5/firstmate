@@ -8,7 +8,10 @@
       "*.txt",
       "docs/examples/*"
     ],
-    "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. Script headers, executable configuration, generated JSON evidence, and legal text keep their existing code/config/legal owners."
+    "excludedPaths": [
+      ".github/pr-bodies/*.md"
+    ],
+    "description": "Tracked Markdown-like prose, including symlinked aliases, plus copyable documentation examples. Machine-managed pull-request body artifacts, script headers, executable configuration, generated JSON evidence, and legal text keep their existing workflow/code/config/legal owners."
   },
   "allowedAudiences": [
     "public-product",
