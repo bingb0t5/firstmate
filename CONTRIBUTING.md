@@ -33,7 +33,8 @@ The remote comparison fails closed when the credential is missing or rejected, a
 6. Run `no-mistakes` to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.
    Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
 7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
-   Confirm that the final generated description preserves every section from [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md), including after later description edits.
+   Before staging, replace any legacy `Intent`, `What Changed`, `Risk Assessment`, or `Testing` description with every completed section from [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
+   Repeat that check after generated updates and later description edits.
 
 See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/start-here/quick-start/) for the full first-run walkthrough.
 
