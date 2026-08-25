@@ -745,6 +745,85 @@ FM_HOME="$H_LEGACY_REFUSE" FM_TELEGRAM_ENV_FILE="$LEGACY_REFUSE_ENV" \
 rm -f "$H_LEGACY_REFUSE/state/.fm-custom-check.active"
 pass "migration refuses until both the source and legacy producer are stopped"
 
+H_UNHANDLED="$TMP_ROOT/migrate-unhandled-capture"
+UNHANDLED_ENV="$TMP_ROOT/migrate-unhandled-capture.env"
+new_home "$H_UNHANDLED"
+write_env_file "$UNHANDLED_ENV" "$TOKEN"
+printf '1002\n' > "$H_UNHANDLED/state/.telegram-offset"
+mkdir -p "$H_UNHANDLED/state/telegram-inbox/handled"
+printf '{"update_id":1001,"date":1,"chat_id":555,"from_id":909,"text":"already acted on"}\n' \
+  > "$H_UNHANDLED/state/telegram-inbox/handled/1001.json"
+mkdir -p "$H_UNHANDLED/state/procevent-inbox"
+printf 'message: 1\n' > "$H_UNHANDLED/state/procevent-inbox/telegram.2.result"
+unhandled_first_status=0
+unhandled_first=$(FM_HOME="$H_UNHANDLED" FM_TELEGRAM_ENV_FILE="$UNHANDLED_ENV" \
+  "$ADAPTER" migrate 2>&1) || unhandled_first_status=$?
+[ "$unhandled_first_status" -ne 0 ] || fail "migration ran with an unhandled legacy capture"
+assert_contains "$unhandled_first" "1 captured legacy Telegram result still unhandled" \
+  "unhandled-capture refusal did not count the pending captures"
+assert_contains "$unhandled_first" "procevent-inbox/telegram.2.result" \
+  "unhandled-capture refusal did not name the pending capture"
+assert_contains "$unhandled_first" "bin/fm-procevent.sh handled telegram" \
+  "unhandled-capture refusal did not give the acknowledgement instruction"
+[ ! -e "$H_UNHANDLED/state/telegram/channel.db" ] \
+  || fail "an unhandled legacy capture published a database"
+[ ! -e "$H_UNHANDLED/state/telegram-migration-archive" ] \
+  || fail "an unhandled legacy capture created an archive"
+unhandled_second_status=0
+unhandled_second=$(FM_HOME="$H_UNHANDLED" FM_TELEGRAM_ENV_FILE="$UNHANDLED_ENV" \
+  "$ADAPTER" migrate 2>&1) || unhandled_second_status=$?
+assert_equal "$unhandled_second_status" "$unhandled_first_status" \
+  "repeated unhandled-capture refusal changed its exit status"
+assert_equal "$unhandled_second" "$unhandled_first" \
+  "repeated unhandled-capture refusal changed its output"
+[ ! -e "$H_UNHANDLED/state/telegram/channel.db" ] \
+  || fail "a repeated unhandled-capture refusal published a database"
+[ ! -e "$H_UNHANDLED/state/telegram-migration-archive" ] \
+  || fail "a repeated unhandled-capture refusal created an archive"
+printf 'telegram 2\n' > "$H_UNHANDLED/state/procevent-inbox/telegram.2.handled"
+unhandled_after=$(FM_HOME="$H_UNHANDLED" FM_TELEGRAM_ENV_FILE="$UNHANDLED_ENV" \
+  "$ADAPTER" migrate)
+assert_contains "$unhandled_after" "migrated: archive=" \
+  "the same migrate command failed after the captures were handled"
+assert_equal "$(db_query "$H_UNHANDLED" "SELECT migration_status FROM meta")" complete \
+  "handling the captures did not allow a coherent cutover"
+assert_equal "$(db_query "$H_UNHANDLED" "SELECT committed_offset FROM meta")" 1002 \
+  "the recovered cutover imported the wrong offset"
+pass "an unhandled legacy capture refuses migration identically and without side effects until handled"
+
+H_ARCHIVE_FAIL="$TMP_ROOT/migrate-archive-fail"
+ARCHIVE_FAIL_ENV="$TMP_ROOT/migrate-archive-fail.env"
+new_home "$H_ARCHIVE_FAIL"
+write_env_file "$ARCHIVE_FAIL_ENV" "$TOKEN"
+printf '1002\n' > "$H_ARCHIVE_FAIL/state/.telegram-offset"
+mkdir -p "$H_ARCHIVE_FAIL/state/telegram-inbox"
+mkfifo "$H_ARCHIVE_FAIL/state/telegram-inbox/1002.json"
+archive_fail_status=0
+archive_fail_out=$(FM_HOME="$H_ARCHIVE_FAIL" FM_TELEGRAM_ENV_FILE="$ARCHIVE_FAIL_ENV" \
+  "$ADAPTER" migrate 2>&1) || archive_fail_status=$?
+[ "$archive_fail_status" -ne 0 ] || fail "an incomplete archive reported migration success"
+assert_contains "$archive_fail_out" "could not be archived completely" \
+  "an incomplete archive did not explain itself"
+assert_contains "$archive_fail_out" "no database exists" \
+  "an incomplete archive did not state that no cutover happened"
+[ ! -e "$H_ARCHIVE_FAIL/state/telegram/channel.db" ] \
+  || fail "an incomplete archive still published a cutover database"
+assert_present "$H_ARCHIVE_FAIL/state/telegram-inbox/1002.json" \
+  "an incomplete archive deleted the legacy artifact it could not copy"
+assert_equal "$(tr -d '\n' < "$H_ARCHIVE_FAIL/state/.telegram-offset")" 1002 \
+  "an incomplete archive changed the legacy offset"
+rm -f "$H_ARCHIVE_FAIL/state/telegram-inbox/1002.json"
+printf '{"update_id":1002,"date":1,"chat_id":555,"from_id":909,"text":"repaired"}\n' \
+  > "$H_ARCHIVE_FAIL/state/telegram-inbox/1002.json"
+mkdir -p "$H_ARCHIVE_FAIL/state/.telegram-delivery-receipts"
+cp "$H_ARCHIVE_FAIL/state/telegram-inbox/1002.json" \
+  "$H_ARCHIVE_FAIL/state/.telegram-delivery-receipts/1002.json"
+archive_repaired=$(FM_HOME="$H_ARCHIVE_FAIL" FM_TELEGRAM_ENV_FILE="$ARCHIVE_FAIL_ENV" \
+  "$ADAPTER" migrate)
+assert_contains "$archive_repaired" "migrated: archive=" \
+  "migration stayed refused after the unarchivable artifact was repaired"
+pass "an archive that cannot be completed refuses before cutover and leaves no database"
+
 H_MIGRATE="$TMP_ROOT/migrate"
 MIGRATE_ENV="$TMP_ROOT/migrate.env"
 new_home "$H_MIGRATE"
@@ -826,6 +905,42 @@ assert_contains "$ambiguous_poll" "blocked: migration-blocked ambiguous" \
   "blocked migration did not announce through the channel"
 assert_no_curl "blocked migration called Telegram from a guessed offset"
 pass "ambiguous migration preserves evidence, guesses nothing, and remains visibly blocked"
+
+H_CAUSE="$TMP_ROOT/migrate-blocked-cause"
+CAUSE_ENV="$TMP_ROOT/migrate-blocked-cause.env"
+CAPTAIN_SECRET_TEXT="deploy the fleet at dawn"
+new_home "$H_CAUSE"
+write_env_file "$CAUSE_ENV" "$TOKEN"
+printf '1002\n' > "$H_CAUSE/state/.telegram-offset"
+printf '418\n' > "$H_CAUSE/state/.telegram-blocked"
+mkdir -p "$H_CAUSE/state/telegram-inbox/handled"
+printf '{"update_id":1001,"date":1,"chat_id":555,"from_id":909,"text":"%s"}\n' \
+  "$CAPTAIN_SECRET_TEXT" > "$H_CAUSE/state/telegram-inbox/handled/1001.json"
+cause_status=0
+cause_out=$(FM_HOME="$H_CAUSE" FM_TELEGRAM_ENV_FILE="$CAUSE_ENV" "$ADAPTER" migrate 2>&1) \
+  || cause_status=$?
+[ "$cause_status" -ne 0 ] || fail "a malformed legacy marker reported migration success"
+assert_contains "$cause_out" "blocked: migration-ambiguous" \
+  "a malformed legacy marker did not block the cutover"
+assert_contains "$cause_out" "detail: legacy blocked marker is malformed" \
+  "the blocked cutover discarded its cause"
+cause_doctor=$(FM_HOME="$H_CAUSE" FM_TELEGRAM_ENV_FILE="$CAUSE_ENV" "$ADAPTER" doctor)
+assert_contains "$cause_doctor" "migration_status=blocked" \
+  "doctor did not report the blocked migration"
+assert_contains "$cause_doctor" "migration_cause=legacy blocked marker is malformed" \
+  "doctor reported only a hash instead of the actionable cause"
+case "$cause_doctor" in
+  *"$CAPTAIN_SECRET_TEXT"*) fail "the retained migration cause leaked captain message text" ;;
+esac
+case "$cause_doctor" in
+  *"$TOKEN"*) fail "the retained migration cause leaked the bot token" ;;
+esac
+case "$cause_out" in
+  *"$CAPTAIN_SECRET_TEXT"*) fail "the blocked migration output leaked captain message text" ;;
+esac
+cause_stored=$(db_query "$H_CAUSE" "SELECT length(migration_cause) FROM meta")
+[ "$cause_stored" -le 240 ] || fail "the retained migration cause is not bounded"
+pass "a blocked cutover retains a bounded non-secret cause that doctor reports"
 
 H_RECEIPT_HANDLED="$TMP_ROOT/migrate-receipt-handled"
 RECEIPT_HANDLED_ENV="$TMP_ROOT/migrate-receipt-handled.env"

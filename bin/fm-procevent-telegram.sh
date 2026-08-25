@@ -29,11 +29,16 @@
 # It first retires the process-event source and refuses while the retiring
 # state/telegram-watch.check.sh or any watcher-owned custom-check snapshot
 # exists.
+# It then refuses, naming each one and changing nothing, while any captured
+# legacy Telegram result is still unhandled; that is a recoverable precondition,
+# not ambiguous state.
+# An archive that cannot be completed is also refused before any cutover, so no
+# database is published without its immutable evidence copy.
 # It then copies every old Telegram artifact into a private read-only archive,
 # validates the originals without changing or deleting them, and atomically
 # publishes the new database.
 # Ambiguous old state publishes a blocked migration database instead of
-# guessing an offset.
+# guessing an offset, retaining a bounded non-secret cause that doctor reports.
 #
 # classify asks the adapter whether a captured result is message, blocked, or
 # none.

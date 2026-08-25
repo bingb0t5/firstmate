@@ -60,6 +60,7 @@ CONDITION_KINDS = {
     "transport",
 }
 DETAIL_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
+MIGRATION_CAUSE_RE = re.compile(r"^[^\x00-\x1f\x7f]{1,240}$")
 NOTICE_TOKEN_RE = re.compile(
     r"^(?P<state>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
     r"[0-9a-f]{4}-[0-9a-f]{12}):(?P<notice>[1-9][0-9]*)$"
@@ -186,6 +187,13 @@ def state_fingerprint(code: str, detail: object) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
+def migration_cause_text(error: BaseException) -> str:
+    detail = clean_error_detail(error)
+    if not isinstance(error, UserError):
+        detail = "%s: %s" % (error.__class__.__name__, detail)
+    return (detail or error.__class__.__name__)[:240]
+
+
 def local_block_line(error: object) -> str:
     if isinstance(error, LocalStateError):
         code = error.code
@@ -287,6 +295,7 @@ def required_schema() -> Dict[str, Tuple[str, ...]]:
             "migration_status",
             "migration_archive",
             "migration_fingerprint",
+            "migration_cause",
         ),
         "notices": (
             "id",
@@ -325,7 +334,8 @@ def validate_store(conn: sqlite3.Connection) -> None:
     meta_rows = conn.execute(
         "SELECT schema_version, state_uuid, committed_offset, last_success, "
         "consecutive_failures, first_failure, migration_status, "
-        "migration_archive, migration_fingerprint FROM meta WHERE singleton = 1"
+        "migration_archive, migration_fingerprint, migration_cause "
+        "FROM meta WHERE singleton = 1"
     ).fetchall()
     if len(meta_rows) != 1:
         raise LocalStateError("meta-row", "expected one singleton row")
@@ -339,6 +349,7 @@ def validate_store(conn: sqlite3.Connection) -> None:
         migration_status,
         migration_archive,
         migration_fingerprint,
+        migration_cause,
     ) = meta_rows[0]
     try:
         uuid.UUID(store_uuid)
@@ -362,6 +373,8 @@ def validate_store(conn: sqlite3.Connection) -> None:
         r"[0-9a-f]{16}", migration_fingerprint
     ):
         raise LocalStateError("migration-fingerprint", repr(migration_fingerprint))
+    if migration_cause is not None and not MIGRATION_CAUSE_RE.fullmatch(migration_cause):
+        raise LocalStateError("migration-cause", repr(migration_cause)[:80])
     pending = conn.execute(
         "SELECT COUNT(*) FROM notices WHERE acknowledged_at IS NULL"
     ).fetchone()[0]
@@ -463,7 +476,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
             migration_status TEXT NOT NULL
                 CHECK (migration_status IN ('fresh', 'complete', 'blocked')),
             migration_archive TEXT,
-            migration_fingerprint TEXT
+            migration_fingerprint TEXT,
+            migration_cause TEXT
         );
         CREATE TABLE notices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -507,6 +521,7 @@ def create_store(
     migration_archive: Optional[str],
     migration_fingerprint: Optional[str],
     plan: Optional[MigrationPlan] = None,
+    migration_cause: Optional[str] = None,
 ) -> sqlite3.Connection:
     telegram_dir = ensure_telegram_directory(state, create=True)
     _, database = state_paths(state)
@@ -526,8 +541,8 @@ def create_store(
         conn.execute(
             "INSERT INTO meta (singleton, schema_version, state_uuid, committed_offset, "
             "last_success, consecutive_failures, first_failure, migration_status, "
-            "migration_archive, migration_fingerprint) "
-            "VALUES (1, ?, ?, ?, NULL, 0, NULL, ?, ?, ?)",
+            "migration_archive, migration_fingerprint, migration_cause) "
+            "VALUES (1, ?, ?, ?, NULL, 0, NULL, ?, ?, ?, ?)",
             (
                 SCHEMA_VERSION,
                 store_uuid,
@@ -535,6 +550,7 @@ def create_store(
                 migration_status,
                 migration_archive,
                 migration_fingerprint,
+                migration_cause,
             ),
         )
         if plan is not None:
@@ -1551,9 +1567,20 @@ def unhandled_legacy_results(state: Path) -> List[Path]:
     return pending
 
 
+def refuse_unhandled_legacy_results(state: Path) -> None:
+    unhandled = unhandled_legacy_results(state)
+    if not unhandled:
+        return
+    listed = ", ".join(path.relative_to(state).as_posix() for path in unhandled)
+    raise UserError(
+        "%d captured legacy Telegram result%s still unhandled: %s; act on each one, run "
+        "bin/fm-procevent.sh handled telegram <sequence> for it, then rerun migrate "
+        "(nothing was archived or created)"
+        % (len(unhandled), "" if len(unhandled) == 1 else "s", listed)
+    )
+
+
 def build_migration_plan(state: Path) -> MigrationPlan:
-    if unhandled_legacy_results(state):
-        raise UserError("unhandled legacy Telegram captures must be handled before migration")
     offset = parse_legacy_offset(state)
     api_conditions = parse_legacy_blocks(state)
     pending = parse_legacy_pending(state)
@@ -1631,12 +1658,23 @@ def command_migrate(state: Path) -> int:
     _, database = state_paths(state)
     if database.exists() or database.is_symlink():
         raise UserError("Telegram state database already exists; migration is single-use")
+    refuse_unhandled_legacy_results(state)
     paths = legacy_paths_present(state)
-    archive = make_migration_archive(state, paths)
+    try:
+        archive = make_migration_archive(state, paths)
+    except UserError:
+        raise
+    except Exception as exc:
+        raise UserError(
+            "legacy Telegram state could not be archived completely, so no cutover was "
+            "attempted and no database exists: %s; repair the reported artifact and rerun "
+            "migrate" % migration_cause_text(exc)
+        )
     relative_archive = archive.relative_to(state).as_posix()
     try:
         plan = build_migration_plan(state)
     except Exception as exc:
+        cause = migration_cause_text(exc)
         fingerprint = state_fingerprint("migration-ambiguous", exc)
         conn = create_store(
             state,
@@ -1644,6 +1682,7 @@ def command_migrate(state: Path) -> int:
             relative_archive,
             fingerprint,
             plan=None,
+            migration_cause=cause,
         )
         conn.close()
         seal_migration_archive_parent(state)
@@ -1651,6 +1690,7 @@ def command_migrate(state: Path) -> int:
             "blocked: migration-ambiguous fingerprint=%s archive=%s"
             % (fingerprint, relative_archive)
         )
+        print("detail: %s" % cause)
         return 1
     conn = create_store(
         state,
@@ -1679,7 +1719,7 @@ def command_doctor(state: Path) -> int:
         meta = conn.execute(
             "SELECT schema_version, state_uuid, committed_offset, last_success, "
             "consecutive_failures, migration_status, migration_archive, "
-            "migration_fingerprint FROM meta WHERE singleton = 1"
+            "migration_fingerprint, migration_cause FROM meta WHERE singleton = 1"
         ).fetchone()
         print("integrity=ok")
         print("schema_version=%d" % meta[0])
@@ -1690,6 +1730,7 @@ def command_doctor(state: Path) -> int:
         print("migration_status=%s" % meta[5])
         print("migration_archive=%s" % (meta[6] if meta[6] else "none"))
         print("migration_fingerprint=%s" % (meta[7] if meta[7] else "none"))
+        print("migration_cause=%s" % (meta[8] if meta[8] else "none"))
         print(
             "pending_notices=%d"
             % conn.execute(
