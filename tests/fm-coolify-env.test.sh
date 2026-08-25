@@ -196,6 +196,55 @@ test_brain_identity_lookup() {
   pass "brain identity lookup succeeds without leaking the token"
 }
 
+test_brain_identity_lookup_trims_boundary_spaces() {
+  local case_dir="$TMP_ROOT/brain-spaces"
+  setup_config "$case_dir/config"
+  printf 'BRAIN_TOKENS=  %s : n8n  , tok_public_rich : rich  \n' "$SECRET" \
+    > "$case_dir/config/brain.env"
+  capture_run "$case_dir" set brain BRAIN_TOKEN_N8N --value-from 'brain:n8n'
+  expect_code 0 "$CAPTURE_RC" "brain identity lookup should accept boundary spaces"
+  assert_grep "body key=BRAIN_TOKEN_N8N value_sha256=$(value_digest "$SECRET")" \
+    "$case_dir/curl.log" "boundary spaces should be trimmed without changing the token"
+  assert_no_secret "brain lookup with boundary spaces"
+  pass "brain identity lookup trims only supported boundary spaces"
+}
+
+test_brain_token_control_character_fails_closed() {
+  local case_dir="$TMP_ROOT/brain-control"
+  setup_config "$case_dir/config"
+  printf 'BRAIN_TOKENS=%s\tsuffix:n8n\n' "$SECRET" > "$case_dir/config/brain.env"
+  capture_run "$case_dir" set brain BRAIN_TOKEN_N8N --value-from 'brain:n8n'
+  expect_code 1 "$CAPTURE_RC" "a control character in BRAIN_TOKENS should exit non-zero"
+  assert_not_contains "$CAPTURE_OUT" 'ok:' "an ambiguous brain token must not report success"
+  assert_absent "$case_dir/curl.log" "an altered brain token must not be transmitted"
+  assert_no_secret "brain token with a control character"
+  pass "a brain token containing a control character fails closed"
+}
+
+test_brain_token_nul_fails_closed() {
+  local case_dir="$TMP_ROOT/brain-nul"
+  setup_config "$case_dir/config"
+  printf 'BRAIN_TOKENS=%s\0suffix:n8n\n' "$SECRET" > "$case_dir/config/brain.env"
+  capture_run "$case_dir" set brain BRAIN_TOKEN_N8N --value-from 'brain:n8n'
+  expect_code 1 "$CAPTURE_RC" "a NUL in BRAIN_TOKENS should exit non-zero"
+  assert_not_contains "$CAPTURE_OUT" 'ok:' "a brain token changed by NUL removal must not report success"
+  assert_absent "$case_dir/curl.log" "a brain token changed by NUL removal must not be transmitted"
+  assert_no_secret "brain token with NUL"
+  pass "a brain token containing NUL fails closed before shell parsing"
+}
+
+test_brain_token_unicode_control_fails_closed() {
+  local case_dir="$TMP_ROOT/brain-unicode-control"
+  setup_config "$case_dir/config"
+  printf 'BRAIN_TOKENS=%s\302\205suffix:n8n\n' "$SECRET" > "$case_dir/config/brain.env"
+  capture_run "$case_dir" set brain BRAIN_TOKEN_N8N --value-from 'brain:n8n'
+  expect_code 1 "$CAPTURE_RC" "a Unicode control in BRAIN_TOKENS should exit non-zero"
+  assert_not_contains "$CAPTURE_OUT" 'ok:' "a Unicode control in a brain token must not report success"
+  assert_absent "$case_dir/curl.log" "a brain token with a Unicode control must not be transmitted"
+  assert_no_secret "brain token with Unicode control"
+  pass "a brain token containing a Unicode control fails closed"
+}
+
 
 test_creates_env_var_when_coolify_reports_404() {
   local case_dir="$TMP_ROOT/create"
@@ -385,6 +434,10 @@ test_malformed_value_from
 test_network_failure
 test_missing_key
 test_brain_identity_lookup
+test_brain_identity_lookup_trims_boundary_spaces
+test_brain_token_control_character_fails_closed
+test_brain_token_nul_fails_closed
+test_brain_token_unicode_control_fails_closed
 test_creates_env_var_when_coolify_reports_404
 test_timeout_fails_closed
 test_auth_failure_names_the_credential_rejection

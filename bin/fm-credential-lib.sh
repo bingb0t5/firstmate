@@ -37,10 +37,10 @@
 #       line-at-a-time parsing (never source/dot). Exit 0 and prints the value
 #       on success; exit 1 when the key is missing or duplicated; exit 2 when
 #       the file contains an ambiguous non-assignment line, or when the
-#       assignment itself is ambiguous (quoted value, embedded carriage
-#       return). Quoted and CRLF forms are rejected rather than guessed: this
-#       library does not implement shell dequoting, so passing them through
-#       would silently transmit the wrong credential.
+#       assignment itself is ambiguous (quoted value, embedded carriage return,
+#       or NUL byte). Quoted and control-byte forms are rejected rather than
+#       guessed: this library does not implement shell dequoting, so passing them
+#       through would silently transmit the wrong credential.
 #
 #   fm_credential_brain_token_for_identity <BRAIN_TOKENS> <identity>
 #       Returns the token for identity from a comma-separated token:identity
@@ -169,10 +169,26 @@ fm_credential_assignment_key() {
   printf '%s' "$key"
 }
 
+fm_credential_file_has_nul() {
+  python3 - "$1" <<'PY'
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    raise SystemExit(0 if b"\0" in handle.read() else 1)
+PY
+}
+
 fm_credential_env_get() {
   fm_credential_xtrace_off
-  local file=$1 key=$2 line line_key count=0 value=
+  local file=$1 key=$2 line line_key count=0 value= nul_rc
   [ -f "$file" ] && [ -r "$file" ] || return 1
+  fm_credential_file_has_nul "$file" 2>/dev/null
+  nul_rc=$?
+  case "$nul_rc" in
+    0) return 2 ;;
+    1) ;;
+    *) return 1 ;;
+  esac
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       ''|'#'*) continue ;;
@@ -193,22 +209,28 @@ fm_credential_brain_token_for_identity() {
   fm_credential_xtrace_off
   local raw=$1 identity=$2 entry pair token id matches=0 found=
   [ -n "$identity" ] || return 1
-  raw=${raw//[$'\t\r\n']/}
+  FM_CREDENTIAL_CONTROL_INPUT=$raw python3 - <<'PY' || return 2
+import os
+import unicodedata
+
+raw = os.environ.get("FM_CREDENTIAL_CONTROL_INPUT", "")
+raise SystemExit(1 if any(unicodedata.category(char) in ("Cc", "Cs") for char in raw) else 0)
+PY
   while [ -n "$raw" ]; do
     entry=${raw%%,*}
     raw=${raw#"$entry"}
     raw=${raw#,}
-    pair=${entry#"${entry%%[![:space:]]*}"}
-    pair=${pair%"${pair##*[![:space:]]}"}
+    pair=${entry#"${entry%%[! ]*}"}
+    pair=${pair%"${pair##*[! ]}"}
     [ -n "$pair" ] || continue
     case "$pair" in
       *:*)
         token=${pair%%:*}
         id=${pair#*:}
-        id=${id#"${id%%[![:space:]]*}"}
-        id=${id%"${id##*[![:space:]]}"}
-        token=${token%"${token##*[![:space:]]}"}
-        token=${token#"${token%%[![:space:]]*}"}
+        id=${id#"${id%%[! ]*}"}
+        id=${id%"${id##*[! ]}"}
+        token=${token%"${token##*[! ]}"}
+        token=${token#"${token%%[! ]*}"}
         ;;
       *) return 2 ;;
     esac
