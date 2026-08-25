@@ -13,11 +13,11 @@
 #   1. bin/fm-control.sh <id> relaunch on a ship that already published
 #      spawn_gen=
 #   2. bin/fm-spawn.sh <id> --relaunch on the same condition (replacement worker)
-#   3. state/<id>.nm-third-fix-round present before another implementation
-#      worker starts (no-mistakes should write this marker when a validation run
-#      enters its third fix round; until that integration ships, firstmate
-#      refuses on the recorded marker alone). The marker's payload is not owned
-#      by this repo, so presence gates: only a payload that parses as a round
+#   3. Before another implementation worker starts, the lifecycle entrypoint
+#      reads the task worktree's attributed no-mistakes status and records
+#      state/<id>.nm-third-fix-round when an active fix round is 3 or later.
+#      The marker also remains a durable fail-closed handoff if no-mistakes is
+#      no longer running. Only a payload that parses as a round
 #      number strictly below 3 stands the gate down, and an empty or
 #      unrecognized payload refuses rather than guessing it meant "not yet".
 #      That refusal says the round could not be read and names the marker; it
@@ -34,6 +34,8 @@
 
 # shellcheck source=bin/fm-backend.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-backend.sh"
+# shellcheck source=bin/fm-nm-run-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-nm-run-lib.sh"
 
 # fm_second_attempt_spec_path <data-dir> <task-id>
 # The task-owned artifact path, alongside the existing scout report path.
@@ -59,6 +61,41 @@ fm_second_attempt_meta_had_implementation() {
 # fm_second_attempt_nm_third_fix_round_marker <state-dir> <task-id>
 fm_second_attempt_nm_third_fix_round_marker() {
   printf '%s/%s.nm-third-fix-round' "${1%/}" "$2"
+}
+
+# fm_second_attempt_sync_nm_fix_round <state-dir> <task-id> <meta-path>
+# Observe the existing no-mistakes status interface at the implementation
+# lifecycle chokepoint. Only a run attributed to this task's branch and code
+# identity may publish the durable marker. Query failure and older output are
+# non-events: the ordinary second-attempt gate still applies independently.
+fm_second_attempt_sync_nm_fix_round() {
+  local state=$1 id=$2 meta=$3 wt out branch run_branch run_head row rest round marker tmp
+  marker=$(fm_second_attempt_nm_third_fix_round_marker "$state" "$id")
+  [ ! -e "$marker" ] || return 0
+  command -v no-mistakes >/dev/null 2>&1 || return 0
+  wt=$(fm_meta_get "$meta" worktree)
+  [ -n "$wt" ] && [ -d "$wt" ] || return 0
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  [ -n "$branch" ] || return 0
+  out=$(fm_nm_run "$wt" 3 axi status)
+  [ -n "$out" ] || return 0
+  run_branch=$(fm_nm_strip_quotes "$(fm_nm_field "$out" branch)")
+  run_head=$(fm_nm_strip_quotes "$(fm_nm_field "$out" head)")
+  [ "$run_branch" = "$branch" ] || return 0
+  fm_nm_head_matches_worktree "$wt" "$run_head" || return 0
+  row=$(printf '%s\n' "$out" \
+    | grep -E '^[[:space:]]*[^,]+,[[:space:]]*"?fixing"?,.*,[[:space:]]*"?fix[[:space:]]+[0-9]+"?[[:space:]]*$' \
+    | head -1)
+  [ -n "$row" ] || return 0
+  rest=${row##*,}
+  rest=$(fm_nm_strip_quotes "$rest")
+  round=${rest#fix }
+  case "$round" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$round" -ge 3 ] || return 0
+  mkdir -p "$state" || return 0
+  tmp="$marker.tmp.$$"
+  ( umask 077; printf '%s\n' "$round" > "$tmp" ) || { rm -f -- "$tmp"; return 0; }
+  mv -f -- "$tmp" "$marker" || { rm -f -- "$tmp"; return 0; }
 }
 
 # fm_second_attempt_nm_fix_round_state <state-dir> <task-id>
@@ -130,6 +167,7 @@ fm_second_attempt_gate_reason() {
 fm_second_attempt_refuse_if_needed() {
   local state=$1 data=$2 id=$3 meta=$4 trigger=$5
   local reason spec next marker kind task_kind
+  fm_second_attempt_sync_nm_fix_round "$state" "$id" "$meta"
   fm_second_attempt_gate_reason "$state" "$data" "$id" "$meta" "$trigger"
   reason=$FM_SECOND_ATTEMPT_GATE_REASON
   [ "$reason" != none ] || return 0
