@@ -160,6 +160,10 @@ export class Box extends Container {
     this.bgFn = bgFn;
   }
 }
+
+export function getKeybindings() {
+  return { getKeys() { return ["ctrl+o"]; } };
+}
 JS
   cat > "$repo/node_modules/typebox/package.json" <<'JSON'
 {"name":"typebox","type":"module","exports":"./index.js"}
@@ -1510,8 +1514,9 @@ delete stockDefinition.renderCall;
 delete stockDefinition.renderResult;
 
 const args = { recent: 2 };
+const outcomeLines = Array.from({ length: 12 }, (_, index) => `OUTCOME_${index + 1}`);
 const result = {
-  content: [{ type: "text", text: "\x1b[31mOUTCOME_ONE\x1b[0m\r\nOUT\u0000COME_TWO\uFFF9" }],
+  content: [{ type: "text", text: `\x1b[31m${outcomeLines[0]}\x1b[0m\r\n${outcomeLines.slice(1).join("\n")}\u0000\uFFF9` }],
   details: { ok: true },
   isError: false,
 };
@@ -1524,7 +1529,11 @@ for (const row of [stockRow, actualRow]) {
   row.updateResult(result);
 }
 if (JSON.stringify(actualRow.render(100)) !== JSON.stringify(stockRow.render(100))) {
-  throw new Error("Calm-off ToolExecutionComponent rendering differs from Pi stock");
+  throw new Error("Calm-off collapsed ToolExecutionComponent rendering differs from Pi stock");
+}
+for (const row of [stockRow, actualRow]) row.setExpanded(true);
+if (JSON.stringify(actualRow.render(100)) !== JSON.stringify(stockRow.render(100))) {
+  throw new Error("Calm-off expanded ToolExecutionComponent rendering differs from Pi stock");
 }
 pi.events.emit("firstmate:calm-presentation", { active: true, stockExportRendering: false });
 actualRow.invalidate();
