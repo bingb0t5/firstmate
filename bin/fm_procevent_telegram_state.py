@@ -140,7 +140,7 @@ class Credentials:
 @dataclass(frozen=True)
 class PlannedMessage:
     update_id: int
-    payload: str
+    payload: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -490,17 +490,21 @@ def validate_store(conn: sqlite3.Connection) -> None:
     ):
         if not valid_update_id(update_id):
             raise LocalStateError("message-update-id", repr(update_id))
-        try:
-            decoded = json.loads(payload)
-        except (TypeError, ValueError) as exc:
-            raise LocalStateError("message-payload", str(exc))
-        if (
-            not isinstance(decoded, dict)
-            or decoded.get("update_id") != update_id
-            or not isinstance(decoded.get("text"), str)
-            or not decoded.get("text")
-        ):
-            raise LocalStateError("message-payload-shape", repr(update_id))
+        if payload is None:
+            if notice_id is not None or handled_at is None:
+                raise LocalStateError("message-tombstone-shape", repr(update_id))
+        else:
+            try:
+                decoded = json.loads(payload)
+            except (TypeError, ValueError) as exc:
+                raise LocalStateError("message-payload", str(exc))
+            if (
+                not isinstance(decoded, dict)
+                or decoded.get("update_id") != update_id
+                or not isinstance(decoded.get("text"), str)
+                or not decoded.get("text")
+            ):
+                raise LocalStateError("message-payload-shape", repr(update_id))
         if notice_id is not None:
             notice = notice_map.get(notice_id)
             if notice is None or notice[0] != "message":
@@ -565,9 +569,13 @@ def create_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE messages (
             update_id INTEGER PRIMARY KEY
                 CHECK (update_id >= 1 AND update_id <= 2147483647),
-            payload TEXT NOT NULL,
+            payload TEXT,
             notice_id INTEGER REFERENCES notices(id),
-            handled_at INTEGER
+            handled_at INTEGER,
+            CHECK (
+                payload IS NOT NULL
+                OR (notice_id IS NULL AND handled_at IS NOT NULL)
+            )
         );
         CREATE TABLE conditions (
             kind TEXT PRIMARY KEY CHECK (
@@ -920,14 +928,10 @@ def reap_poll_responses(telegram_dir: Path) -> None:
     for path in sorted(telegram_dir.glob(POLL_RESPONSE_GLOB)):
         if path.is_symlink() or not path.is_file():
             raise LocalStateError("poll-response-unsafe", path.name)
-        match = POLL_RESPONSE_RE.fullmatch(path.name)
-        if match is None:
+        if POLL_RESPONSE_RE.fullmatch(path.name) is None:
             raise LocalStateError("poll-response-unknown", path.name)
         if stat.S_IMODE(path.lstat().st_mode) != 0o600:
             raise LocalStateError("poll-response-mode", path.name)
-        pid = int(match.group(1))
-        if pid == os.getpid() or process_is_live(pid):
-            continue
         unlink_quietly(path)
 
 
@@ -935,7 +939,6 @@ def run_curl(
     state: Path, credentials: Credentials, offset: int, timeout: int, curl_max: int
 ) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
     telegram_dir = ensure_telegram_directory(state, create=False)
-    reap_poll_responses(telegram_dir)
     body_path = telegram_dir / (
         "%s%d.%s" % (POLL_RESPONSE_PREFIX, os.getpid(), uuid.uuid4().hex)
     )
@@ -1105,6 +1108,8 @@ def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
             ).fetchone()
             if existing is None:
                 new_messages.append(message)
+            elif existing[0] is None:
+                continue
             elif existing[0] != message.payload:
                 raise LocalStateError("message-conflict", repr(message.update_id))
         notice_id = None
@@ -1176,6 +1181,7 @@ def announce(conn: sqlite3.Connection, notice_id: Optional[int]) -> int:
 def command_poll(state: Path, credential_path: Path) -> int:
     conn = connect_existing(state)
     try:
+        reap_poll_responses(ensure_telegram_directory(state, create=False))
         pending = pending_notice(conn)
         if pending is not None:
             return emit_notice(conn, pending)
@@ -1433,6 +1439,7 @@ def command_arm_state(state: Path) -> int:
         raise UserError(
             "legacy Telegram state exists; run fm-procevent-telegram.sh migrate before arm"
         )
+    reconcile_database_staging(state)
     conn = create_store(state, "fresh", None, None)
     conn.close()
     print("state: initialized")
@@ -1500,18 +1507,6 @@ def unlink_quietly(path: Path) -> None:
 
 def database_journal_path(temp_path: Path) -> Path:
     return temp_path.parent / (temp_path.name + DATABASE_JOURNAL_SUFFIX)
-
-
-def process_is_live(pid: int) -> bool:
-    if pid <= 0:
-        return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except OSError:
-        return True
-    return True
 
 
 def staging_marker_path(staging: Path) -> Path:
@@ -1893,7 +1888,7 @@ def seal_migration_archive_parent(state: Path) -> None:
     fsync_directory(state)
 
 
-def parse_legacy_payload(path: Path) -> PlannedMessage:
+def parse_legacy_payload(path: Path, require_payload: bool) -> PlannedMessage:
     try:
         info = path.lstat()
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
@@ -1904,9 +1899,22 @@ def parse_legacy_payload(path: Path) -> PlannedMessage:
     if not isinstance(data, dict):
         raise UserError("legacy payload is not an object: %s" % path)
     update_id = data.get("update_id")
+    if not valid_update_id(update_id):
+        raise UserError("legacy payload has an invalid update id: %s" % path)
+    if not require_payload:
+        return PlannedMessage(update_id, None)
     text = data.get("text")
-    if not valid_update_id(update_id) or not isinstance(text, str) or not text:
-        raise UserError("legacy payload has an invalid update id or text: %s" % path)
+    if not isinstance(text, str) or not text:
+        raise UserError("legacy payload has no usable text: %s" % path)
+    if type(data.get("chat_id")) is not int or type(data.get("from_id")) is not int:
+        raise UserError(
+            "legacy payload awaiting delivery has no coherent chat or sender identity: %s"
+            % path
+        )
+    if data.get("date") is not None and type(data.get("date")) is not int:
+        raise UserError(
+            "legacy payload awaiting delivery has no coherent date: %s" % path
+        )
     canonical = json.dumps(
         {
             "update_id": update_id,
@@ -1923,7 +1931,7 @@ def parse_legacy_payload(path: Path) -> PlannedMessage:
 
 
 def read_legacy_payload_directory(
-    directory: Path, allow_temps: bool
+    directory: Path, allow_temps: bool, require_payload: bool
 ) -> Dict[int, PlannedMessage]:
     messages: Dict[int, PlannedMessage] = {}
     if not directory.exists() and not directory.is_symlink():
@@ -1940,7 +1948,7 @@ def read_legacy_payload_directory(
             continue
         if not entry.name.endswith(".json"):
             raise UserError("legacy payload directory has an unknown entry: %s" % entry)
-        message = parse_legacy_payload(entry)
+        message = parse_legacy_payload(entry, require_payload)
         if entry.name != "%d.json" % message.update_id:
             raise UserError("legacy payload filename disagrees with its update id: %s" % entry)
         existing = messages.get(message.update_id)
@@ -2036,10 +2044,12 @@ def build_migration_plan(state: Path) -> MigrationPlan:
     api_conditions = parse_legacy_blocks(state)
     pending = parse_legacy_pending(state)
     inbox = state / "telegram-inbox"
-    live = read_legacy_payload_directory(inbox, allow_temps=False)
-    handled = read_legacy_payload_directory(inbox / "handled", allow_temps=False)
+    live = read_legacy_payload_directory(inbox, allow_temps=False, require_payload=True)
+    handled = read_legacy_payload_directory(
+        inbox / "handled", allow_temps=False, require_payload=False
+    )
     receipts = read_legacy_payload_directory(
-        state / ".telegram-delivery-receipts", allow_temps=True
+        state / ".telegram-delivery-receipts", allow_temps=True, require_payload=True
     )
     overlapping = set(live) & set(handled)
     if overlapping:

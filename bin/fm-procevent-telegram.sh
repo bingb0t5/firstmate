@@ -74,8 +74,11 @@
 # The cutover database is built on an unpublished private file: its empty schema
 # is created and committed first, then one explicit IMMEDIATE transaction writes
 # meta, imported messages, notices, conditions, and the offset together.
-# Its rollback journal and each poll's raw response body are private, owned, and
-# reaped from a positively identified previous generation.
+# Its rollback journal is private, owned, and reaped from a positively
+# identified previous generation, by a fresh arm as well as by a rerun of
+# migrate.
+# Every poll reaps any previously staged raw response body before doing anything
+# else, so no termination leaves captain bytes outside the store.
 #
 # TRANSACTION AND VALIDATION.
 # bin/fm_procevent_telegram_state.py is the sole reader and writer of live
@@ -96,6 +99,12 @@
 # This matches the current Bot API contract that Update identifiers start at a
 # positive number and that unspecified Integer fields fit a signed 32-bit
 # value.
+# A legacy message that was already acted on migrates as a dedup tombstone whose
+# whole identity is that one identifier: it can suppress a later replay of that
+# id without a wake or a payload comparison, and never advances the offset by
+# itself.
+# A legacy message still awaiting delivery must carry coherent identity and text
+# or the cutover blocks.
 # Batches with duplicate identifiers, identifiers below the committed offset,
 # or malformed update/message identity shapes are rejected as a whole.
 # Contiguous identifiers are not required.

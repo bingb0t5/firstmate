@@ -186,6 +186,10 @@ clear_curl_calls() {
   : > "$CURL_CALLS"
 }
 
+database_temps() {
+  find "$1/state/telegram" -maxdepth 1 -name '.channel.db.*' 2>/dev/null | wc -l | tr -d ' '
+}
+
 assert_printable() {
   printf '%s' "$1" | LC_ALL=C tr -d '\n' | LC_ALL=C grep -q '[[:cntrl:]]' \
     && fail "$2"
@@ -356,6 +360,43 @@ retire_out=$(FM_HOME="$H_ARM" "$ADAPTER" retire)
 assert_contains "$retire_out" "retired: telegram" "retire did not use the generic source owner"
 assert_present "$H_ARM/state/telegram/channel.db" "retire deleted transactional state"
 pass "arm creates private durable state, registers one source, and retire preserves state"
+
+H_ARM_CRASH="$TMP_ROOT/arm-crash"
+ARM_CRASH_ENV="$TMP_ROOT/arm-crash.env"
+new_home "$H_ARM_CRASH"
+write_env_file "$ARM_CRASH_ENV" "$TOKEN"
+arm_crash_status=0
+FM_TELEGRAM_FAILPOINT=during_database_build FM_HOME="$H_ARM_CRASH" \
+  FM_TELEGRAM_ENV_FILE="$ARM_CRASH_ENV" "$ADAPTER" arm >/dev/null 2>&1 || arm_crash_status=$?
+[ "$arm_crash_status" -ne 0 ] || fail "the interrupted fresh arm reported success"
+assert_absent "$H_ARM_CRASH/state/telegram/channel.db" \
+  "the interrupted fresh arm published a database"
+[ "$(database_temps "$H_ARM_CRASH")" -gt 0 ] \
+  || fail "the interrupted fresh arm left no staging to reconcile"
+assert_contains "$(FM_HOME="$H_ARM_CRASH" FM_TELEGRAM_ENV_FILE="$ARM_CRASH_ENV" \
+  "$ADAPTER" arm)" "armed: telegram" "a rerun of arm did not recover the fresh home"
+assert_equal "$(database_temps "$H_ARM_CRASH")" 0 \
+  "a rerun of arm left the interrupted database staging behind"
+assert_contains "$(FM_HOME="$H_ARM_CRASH" "$ADAPTER" doctor)" "integrity=ok" \
+  "the recovered fresh arm produced an invalid database"
+FM_HOME="$H_ARM_CRASH" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null
+rm -f "$H_ARM_CRASH/state/telegram/channel.db"
+mkdir -p "$H_ARM_CRASH/state/telegram"
+printf 'ambiguous\n' > "$H_ARM_CRASH/state/telegram/.channel.db.stray"
+chmod 600 "$H_ARM_CRASH/state/telegram/.channel.db.stray"
+arm_unsafe_status=0
+arm_unsafe_out=$(FM_HOME="$H_ARM_CRASH" FM_TELEGRAM_ENV_FILE="$ARM_CRASH_ENV" \
+  "$ADAPTER" arm 2>&1) || arm_unsafe_status=$?
+[ "$arm_unsafe_status" -ne 0 ] || fail "arm accepted ambiguous database staging"
+assert_contains "$arm_unsafe_out" "inspect and remove it manually" \
+  "ambiguous staging did not refuse arm actionably"
+assert_absent "$H_ARM_CRASH/state/telegram/channel.db" \
+  "a refused arm still created state"
+assert_present "$H_ARM_CRASH/state/telegram/.channel.db.stray" \
+  "a refused arm swept the ambiguous leftover by name"
+assert_absent "$H_ARM_CRASH/state/procevent/telegram" \
+  "a refused arm still registered the source"
+pass "an interrupted fresh arm reconciles its own staging and refuses ambiguous leftovers"
 
 # --- stable message notice, identity, acknowledgement, and secrecy -----------
 H_MSG="$TMP_ROOT/message"
@@ -786,25 +827,37 @@ if pid == 0:
 os.waitpid(pid, 0)
 print(pid)')
 DEAD_BODY="$H_POLL_TEMP/state/telegram/.poll-response.$DEAD_PID.cccccccccccccccccccccccccccccccc"
-LIVE_BODY="$H_POLL_TEMP/state/telegram/.poll-response.$$.dddddddddddddddddddddddddddddddd"
+REUSED_BODY="$H_POLL_TEMP/state/telegram/.poll-response.$$.dddddddddddddddddddddddddddddddd"
 printf '{"ok":true,"result":[{"update_id":7,"message":{"text":"%s"}}]}\n' \
   "$CAPTAIN_SECRET_TEXT" > "$DEAD_BODY"
 chmod 600 "$DEAD_BODY"
-printf 'in flight\n' > "$LIVE_BODY"
-chmod 600 "$LIVE_BODY"
+printf '{"ok":true,"result":[{"update_id":8,"message":{"text":"%s"}}]}\n' \
+  "$CAPTAIN_SECRET_TEXT" > "$REUSED_BODY"
+chmod 600 "$REUSED_BODY"
 clear_curl_calls
 poll_temp_out=$(poll_once "$H_POLL_TEMP" "$POLL_TEMP_ENV" "$FIXTURES/one-text.json")
 assert_contains "$poll_temp_out" "message: 1" \
   "reaping stale poll bodies broke the ordinary message path"
 assert_absent "$DEAD_BODY" "a poll body left by a dead generation was never reaped"
-assert_present "$LIVE_BODY" "a poll body owned by a live generation was reaped"
+assert_absent "$REUSED_BODY" \
+  "a poll body whose recorded pid was reused by a live process survived the reap"
 assert_equal "$(find "$H_POLL_TEMP/state/telegram" -maxdepth 1 -name '.poll-response.*' \
-  | wc -l | tr -d ' ')" 1 \
-  "the completed poll left its own response body behind"
+  | wc -l | tr -d ' ')" 0 \
+  "the completed poll left a response body behind"
 assert_equal "$(db_query "$H_POLL_TEMP" "SELECT committed_offset FROM meta")" 1002 \
   "reaping stale poll bodies disturbed the committed offset"
-rm -f "$LIVE_BODY"
-pass "a poll body orphaned by an uncatchable termination is reaped before the next request"
+SHORT_CIRCUIT_BODY="$H_POLL_TEMP/state/telegram/.poll-response.$DEAD_PID.ffffffffffffffffffffffffffffffff"
+printf '{"ok":true,"result":[{"update_id":9,"message":{"text":"%s"}}]}\n' \
+  "$CAPTAIN_SECRET_TEXT" > "$SHORT_CIRCUIT_BODY"
+chmod 600 "$SHORT_CIRCUIT_BODY"
+clear_curl_calls
+short_circuit_out=$(poll_once "$H_POLL_TEMP" "$POLL_TEMP_ENV" "$FIXTURES/next-text.json")
+assert_equal "$short_circuit_out" "$poll_temp_out" \
+  "the unacknowledged notice was not re-announced unchanged"
+assert_no_curl "a poll holding an unacknowledged notice still reached Telegram"
+assert_absent "$SHORT_CIRCUIT_BODY" \
+  "a poll that short-circuits before the request never reaped the stale response body"
+pass "every poll reaps orphaned response bodies without depending on pid liveness"
 
 H_POLL_UNSAFE="$TMP_ROOT/poll-response-unsafe"
 POLL_UNSAFE_ENV="$TMP_ROOT/poll-response-unsafe.env"
@@ -1015,10 +1068,6 @@ crash_recovery_case staged-not-published after_stage
 crash_recovery_case published-not-sealed after_archive_publish
 crash_recovery_case sealed-no-database after_archive_seal
 pass "a crash on either side of archive publication or sealing reruns to one archive and one database"
-
-database_temps() {
-  find "$1/state/telegram" -maxdepth 1 -name '.channel.db.*' 2>/dev/null | wc -l | tr -d ' '
-}
 
 staged_db_query() {
   python3 - "$1" "$2" <<'PY'
@@ -1526,6 +1575,85 @@ receipt_handled_poll=$(poll_once "$H_RECEIPT_HANDLED" "$RECEIPT_HANDLED_ENV" "$F
 assert_equal "$receipt_handled_poll" "" \
   "a fully handled legacy receipt announced a phantom pending message"
 pass "a receipt whose update is already handled migrates without a phantom pending message"
+
+H_TOMBSTONE="$TMP_ROOT/migrate-tombstone"
+TOMBSTONE_ENV="$TMP_ROOT/migrate-tombstone.env"
+new_home "$H_TOMBSTONE"
+write_env_file "$TOMBSTONE_ENV" "$TOKEN"
+mkdir -p "$H_TOMBSTONE/state/telegram-inbox/handled"
+printf '{"update_id":1001,"text":"ahoy from the captain"}\n' \
+  > "$H_TOMBSTONE/state/telegram-inbox/handled/1001.json"
+tombstone_out=$(FM_HOME="$H_TOMBSTONE" FM_TELEGRAM_ENV_FILE="$TOMBSTONE_ENV" \
+  "$ADAPTER" migrate)
+assert_contains "$tombstone_out" "migrated: archive=" \
+  "a sparse already-handled legacy row blocked migration"
+assert_equal "$(db_query "$H_TOMBSTONE" "SELECT committed_offset FROM meta")" 0 \
+  "an already-handled legacy row advanced the committed offset by itself"
+assert_equal "$(db_query "$H_TOMBSTONE" \
+  "SELECT count(*) FROM messages WHERE payload IS NULL AND handled_at IS NOT NULL")" 1 \
+  "an already-handled legacy row was not imported as a dedup tombstone"
+FM_HOME="$H_TOMBSTONE" FM_TELEGRAM_ENV_FILE="$TOMBSTONE_ENV" "$ADAPTER" arm >/dev/null
+clear_curl_calls
+tombstone_replay_status=0
+tombstone_replay=$(poll_once "$H_TOMBSTONE" "$TOMBSTONE_ENV" "$FIXTURES/one-text.json") \
+  || tombstone_replay_status=$?
+assert_equal "$tombstone_replay" "" \
+  "a Telegram replay of an already-handled update woke the captain again"
+[ "$tombstone_replay_status" -ne 0 ] \
+  || fail "a replay consumed by a tombstone reported a deliverable result"
+assert_equal "$(db_query "$H_TOMBSTONE" "SELECT committed_offset FROM meta")" 1002 \
+  "the replay batch's own transition did not advance the committed offset"
+assert_equal "$(db_query "$H_TOMBSTONE" \
+  "SELECT count(*) FROM notices WHERE kind = 'message'")" 0 \
+  "a replay consumed by a tombstone created a message notice"
+tombstone_next=$(poll_once "$H_TOMBSTONE" "$TOMBSTONE_ENV" "$FIXTURES/next-text.json")
+assert_contains "$tombstone_next" "message: 1" \
+  "the channel did not keep delivering after a tombstone consumed a replay"
+pass "an already-handled legacy row deduplicates a later replay without delivering it again"
+
+H_SPARSE_PENDING="$TMP_ROOT/migrate-sparse-pending"
+SPARSE_PENDING_ENV="$TMP_ROOT/migrate-sparse-pending.env"
+new_home "$H_SPARSE_PENDING"
+write_env_file "$SPARSE_PENDING_ENV" "$TOKEN"
+mkdir -p "$H_SPARSE_PENDING/state/telegram-inbox"
+printf '{"update_id":1002,"text":"never delivered"}\n' \
+  > "$H_SPARSE_PENDING/state/telegram-inbox/1002.json"
+sparse_pending_status=0
+sparse_pending_out=$(FM_HOME="$H_SPARSE_PENDING" \
+  FM_TELEGRAM_ENV_FILE="$SPARSE_PENDING_ENV" "$ADAPTER" migrate 2>&1) \
+  || sparse_pending_status=$?
+[ "$sparse_pending_status" -ne 0 ] \
+  || fail "a sparse undelivered legacy row migrated as coherent state"
+assert_contains "$sparse_pending_out" "blocked: migration-ambiguous" \
+  "a sparse undelivered legacy row did not block the cutover"
+assert_contains "$(doctor_cause "$H_SPARSE_PENDING")" \
+  "telegram-inbox/1002.json" \
+  "the blocked cutover did not name the incoherent undelivered artifact"
+assert_equal "$(db_query "$H_SPARSE_PENDING" "SELECT committed_offset FROM meta")" 0 \
+  "a blocked sparse-pending cutover guessed an offset"
+pass "a legacy row still awaiting delivery must carry coherent identity or block the cutover"
+
+tombstone_identity_case() {
+  local case_name=$1 payload=$2
+  local home="$TMP_ROOT/tombstone-id-$1" env_file="$TMP_ROOT/tombstone-id-$1.env"
+  new_home "$home"
+  write_env_file "$env_file" "$TOKEN"
+  mkdir -p "$home/state/telegram-inbox/handled"
+  printf '%s\n' "$payload" > "$home/state/telegram-inbox/handled/1001.json"
+  local status=0 out
+  out=$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate 2>&1) || status=$?
+  [ "$status" -ne 0 ] || fail "$case_name created a tombstone from a malformed identifier"
+  assert_contains "$out" "blocked: migration-ambiguous" \
+    "$case_name did not block the cutover"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM messages")" 0 \
+    "$case_name imported a message row"
+}
+
+tombstone_identity_case boolean-id '{"update_id":true,"text":"hi"}'
+tombstone_identity_case zero-id '{"update_id":0,"text":"hi"}'
+tombstone_identity_case string-id '{"update_id":"1001","text":"hi"}'
+tombstone_identity_case out-of-range-id '{"update_id":2147483648,"text":"hi"}'
+pass "a malformed update identifier can never become a dedup tombstone"
 
 H_UNREADABLE="$TMP_ROOT/migrate-unreadable"
 UNREADABLE_ENV="$TMP_ROOT/migrate-unreadable.env"
