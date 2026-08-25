@@ -559,11 +559,70 @@ fm_pending_reply_find_resolve_line() {  # <status-file> <corr_id>
   return 0
 }
 
-fm_pending_reply_find_crew_terminal_line() {  # <state-dir> <record-path> <status-file>
-  local state=$1 rec=$2 status_file=$3 line
+fm_pending_reply_find_crew_terminal_line() {  # <state-dir> <record-path> <status-file> <corr-id> <signature>
+  local state=$1 rec=$2 status_file=$3 corr=$4 signature=$5 line
   [ "$(fm_pending_reply_target_kind "$state" "$rec")" = crew ] || return 0
   line=$(last_status_line "$status_file")
   status_is_terminal_verb "$line" || return 0
+  fm_pending_reply_claim_crew_terminal "$state" "$rec" "$corr" "$signature" "$line"
+}
+
+fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <corr-id> <signature> <line>
+  local state=$1 rec=$2 corr=$3 signature=$4 line=$5
+  local task_id dir lock claim claim_signature claim_corr candidate candidate_corr candidate_created
+  local other other_task other_phase other_created other_corr tmp
+  task_id=$(fm_pending_reply_get "$rec" task_id)
+  case "$task_id" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  dir=$(fm_pending_reply_dir "$state")
+  lock="$state/.pending-reply-crew-terminal-$task_id.lock"
+  claim="$dir/.crew-terminal-$task_id"
+  fm_lock_try_acquire "$lock" || return 1
+  if [ -f "$claim" ] && [ ! -L "$claim" ]; then
+    claim_signature=$(fm_pending_reply_get "$claim" signature)
+    claim_corr=$(fm_pending_reply_get "$claim" corr_id)
+    if [ "$claim_signature" = "$signature" ]; then
+      fm_lock_release "$lock"
+      [ "$claim_corr" = "$corr" ] && printf '%s' "$line"
+      return 0
+    fi
+  fi
+  candidate=
+  candidate_corr=
+  candidate_created=
+  for other in "$dir"/*; do
+    [ -f "$other" ] || continue
+    other_task=$(fm_pending_reply_get "$other" task_id)
+    [ "$other_task" = "$task_id" ] || continue
+    [ "$(fm_pending_reply_target_kind "$state" "$other")" = crew ] || continue
+    other_phase=$(fm_pending_reply_get "$other" phase)
+    [ -n "$other_phase" ] && [ "$other_phase" != resolved ] || continue
+    [ -n "$(fm_pending_reply_get "$other" delivered_epoch)" ] || continue
+    [ "$(fm_pending_reply_get "$other" parent_status_scan_signature)" != "$signature" ] || continue
+    other_created=$(fm_pending_reply_get "$other" created_epoch)
+    case "$other_created" in ''|*[!0-9]*) continue ;; esac
+    other_corr=$(fm_pending_reply_get "$other" corr_id)
+    printf '%s' "$other_corr" | grep -Eq '^[A-Fa-f0-9]{16}$' || continue
+    if [ -z "$candidate" ] \
+      || [ "$other_created" -lt "$candidate_created" ] \
+      || { [ "$other_created" -eq "$candidate_created" ] && [[ "$other_corr" < "$candidate_corr" ]]; }; then
+      candidate=$other
+      candidate_corr=$other_corr
+      candidate_created=$other_created
+    fi
+  done
+  if [ "$candidate_corr" != "$corr" ]; then
+    fm_lock_release "$lock"
+    return 0
+  fi
+  tmp="$dir/.crew-terminal-$task_id.tmp.$$"
+  if ! printf 'signature=%s\ncorr_id=%s\n' "$signature" "$corr" > "$tmp" \
+    || ! chmod 600 "$tmp" 2>/dev/null \
+    || ! mv -f "$tmp" "$claim"; then
+    rm -f "$tmp"
+    fm_lock_release "$lock"
+    return 1
+  fi
+  fm_lock_release "$lock"
   printf '%s' "$line"
 }
 
@@ -667,7 +726,8 @@ _fm_pending_reply_try_resolve_locked() {  # <state-dir> <corr_id> [status-file-o
   fi
   line=$(fm_pending_reply_find_resolve_line "$status_file" "$corr")
   if [ -z "$line" ] && [ -z "$status_override" ]; then
-    line=$(fm_pending_reply_find_crew_terminal_line "$state" "$rec" "$status_file")
+    line=$(fm_pending_reply_find_crew_terminal_line "$state" "$rec" "$status_file" "$corr" "$signature") \
+      || return 1
   fi
   if [ -z "$line" ]; then
     if [ -z "$status_override" ] && [ "$unconfirmed" = 0 ]; then

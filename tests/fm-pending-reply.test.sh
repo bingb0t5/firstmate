@@ -908,6 +908,42 @@ test_crew_obligation_requires_a_new_terminal_status() {
   pass "crew obligations use durable kind and a request-time status baseline"
 }
 
+test_crew_terminal_resolves_only_oldest_obligation() {
+  local dir fb log home rc older newer listed
+  dir="$TMP_ROOT/crew-terminal-once"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_parent crew-terminal-once)
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+  export FM_PENDING_REPLY_NOW=100
+  run_send "$fb" "$home" "$log" build "first request"; rc=$?
+  expect_code 0 "$rc" "first crewmate send should succeed"
+  older=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  export FM_PENDING_REPLY_NOW=200
+  run_send "$fb" "$home" "$log" build "second request"; rc=$?
+  expect_code 0 "$rc" "second crewmate send should succeed"
+  newer=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  printf 'done: first request complete\n' > "$home/state/build.status"
+  fm_pending_reply_tick_one "$home/state" "$newer" idle \
+    || fail "newer obligation tick should defer to the oldest"
+  fm_pending_reply_tick_one "$home/state" "$older" idle \
+    || fail "oldest obligation should consume the terminal status"
+  fm_pending_reply_tick_one "$home/state" "$newer" idle \
+    || fail "newer obligation should remain safely open"
+  listed=$(list_open "$home")
+  case "$listed" in
+    *"corr=$older"*) fail "oldest obligation should be closed" ;;
+  esac
+  assert_contains "$listed" "corr=$newer" "one terminal status must leave the second obligation open"
+  printf 'done: second request complete\n' >> "$home/state/build.status"
+  fm_pending_reply_tick_one "$home/state" "$newer" idle \
+    || fail "second terminal status should close the remaining obligation"
+  listed=$(list_open "$home")
+  [ -z "$listed" ] || fail "both terminal transitions should close both obligations:"$'\n'"$listed"
+  pass "crew terminal transitions resolve one oldest obligation each"
+}
+
 test_quoted_corr_opens_a_distinct_obligation() {
   local dir fb log home rc first second listed
   dir="$TMP_ROOT/quoted-corr"; mkdir -p "$dir"
@@ -1415,6 +1451,7 @@ test_wrong_home_detected_not_acknowledged
 test_crewmate_inbox_send_opens_pending_obligation
 test_answered_obligation_leaves_the_open_list
 test_crew_obligation_requires_a_new_terminal_status
+test_crew_terminal_resolves_only_oldest_obligation
 test_quoted_corr_opens_a_distinct_obligation
 test_open_list_orders_by_epoch_and_surfaces_malformed_records
 test_typed_plane_and_key_stay_off_the_open_list
