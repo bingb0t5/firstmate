@@ -418,6 +418,10 @@
     {
       "path": "skills/stow/SKILL.md",
       "audience": "public-product"
+    },
+    {
+      "path": "tests/fixtures/pr-communication-bearings-v2.md",
+      "audience": "maintainer-verification"
     }
   ]
 }
