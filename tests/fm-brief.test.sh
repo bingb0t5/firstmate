@@ -983,6 +983,24 @@ Acceptance command: `b`' \
   pass "fm-brief.sh: every Sol exemption refusal names a cause"
 }
 
+test_ship_sol_exemption_refuses_non_command_acceptance_payloads() {
+  local home out status payload i=0
+  for payload in ' ' '&&' '>'; do
+    i=$((i + 1))
+    home="$TMP_ROOT/sol-non-command-home-$i"
+    mkdir -p "$home/data"
+    status=0
+    out=$(FM_HOME="$home" FM_TASK="Acceptance command: \`$payload\`" \
+      "$ROOT/bin/fm-brief.sh" "sol-non-command-$i" firstmate --mode no-mistakes 2>&1) || status=$?
+    expect_code 1 "$status" "non-command acceptance payload must refuse"
+    assert_contains "$out" "concrete executable command" \
+      "refusal must name the executable-command requirement"
+    assert_absent "$home/data/sol-non-command-$i/brief.md" \
+      "refused non-command acceptance payload must not write a brief"
+  done
+  pass "fm-brief.sh: non-command acceptance payloads cannot earn Sol exemption"
+}
+
 # The brief's machine-readable contract lines are scaffold-owned. bin/fm-spawn.sh
 # resolves the delivery mode from the FIRST such line, so a task body that forges
 # one would win over the mode this scaffold was given.
@@ -1171,6 +1189,7 @@ test_refused_scaffold_leaves_no_task_directory
 test_sol_exemption_block_spacing_is_stable
 test_ship_sol_exemption_accepts_trailing_acceptance_text
 test_ship_sol_exemption_refusals_are_never_silent
+test_ship_sol_exemption_refuses_non_command_acceptance_payloads
 test_fm_task_cannot_forge_scaffold_owned_contract_lines
 test_sol_evidence_block_records_every_validated_wait
 test_ship_sol_exemption_refuses_backticked_prose_wait
