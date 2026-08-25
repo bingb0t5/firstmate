@@ -439,6 +439,50 @@ SH
   pass "secondmate wake-loop stall still fires when the manager holds an unanswered decision"
 }
 
+# A verified captain-held transfer is durable in the same way an open decision
+# is: the hold still awaits a human, so a later unrelated status line scrolling
+# it off the end of the log must not let busy children speak for the mate.
+test_secondmate_wake_stall_still_fires_with_masked_captain_hold() {
+  local dir state sub fakebin out
+  dir=$(make_case secondmate-stall-masked-hold)
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state" "$sub/data"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+    "$sub" > "$state/mate.meta"
+  printf 'window=firstmate:fm-child\nkind=ship\n' > "$sub/state/child.meta"
+  printf 'needs-decision [key=rollout]: ship v2 or hold?\ncaptain-held [key=rollout]: tracked by task-decision-route\ndispatched the alpha rollout\n' \
+    > "$state/mate.status"
+  printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - 10 ))" > "$sub/state/.wake-queue"
+  fakebin="$dir/fakebin"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-windows) printf '%s\n' "${FM_FAKE_TMUX_WINDOW:-}" ;;
+  capture-pane) cat "${FM_FAKE_TMUX_CAPTURE:-/dev/null}" ;;
+  display-message) printf '0\n' ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod +x "$fakebin/tmux"
+  make_fake_crew_state "$fakebin" >/dev/null
+  out="$dir/watch.out"
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_FAKE_TMUX_LOG="$dir/tmux.log" FM_FAKE_TMUX_CAPTURE="$dir/fake-tmux/pane.txt" \
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_FAKE_CREW_STATE_child='state: working · source: run-step · validating' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 3 > "$out" 2> "$dir/watch.err" || true
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$out" >/dev/null \
+    || fail "a masked captain hold behind busy children did not wake: $(cat "$out")"
+  [ ! -e "$state/.secondmate-supervising-mate" ] \
+    || fail "a mate still holding a transferred decision was cached as supervising"
+  pass "secondmate wake-loop stall still fires when a later line masks a captain hold"
+}
+
 # The supervising skip is a bounded CACHE, not a permanent suppression: while the
 # children stay busy the forking child probe must not re-run on every poll, and
 # once the cache ages out the probe re-runs so a finished child still escalates.
@@ -1395,6 +1439,7 @@ test_secondmate_foreign_queue_stall_is_one_shot_and_read_only
 test_secondmate_wake_stall_skips_idle_manager_with_busy_children
 test_secondmate_wake_stall_still_fires_with_unread_manager_inbox
 test_secondmate_wake_stall_still_fires_with_open_manager_decision
+test_secondmate_wake_stall_still_fires_with_masked_captain_hold
 test_secondmate_supervising_skip_is_probe_bounded_and_expires
 test_secondmate_stall_marker_rejects_symlink
 test_acknowledged_stall_publication_survives_pre_marker_crash

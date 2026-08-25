@@ -378,6 +378,53 @@ status_open_decisions() {  # <status-file>
   printf '%s' "$open"
 }
 
+# Fold the WHOLE status stream into the set of decisions currently sitting in a
+# verified captain-held transfer. Same "<key>\t<verb>\t<summary>"-per-line shape
+# and same decision-key grammar as status_open_decisions; prints nothing when no
+# key is held.
+#
+# This is a SEPARATE set on purpose, not a widening of the open set. A
+# `captain-held` close is the verified handoff to a durable captain-held task, so
+# every open-set consumer (the fleet snapshot, fm-captain-hold.sh's `diverged`
+# contradiction test, the cursor-backed incremental fold) must keep reading a
+# transferred key as closed - that is the whole distinction status_key_closing_verb
+# documents. But a transferred hold is still an unanswered question the fleet owes
+# a human, so a supervisor asking "does this crew's log hold anything still
+# awaiting an answer" needs an equally DURABLE view of it: last_status_line cannot
+# see a hold that a later unrelated line masked, exactly as it cannot see a masked
+# needs-decision. This fold gives captain-held that parity without moving the
+# open/closed boundary underneath anyone.
+#
+# A key leaves the held set the moment the stream states its next transition:
+# `resolved` settles it outright, and needs-decision/blocked reopens it as an
+# ordinary open decision that status_open_decisions owns from then on.
+status_held_decisions() {  # <status-file>
+  local f=$1 line resolve held verb key note set=''
+  [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
+  resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
+  held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
+  # Necessary-condition prefilter: no occurrence of the verb anywhere in the file
+  # means no line can carry it as its leading verb, so the common log (which never
+  # transfers anything) costs one grep instead of a per-line fold.
+  grep -Fq "$held" "$f" 2>/dev/null || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    verb=$(status_line_verb "$line")
+    case "$verb" in
+      "$held"|"$resolve"|needs-decision|blocked) ;;
+      *) continue ;;
+    esac
+    key=$(_fm_decision_key "$line") || continue
+    note=$(status_line_note "$line")
+    _fm_decision_key_transition_allowed "$key" "$note" || continue
+    set=$(_fm_decision_drop "$set" "$key")
+    [ -n "$set" ] && set="${set}"$'\n'
+    if [ "$verb" = "$held" ]; then
+      set="${set}${key}"$'\t'"${verb}"$'\t'"${note}"$'\n'
+    fi
+  done < "$f"
+  printf '%s' "$set"
+}
+
 # 0 when <key> has a record in a folded "<key>\t<verb>\t<note>" open set.
 _fm_open_set_has() {  # <open-set> <key>
   case "$1" in
@@ -1286,14 +1333,17 @@ crew_absorb_class() {  # <id>
 }
 
 # 0 when task <id>'s own status log holds nothing the captain still owes an
-# answer to: no verified captain-held transfer, no legacy captain-relevant line,
-# and no still-open keyed decision. The open-decision fold is what makes the
-# last test durable - last_status_line alone CANNOT see a needs-decision that a
-# later unrelated line masked (the status-fold contract above states this
-# plainly), so a manager sitting on an open decision would otherwise read as
-# quiet. Every read here is a pure file read, which is what lets the classifier
-# and the watcher's wake-loop gate share one definition of "quiet" without
-# either paying for a fm-crew-state fork to find out.
+# answer to: no legacy captain-relevant line, no still-open keyed decision, and
+# no key still sitting in a verified captain-held transfer.
+# BOTH keyed tests read a durable fold rather than the last line, because
+# last_status_line alone CANNOT see a transition that a later unrelated line
+# masked (the status-fold contract above states this plainly) - and that applies
+# to a captain-held transfer exactly as it applies to a needs-decision, so a
+# manager whose hold or open decision scrolled off the end would otherwise read
+# as quiet and let a busy child speak for it. Every read here is a pure file
+# read, which is what lets the classifier and the watcher's wake-loop gate share
+# one definition of "quiet" without either paying for a fm-crew-state fork to
+# find out.
 manager_owes_captain_nothing() {  # <id> <state-dir>
   local id=$1 state=$2 status last
   [ -n "$id" ] && [ -n "$state" ] || return 1
@@ -1302,6 +1352,7 @@ manager_owes_captain_nothing() {  # <id> <state-dir>
   status_is_captain_relevant "$last" && return 1
   status_is_captain_held "$last" && return 1
   [ -z "$(status_open_decisions "$status")" ] || return 1
+  [ -z "$(status_held_decisions "$status")" ] || return 1
   return 0
 }
 
