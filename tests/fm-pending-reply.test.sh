@@ -944,6 +944,31 @@ test_crew_terminal_resolves_only_oldest_obligation() {
   pass "crew terminal transitions resolve one oldest obligation each"
 }
 
+test_crew_consumes_each_unseen_terminal_transition() {
+  local dir fb log home rc older newer listed
+  dir="$TMP_ROOT/crew-unseen-terminals"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_parent crew-unseen-terminals)
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+  export FM_PENDING_REPLY_NOW=100
+  run_send "$fb" "$home" "$log" build "first request"; rc=$?
+  expect_code 0 "$rc" "first crewmate send should succeed"
+  older=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  export FM_PENDING_REPLY_NOW=200
+  run_send "$fb" "$home" "$log" build "second request"; rc=$?
+  expect_code 0 "$rc" "second crewmate send should succeed"
+  newer=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  printf 'done: first complete\nworking: cleanup\nneeds-decision: unrelated choice\nfailed: second failed\nworking: later\n' \
+    > "$home/state/build.status"
+  fm_pending_reply_tick_one "$home/state" "$older" idle || fail "oldest unseen terminal should reconcile"
+  fm_pending_reply_tick_one "$home/state" "$newer" idle || fail "second unseen terminal should reconcile"
+  listed=$(list_open "$home")
+  [ -z "$listed" ] || fail "each unseen done/failed transition should close one obligation:"$'\n'"$listed"
+  pass "crew reconciliation consumes unseen terminals and ignores needs-decision"
+}
+
 test_quoted_corr_opens_a_distinct_obligation() {
   local dir fb log home rc first second listed
   dir="$TMP_ROOT/quoted-corr"; mkdir -p "$dir"
@@ -975,12 +1000,14 @@ test_open_list_orders_by_epoch_and_surfaces_malformed_records() {
   older=$(fm_pending_reply_create "$home" "$state" build older)
   printf 'schema=%s\ncorr_id=malformed\ntask_id=build\ncreated_epoch=50\nrequest_summary=damaged\n' \
     "$FM_PENDING_REPLY_SCHEMA" > "$(fm_pending_reply_dir "$state")/malformed"
+  printf 'phase=resolved\n' > "$(fm_pending_reply_dir "$state")/truncated-resolved"
   listed=$(list_open "$home")
   first_line=${listed%%$'\n'*}
   assert_contains "$first_line" "phase=unknown" "malformed record should stay visible"
-  [ "$(printf '%s\n' "$listed" | sed -n '2p' | cut -f1)" = "corr=$older" ] \
+  assert_contains "$listed" "corr=truncated-resolved" "malformed resolved record should stay visible"
+  [ "$(printf '%s\n' "$listed" | grep -F "corr=$older" | cut -f1)" = "corr=$older" ] \
     || fail "older valid obligation should sort before newer one:"$'\n'"$listed"
-  [ "$(printf '%s\n' "$listed" | sed -n '3p' | cut -f1)" = "corr=$newer" ] \
+  [ "$(printf '%s\n' "$listed" | grep -F "corr=$newer" | cut -f1)" = "corr=$newer" ] \
     || fail "newer obligation should sort last:"$'\n'"$listed"
   pass "open list orders by epoch and surfaces malformed records"
 }
@@ -1452,6 +1479,7 @@ test_crewmate_inbox_send_opens_pending_obligation
 test_answered_obligation_leaves_the_open_list
 test_crew_obligation_requires_a_new_terminal_status
 test_crew_terminal_resolves_only_oldest_obligation
+test_crew_consumes_each_unseen_terminal_transition
 test_quoted_corr_opens_a_distinct_obligation
 test_open_list_orders_by_epoch_and_surfaces_malformed_records
 test_typed_plane_and_key_stay_off_the_open_list
