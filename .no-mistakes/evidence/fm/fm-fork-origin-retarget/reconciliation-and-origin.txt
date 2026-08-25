@@ -1,0 +1,9 @@
+Canonical fetch URL: https://github.com/bingb0t5/firstmate.git
+Canonical push URL: https://github.com/bingb0t5/firstmate.git
+Reconciliation commit and parents:
+38c139306a783a1d4dcdd0f569ac519c980c0afd
+parents 15a930fca3b58fef13a1da0168d6e4849e3657ee 6a2cd6cd2c642c9422bb43dccedbd91103285fb0
+subject Merge upstream history into captain fork reconciliation
+Captain-fork base retained: yes
+Reconciled upstream parent retained: yes (6a2cd6cd2c642c9422bb43dccedbd91103285fb0)
+Target relative to captain-fork base (behind ahead): 0	11
