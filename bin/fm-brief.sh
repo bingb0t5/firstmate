@@ -213,6 +213,20 @@ fm_brief_wait_is_bounded() {
   return 0
 }
 
+fm_brief_acceptance_is_executable() {
+  local line=$1 command
+  case "$line" in
+    Acceptance\ command:\ \`?*\`*) ;;
+    *) return 1 ;;
+  esac
+  command=${line#Acceptance command: \`}
+  command=${command%%\`*}
+  case "$command" in
+    *[[:alnum:]_]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Scaffold-owned machine-readable lines. A filled task body that forges one would
 # be read back by bin/fm-spawn.sh ahead of the line this scaffold actually wrote.
 FM_BRIEF_RESERVED_PREFIXES=('Delivery contract:' 'Sol exemption:')
@@ -237,10 +251,11 @@ fm_brief_sol_scan() {
     done
     case "$line" in
       'Acceptance command: '*)
-        case "$line" in
-          Acceptance\ command:\ \`?*\`*) acc_count=$((acc_count + 1)) ;;
-          *) FM_BRIEF_SOL_ERRORS+=('Acceptance command must use backticks around the command') ;;
-        esac
+        if fm_brief_acceptance_is_executable "$line"; then
+          acc_count=$((acc_count + 1))
+        else
+          FM_BRIEF_SOL_ERRORS+=('Acceptance command must use backticks around a concrete executable command')
+        fi
         FM_BRIEF_SOL_EVIDENCE+=("$line")
         ;;
       Wait:*)
