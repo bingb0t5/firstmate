@@ -143,6 +143,32 @@ test_already_done_refuses_without_wake() {
   pass "completed destination items cannot become handoff retries"
 }
 
+test_dependency_closure_requires_priority_without_mutation() {
+  local home="$TMP_ROOT/closure-priority-main" sub="$TMP_ROOT/closure-priority-sub" fakebin out rc=0
+  setup_homes "$home" "$sub"
+  mkdir -p "$sub/data"
+  cat > "$home/data/backlog.md" <<'EOF'
+## Queued
+- [ ] closure-blocker - missing migration priority (repo: alpha) (kind: ship)
+- [ ] closure-dependent - routed work blocked-by: closure-blocker (repo: alpha) (kind: ship) (priority: 1)
+
+## Done
+EOF
+  printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
+  cp "$home/data/backlog.md" "$home/backlog.before"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/closure-priority-fake")
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/closure-priority-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design closure-dependent 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "dependency closure with an unprioritized blocker was handed off"
+  assert_contains "$out" 'refusing to hand off closure-blocker' "closure priority refusal did not name the blocker"
+  cmp -s "$home/backlog.before" "$home/data/backlog.md" || fail "closure priority refusal mutated the source backlog"
+  assert_no_grep 'closure-' "$sub/data/backlog.md" "closure priority refusal mutated the destination backlog"
+  assert_absent "$TMP_ROOT/closure-priority-tmux.log" "closure priority refusal notified the receiver"
+  assert_absent "$home/state/design.inbox" "closure priority refusal created receiver inbox work"
+  pass "dependency closure priorities are validated before local mutation or notification"
+}
+
 test_failed_wake_retries_when_the_item_is_already_present() {
   local home="$TMP_ROOT/retry-wake-main" sub="$TMP_ROOT/retry-wake-sub" out corr rc=0
   setup_homes "$home" "$sub"
@@ -1368,6 +1394,7 @@ EOF
 test_handoff_wakes_live_local_receiver
 test_already_present_missing_priority_refuses_without_wake
 test_already_done_refuses_without_wake
+test_dependency_closure_requires_priority_without_mutation
 test_failed_wake_retries_when_the_item_is_already_present
 test_known_receiver_failure_remains_retryable_after_grace
 test_known_failure_restores_retry_after_reconciliation_race
