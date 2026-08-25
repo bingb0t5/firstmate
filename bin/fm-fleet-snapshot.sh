@@ -334,7 +334,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
     def local_note($rest):
       cap(($rest | strip_trailing_metadata); ".*(?:^|[[:space:]]+-[[:space:]]+|[[:space:]])(?<v>local main)$");
     def compatibility_marker($text):
-      ($text // "") | test("NOT[[:space:]]+AUTHORI[ZS]ED|DECLINED|DO[[:space:]]+NOT[[:space:]]+CHASE|CAPTAIN[[:space:]]+RULED|SUPERSEDED|NOT[[:space:]-]+REQUIRED|DEFERRED");
+      ($text // "") | test("NOT[[:space:]]+AUTHORI[ZS]ED|DECLINED|DO[[:space:]]+NOT[[:space:]]+CHASE|CAPTAIN[[:space:]]+RULED|SUPERSEDED|NOT[[:space:]-]+REQUIRED|DEFERRED"; "i");
     def completion($rest):
       (metadata_word($rest; "merged")) as $merged
       | (metadata_word($rest; "reported")) as $reported
