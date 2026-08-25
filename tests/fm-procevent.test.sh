@@ -153,8 +153,8 @@ assert_contains "$sup" no "an unconfigured home does not need supervision"
 # --- a blocking source completes into exactly one normalized event ----------
 H1="$TMP_ROOT/h1"; new_home "$H1"
 TRIG="$TMP_ROOT/trigger-one"
-out=$(pe_register "$H1" lavish src-one -- "$BLOCKER" "$TRIG" "payload one")
-assert_contains "$out" "registered: src-one" "register records a source"
+out=$(pe "$H1" arm lavish src-one -- "$BLOCKER" "$TRIG" "payload one")
+assert_contains "$out" "armed: src-one" "the generic arm seam records a source"
 
 sup=$(PATH="${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" bash -c \
   '. "$1/bin/fm-supervision-lib.sh"; fm_supervision_needed "$2" && echo yes || echo no' _ "$ROOT" "$H1/state")

@@ -1,13 +1,13 @@
 # shellcheck shell=bash
-# Shared identity, ownership, capture, and publication rules for the generic
-# process-to-event runner.
+# Shared arm, identity, ownership, capture, publication, and delivery rules for
+# the generic process-to-event runner.
 # Usage: . bin/fm-procevent-lib.sh   (requires fm-pr-lib.sh and fm-wake-lib.sh)
 #
 # The runner lets firstmate learn that a registered long-polling source produced
 # a result without holding that blocking process in its conversational turn. It
 # is domain-neutral: a thin adapter supplies source identity, the argv to run,
-# and how to classify a completed result. Everything else - ownership, durable
-# capture, publication, and restart recovery - lives here.
+# and how to classify a completed result. Everything else - arming, ownership,
+# durable capture, publication, delivery shims, and restart recovery - lives here.
 #
 # It adds no second notification control plane: a completed result is published
 # as an ordinary `check` wake through the existing durable wake queue, which is
@@ -117,6 +117,36 @@ fm_procevent_registration_publish_locked() {  # <state> <adapter> <source-id> <a
   fi
   rm -f -- "$tmp"
   return 1
+}
+
+# fm_procevent_arm_locked <state> <adapter> <source-id> <argv...>
+# Validate and publish one source while the caller holds its source lock. This
+# is the one arm-and-shim seam: adapters provide identity, argv, and policy;
+# the runner owns registration bytes and the reconcile path that starts them.
+fm_procevent_arm_locked() {
+  local state=$1 adapter=$2 id=$3
+  shift 3
+  fm_procevent_adapter_valid "$adapter" || return 1
+  fm_procevent_source_id_valid "$id" || return 1
+  [ "$#" -ge 1 ] || return 1
+  fm_procevent_registration_publish_locked "$state" "$adapter" "$id" "$@"
+}
+
+# fm_procevent_arm <state> <adapter> <source-id> <argv...>
+# Acquire the source boundary, publish the registration, and release it. The
+# runner's public arm command and every adapter use this same implementation.
+fm_procevent_arm() {
+  local state=$1 adapter=$2 id=$3
+  shift 3
+  fm_procevent_adapter_valid "$adapter" || return 1
+  fm_procevent_source_id_valid "$id" || return 1
+  [ "$#" -ge 1 ] || return 1
+  fm_procevent_source_lock_acquire "$id" || return 1
+  if ! fm_procevent_arm_locked "$state" "$adapter" "$id" "$@"; then
+    fm_procevent_source_lock_release "$id"
+    return 1
+  fi
+  fm_procevent_source_lock_release "$id"
 }
 
 fm_procevent_claim_load_locked() {  # <source-id>
@@ -363,6 +393,50 @@ fm_procevent_event_line() {
   fm_procevent_source_id_valid "$id" || return 1
   case "$seq" in ''|*[!0-9]*) return 1 ;; esac
   printf 'procevent %s %s %s\n' "$adapter" "$id" "$seq"
+}
+
+# The watcher supplies wake() and FM_WAKE_POST_OUTPUT_ACTION when it loads this
+# library. Keeping the queue identity and suppression marker here makes the
+# runner's published check identity the only owner of the delivery shim bytes.
+fm_procevent_surfaced_marker() {  # <queue-key>
+  local state=${STATE-}
+  printf '%s/.seen-procevent-%s' "$state" "$(printf '%s' "$1" | LC_ALL=C od -An -tx1 | tr -d ' \n')"
+}
+
+fm_procevent_surface_after_output() {
+  local output_status=$1 key marker tmp status=0
+  if [ "$output_status" -eq 0 ]; then
+    for key in $FM_PROCEVENT_SURFACED; do
+      marker=$(fm_procevent_surfaced_marker "$key")
+      tmp=$(umask 077; mktemp "$STATE/.seen-procevent.XXXXXX") || { status=1; continue; }
+      if ! mv -f -- "$tmp" "$marker"; then
+        rm -f -- "$tmp"
+        status=1
+      fi
+    done
+  fi
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  return "$status"
+}
+
+fm_procevent_surface_queued() {
+  local key reason
+  FM_PROCEVENT_SURFACED=
+  [ -s "$FM_WAKE_QUEUE" ] || return 0
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
+  while IFS= read -r key; do
+    case "$key" in procevent:*) ;; *) continue ;; esac
+    [ -e "$(fm_procevent_surfaced_marker "$key")" ] && continue
+    FM_PROCEVENT_SURFACED="$FM_PROCEVENT_SURFACED $key"
+  done < <(fm_wake_queued_keys_locked check)
+  if [ -z "$FM_PROCEVENT_SURFACED" ]; then
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+    return 0
+  fi
+  reason="check: process-event result captured:$FM_PROCEVENT_SURFACED"
+  # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
+  FM_WAKE_POST_OUTPUT_ACTION=fm_procevent_surface_after_output
+  wake "$reason"
 }
 
 # fm_procevent_handled_marker <state> <source-id> <sequence>

@@ -79,12 +79,16 @@ MAX_DOC_BYTES=${FM_REMOTE_REPLY_MAX_DOC_BYTES:-262144}
 SSH_UNAVAILABLE=255
 DOCUMENT_LOCAL_FAILURE=2
 
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
+# shellcheck source=bin/fm-procevent-lib.sh
+. "$SCRIPT_DIR/fm-procevent-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 usage() { sed -n '2,60p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
@@ -223,7 +227,7 @@ cmd_arm_locked() {
   remote_route_exists "$id"
   read_cursor "$id"
   sid=$(source_id "$id")
-  "$SCRIPT_DIR/fm-procevent.sh" register remote-reply "$sid" -- \
+  fm_procevent_arm "$STATE" remote-reply "$sid" \
     "$SCRIPT_DIR/fm-procevent-remote-reply.sh" source "$id" || return 1
   printf 'armed: %s offset=%s\n' "$sid" "$CURSOR_OFFSET"
 }
