@@ -776,6 +776,55 @@ assert_no_curl "real runner called Telegram from malformed local state"
 FM_HOME="$H_E2E_BLOCK" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null
 pass "the real runner durably announces internal corruption and keeps the source permanent"
 
+# --- raw poll response bodies are private, owned, and reaped ---
+H_POLL_TEMP="$TMP_ROOT/poll-response-leftover"
+POLL_TEMP_ENV="$TMP_ROOT/poll-response-leftover.env"
+arm_home "$H_POLL_TEMP" "$POLL_TEMP_ENV"
+DEAD_PID=$(python3 -c 'import os; pid = os.fork()
+if pid == 0:
+    os._exit(0)
+os.waitpid(pid, 0)
+print(pid)')
+DEAD_BODY="$H_POLL_TEMP/state/telegram/.poll-response.$DEAD_PID.cccccccccccccccccccccccccccccccc"
+LIVE_BODY="$H_POLL_TEMP/state/telegram/.poll-response.$$.dddddddddddddddddddddddddddddddd"
+printf '{"ok":true,"result":[{"update_id":7,"message":{"text":"%s"}}]}\n' \
+  "$CAPTAIN_SECRET_TEXT" > "$DEAD_BODY"
+chmod 600 "$DEAD_BODY"
+printf 'in flight\n' > "$LIVE_BODY"
+chmod 600 "$LIVE_BODY"
+clear_curl_calls
+poll_temp_out=$(poll_once "$H_POLL_TEMP" "$POLL_TEMP_ENV" "$FIXTURES/one-text.json")
+assert_contains "$poll_temp_out" "message: 1" \
+  "reaping stale poll bodies broke the ordinary message path"
+assert_absent "$DEAD_BODY" "a poll body left by a dead generation was never reaped"
+assert_present "$LIVE_BODY" "a poll body owned by a live generation was reaped"
+assert_equal "$(find "$H_POLL_TEMP/state/telegram" -maxdepth 1 -name '.poll-response.*' \
+  | wc -l | tr -d ' ')" 1 \
+  "the completed poll left its own response body behind"
+assert_equal "$(db_query "$H_POLL_TEMP" "SELECT committed_offset FROM meta")" 1002 \
+  "reaping stale poll bodies disturbed the committed offset"
+rm -f "$LIVE_BODY"
+pass "a poll body orphaned by an uncatchable termination is reaped before the next request"
+
+H_POLL_UNSAFE="$TMP_ROOT/poll-response-unsafe"
+POLL_UNSAFE_ENV="$TMP_ROOT/poll-response-unsafe.env"
+arm_home "$H_POLL_UNSAFE" "$POLL_UNSAFE_ENV"
+ln -s "$H_POLL_UNSAFE/state" \
+  "$H_POLL_UNSAFE/state/telegram/.poll-response.1.eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+clear_curl_calls
+unsafe_first=$(poll_once "$H_POLL_UNSAFE" "$POLL_UNSAFE_ENV" "$FIXTURES/one-text.json")
+unsafe_second=$(poll_once "$H_POLL_UNSAFE" "$POLL_UNSAFE_ENV" "$FIXTURES/one-text.json")
+assert_contains "$unsafe_first" "blocked: local-state fingerprint=" \
+  "an unsafe poll response leftover did not announce a blocked result"
+assert_equal "$unsafe_second" "$unsafe_first" \
+  "an unsafe poll response leftover did not produce a stable fingerprint"
+assert_no_curl "an unsafe poll response leftover still reached Telegram"
+assert_equal "$(db_query "$H_POLL_UNSAFE" "SELECT committed_offset FROM meta")" 0 \
+  "an unsafe poll response leftover advanced the committed offset"
+assert_present "$H_POLL_UNSAFE/state/telegram/.poll-response.1.eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" \
+  "an unsafe poll response leftover was swept by name"
+pass "an unsafe poll response leftover blocks the channel instead of being swept"
+
 # --- offline migration archives everything and never guesses ----------------
 H_LEGACY_REFUSE="$TMP_ROOT/legacy-refuse"
 LEGACY_REFUSE_ENV="$TMP_ROOT/legacy-refuse.env"
@@ -971,6 +1020,24 @@ database_temps() {
   find "$1/state/telegram" -maxdepth 1 -name '.channel.db.*' 2>/dev/null | wc -l | tr -d ' '
 }
 
+staged_db_query() {
+  python3 - "$1" "$2" <<'PY'
+import sqlite3
+import sys
+with sqlite3.connect(sys.argv[1]) as db:
+    print(db.execute(sys.argv[2]).fetchone()[0])
+PY
+}
+
+staged_database_path() {
+  find "$1/state/telegram" -maxdepth 1 -name '.channel.db.*' \
+    ! -name '*.owner' ! -name '*-journal'
+}
+
+staged_journals() {
+  find "$1/state/telegram" -maxdepth 1 -name '.channel.db.*-journal' | wc -l | tr -d ' '
+}
+
 H_DB_BUILD="$TMP_ROOT/crash-database-build"
 DB_BUILD_ENV="$TMP_ROOT/crash-database-build.env"
 seed_migration_home "$H_DB_BUILD" "$DB_BUILD_ENV"
@@ -982,8 +1049,10 @@ FM_TELEGRAM_FAILPOINT=during_database_build FM_HOME="$H_DB_BUILD" \
 assert_equal "$db_build_status" 91 "the database build crash did not stop at its boundary"
 assert_absent "$H_DB_BUILD/state/telegram/channel.db" \
   "an interrupted database build published a cutover"
-assert_equal "$(database_temps "$H_DB_BUILD")" 2 \
+assert_equal "$(database_temps "$H_DB_BUILD")" 3 \
   "an interrupted database build left no marked staging to reconcile"
+assert_equal "$(staged_journals "$H_DB_BUILD")" 1 \
+  "an interrupted database build left no rollback journal beside its staging"
 db_build_recovered=$(FM_HOME="$H_DB_BUILD" FM_TELEGRAM_ENV_FILE="$DB_BUILD_ENV" \
   "$ADAPTER" migrate)
 assert_contains "$db_build_recovered" "migrated: archive=" \
@@ -994,6 +1063,59 @@ assert_converged_migration "$H_DB_BUILD" "database-build crash"
 assert_equal "$(legacy_fingerprint "$H_DB_BUILD")" "$db_build_before" \
   "the database build crash changed the original legacy bytes"
 pass "an interrupt during database construction leaves no unmanaged payload copy and reruns clean"
+
+cutover_atomicity_case() {
+  local case_name=$1 point=$2 expected_meta=$3 expected_messages=$4
+  local home="$TMP_ROOT/atomic-$1" env_file="$TMP_ROOT/atomic-$1.env"
+  seed_migration_home "$home" "$env_file"
+  printf '{"update_id":901,"date":2,"chat_id":555,"from_id":909,"text":"second handled"}\n' \
+    > "$home/state/telegram-inbox/handled/901.json"
+  local status=0
+  FM_TELEGRAM_FAILPOINT="$point" FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" \
+    "$ADAPTER" migrate >/dev/null 2>&1 || status=$?
+  assert_equal "$status" 91 "$case_name did not stop at its transaction boundary"
+  assert_absent "$home/state/telegram/channel.db" \
+    "$case_name published a cutover past its transaction boundary"
+  local staged
+  staged=$(staged_database_path "$home")
+  assert_present "$staged" "$case_name left no staged cutover database to inspect"
+  if [ "$point" = during_database_build ]; then
+    assert_equal "$(staged_journals "$home")" 1 \
+      "$case_name left no rollback journal for the open transaction"
+  fi
+  assert_equal "$(staged_db_query "$staged" "SELECT count(*) FROM meta")" \
+    "$expected_meta" "$case_name published a partial meta row"
+  assert_equal "$(staged_db_query "$staged" "SELECT count(*) FROM messages")" \
+    "$expected_messages" "$case_name published a partial message set"
+  local recovered
+  recovered=$(FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate)
+  assert_contains "$recovered" "migrated: archive=" \
+    "$case_name could not be recovered by rerunning migrate"
+  assert_equal "$(database_temps "$home")" 0 \
+    "$case_name left staging or its rollback journal behind"
+  assert_converged_migration "$home" "$case_name"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM messages")" 2 \
+    "$case_name did not import every legacy message on recovery"
+}
+
+cutover_atomicity_case rollback-before-commit during_database_build 0 0
+cutover_atomicity_case durable-after-commit after_database_commit 1 2
+pass "a cutover's meta, messages, notices, and offset commit as one transaction whose journal is reaped"
+
+H_JOURNAL_ONLY="$TMP_ROOT/journal-only-leftover"
+JOURNAL_ONLY_ENV="$TMP_ROOT/journal-only-leftover.env"
+seed_migration_home "$H_JOURNAL_ONLY" "$JOURNAL_ONLY_ENV"
+mkdir -p "$H_JOURNAL_ONLY/state/telegram"
+chmod 700 "$H_JOURNAL_ONLY/state/telegram"
+JOURNAL_ONLY_BASE=".channel.db.999.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+printf 'orphan journal\n' > "$H_JOURNAL_ONLY/state/telegram/$JOURNAL_ONLY_BASE-journal"
+chmod 600 "$H_JOURNAL_ONLY/state/telegram/$JOURNAL_ONLY_BASE-journal"
+assert_contains "$(FM_HOME="$H_JOURNAL_ONLY" FM_TELEGRAM_ENV_FILE="$JOURNAL_ONLY_ENV" \
+  "$ADAPTER" migrate)" "migrated: archive=" \
+  "an orphan rollback journal blocked migration"
+assert_equal "$(database_temps "$H_JOURNAL_ONLY")" 0 \
+  "an orphan rollback journal survived reconciliation"
+pass "a rollback journal orphaned by an uncatchable termination is reaped, not refused forever"
 
 H_DB_PUBLISH="$TMP_ROOT/crash-database-publish"
 DB_PUBLISH_ENV="$TMP_ROOT/crash-database-publish.env"
@@ -1068,6 +1190,14 @@ leftover_refusal_case() {
       mkdir -p "$home/state/telegram-migration-archive"
       chmod 755 "$home/state/telegram-migration-archive"
       ;;
+    symlinked-telegram-dir)
+      mkdir -p "$home/state/elsewhere"
+      ln -s "$home/state/elsewhere" "$home/state/telegram"
+      ;;
+    world-readable-telegram-dir)
+      mkdir -p "$home/state/telegram"
+      chmod 755 "$home/state/telegram"
+      ;;
     stray-database-temp)
       mkdir -p "$home/state/telegram"
       chmod 700 "$home/state/telegram"
@@ -1100,7 +1230,8 @@ leftover_refusal_case() {
     "$case_name leftover was not refused actionably"
   assert_contains "$out" "$expected_reason" \
     "$case_name leftover was refused by a check other than the one it exercises"
-  if [ "$case_name" != archive-parent-mode ]; then
+  if [ "$case_name" != archive-parent-mode ] \
+    && [ "$case_name" != world-readable-telegram-dir ]; then
     case "$out" in
       *"has an unexpected mode"*)
         fail "$case_name leftover never reached its own validation branch" ;;
@@ -1125,6 +1256,14 @@ leftover_refusal_case() {
     archive-parent-mode)
       assert_present "$home/state/telegram-migration-archive" \
         "$case_name leftover was swept by name" ;;
+    symlinked-telegram-dir)
+      [ -L "$home/state/telegram" ] || fail "$case_name leftover was swept by name"
+      [ ! -e "$home/state/telegram-migration-archive" ] \
+        || fail "$case_name archived legacy state before refusing" ;;
+    world-readable-telegram-dir)
+      assert_present "$home/state/telegram" "$case_name leftover was swept by name"
+      [ ! -e "$home/state/telegram-migration-archive" ] \
+        || fail "$case_name archived legacy state before refusing" ;;
     stray-database-temp)
       assert_present "$home/state/telegram/.channel.db.stray" \
         "$case_name leftover was swept by name" ;;
@@ -1154,6 +1293,8 @@ leftover_refusal_case archive-parent-mode "has an unexpected mode"
 leftover_refusal_case stray-archive-entry "is not a published archive directory"
 leftover_refusal_case misnamed-archive "does not carry a published archive name"
 leftover_refusal_case unmanifested-archive "is not a complete manifest-bound archive"
+leftover_refusal_case symlinked-telegram-dir "is not a private state directory"
+leftover_refusal_case world-readable-telegram-dir "has an unexpected mode"
 leftover_refusal_case stray-database-temp \
   "does not carry this migrator's database staging name"
 leftover_refusal_case symlinked-database-temp "is not a private database staging file"

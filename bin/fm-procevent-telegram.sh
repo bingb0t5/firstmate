@@ -40,7 +40,8 @@
 # A rerun reconciles its own marked archive and database staging and any complete
 # orphan archive left by an uncatchable termination, and refuses actionably on
 # any unmarked, symlinked, wrongly named, or world-readable leftover instead of
-# sweeping it by name.
+# sweeping it by name, and refuses before archiving anything when state/telegram
+# itself is a symlink, the wrong type, or not mode 0700.
 # Database publication is a monotonic boundary: once state/telegram/channel.db
 # exists its sealed archive is never discarded, and a later fsync, reopen, or
 # validation failure reports the concrete condition with both preserved.
@@ -69,6 +70,12 @@
 # when that cannot move the old format backward.
 # retire stops future polls but preserves every database condition and notice.
 # terminal never returns success: no result can retire the captain's channel.
+#
+# The cutover database is built on an unpublished private file: its empty schema
+# is created and committed first, then one explicit IMMEDIATE transaction writes
+# meta, imported messages, notices, conditions, and the offset together.
+# Its rollback journal and each poll's raw response body are private, owned, and
+# reaped from a positively identified previous generation.
 #
 # TRANSACTION AND VALIDATION.
 # bin/fm_procevent_telegram_state.py is the sole reader and writer of live

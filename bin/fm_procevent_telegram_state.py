@@ -74,6 +74,10 @@ STAGING_SCHEMA = "fm-telegram-migration-staging.v1"
 DATABASE_TEMP_GLOB = ".channel.db.*"
 DATABASE_TEMP_RE = re.compile(r"^\.channel\.db\.[0-9]+\.[0-9a-f]{32}$")
 DATABASE_STAGING_SCHEMA = "fm-telegram-database-staging.v1"
+DATABASE_JOURNAL_SUFFIX = "-journal"
+POLL_RESPONSE_PREFIX = ".poll-response."
+POLL_RESPONSE_GLOB = ".poll-response.*"
+POLL_RESPONSE_RE = re.compile(r"^\.poll-response\.([0-9]+)\.[0-9a-f]{32}$")
 ARCHIVE_ENTRY_TYPES = ("file", "directory", "symlink", "other")
 NOTICE_TOKEN_RE = re.compile(
     r"^(?P<state>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
@@ -600,8 +604,9 @@ def create_store(
         os.close(fd)
         conn = sqlite3.connect(str(temp_path), isolation_level=None, timeout=5)
         configure_connection(conn)
-        conn.execute("BEGIN IMMEDIATE")
         create_schema(conn)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
         store_uuid = str(uuid.uuid4())
         offset = plan.offset if plan is not None else 0
         conn.execute(
@@ -625,6 +630,7 @@ def create_store(
             create_notice(conn, "migration-blocked", "ambiguous")
         failpoint("during_database_build")
         conn.commit()
+        failpoint("after_database_commit")
         validate_store(conn)
         conn.close()
         conn = None
@@ -646,6 +652,7 @@ def create_store(
                 pass
         if publication is None or not publication.published:
             unlink_quietly(temp_path)
+        unlink_quietly(database_journal_path(temp_path))
         unlink_quietly(marker_path)
         raise
 
@@ -909,14 +916,31 @@ def poll_configuration() -> Tuple[int, int, int]:
     return timeout, curl_max, budget
 
 
+def reap_poll_responses(telegram_dir: Path) -> None:
+    for path in sorted(telegram_dir.glob(POLL_RESPONSE_GLOB)):
+        if path.is_symlink() or not path.is_file():
+            raise LocalStateError("poll-response-unsafe", path.name)
+        match = POLL_RESPONSE_RE.fullmatch(path.name)
+        if match is None:
+            raise LocalStateError("poll-response-unknown", path.name)
+        if stat.S_IMODE(path.lstat().st_mode) != 0o600:
+            raise LocalStateError("poll-response-mode", path.name)
+        pid = int(match.group(1))
+        if pid == os.getpid() or process_is_live(pid):
+            continue
+        unlink_quietly(path)
+
+
 def run_curl(
     state: Path, credentials: Credentials, offset: int, timeout: int, curl_max: int
 ) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
     telegram_dir = ensure_telegram_directory(state, create=False)
-    fd, body_name = tempfile.mkstemp(prefix=".poll-response.", dir=str(telegram_dir))
-    os.fchmod(fd, 0o600)
+    reap_poll_responses(telegram_dir)
+    body_path = telegram_dir / (
+        "%s%d.%s" % (POLL_RESPONSE_PREFIX, os.getpid(), uuid.uuid4().hex)
+    )
+    fd = os.open(str(body_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     os.close(fd)
-    body_path = Path(body_name)
     config = (
         'url = "https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=%d"\n'
         % (credentials.token, offset, timeout)
@@ -1474,6 +1498,22 @@ def unlink_quietly(path: Path) -> None:
         pass
 
 
+def database_journal_path(temp_path: Path) -> Path:
+    return temp_path.parent / (temp_path.name + DATABASE_JOURNAL_SUFFIX)
+
+
+def process_is_live(pid: int) -> bool:
+    if pid <= 0:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
 def staging_marker_path(staging: Path) -> Path:
     return staging.parent / (staging.name + STAGING_MARKER_SUFFIX)
 
@@ -1516,13 +1556,29 @@ def refuse_leftover(name: str, reason: str) -> None:
     )
 
 
+def refuse_unsafe_telegram_directory(state: Path) -> bool:
+    telegram_dir, _ = state_paths(state)
+    if telegram_dir.is_symlink() or (telegram_dir.exists() and not telegram_dir.is_dir()):
+        refuse_leftover("telegram", "is not a private state directory")
+    if not telegram_dir.exists():
+        return False
+    mode = stat.S_IMODE(telegram_dir.lstat().st_mode)
+    if mode != 0o700:
+        refuse_leftover("telegram", "has an unexpected mode %o" % mode)
+    return True
+
+
 def reconcile_database_staging(state: Path) -> None:
     telegram_dir, _ = state_paths(state)
-    if telegram_dir.is_symlink() or not telegram_dir.is_dir():
+    if not refuse_unsafe_telegram_directory(state):
         return
-    for path in sorted(telegram_dir.glob(DATABASE_TEMP_GLOB)):
+    entries = sorted(telegram_dir.glob(DATABASE_TEMP_GLOB))
+    reaped = set()
+    for path in entries:
         name = "telegram/" + path.name
         if path.name.endswith(STAGING_MARKER_SUFFIX):
+            continue
+        if path.name.endswith(DATABASE_JOURNAL_SUFFIX):
             continue
         if path.is_symlink() or not path.is_file():
             refuse_leftover(name, "is not a private database staging file")
@@ -1534,15 +1590,35 @@ def reconcile_database_staging(state: Path) -> None:
             refuse_leftover(name, "has no valid private database staging ownership marker")
         unlink_quietly(path)
         unlink_quietly(staging_marker_path(path))
-    for path in sorted(telegram_dir.glob(DATABASE_TEMP_GLOB)):
+        unlink_quietly(database_journal_path(path))
+        reaped.add(path.name)
+    for path in entries:
         name = "telegram/" + path.name
-        if not path.name.endswith(STAGING_MARKER_SUFFIX):
-            continue
-        if path.is_symlink() or not path.is_file():
-            refuse_leftover(name, "is not a private database staging ownership marker")
-        if marked_schema(path) != DATABASE_STAGING_SCHEMA:
-            refuse_leftover(name, "is not a valid private database staging ownership marker")
-        unlink_quietly(path)
+        if path.name.endswith(STAGING_MARKER_SUFFIX):
+            if not path.exists() and not path.is_symlink():
+                continue
+            if path.is_symlink() or not path.is_file():
+                refuse_leftover(name, "is not a private database staging ownership marker")
+            if marked_schema(path) != DATABASE_STAGING_SCHEMA:
+                refuse_leftover(
+                    name, "is not a valid private database staging ownership marker"
+                )
+            unlink_quietly(path)
+        elif path.name.endswith(DATABASE_JOURNAL_SUFFIX):
+            base = path.name[: -len(DATABASE_JOURNAL_SUFFIX)]
+            if base in reaped:
+                continue
+            if path.is_symlink() or not path.is_file():
+                refuse_leftover(name, "is not a private database staging journal")
+            if not DATABASE_TEMP_RE.fullmatch(base):
+                refuse_leftover(
+                    name, "does not carry this migrator's database staging name"
+                )
+            if stat.S_IMODE(path.lstat().st_mode) != 0o600:
+                refuse_leftover(
+                    name, "is not a private mode-0600 database staging journal"
+                )
+            unlink_quietly(path)
 
 
 def reconcile_migration_leftovers(state: Path) -> None:
