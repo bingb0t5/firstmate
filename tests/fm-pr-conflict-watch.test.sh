@@ -121,16 +121,18 @@ write_list() {
 }
 
 write_view() {
-  local home=$1 repo=$2 number=$3 json
+  local home=$1 repo=$2 number=$3 json=$4
   slug=${repo//\//__}
   printf '%s\n' "$json" > "$home/fixture/views/${slug}-${number}.json"
 }
 
+# The fake gh-axi reads a scripted view sequence by array index, so the payloads
+# are stored as one JSON array rather than as a stream of objects.
 write_view_sequence() {
   local home=$1 repo=$2 number=$3
   slug=${repo//\//__}
   shift 3
-  printf '%s\n' "$@" > "$home/fixture/views/${slug}-${number}.json"
+  printf '%s\n' "$@" | jq -s '.' > "$home/fixture/views/${slug}-${number}.json"
   printf '0\n' > "$home/fixture/views/${slug}-${number}.seq"
 }
 
@@ -201,7 +203,130 @@ test_unknown_never_reported() {
   out="$home/out.txt"
   run_check "$home" "$out" env FM_PR_CONFLICT_UNKNOWN_ATTEMPTS=3
   [ ! -s "$out" ] || fail "persistent UNKNOWN must stay silent: $(cat "$out")"
+  # The fake's cursor is how many rereads the check actually made, so a silent
+  # run that never reread is not mistaken for UNKNOWN being handled.
+  [ "$(cat "$home/fixture/views/acme__alpha-7.seq")" = 3 ] \
+    || fail "UNKNOWN should be reread up to the attempt limit, got $(cat "$home/fixture/views/acme__alpha-7.seq")"
   pass "persistent UNKNOWN is never reported as conflicted or clean"
+}
+
+test_unknown_resolving_to_conflicting_wakes() {
+  local home out
+  home=$(make_home wake-unknown-conflict)
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"UNKNOWN\"}]"
+  write_view_sequence "$home" "$REPO_A" 7 \
+    "{\"mergeable\":\"UNKNOWN\",\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false}" \
+    "{\"mergeable\":\"CONFLICTING\",\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false}"
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNKNOWN_ATTEMPTS=3
+  assert_contains "$(cat "$out")" "number=7" "settled CONFLICTING must wake"
+  assert_contains "$(cat "$out")" "head=$HEAD_ONE" "settled wake carries the head"
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNKNOWN_ATTEMPTS=3
+  [ ! -s "$out" ] || fail "a settled conflict must stay silent on the next poll: $(cat "$out")"
+  pass "UNKNOWN that settles on CONFLICTING wakes once"
+}
+
+test_unknown_wake_uses_the_head_the_reread_judged() {
+  local home out
+  home=$(make_home wake-unknown-head)
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"UNKNOWN\"}]"
+  write_view "$home" "$REPO_A" 7 \
+    "{\"mergeable\":\"CONFLICTING\",\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_TWO\",\"isDraft\":false}"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "head=$HEAD_TWO" "the wake must name the head the reread judged"
+  assert_not_contains "$(cat "$out")" "head=$HEAD_ONE" "the stale listed head must not label the wake"
+  # The next sweep sees the force-updated head as the listed one, and it is the
+  # same conflict that already woke, so it must not wake a second time.
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_TWO\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "the reread head must be what was recorded: $(cat "$out")"
+  pass "a reread wake is labelled and deduped by the head it judged"
+}
+
+# A sweep that finds more conflicts than one line can carry must not record the
+# ones it never printed: their heads do not change, so nothing would ever
+# re-trigger them and they would be lost for good.
+test_conflicts_past_the_line_cap_wake_on_a_later_sweep() {
+  local home out i rows='' seen='' round total=12 number
+  home=$(make_home wake-cap)
+  i=1
+  while [ "$i" -le "$total" ]; do
+    [ -z "$rows" ] || rows="$rows,"
+    rows="$rows{\"number\":$i,\"title\":\"Conflicted branch $i\",\"url\":\"https://github.com/$REPO_A/pull/$i\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}"
+    i=$((i + 1))
+  done
+  write_list "$home" "$REPO_A" "[$rows]"
+  out="$home/out.txt"
+  round=0
+  while [ "$round" -lt 6 ]; do
+    : > "$out"
+    run_check "$home" "$out"
+    [ -s "$out" ] || break
+    [ "$(wc -l < "$out" | tr -d '[:space:]')" = 1 ] || fail "every wake must be one line"
+    while IFS= read -r number; do
+      seen="$seen $number"
+    done < <(tr ' ' '\n' < "$out" | sed -n 's/^number=\([0-9][0-9]*\)$/\1/p')
+    round=$((round + 1))
+  done
+  [ "$round" -gt 1 ] || fail "12 conflicts cannot fit in one capped line; expected more than one wake"
+  i=1
+  while [ "$i" -le "$total" ]; do
+    case " $seen " in
+      *" $i "*) ;;
+      *) fail "conflict $i was never reported across $round wakes" ;;
+    esac
+    i=$((i + 1))
+  done
+  [ ! -s "$out" ] || fail "the fleet should fall silent once every conflict has woken"
+  pass "conflicts cut by the line cap wake on a later sweep instead of being lost"
+}
+
+# The dedupe record is not accumulate-only: a conflict the sweep no longer
+# observes is dropped, so the record stays the size of the live conflict set.
+# The proof is behavioural - a dropped key cannot suppress the same conflict if
+# it comes back.
+test_resolved_conflicts_leave_the_record() {
+  local home out
+  home=$(make_home record-prune)
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  [ -s "$out" ] || fail "first poll should wake"
+  write_list "$home" "$REPO_A" '[]'
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "a closed pull request must not wake: $(cat "$out")"
+  # state/.pr-conflict-watch is this script's own persisted record; its
+  # fm-pr-conflict-watch-v1 shape is the contract being asserted.
+  assert_not_contains "$(cat "$home/state/.pr-conflict-watch")" "$HEAD_ONE" \
+    "the record must not keep a key for a pull request it no longer sees"
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  : > "$out"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "number=7" "a conflict that comes back must wake again"
+  pass "keys for conflicts the sweep no longer observes leave the record"
+}
+
+# A run the watcher kills prints and records nothing, so the reread loop has to
+# end at the sweep deadline rather than at its attempt count.
+test_unknown_rereads_stop_at_the_sweep_deadline() {
+  local home out started elapsed
+  home=$(make_home unknown-deadline)
+  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"UNKNOWN\"}]"
+  write_view "$home" "$REPO_A" 7 \
+    "{\"mergeable\":\"UNKNOWN\",\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false}"
+  out="$home/out.txt"
+  started=$(date +%s)
+  # Ten attempts five seconds apart is 55s of rereads on a one second budget.
+  run_check "$home" "$out" env FM_PR_CONFLICT_BUDGET_SECS=1 \
+    FM_PR_CONFLICT_UNKNOWN_ATTEMPTS=10 FM_PR_CONFLICT_UNKNOWN_WAIT=5
+  elapsed=$(( $(date +%s) - started ))
+  [ "$elapsed" -lt 15 ] || fail "the reread loop ran past the sweep deadline: ${elapsed}s"
+  [ ! -s "$out" ] || fail "an unsettled pull request must stay silent: $(cat "$out")"
+  pass "UNKNOWN rereads stop at the sweep deadline"
 }
 
 test_clean_fleet_is_silent() {
@@ -244,6 +369,11 @@ test_newly_conflicted_wakes
 test_same_head_stays_silent
 test_new_head_after_force_update_wakes_again
 test_unknown_never_reported
+test_unknown_resolving_to_conflicting_wakes
+test_unknown_wake_uses_the_head_the_reread_judged
+test_conflicts_past_the_line_cap_wake_on_a_later_sweep
+test_resolved_conflicts_leave_the_record
+test_unknown_rereads_stop_at_the_sweep_deadline
 test_clean_fleet_is_silent
 test_draft_conflicts_are_reported
 test_arm_registers_check

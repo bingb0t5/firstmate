@@ -19,7 +19,10 @@
 #
 # Dedupe keys are owner/repo, PR number, and head SHA. A force-updated head that
 # conflicts again is a new event; the same conflict on the same head stays silent
-# after the first wake.
+# after the first wake. A key is recorded only for a conflict that reached the
+# printed line, so conflicts cut by the line cap are disclosed as omitted and
+# wake on a later sweep instead of being silenced. The record is cut back to the
+# conflicts each sweep still observes, so it cannot grow without bound.
 #
 # GitHub computes mergeability lazily. A single read that returns UNKNOWN is
 # never treated as clean or conflicted; the check polls with short waits until
@@ -46,10 +49,13 @@ REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
 RECORD_SCHEMA=fm-pr-conflict-watch-v1
 GH_AXI=${FM_PR_CONFLICT_GH_AXI:-gh-axi}
 MAX_LINE=1000
+FINDING_PREFIX='pr-conflict: '
 MAIN_OWNER=main
 
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-repo-slug-lib.sh
+. "$SCRIPT_DIR/fm-repo-slug-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-line-cap-lib.sh
@@ -182,16 +188,80 @@ real_epoch() { date +%s; }
 DEADLINE=0
 REPORTED_KEYS=
 RECORD_EPOCH=0
-FINDINGS=
+FINDING_TEXTS=()
+FINDING_KEYS=()
+FINDING_LINE=
+FINDING_LINE_KEYS=
+FINDING_OMITTED=0
+DISCOVERED_REPOS=
+REPO_OWNER_MAP=
+PROJECT_OWNER_MAP=
+FIRSTMATE_SLUG=
+SWEPT_REPOS=
+SEEN_KEYS=
+SWEEP_COMPLETE=1
+RESOLVED_STATE=
+RESOLVED_HEAD=
 
-emit_finding() {
+# Split a delimited accumulator into one part per line. `read -r -a` is not used
+# anywhere here because expanding a declared-but-empty array under `set -u` is a
+# fatal unbound-variable error on bash 3.2, and an empty record is the normal
+# state of a clean fleet.
+list_parts() {
+  local rest=$1 sep=$2 part
+  while [ -n "$rest" ]; do
+    part=${rest%%"$sep"*}
+    if [ "$part" = "$rest" ]; then
+      rest=
+    else
+      rest=${rest#*"$sep"}
+    fi
+    [ -n "$part" ] || continue
+    printf '%s\n' "$part"
+  done
+}
+
+# A finding is queued together with the dedupe key that would suppress its
+# repeat, and that key is recorded only once the finding survives the line cap.
+# A finding cut from the printed line was never reported, so recording it would
+# silence that conflict for good: its head does not change, so no later sweep
+# re-triggers it.
+queue_finding() {
   local text
   text=$(printf '%s' "$1" | tr '\t\r\n' '   ')
-  if [ -z "$FINDINGS" ]; then
-    FINDINGS=$text
-  else
-    FINDINGS="$FINDINGS; $text"
-  fi
+  FINDING_TEXTS+=("$text")
+  FINDING_KEYS+=("${2:-}")
+}
+
+# Fill the line in queue order up to <reserve> characters short of the cap, and
+# collect the keys of exactly the findings that fit. The first finding is always
+# taken, so a single over-long finding still reports something - the title is
+# the only unbounded field and it is last, so the final cut takes that tail -
+# rather than leaving the sweep permanently silent.
+build_finding_line() {
+  local reserve=$1 total i text key candidate room
+  FINDING_LINE=
+  FINDING_LINE_KEYS=
+  FINDING_OMITTED=0
+  total=${#FINDING_TEXTS[@]}
+  room=$((MAX_LINE - reserve))
+  i=0
+  while [ "$i" -lt "$total" ]; do
+    text=${FINDING_TEXTS[$i]}
+    key=${FINDING_KEYS[$i]}
+    if [ -z "$FINDING_LINE" ]; then
+      candidate="$FINDING_PREFIX$text"
+    else
+      candidate="$FINDING_LINE; $text"
+    fi
+    if [ "$i" -eq 0 ] || [ "${#candidate}" -le "$room" ]; then
+      FINDING_LINE=$candidate
+      [ -z "$key" ] || FINDING_LINE_KEYS="${FINDING_LINE_KEYS:+$FINDING_LINE_KEYS;}$key"
+    else
+      FINDING_OMITTED=$((FINDING_OMITTED + 1))
+    fi
+    i=$((i + 1))
+  done
 }
 
 budget_exhausted() {
@@ -214,14 +284,10 @@ gh_bounded() {
   fm_run_timed "$(probe_bound)" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 "$GH_AXI" "$@"
 }
 
-repo_slug() {
-  printf '%s' "$1" | sed -n 's#.*github\.com[:/]\([^/]*/[^/]*\)#\1#p' | sed 's#\.git$##; s#/pull/.*$##; s#/$##'
-}
-
 firstmate_repo_slug() {
   local url
   url=$(git -C "$FM_ROOT" remote get-url origin 2>/dev/null) || return 1
-  repo_slug "$url"
+  fm_repo_slug "$url"
 }
 
 project_names() {
@@ -234,32 +300,9 @@ resolve_project_repo() {
   dir="$PROJECTS/$project"
   [ -d "$dir" ] || return 1
   url=$(git -C "$dir" remote get-url origin 2>/dev/null) || return 1
-  slug=$(repo_slug "$url")
+  slug=$(fm_repo_slug "$url")
   [ -n "$slug" ] || return 1
   printf '%s\n' "$slug"
-}
-
-discover_repos() {
-  local project slug repos='' fm_slug
-  while IFS= read -r project; do
-    [ -n "$project" ] || continue
-    slug=$(resolve_project_repo "$project" 2>/dev/null) || continue
-    case " $repos " in
-      *" $slug "*) ;;
-      *) repos="$repos $slug" ;;
-    esac
-  done < <(project_names)
-  fm_slug=$(firstmate_repo_slug 2>/dev/null) || fm_slug=
-  if [ -n "$fm_slug" ]; then
-    case " $repos " in
-      *" $fm_slug "*) ;;
-      *) repos="$repos $fm_slug" ;;
-    esac
-  fi
-  for slug in $repos; do
-    [ -n "$slug" ] || continue
-    printf '%s\n' "$slug"
-  done
 }
 
 trim_field() {
@@ -269,49 +312,95 @@ trim_field() {
   printf '%s\n' "$value"
 }
 
-owner_for_project() {
-  local project=$1 reg line id projects part
+# The registry is read once per sweep into a project -> owning secondmate map.
+# First registration wins, which is the order a linear scan of the file would
+# have answered in.
+load_project_owners() {
+  local reg line id rest part
+  PROJECT_OWNER_MAP=
   reg="$DATA/secondmates.md"
-  [ -f "$reg" ] || return 1
+  [ -f "$reg" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      "- "*)
-        secondmate_registry_parse_line "$line" || continue
-        id=$SECONDMATE_REGISTRY_ID
-        projects=$SECONDMATE_REGISTRY_PROJECTS
-        IFS=',' read -r -a _parts <<< "$projects"
-        for part in "${_parts[@]}"; do
-          part=$(trim_field "$part")
-          [ "$part" = "$project" ] || continue
-          printf '%s\n' "$id"
-          return 0
-        done
-        ;;
+      "- "*) ;;
+      *) continue ;;
     esac
+    secondmate_registry_parse_line "$line" || continue
+    id=$SECONDMATE_REGISTRY_ID
+    rest=$SECONDMATE_REGISTRY_PROJECTS
+    while IFS= read -r part; do
+      part=$(trim_field "$part")
+      [ -n "$part" ] || continue
+      case "$part" in *[[:space:]]*) continue ;; esac
+      case "
+$PROJECT_OWNER_MAP" in
+        *"
+$part "*) continue ;;
+      esac
+      PROJECT_OWNER_MAP="$PROJECT_OWNER_MAP$part $id
+"
+    done < <(list_parts "$rest" ',')
   done < "$reg"
+}
+
+map_lookup() {
+  local map=$1 key=$2 line
+  while IFS= read -r line; do
+    [ "${line%% *}" = "$key" ] || continue
+    printf '%s\n' "${line#* }"
+    return 0
+  done <<EOF
+$map
+EOF
   return 1
 }
 
-owner_for_repo() {
-  local repo=$1 project slug owner fm_slug
-  fm_slug=$(firstmate_repo_slug 2>/dev/null) || fm_slug=
-  if [ -n "$fm_slug" ] && [ "$repo" = "$fm_slug" ]; then
-    printf '%s\n' "$MAIN_OWNER"
-    return 0
-  fi
+owner_for_project() {
+  map_lookup "$PROJECT_OWNER_MAP" "$1"
+}
+
+# Repositories and their owning targets are derived together, once per sweep, so
+# neither the origin remotes nor the registry are re-read per repository while
+# the same budget is paying for GitHub probes.
+discover_repos() {
+  local project slug owner
+  DISCOVERED_REPOS=
+  REPO_OWNER_MAP=
+  load_project_owners
+  FIRSTMATE_SLUG=$(firstmate_repo_slug 2>/dev/null) || FIRSTMATE_SLUG=
   while IFS= read -r project; do
     [ -n "$project" ] || continue
     slug=$(resolve_project_repo "$project" 2>/dev/null) || continue
-    [ "$slug" = "$repo" ] || continue
-    owner=$(owner_for_project "$project" 2>/dev/null) || owner=
-    if [ -n "$owner" ]; then
-      printf '%s\n' "$owner"
+    case " $DISCOVERED_REPOS " in
+      *" $slug "*) continue ;;
+    esac
+    if [ -n "$FIRSTMATE_SLUG" ] && [ "$slug" = "$FIRSTMATE_SLUG" ]; then
+      owner=$MAIN_OWNER
     else
-      printf '%s\n' "$MAIN_OWNER"
+      owner=$(owner_for_project "$project") || owner=
+      [ -n "$owner" ] || owner=$MAIN_OWNER
     fi
-    return 0
+    DISCOVERED_REPOS="$DISCOVERED_REPOS $slug"
+    REPO_OWNER_MAP="$REPO_OWNER_MAP$slug $owner
+"
   done < <(project_names)
-  printf '%s\n' "$MAIN_OWNER"
+  if [ -n "$FIRSTMATE_SLUG" ]; then
+    case " $DISCOVERED_REPOS " in
+      *" $FIRSTMATE_SLUG "*) ;;
+      *)
+        DISCOVERED_REPOS="$DISCOVERED_REPOS $FIRSTMATE_SLUG"
+        REPO_OWNER_MAP="$REPO_OWNER_MAP$FIRSTMATE_SLUG $MAIN_OWNER
+"
+        ;;
+    esac
+  fi
+}
+
+owner_for_repo() {
+  local owner
+  owner=$(map_lookup "$REPO_OWNER_MAP" "$1") || owner=
+  [ -n "$owner" ] || owner=$MAIN_OWNER
+  printf '%s\n' "$owner"
 }
 
 conflict_key() {
@@ -373,18 +462,59 @@ record_add_key() {
   fi
 }
 
+record_add_keys() {
+  local part
+  while IFS= read -r part; do
+    record_add_key "$part"
+  done < <(list_parts "$1" ';')
+}
+
 record_remove_key() {
   local key=$1 out='' part
-  IFS=';' read -r -a _parts <<< "$REPORTED_KEYS"
-  for part in "${_parts[@]}"; do
-    [ -n "$part" ] || continue
+  while IFS= read -r part; do
     [ "$part" = "$key" ] && continue
-    if [ -z "$out" ]; then
-      out=$part
-    else
-      out="$out;$part"
-    fi
-  done
+    out="${out:+$out;}$part"
+  done < <(list_parts "$REPORTED_KEYS" ';')
+  REPORTED_KEYS=$out
+}
+
+# Every open pull request this sweep read is remembered, so the record can be
+# cut back to the live conflict set instead of accumulating one key per head
+# forever. A repository whose whole open-PR page was read keeps only the keys
+# that page carried; a repository the sweep did not finish keeps all of its
+# keys, because absence there means unread rather than resolved. Keys for
+# repositories this fleet no longer works in are dropped only when the sweep
+# reached every discovered repository.
+seen_key() {
+  local key=$1
+  case ";$SEEN_KEYS;" in
+    *";$key;"*) return 0 ;;
+  esac
+  SEEN_KEYS="${SEEN_KEYS:+$SEEN_KEYS;}$key"
+}
+
+record_prune() {
+  local out='' part repo
+  while IFS= read -r part; do
+    repo=${part%%#*}
+    case " $SWEPT_REPOS " in
+      *" $repo "*)
+        case ";$SEEN_KEYS;" in
+          *";$part;"*) ;;
+          *) continue ;;
+        esac
+        ;;
+      *)
+        if [ "$SWEEP_COMPLETE" -eq 1 ]; then
+          case " $DISCOVERED_REPOS " in
+            *" $repo "*) ;;
+            *) continue ;;
+          esac
+        fi
+        ;;
+    esac
+    out="${out:+$out;}$part"
+  done < <(list_parts "$REPORTED_KEYS" ';')
   REPORTED_KEYS=$out
 }
 
@@ -394,24 +524,57 @@ json_field() {
   printf '%s' "$json" | jq -er "$query" 2>/dev/null
 }
 
+# Resolve one pull request's lazily computed mergeability into RESOLVED_STATE,
+# with the head RESOLVED_STATE describes in RESOLVED_HEAD - the read that
+# settled the state is also what names the head it was settled for, so a head
+# force-updated between the list and this read is reported under the SHA that
+# was actually judged.
+#
+# The retry loop is bounded by the sweep deadline as well as by the attempt
+# count: overrunning FM_CHECK_TIMEOUT gets the process group killed, and this
+# check prints and records only at the end, so an overrun sweep loses every
+# finding it made and repeats that loss on every poll. An unsettled read stays
+# unknown, which is silent, and never becomes clean or conflicted.
 pr_mergeable_resolved() {
-  local repo=$1 number=$2 mergeable='' attempt=0 json
+  local repo=$1 number=$2 mergeable='' attempt=0 json head
+  RESOLVED_STATE=unknown
+  RESOLVED_HEAD=
   while :; do
+    if budget_exhausted; then
+      RESOLVED_STATE=unknown
+      return 0
+    fi
     json=$(gh_bounded pr view "$number" --repo "$repo" \
       --json mergeable,mergeStateStatus,number,title,url,headRefOid,isDraft 2>/dev/null) || return 2
     mergeable=$(json_field "$json" '.mergeable // "UNKNOWN"') || return 2
+    head=$(json_field "$json" '.headRefOid // ""') || head=
     case "$mergeable" in
-      MERGEABLE) printf 'clean\n'; return 0 ;;
-      CONFLICTING) printf 'conflicted\n'; return 0 ;;
+      MERGEABLE)
+        RESOLVED_STATE=clean
+        RESOLVED_HEAD=$head
+        return 0
+        ;;
+      CONFLICTING)
+        RESOLVED_STATE=conflicted
+        RESOLVED_HEAD=$head
+        return 0
+        ;;
       UNKNOWN)
         attempt=$((attempt + 1))
         if [ "$attempt" -ge "$UNKNOWN_ATTEMPTS" ]; then
-          printf 'unknown\n'
+          RESOLVED_STATE=unknown
+          return 0
+        fi
+        if [ $((DEADLINE - $(real_epoch))) -le $((UNKNOWN_WAIT + PROBE_MIN_SECS)) ]; then
+          RESOLVED_STATE=unknown
           return 0
         fi
         [ "$UNKNOWN_WAIT" -eq 0 ] || sleep "$UNKNOWN_WAIT"
         ;;
-      *) printf 'unknown\n'; return 0 ;;
+      *)
+        RESOLVED_STATE=unknown
+        return 0
+        ;;
     esac
   done
 }
@@ -426,7 +589,7 @@ format_finding() {
 }
 
 evaluate_repo() {
-  local repo=$1 owner_team=$2 json count i row number title head draft url mergeable key resolved
+  local repo=$1 owner_team=$2 json count i row number title head draft url mergeable key state
   budget_exhausted && return 1
   json=$(gh_bounded pr list --repo "$repo" --state open --limit "$PR_LIMIT" \
     --json number,title,url,headRefOid,isDraft,mergeable 2>/dev/null) || return 0
@@ -444,35 +607,43 @@ evaluate_repo() {
     mergeable=$(json_field "$row" '.mergeable // "UNKNOWN"') || mergeable=UNKNOWN
     i=$((i + 1))
     [ -n "$head" ] || continue
-    key=$(conflict_key "$repo" "$number" "$head")
+    seen_key "$(conflict_key "$repo" "$number" "$head")"
     case "$mergeable" in
-      MERGEABLE)
+      MERGEABLE) state=clean ;;
+      CONFLICTING) state=conflicted ;;
+      UNKNOWN)
+        pr_mergeable_resolved "$repo" "$number" || continue
+        state=$RESOLVED_STATE
+        if [ -n "$RESOLVED_HEAD" ] && [ "$RESOLVED_HEAD" != "$head" ]; then
+          record_remove_key "$(conflict_key "$repo" "$number" "$head")"
+          head=$RESOLVED_HEAD
+          seen_key "$(conflict_key "$repo" "$number" "$head")"
+        fi
+        ;;
+      *) continue ;;
+    esac
+    key=$(conflict_key "$repo" "$number" "$head")
+    case "$state" in
+      conflicted) ;;
+      clean)
         record_remove_key "$key"
         continue
-        ;;
-      CONFLICTING) ;;
-      UNKNOWN)
-        resolved=$(pr_mergeable_resolved "$repo" "$number") || continue
-        case "$resolved" in
-          conflicted) ;;
-          clean)
-            record_remove_key "$key"
-            continue
-            ;;
-          *) continue ;;
-        esac
         ;;
       *) continue ;;
     esac
     record_has_key "$key" && continue
-    emit_finding "$(format_finding "$owner_team" "$repo" "$number" "$head" "$draft" "$url" "$title")"
-    record_add_key "$key"
+    queue_finding "$(format_finding "$owner_team" "$repo" "$number" "$head" "$draft" "$url" "$title")" "$key"
   done
+  # Only a page that was not itself cut short by PR_LIMIT can be read as the
+  # repository's whole open set, which is what pruning its stale keys relies on.
+  if [ "$count" -lt "$PR_LIMIT" ]; then
+    SWEPT_REPOS="$SWEPT_REPOS $repo"
+  fi
   return 0
 }
 
 action_check() {
-  local repo owner_team line now
+  local repo owner_team line now notice
   if ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
@@ -490,21 +661,40 @@ action_check() {
   DEADLINE=$(($(real_epoch) + BUDGET_SECS))
 
   if [ -n "$BUDGET_CUT_FROM" ]; then
-    emit_finding "sweep budget ${BUDGET_CUT_FROM}s cut to ${BUDGET_SECS}s to stay inside the watcher check timeout of ${CHECK_TIMEOUT}s"
+    queue_finding "sweep budget ${BUDGET_CUT_FROM}s cut to ${BUDGET_SECS}s to stay inside the watcher check timeout of ${CHECK_TIMEOUT}s"
   fi
 
-  while IFS= read -r repo; do
+  discover_repos
+  for repo in $DISCOVERED_REPOS; do
     [ -n "$repo" ] || continue
-    budget_exhausted && break
+    if budget_exhausted; then
+      SWEEP_COMPLETE=0
+      break
+    fi
     owner_team=$(owner_for_repo "$repo")
-    evaluate_repo "$repo" "$owner_team" || break
-  done < <(discover_repos)
+    evaluate_repo "$repo" "$owner_team" || { SWEEP_COMPLETE=0; break; }
+  done
 
   line=
-  if [ -n "$FINDINGS" ]; then
-    fm_cap_line_var "pr-conflict: $FINDINGS" "$MAX_LINE"
+  if [ "${#FINDING_TEXTS[@]}" -gt 0 ]; then
+    build_finding_line 0
+    if [ "$FINDING_OMITTED" -gt 0 ]; then
+      # Reserve the widest the disclosure can be, so the second pass cannot be
+      # invalidated by the count it is making room for.
+      notice="; ${#FINDING_TEXTS[@]} more omitted (line cap)"
+      build_finding_line "${#notice}"
+      if [ "$FINDING_OMITTED" -gt 0 ]; then
+        FINDING_LINE="$FINDING_LINE; $FINDING_OMITTED more omitted (line cap)"
+      fi
+    fi
+    # A last cut through the shared rule, so an over-long single finding ends
+    # with the same visible truncation marker the digests use.
+    fm_cap_line_var "$FINDING_LINE" "$MAX_LINE"
     line=$FM_LINE_CAP_LINE
   fi
+
+  record_prune
+  record_add_keys "$FINDING_LINE_KEYS"
 
   if [ -n "$line" ]; then
     printf '%s\n' "$line"
