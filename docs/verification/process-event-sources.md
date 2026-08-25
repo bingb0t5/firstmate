@@ -8,6 +8,7 @@ This record holds reusable version-scoped evidence for the runner's active guara
 Verified on 2026-07-31 on macOS (Darwin 25.5.0) with `lavish-axi` 0.1.45 installed.
 Generic keyed-answer feed verified on 2026-08-16 on the same platform, against the same published poll response shape.
 Cross-origin keyed-answer feed verified on 2026-08-19 through the real runner and Lavish adapter interface.
+Telegram adapter behavior verified on 2026-08-25 through the real adapter and generic runner interfaces.
 
 ## The published Lavish poll interface the adapter wraps
 
@@ -73,7 +74,7 @@ Never at-least-once, no-loss, or lossless.
 
 ## What the runner does prove
 
-Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose completion is a process event, not a timer; for the two supervision-delivery rows below, by `tests/fm-watch-triage.test.sh` driving a real `bin/fm-watch.sh` over a real capture; and for adapter-owned application, by `tests/fm-remote-reply.test.sh` driving the real remote-reply relay end to end in an isolated home:
+Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose completion is a process event, not a timer; for the two supervision-delivery rows below, by `tests/fm-watch-triage.test.sh` driving a real `bin/fm-watch.sh` over a real capture; for adapter-owned application, by `tests/fm-remote-reply.test.sh` driving the real remote-reply relay end to end in an isolated home; and for Telegram intake, by `tests/fm-procevent-telegram.test.sh` driving the public adapter and real generic runner in an isolated home:
 
 | Guarantee | How it is proven |
 | --- | --- |
@@ -115,6 +116,9 @@ Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose c
 | condition->action single-fire and trust | `tests/fm-procevent-when.test.sh` drives the public `when` adapter and generic runner with real commands, proving stable true fires once, a claimed fire restarts as ambiguous without a second action, concurrent arms publish one complete watch, and mutated specs or action executables are refused before execution |
 | condition->action terminal outcomes | the same suite proves flapping true polls do not fire, action failure, condition error budget, deadline expiry, and a true poll completing after its deadline each produce the expected terminal captured result without an unsafe action |
 | condition->action process bounds | the same suite proves action timeout terminates descendants and command-output staging remains within `FM_WHEN_OUTPUT_TAIL_BYTES` while the command runs |
+| Telegram write-before-offset and retry | the Telegram suite proves an authorized text update is durably written before its shared offset advances, any inbox or offset write failure leaves the offset unchanged, a retry delivers or completes the same update without duplicate inbox content, and pending and receipt cleanup failing after a durable handoff withholds the wake instead of repeating it |
+| Telegram identity and credential secrecy | the same suite proves only the configured sender in the configured chat reaches the inbox, unauthorized and non-text updates advance the offset without a wake, missing or unreadable mode-`0600` credentials keep every path - including pending delivery and receipt recovery - silent and inert until they return, and the bot token appears in neither command output, captured results, nor inbox payloads |
+| Telegram permanent source and API blocks | the same suite proves `terminal` rejects every result, the real generic runner keeps the source registered after captures, HTTP 401 is announced once and remains sticky until a successful poll, HTTP 409 is announced once per continuous overlap, and an update identifier Telegram could not have issued - a boolean, zero, or an out-of-range integer - is refused in both polling and receipt recovery without clearing a block or advancing the offset |
 | silent failure handling | a nonzero exit with no output publishes nothing and leaves the source registered for retry |
 | inertness | a home with no registered source generates no state, starts no process, and does not need supervision |
 
