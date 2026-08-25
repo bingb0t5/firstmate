@@ -1,0 +1,36 @@
+$ fm-pull.sh ready --json
+{
+  "eligible": [
+    {
+      "id": "urgent",
+      "priority": 0
+    },
+    {
+      "id": "low",
+      "priority": 4
+    }
+  ],
+  "ineligible": [
+    {
+      "id": "deferred",
+      "pull_reason": "migration_required"
+    }
+  ],
+  "attention": {
+    "limit": 4,
+    "count": 0,
+    "remaining": 4,
+    "valid": true,
+    "workers": [],
+    "reservations": [],
+    "reported": []
+  }
+}
+
+$ fm-pull.sh start deferred ...
+error: task deferred is not first eligible local task; pull urgent
+
+$ backlog state after refused start
+- [ ] deferred - deferred until migration (repo: demo) (kind: ship) (priority: 1) (since 2026-08-25)
+$ metadata publication check
+no deferred.meta published
