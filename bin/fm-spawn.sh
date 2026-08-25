@@ -24,14 +24,14 @@
 #   transaction; call fm-control rather than this flag directly unless you are
 #   deliberately re-launching an already-stopped task. Every identity axis -
 #   backend, kind, project or home, worktree, endpoint - comes from the task's
-#   validated state/<id>.meta, so --backend, --scout, --secondmate, a project
-#   positional, and batch pairs are all refused alongside it; only harness,
-#   model, and effort may change, which is what makes a harness switch one
-#   ordinary relaunch. It refuses unless the recorded endpoint is positively
-#   agent-free on a backend with a recovery-grade agent-state classifier (tmux
-#   or herdr), refuses unless the endpoint's shell is sitting in the recorded
-#   worktree, and clears the previous harness's per-task wiring before arming
-#   the new incarnation.
+#   validated state/<id>.meta, so --backend, --scout, --secondmate,
+#   --allow-primary-spawn, a project positional, and batch pairs are all refused
+#   alongside it; only harness, model, and effort may change, which is what
+#   makes a harness switch one ordinary relaunch. It refuses unless the recorded
+#   endpoint is positively agent-free on a backend with a recovery-grade
+#   agent-state classifier (tmux or herdr), refuses unless the endpoint's shell
+#   is sitting in the recorded worktree, and clears the previous harness's
+#   per-task wiring before arming the new incarnation.
 #   --allow-primary-spawn is a deliberate override for a fresh ship or scout spawn
 #   when data/secondmates.md lists the target project on a secondmate's projects:
 #   field. Without it, those spawns REFUSE rather than drift a secondmate-owned
@@ -48,8 +48,10 @@
 #   rather than a way to spawn while ownership is unresolvable, so repair the
 #   registry instead. A projects: entry matches on its path basename, so a bare
 #   name, a projects/<name>, and an absolute clone path all state one claim.
-#   Missing or empty registries, --secondmate spawns, and --relaunch are
-#   unaffected.
+#   Missing or empty registries spawn normally. The guard itself runs only on a
+#   fresh ship or scout create, so --secondmate spawns and --relaunch are
+#   unaffected; passing this flag on either is refused rather than ignored, so a
+#   meaningless override can never look accepted.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
