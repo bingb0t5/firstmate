@@ -466,12 +466,14 @@ Silence is not a proof that every repository was checked.
 Conflicts found and coverage holes are two models that share a sweep because coverage decides which conflict conclusions are justified.
 A conflict is a positive observation keyed by repository, pull request number, and head SHA.
 A coverage gap is an absence of a trustworthy observation keyed by a stable target: `repo:<owner/repo>` for a valid repository, `project:<name>` when a registered project's clone or origin cannot resolve to a valid repository, and `source:projects-registry` or `source:firstmate-origin` when discovery fails before a repository can be named.
+`bin/fm-repo-slug-lib.sh` owns structural GitHub identity parsing for HTTPS and SSH URLs with optional userinfo and numeric ports, SCP-style SSH remotes, and canonical HTTPS pull request URLs.
+It accepts only the exact `github.com` host after case normalization and never retains origin authority or credentials.
 The durable fact is that the target has remained unaccounted for since it first failed; the latest cause of that failure is metadata on the gap, not a second gap.
 A cause change does not reset age and does not notify again after the gap has been disclosed.
 GitHub fails transiently often enough that waking on each blip would be noise, so a gap is disclosed only once it has stayed open for longer than `FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800 seconds, `0` to disclose on the first sweep).
-That disclosure is one `coverage-hole` item naming the target, the valid repository when one is known, how long it has been unaccounted for, and `latest-cause` (`github`, `budget`, `truncated`, `invalid-origin`, `discovery`, or `dependency-missing`).
+That disclosure is one `coverage-hole` item naming the target, the valid repository when one is known, how long it has been unaccounted for, and `latest-cause` (`github`, `budget`, `truncated`, `invalid-origin`, `unsupported-host`, `unsupported-transport`, `discovery`, or `dependency-missing`).
 If an armed watch later loses `jq` or `gh-axi`, the stable targets are `source:runtime-jq` and `source:runtime-gh-axi`; their gaps close when the dependency returns.
-It is not a conflict, and it does not claim a root cause the sweep did not observe: a local identity refusal is `invalid-origin`, a local deadline is `budget`, and a cut tool envelope is `truncated`.
+It is not a conflict, and it does not claim a root cause the sweep did not observe: malformed identity is `invalid-origin`, a different forge is `unsupported-host`, an unsupported URL scheme is `unsupported-transport`, a local deadline is `budget`, and a cut tool envelope is `truncated`.
 A coverage item that does not fit the line is not counted as disclosed, so it is repeated on a later sweep.
 A sweep is complete only when every expected target was observed and discovery itself completed; an incomplete sweep prunes nothing it did not see.
 A sweep that runs out of budget still names the targets it never reached, so they are coverage gaps rather than silent clean repositories.

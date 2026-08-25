@@ -211,7 +211,8 @@ if [ "$INCLUDE_PRS" = 1 ]; then
     repos=""
     while IFS= read -r u; do
       [ -n "$u" ] || continue
-      s=$(fm_repo_slug "$u"); [ -n "$s" ] || continue
+      fm_repo_slug_parse "$u" || continue
+      s=$FM_REPO_SLUG
       case " $repos " in *" $s "*) : ;; *) repos="$repos $s" ;; esac
     done <<EOF
 $(printf '%s' "$SNAP" | jq -r '.tasks[].pr.url // empty')
@@ -220,7 +221,8 @@ EOF
       [ -n "$wt" ] || continue
       [ -d "$wt" ] || continue
       u=$(git -C "$wt" remote get-url origin 2>/dev/null) || continue
-      s=$(fm_repo_slug "$u"); [ -n "$s" ] || continue
+      fm_repo_slug_parse "$u" || continue
+      s=$FM_REPO_SLUG
       case " $repos " in *" $s "*) : ;; *) repos="$repos $s" ;; esac
     done <<EOF
 $(printf '%s' "$SNAP" | jq -r '.tasks[] | select(.kind != "secondmate") | .paths.worktree.path // empty')

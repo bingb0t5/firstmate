@@ -233,6 +233,9 @@ DISCOVERED_REPOS=
 REPO_OWNER_MAP=
 PROJECT_OWNER_MAP=
 FIRSTMATE_SLUG=
+FIRSTMATE_CAUSE=
+PROJECT_SLUG=
+PROJECT_CAUSE=
 SWEPT_REPOS=
 SEEN_KEYS=
 OBSERVED_TARGETS=
@@ -333,10 +336,17 @@ gh_bounded() {
   fm_run_timed "$(probe_bound)" env GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 "$GH_AXI" "$@"
 }
 
-firstmate_repo_slug() {
+firstmate_repo_resolve() {
   local url
+  FIRSTMATE_SLUG=
+  FIRSTMATE_CAUSE=discovery
   url=$(git -C "$FM_ROOT" remote get-url origin 2>/dev/null) || return 1
-  fm_repo_slug "$url"
+  if ! fm_repo_slug_parse "$url"; then
+    FIRSTMATE_CAUSE=$FM_REPO_SLUG_STATUS
+    return 1
+  fi
+  FIRSTMATE_SLUG=$FM_REPO_SLUG
+  FIRSTMATE_CAUSE=
 }
 
 # A registry that cannot be read enumerates nothing, which reads exactly like a
@@ -348,13 +358,18 @@ project_names() {
 }
 
 resolve_project_repo() {
-  local project=$1 dir url slug
+  local project=$1 dir url
+  PROJECT_SLUG=
+  PROJECT_CAUSE=discovery
   dir="$PROJECTS/$project"
   [ -d "$dir" ] || return 1
   url=$(git -C "$dir" remote get-url origin 2>/dev/null) || return 1
-  slug=$(fm_repo_slug "$url")
-  valid_repo_slug "$slug" || return 2
-  printf '%s\n' "$slug"
+  if ! fm_repo_slug_parse "$url"; then
+    PROJECT_CAUSE=$FM_REPO_SLUG_STATUS
+    return 1
+  fi
+  PROJECT_SLUG=$FM_REPO_SLUG
+  PROJECT_CAUSE=
 }
 
 trim_field() {
@@ -442,7 +457,7 @@ add_target() {
 
 add_repo_target() {
   local slug=$1 owner=$2
-  valid_repo_slug "$slug" || return 1
+  fm_repo_slug_valid "$slug" || return 1
   case " $DISCOVERED_REPOS " in
     *" $slug "*) return 0 ;;
   esac
@@ -456,7 +471,7 @@ add_repo_target() {
 # neither the origin remotes nor the registry are re-read per repository while
 # the same budget is paying for GitHub probes.
 discover_targets() {
-  local project slug owner names resolve_status
+  local project slug owner names
   EXPECTED_TARGETS=
   TARGET_REPO_MAP=
   TARGET_OWNER_MAP=
@@ -465,14 +480,9 @@ discover_targets() {
   REPO_OWNER_MAP=
   DISCOVERY_COMPLETE=1
   load_project_owners
-  if ! FIRSTMATE_SLUG=$(firstmate_repo_slug 2>/dev/null); then
-    FIRSTMATE_SLUG=
+  if ! firstmate_repo_resolve; then
     DISCOVERY_COMPLETE=0
-    add_target source:firstmate-origin '' '' discovery
-  elif [ -z "$FIRSTMATE_SLUG" ] || ! valid_repo_slug "$FIRSTMATE_SLUG"; then
-    DISCOVERY_COMPLETE=0
-    add_target source:firstmate-origin '' '' invalid-origin
-    FIRSTMATE_SLUG=
+    add_target source:firstmate-origin '' '' "$FIRSTMATE_CAUSE"
   else
     gap_close source:firstmate-origin
   fi
@@ -485,17 +495,12 @@ discover_targets() {
   fi
   while IFS= read -r project; do
     [ -n "$project" ] || continue
-    slug=$(resolve_project_repo "$project" 2>/dev/null)
-    resolve_status=$?
-    if [ "$resolve_status" -ne 0 ]; then
+    if ! resolve_project_repo "$project"; then
       DISCOVERY_COMPLETE=0
-      if [ "$resolve_status" -eq 2 ]; then
-        add_target "project:$project" '' '' invalid-origin
-      else
-        add_target "project:$project" '' '' discovery
-      fi
+      add_target "project:$project" '' '' "$PROJECT_CAUSE"
       continue
     fi
+    slug=$PROJECT_SLUG
     gap_close "project:$project"
     if [ -n "$FIRSTMATE_SLUG" ] && [ "$slug" = "$FIRSTMATE_SLUG" ]; then
       owner=$MAIN_OWNER
@@ -906,23 +911,6 @@ gh_api() {
   GH_API_BODY=$body
 }
 
-# An owner/repo slug is interpolated into a GraphQL document, so it is held to
-# the character set GitHub actually allows first. A slug that fails this is
-# refused rather than sent, and its repository is left unread rather than
-# silently reported clean.
-valid_repo_slug() {
-  local repo=$1
-  case "$repo" in
-    *[!A-Za-z0-9._/-]*) return 1 ;;
-  esac
-  case "$repo" in
-    */*/*|/*|*/) return 1 ;;
-    */*) ;;
-    *) return 1 ;;
-  esac
-  return 0
-}
-
 # GraphQL answers with HTTP 200 and a null repository when the repository cannot
 # be read, which through a plain field selection is byte-identical to a
 # repository with no open pull requests. Both guards below therefore fail the jq
@@ -936,7 +924,7 @@ GQL_GUARD='if ((.errors // []) | length) > 0 then error("graphql errors") '
 # read.
 pr_list_records() {
   local repo=$1 owner name
-  valid_repo_slug "$repo" || { LAST_READ_CAUSE=invalid-origin; return 2; }
+  fm_repo_slug_valid "$repo" || { LAST_READ_CAUSE=invalid-origin; return 2; }
   owner=${repo%%/*}
   name=${repo#*/}
   LAST_READ_CAUSE=
@@ -948,7 +936,7 @@ pr_list_records() {
 # reread a pull request whose mergeability GitHub had not computed yet.
 pr_view_record() {
   local repo=$1 number=$2 owner name
-  valid_repo_slug "$repo" || { LAST_READ_CAUSE=invalid-origin; return 2; }
+  fm_repo_slug_valid "$repo" || { LAST_READ_CAUSE=invalid-origin; return 2; }
   owner=${repo%%/*}
   name=${repo#*/}
   LAST_READ_CAUSE=

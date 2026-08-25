@@ -1032,6 +1032,22 @@ test_include_prs_is_the_only_fetch_path() {
   pass "--include-prs is the only path that fetches, and it enriches correctly"
 }
 
+test_include_prs_accepts_structural_worktree_origin() {
+  local home fakebin sentinel
+  home=$(make_home structural-origin); write_fixture "$home"
+  sentinel="generated-bearings-userinfo-${RANDOM}-${RANDOM}"
+  git -C "$home/projects/ship-wt" init -q
+  git -C "$home/projects/ship-wt" remote add origin \
+    "https://${sentinel}@GitHub.COM:443/acme/alpha.git"
+  fakebin=$(make_fakebin "$home"); : > "$home/net.log"
+  run "$home" "$fakebin" --include-prs --json >/dev/null
+  assert_contains "$(cat "$home/net.log")" "--repo acme/alpha" \
+    "bearings must query the canonical slug from a credentialed origin"
+  assert_not_contains "$(cat "$home/net.log")" "$sentinel" \
+    "bearings must not send origin userinfo to GitHub"
+  pass "bearings uses the shared structural origin identity"
+}
+
 test_partial_github_failure_degrades() {
   local home fakebin json rc
   home=$(make_home partial); write_fixture "$home"
@@ -1975,6 +1991,7 @@ test_open_decision_surfaces_end_to_end
 test_report_pointers_surface
 test_superseded_queued_item_dropped_by_default
 test_include_prs_is_the_only_fetch_path
+test_include_prs_accepts_structural_worktree_origin
 test_partial_github_failure_degrades
 test_perl_fallback_bounds_github_call
 test_section_caps_and_expansion_flags

@@ -4,6 +4,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-repo-slug-lib.sh
+. "$ROOT/bin/fm-repo-slug-lib.sh"
 
 WATCH="$ROOT/bin/fm-pr-conflict-watch.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pr-conflict-watch)
@@ -33,6 +35,7 @@ make_fake_gh_axi() {
 #!/usr/bin/env bash
 set -u
 fixture="$FM_TEST_PR_CONFLICT_FIXTURE"
+[ -z "${FM_TEST_PR_CONFLICT_ARG_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_TEST_PR_CONFLICT_ARG_LOG"
 
 die_validation() {
   printf 'error: "%s"\n' "$1"
@@ -213,7 +216,7 @@ SH
 }
 
 make_home() {
-  local name=$1 home fakebin fixture
+  local name=$1 home fakebin fixture fm_origin fm_slug=
   home="$TMP_ROOT/$name"
   fixture="$home/fixture"
   fakebin="$home/fakebin"
@@ -235,7 +238,9 @@ MD
   git -C "$home/projects/alpha" remote add origin "https://github.com/$REPO_A.git"
   git -C "$home/projects/beta" init -q
   git -C "$home/projects/beta" remote add origin "https://github.com/$REPO_B.git"
-  fm_slug=$(git -C "$ROOT" remote get-url origin 2>/dev/null | sed -n 's#.*github\.com[:/]\([^/]*/[^/]*\)#\1#p' | sed 's#\.git$##')
+  if fm_origin=$(git -C "$ROOT" remote get-url origin 2>/dev/null); then
+    fm_repo_slug_parse "$fm_origin" && fm_slug=$FM_REPO_SLUG
+  fi
   make_fake_gh_axi "$fakebin/gh-axi"
   ln -sf "$JQ_BIN" "$fakebin/jq"
   if [ -n "$fm_slug" ]; then
@@ -376,36 +381,6 @@ test_fake_gh_axi_matches_the_real_cli_contract() {
 # The watcher and the bearings snapshot must name the same repository from the
 # same remote, so the shared parser they both source is exercised directly here:
 # a slug that differed between them would route one pull request two ways.
-test_repo_slug_parses_github_remotes() {
-  local got
-  # shellcheck source=bin/fm-repo-slug-lib.sh
-  # shellcheck disable=SC1091
-  . "$ROOT/bin/fm-repo-slug-lib.sh"
-  local url expected
-  while IFS='|' read -r url expected; do
-    [ -n "$url" ] || continue
-    got=$(fm_repo_slug "$url")
-    [ "$got" = "$expected" ] \
-      || fail "fm_repo_slug '$url' expected '$expected', got '$got'"
-  done <<'CASES'
-https://github.com/acme/alpha.git|acme/alpha
-https://github.com/acme/alpha|acme/alpha
-https://github.com/acme/alpha/|acme/alpha
-https://github.com/acme/alpha/pull/12|acme/alpha
-git@github.com:acme/alpha.git|acme/alpha
-ssh://git@github.com/acme/alpha.git|acme/alpha
-ssh://git@github.com:22/acme/alpha.git|acme/alpha
-https://gitlab.com/acme/alpha.git|
-https://notgithub.com/acme/alpha.git|
-https://github.com.evil.example/acme/alpha.git|
-git@notgithub.com:acme/alpha.git|
-ssh://git@github.com.evil.example:22/acme/alpha.git|
-ssh://git@github.com:notaport/acme/alpha.git|
-/home/example/projects/alpha|
-CASES
-  pass "the shared remote parser resolves GitHub slugs and refuses to guess"
-}
-
 test_newly_conflicted_wakes() {
   local home out
   home=$(make_home wake-new)
@@ -1094,7 +1069,7 @@ test_firstmate_origin_failure_causes_are_distinguished() {
     FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
   assert_contains "$(cat "$out")" "coverage-hole target=source:firstmate-origin" \
     "a rejected firstmate origin must be a source coverage gap"
-  assert_contains "$(cat "$out")" "latest-cause=invalid-origin" \
+  assert_contains "$(cat "$out")" "latest-cause=unsupported-host" \
     "a present non-GitHub firstmate origin must be an identity refusal"
 
   home=$(make_home firstmate-missing-origin)
@@ -1129,7 +1104,7 @@ test_project_origin_failure_causes_are_distinguished() {
   run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
   assert_contains "$(cat "$out")" "coverage-hole target=project:alpha" \
     "a rejected project origin must preserve the project target"
-  assert_contains "$(cat "$out")" "latest-cause=invalid-origin" \
+  assert_contains "$(cat "$out")" "latest-cause=unsupported-host" \
     "a present non-GitHub project origin must be an identity refusal"
   pass "project origin lookup and identity failures keep distinct causes"
 }
@@ -1157,6 +1132,38 @@ test_project_gap_recovery_is_independent() {
   assert_not_contains "$(cat "$out")" "coverage-hole target=project:beta" \
     "beta's continuous disclosed gap must remain deduped"
   pass "project gaps recover independently"
+}
+
+test_structural_origin_routing_and_nonretention() {
+  local home out sentinel state
+  home=$(make_home structural-origin)
+  sentinel="generated-userinfo-${RANDOM}-${RANDOM}"
+  git -C "$home/projects/alpha" remote set-url origin \
+    "https://x-access-token:${sentinel}@GitHub.COM:443/acme/alpha.git"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false CONFLICTING "Credentialed"
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_ARG_LOG="$home/args.log" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "repo=$REPO_A" "credentialed HTTPS origin must be polled"
+  state=$(cat "$home/state/.pr-conflict-watch")
+  assert_not_contains "$(cat "$out")$state$(cat "$home/args.log")" "$sentinel" \
+    "origin userinfo must not reach output, state, or GitHub arguments"
+
+  home=$(make_home structural-ssh-port)
+  git -C "$home/projects/alpha" remote set-url origin ssh://git@github.com:22/acme/alpha.git
+  add_pr "$home" "$REPO_A" 8 "$HEAD_TWO" false CONFLICTING "Port"
+  run_check "$home" "$home/out.txt"
+  assert_contains "$(cat "$home/out.txt")" "repo=$REPO_A" "SSH port origin must be polled"
+
+  home=$(make_home structural-causes)
+  git -C "$home/projects/alpha" remote set-url origin https://github.com.evil.example/acme/alpha.git
+  git -C "$home/projects/beta" remote set-url origin git://github.com/acme/beta.git
+  run_check "$home" "$home/out.txt" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$home/out.txt")" "coverage-hole target=project:alpha"
+  assert_contains "$(cat "$home/out.txt")" "coverage-hole target=project:beta"
+  assert_contains "$(cat "$home/out.txt")" "latest-cause=unsupported-host"
+  assert_contains "$(cat "$home/out.txt")" "latest-cause=unsupported-transport"
+  pass "structural origins route safely with typed refusal causes"
 }
 
 # An unreadable projects registry is a source-level gap, not an unnamed sweep.
@@ -1343,7 +1350,6 @@ test_arm_registers_check() {
 }
 
 test_fake_gh_axi_matches_the_real_cli_contract
-test_repo_slug_parses_github_remotes
 test_newly_conflicted_wakes
 test_same_head_stays_silent
 test_new_head_after_force_update_wakes_again
@@ -1378,6 +1384,7 @@ test_malformed_origin_round_trips_as_local_target
 test_firstmate_origin_failure_causes_are_distinguished
 test_project_origin_failure_causes_are_distinguished
 test_project_gap_recovery_is_independent
+test_structural_origin_routing_and_nonretention
 test_unreadable_registry_is_a_source_coverage_gap
 test_mixed_sweep_does_not_cross_write_ledgers
 test_coverage_omitted_by_line_cap_is_emitted_later
