@@ -312,7 +312,7 @@ test_answer_records_and_closes() {
 # --release lifts the hold instead of closing, preserving the work item's own
 # body under the record; a re-held task later accepts a new answer.
 test_release_frees_held_work() {
-  local home show out
+  local home show out held
   home=$(make_home release-work)
   tasks_in "$home" add sample-widget "Ship the sample widget" --kind ship --repo sample \
     --body 'The widget plan body. Literal escape: \n. Unicode: café.' >/dev/null \
@@ -359,6 +359,22 @@ test_release_frees_held_work() {
   # A NEW captain gate on the same task later takes a NEW answer.
   run_captain "$home" hold sample-widget --reason "captain pricing call needed" >/dev/null \
     || fail "could not re-hold the released work item"
+  cat > "$home/state/sample-pricing-review.status" <<'EOF'
+needs-decision [key=price]: choose the new price
+captain-held [key=price]: tracked by sample-widget
+EOF
+  run_captain "$home" hold sample-settlement-trigger --title "Choose a separate option" \
+    --reason "captain separate choice pending" --repo sample >/dev/null \
+    || fail "could not create the separate settlement trigger"
+  printf 'Use the separate option.\n' > "$home/separate.txt"
+  run_captain "$home" answer sample-settlement-trigger \
+    --decision-file "$home/separate.txt" >/dev/null \
+    || fail "could not answer the separate settlement trigger"
+  held=$(FM_STATE_OVERRIDE="$home/state" bash -c \
+    'SCRIPT_DIR="$1/bin"; . "$SCRIPT_DIR/fm-classify-lib.sh"; status_held_decisions "$2"' \
+    bash "$ROOT" "$home/state/sample-pricing-review.status")
+  [ -n "$held" ] \
+    || fail "an older release record cleared a newly re-held captain decision"
   printf 'Price it at nine dollars.\n' > "$home/price.txt"
   run_captain "$home" answer sample-widget --decision-file "$home/price.txt" --release >/dev/null \
     || fail "a re-held task refused a new answer"

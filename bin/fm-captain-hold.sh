@@ -483,7 +483,7 @@ close_answered() {  # <task-id> <release-0-or-1>
 # never hide another item the captain still owes, while the final answer clears
 # the fold that manager quietness reads.
 settle_answered_status_holds() {
-  local status origin key _verb note tracked entry task show body all_settled append_rc
+  local status origin key _verb note tracked entry task show state hold_kind body all_settled append_rc
   for status in "$STATE"/*.status; do
     [ -f "$status" ] && [ ! -L "$status" ] || continue
     origin=${status##*/}
@@ -501,7 +501,14 @@ settle_answered_status_holds() {
           || { all_settled=0; break; }
         show=$(task_show "$task" 2>/dev/null) \
           || { all_settled=0; break; }
+        state=$(show_field "$show" state)
+        hold_kind=$(show_field_value "$show" hold_kind)
         body=$(show_field "$show" body)
+        # Resolution records are historical. A released task can later acquire
+        # a new captain hold, which remains unanswered until that hold itself is
+        # released or the task is closed.
+        [ "$state" = "done" ] || [ "$hold_kind" != captain ] \
+          || { all_settled=0; break; }
         body_has_resolution_record "$body" \
           || { all_settled=0; break; }
       done <<EOF
