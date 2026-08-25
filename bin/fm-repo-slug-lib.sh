@@ -23,8 +23,8 @@ fm_repo_slug_valid() {  # <owner/repo>
 }
 
 fm_repo_slug_parse() {  # <origin-or-pr-url>
-  local origin=${1-} transport= rest= authority= path= userinfo= hostport= host= port=
-  local owner= repo= tail= number= has_userinfo=0
+  local origin=${1-} transport='' rest='' authority='' path='' userinfo=''
+  local hostport='' host='' port='' owner='' repo='' tail='' number='' has_userinfo=0
   FM_REPO_SLUG_STATUS=
   FM_REPO_SLUG=
 
@@ -80,6 +80,8 @@ fm_repo_slug_parse() {  # <origin-or-pr-url>
       *) host=$hostport ;;
     esac
   fi
+  # GitHub identities are ASCII, so locale-aware case folding is incorrect.
+  # shellcheck disable=SC2018,SC2019
   host=$(printf '%s' "$host" | tr 'A-Z' 'a-z')
   [ "$host" = github.com ] \
     || { FM_REPO_SLUG_STATUS=unsupported-host; return 1; }
@@ -114,7 +116,9 @@ fm_repo_slug_parse() {  # <origin-or-pr-url>
   esac
 
   case "$repo" in *.git) repo=${repo%.git} ;; esac
+  # shellcheck disable=SC2018,SC2019
   owner=$(printf '%s' "$owner" | tr 'A-Z' 'a-z')
+  # shellcheck disable=SC2018,SC2019
   repo=$(printf '%s' "$repo" | tr 'A-Z' 'a-z')
   FM_REPO_SLUG="$owner/$repo"
   if ! fm_repo_slug_valid "$FM_REPO_SLUG"; then
@@ -122,6 +126,8 @@ fm_repo_slug_parse() {  # <origin-or-pr-url>
     FM_REPO_SLUG_STATUS=invalid-origin
     return 1
   fi
+  # This sourced-library result is consumed by callers after the function returns.
+  # shellcheck disable=SC2034
   FM_REPO_SLUG_STATUS=ok
   return 0
 }

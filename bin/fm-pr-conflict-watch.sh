@@ -770,7 +770,7 @@ EOF
 }
 
 deliver_findings() {
-  local line= notice
+  local line='' notice=''
   if [ "${#FINDING_TEXTS[@]}" -gt 0 ]; then
     build_finding_line 0
     if [ "$FINDING_OMITTED" -gt 0 ]; then
