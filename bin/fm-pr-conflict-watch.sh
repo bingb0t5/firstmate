@@ -28,11 +28,13 @@
 # than resolved, so such a repository's keys do accumulate across sweeps.
 #
 # GitHub is read through `gh-axi api`, which answers with an axi envelope rather
-# than raw JSON. One GraphQL read per repository carries every open pull request
-# together with its mergeability, so sweep cost scales with repositories rather
-# than with pull requests. GitHub computes mergeability lazily, and a read that
-# comes back UNKNOWN is never treated as clean or conflicted; only that pull
-# request is reread, with short waits, until the state settles or stays unknown.
+# than raw JSON. One GraphQL read per repository carries the bounded open-PR page,
+# its mergeability, and completeness metadata, so sweep cost scales with
+# repositories rather than with pull requests. A page with a successor is an
+# unobserved coverage gap, never a complete open set. GitHub computes mergeability
+# lazily, and a read that comes back UNKNOWN is never treated as clean or
+# conflicted; only that pull request is reread, with short waits, until the state
+# settles or stays unknown.
 #
 # Coverage is a separate ledger from conflicts. A conflict is a positive
 # observation keyed by repository, pull request number, and head SHA. A coverage

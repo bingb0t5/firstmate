@@ -451,7 +451,8 @@ Draft pull requests are included; a conflicted draft is reported with `draft=yes
 Each wake line begins with `pr-conflict:` and carries `owner-team`, `repo`, `number`, `head`, `draft`, `url`, and `title` so firstmate can route without re-deriving ownership.
 Dedupe keys are repository, pull request number, and head SHA: the same conflict on the same head is reported once, while a force-updated head that conflicts again is a new event.
 GitHub is read through `gh-axi api`, whose replies arrive as an axi envelope rather than as raw JSON.
-One GraphQL read per repository carries every open pull request together with its mergeability, so sweep cost scales with the number of repositories rather than with the number of pull requests.
+One GraphQL read per repository carries the bounded open-pull-request page together with mergeability and `pageInfo.hasNextPage`, so sweep cost scales with the number of repositories rather than with the number of pull requests.
+When `hasNextPage` is true, the repository is an unobserved coverage gap rather than a complete open set.
 GitHub computes mergeability lazily; a pull request that comes back `UNKNOWN` is reread on its own, and a persistently unknown state is treated as unknown rather than clean or conflicted.
 A GraphQL read of a repository that cannot be resolved answers with a null repository rather than an error, which would otherwise be indistinguishable from a repository with no open pull requests, so the query refuses that shape and the repository is an unobserved GitHub coverage gap instead.
 A reread that settles the state also names the head it settled for, so a branch force-updated between the listing and the reread is reported and deduped under the SHA that was actually judged.
