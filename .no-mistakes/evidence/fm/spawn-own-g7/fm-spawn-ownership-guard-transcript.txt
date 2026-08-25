@@ -1,0 +1,95 @@
+==============================================================
+ 1. The registry that states who owns what
+==============================================================
+
+$ cat $FM_HOME/data/secondmates.md
+# Second mates
+
+- design - design system (home: $TMP/homes/design; scope: design system, component library; projects: orca-ui, marketing-site; added 2026-06-22)
+- triage - incident triage (home: $TMP/homes/triage; scope: incident triage and on-call; projects: projects/orca-ui; added 2026-07-02)
+
+==============================================================
+ 2. Fresh crewmate spawn into a secondmate-owned project: REFUSED
+==============================================================
+
+$ fm-spawn.sh fix-nav-a1 projects/orca-ui claude --mode no-mistakes --yolo off
+error: project orca-ui is registered to secondmate(s) design,triage; spawn the worker in a registered secondmate home or pass --allow-primary-spawn for a deliberate primary-home exception
+[exit status: 1]
+
+$ ls $FM_HOME/state/
+(no fix-nav-a1.meta: the refusal lands before any task record exists)
+
+==============================================================
+ 3. Same spawn with the deliberate override: allowed, loud, recorded
+==============================================================
+
+$ fm-spawn.sh fix-nav-a1 projects/orca-ui claude --mode no-mistakes --yolo off --allow-primary-spawn
+notice: --allow-primary-spawn bypasses secondmate ownership for orca-ui (registered owner(s): design,triage); route future work to that secondmate unless this exception remains deliberate
+spawned fix-nav-a1 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-fix-nav-a1 worktree=$TMP/wt-fix-nav-a1
+[exit status: 0]
+
+$ grep primary_spawn_override $FM_HOME/state/fix-nav-a1.meta
+primary_spawn_override=1
+primary_spawn_override_owners=design,triage
+
+==============================================================
+ 4. Unowned project, non-empty registry: warns, then spawns
+==============================================================
+
+$ fm-spawn.sh add-rate-b2 projects/api-gateway claude --mode no-mistakes --yolo off
+warning: project api-gateway is not on any registered secondmate projects: list; confirm primary-home work or route in-scope work to a secondmate - registered: design (scope: design system, component library); triage (scope: incident triage and on-call)
+spawned add-rate-b2 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-add-rate-b2 worktree=$TMP/wt-add-rate-b2
+[exit status: 0]
+
+$ grep -c primary_spawn_override $FM_HOME/state/add-rate-b2.meta
+0
+
+==============================================================
+ 5. A --secondmate spawn is untouched by the guard
+==============================================================
+
+$ fm-spawn.sh design $TMP/homes/design --secondmate
+warning: secondmate design sync skipped before launch: primary default-branch commit cannot be resolved
+spawned design harness=claude kind=secondmate mode=secondmate yolo=off window=firstmate:fm-design worktree=$TMP/homes/design
+[exit status: 0]
+
+==============================================================
+ 6. Misusing the override outside a fresh ship/scout spawn: refused
+==============================================================
+
+$ fm-spawn.sh design $TMP/homes/design --secondmate --allow-primary-spawn
+error: --allow-primary-spawn applies only to fresh ship or scout spawns
+[exit status: 1]
+
+==============================================================
+ 7. A scout spawn into an owned project refuses the same way
+==============================================================
+
+$ fm-spawn.sh look-d4 projects/marketing-site claude --scout
+error: project marketing-site is registered to secondmate(s) design; spawn the worker in a registered secondmate home or pass --allow-primary-spawn for a deliberate primary-home exception
+[exit status: 1]
+
+==============================================================
+ 8. --relaunch into an owned project is unaffected by the guard
+==============================================================
+
+$ fm-spawn.sh fix-nav-a1 --relaunch --harness claude
+spawned fix-nav-a1 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-fix-nav-a1 worktree=$TMP/wt-fix-nav-a1
+[exit status: 0]
+
+==============================================================
+ 9. A malformed registry line refuses instead of voiding a claim
+==============================================================
+
+$ fm-spawn.sh doc-c3 projects/billing-svc claude --mode no-mistakes --yolo off
+error: malformed secondmate registry entry: - triage - typo entry (home: $TMP/homes/triage; scope: triage; projects: api-gateway)
+error: refusing this spawn because secondmate project ownership cannot be resolved from $TMP/firstmate/data/secondmates.md; repair the registry (bin/fm-home-seed.sh validate reports the same records) and retry
+[exit status: 1]
+
+==============================================================
+ 10. No registry at all: the guard is silent and the spawn proceeds
+==============================================================
+
+$ rm $FM_HOME/data/secondmates.md && fm-spawn.sh doc-c3 projects/billing-svc claude --mode no-mistakes --yolo off
+spawned doc-c3 harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-doc-c3 worktree=$TMP/wt-doc-c3
+[exit status: 0]
