@@ -613,6 +613,8 @@ A failed brain write must stop before Telegram acknowledgement and before treati
 Captured Telegram text is recorded memory, never automatic authority for destructive, irreversible, or security-sensitive actions.
 
 Captain direct messages are captured once brain credentials exist at `~/.config/beanz/mcp.env`.
+That mode-0600 file alone owns the brain destination; an ambient `BEANZ_MCP_URL` in the environment is ignored rather than followed.
+`from-result` classifies the interrupt result first, so a result naming no message payloads is a zero-exit no-op that stays acknowledgeable.
 Group discussion stays off until local gitignored `config/telegram-brain-capture-group` contains the bare word `on`, or `FM_TELEGRAM_BRAIN_CAPTURE_GROUP=on` for one run.
 Absent, empty, `off`, and any other value keep group payloads skipped.
 Turning the flag on does not subscribe to groups; this path still only sees payloads the interrupt adapter already emitted.
@@ -785,7 +787,7 @@ FM_BEANZ_ENV_FILE=      # override ~/.config/beanz/mcp.env for one capture run
 FM_TELEGRAM_ENV_FILE=   # override ~/.config/beanz/telegram.env for the group-filter chat id
 FM_TELEGRAM_CAPTAIN_CHAT_ID=  # override TELEGRAM_CAPTAIN_CHAT_ID for one capture run
 FM_TELEGRAM_BRAIN_CAPTURE_GROUP=  # override config/telegram-brain-capture-group; on or off
-FM_BEANZ_CAPTURE_TIMEOUT=30      # seconds allowed for one Mr Beanz capture POST
+FM_BEANZ_CAPTURE_TIMEOUT=30      # seconds allowed for one Mr Beanz capture POST; 1..120
 ```
 
 `fm-teardown.sh` retries only Git's `Unable to create '...index.lock': File exists` return failure up to `FM_TREEHOUSE_RETURN_LOCK_RETRIES` times.

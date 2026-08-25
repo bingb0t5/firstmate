@@ -14,10 +14,15 @@
 #
 # capture reads one canonical JSON object per line and POSTs each eligible
 # message to Mr Beanz `POST /v1/capture`.
-# from-result asks `fm-procevent-telegram.sh messages` for the still-unhandled
-# payloads of one interrupt result, then takes the capture path.
-# A zero exit means every payload is captured, already captured, or skipped as
-# group discussion while that flag is off.
+# from-result classifies one interrupt result with
+# `fm-procevent-telegram.sh classify` first.
+# Only a `message` result carries payloads, so any other classification is a
+# zero-exit no-op that leaves the result acknowledgeable; a blocked, credential,
+# protocol, or transport-budget notice is never wedged by this path.
+# For a `message` result it asks `fm-procevent-telegram.sh messages` for the
+# still-unhandled payloads, then takes the capture path.
+# A zero exit means every payload is captured, already captured, skipped as
+# group discussion while that flag is off, or that the result named no payloads.
 # A failed brain write must stop before Telegram ack and before treating the
 # texts as interrupt.
 # doctor reports non-secret readiness.
@@ -45,6 +50,10 @@
 #   ~/.config/beanz/mcp.env          override FM_BEANZ_ENV_FILE
 #   BEANZ_MCP_TOKEN                  required
 #   BEANZ_MCP_URL                    optional; default https://brain.mrbea.nz
+# The credential file alone owns the brain destination; an ambient BEANZ_MCP_URL
+# in the environment is ignored so it can never redirect a token-bearing write.
+# BEANZ_MCP_URL must be a plain https URL with no userinfo and no character
+# outside the URL-safe set, so nothing it contains can add a curl directive.
 # Captain-chat identity for the group filter is read from:
 #   ~/.config/beanz/telegram.env     override FM_TELEGRAM_ENV_FILE
 #   TELEGRAM_CAPTAIN_CHAT_ID         required unless FM_TELEGRAM_CAPTAIN_CHAT_ID
@@ -65,7 +74,8 @@
 #   firstmate-telegram         captain chat
 #   firstmate-telegram-group   other chats, only when group capture is on
 #
-# FM_BEANZ_CAPTURE_TIMEOUT defaults to 30 seconds.
+# FM_BEANZ_CAPTURE_TIMEOUT is the whole-POST budget in seconds, an integer in
+# 1..120, and defaults to 30; anything else is refused before the write.
 # FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT=before-receipt exists only for tests.
 set -u
 
@@ -105,11 +115,18 @@ cmd_capture() {
 }
 
 cmd_from_result() {
-  local result=${1-} adapter
+  local result=${1-} adapter kind
   [ "$#" -eq 1 ] || usage
   [ -n "$result" ] || usage
   adapter=$(find_telegram_adapter) \
     || die "telegram interrupt adapter is not in this checkout; capture JSON lines with: fm-telegram-brain-capture.sh capture -"
+  kind=$("$adapter" classify "$result") \
+    || die "telegram interrupt adapter could not classify: $result"
+  kind=${kind%%$'\n'*}
+  if [ "$kind" != message ]; then
+    printf 'no-messages %s\n' "${kind:-unknown}"
+    return 0
+  fi
   set -o pipefail
   "$adapter" messages "$result" | run_engine capture
 }
