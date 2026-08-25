@@ -447,7 +447,7 @@ task_json_lines() {
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
   local open_decisions_tsv open_decisions_json
 
-  for meta in "${META_PATHS[@]}"; do
+  for meta in ${META_PATHS[@]+"${META_PATHS[@]}"}; do
     id=$(basename "$meta" .meta)
     kind=$(meta_value "$meta" kind)
     [ -n "$kind" ] || kind=ship
@@ -1473,7 +1473,7 @@ else
   shopt -s nullglob dotglob
   META_PATHS=("$STATE"/*.meta)
   shopt -u nullglob dotglob
-  for meta in "${META_PATHS[@]}"; do
+  for meta in ${META_PATHS[@]+"${META_PATHS[@]}"}; do
     id=$(basename "$meta" .meta)
     if [ -L "$meta" ] || [ ! -f "$meta" ] || [ ! -r "$meta" ] ||
        ! fm_task_id_creation_valid "$id"; then
