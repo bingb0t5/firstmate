@@ -186,7 +186,10 @@ test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent() {
   expect_code 1 "$rc" "relaunch without a spec should refuse"
   assert_contains "$out" "no Sol spec at $dir/home/data/sa1/spec.md" \
     "relaunch refusal did not name the accepted spec path"
-  assert_contains "$out" "commission a Sol spec scout" "relaunch refusal did not name the next legal action"
+  assert_contains "$out" "place its reviewed deliverable at $dir/home/data/sa1/spec.md" \
+    "relaunch refusal did not give a recovery path that creates the accepted artifact"
+  assert_contains "$out" "do not treat report.md as the spec" \
+    "relaunch refusal did not reject the ordinary scout artifact"
   assert_contains "$out" "do not guess a model" \
     "relaunch refusal did not prohibit guessing the Sol scout model"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "relaunch refusal stopped the running agent"
@@ -229,7 +232,8 @@ test_spawn_relaunch_refuses_without_a_spec() {
   out=$(run_spawn_case "$dir" sa3 --relaunch); rc=$?
   expect_code 1 "$rc" "replacement spawn should refuse without a spec"
   assert_contains "$out" "replacement spawn" "spawn relaunch did not identify itself as a replacement spawn"
-  assert_contains "$out" "commission a Sol spec scout" "spawn relaunch did not name the next legal action"
+  assert_contains "$out" "place its reviewed deliverable at $dir/home/data/sa3/spec.md" \
+    "spawn relaunch did not give a recovery path that creates the accepted artifact"
   pass "fm-spawn: --relaunch refuses without a Sol spec"
 }
 
@@ -344,7 +348,8 @@ test_nm_third_fix_round_marker_refuses_without_a_spec() {
   expect_code 1 "$rc" "third fix-round marker should refuse without a spec"
   out=$(cat "$home/err")
   assert_contains "$out" "fix round 3" "marker refusal did not name the third fix round"
-  assert_contains "$out" "commission a Sol spec scout" "marker refusal did not name the next legal action"
+  assert_contains "$out" "place its reviewed deliverable at $home/data/task-nm/spec.md" \
+    "marker refusal did not give a recovery path that creates the accepted artifact"
   printf '# spec\n' > "$home/data/task-nm/spec.md"
   fm_second_attempt_refuse_if_needed "$home/state" "$home/data" task-nm "$meta" relaunch \
     || fail "marker gate should clear once spec.md exists"

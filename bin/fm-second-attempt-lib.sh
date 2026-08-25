@@ -138,7 +138,7 @@ fm_second_attempt_refuse_if_needed() {
   kind=$(fm_meta_get "$meta" kind)
   [ -n "$kind" ] || kind=ship
   task_kind="$kind task"
-  next="commission a Sol spec scout for this task with fm-brief.sh --scout --sol-spec, then promote it before starting another implementation worker; do not guess a model"
+  next="commission a Sol spec scout, place its reviewed deliverable at $spec, then start another implementation worker; do not treat report.md as the spec and do not guess a model"
   case "$reason" in
     relaunch)
       echo "error: relaunch of $task_kind $id refused - no Sol spec at $spec; $next" >&2
