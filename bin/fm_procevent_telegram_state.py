@@ -32,6 +32,9 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 SCHEMA_VERSION = 1
+# The Bot API declares Update identifiers as positive Integers and says an
+# unspecified Integer field is safe in a signed 32-bit value, so the ceiling is
+# that published contract rather than any local arithmetic width.
 MAX_UPDATE_ID = 2**31 - 1
 MAX_OFFSET = MAX_UPDATE_ID + 1
 MAX_CREDENTIAL_BYTES = 65536
@@ -1054,6 +1057,12 @@ def record_transport_failure(
         raise
 
 
+def announce(conn: sqlite3.Connection, notice_id: Optional[int]) -> int:
+    if notice_id is None:
+        return 3
+    return emit_notice(conn, notice_id)
+
+
 def command_poll(state: Path, credential_path: Path) -> int:
     conn = connect_existing(state)
     try:
@@ -1071,10 +1080,7 @@ def command_poll(state: Path, credential_path: Path) -> int:
         try:
             credentials = read_credentials(credential_path)
         except CredentialError:
-            notice_id = raise_condition(conn, "credential", "unavailable")
-            if notice_id is not None:
-                return emit_notice(conn, notice_id)
-            return 3
+            return announce(conn, raise_condition(conn, "credential", "unavailable"))
         if conn.execute(
             "SELECT 1 FROM conditions WHERE kind = 'credential'"
         ).fetchone() is not None:
@@ -1089,46 +1095,27 @@ def command_poll(state: Path, credential_path: Path) -> int:
         credentials = Credentials("", credentials.captain_chat_id, credentials.captain_user_id)
         if transport_error is not None or http_code is None:
             if transport_error == "response-too-large" and http_code == 200:
-                notice_id = raise_condition(conn, "protocol", "response-too-large")
-                if notice_id is not None:
-                    return emit_notice(conn, notice_id)
-                return 3
-            if http_code in (401, 409):
-                notice_id = raise_condition(
-                    conn, "api-%d" % http_code, str(http_code)
+                return announce(
+                    conn, raise_condition(conn, "protocol", "response-too-large")
                 )
-                if notice_id is not None:
-                    return emit_notice(conn, notice_id)
-                return 3
-            notice_id = record_transport_failure(conn, budget)
-            if notice_id is not None:
-                return emit_notice(conn, notice_id)
-            return 3
+            if http_code in (401, 409):
+                return announce(
+                    conn, raise_condition(conn, "api-%d" % http_code, str(http_code))
+                )
+            return announce(conn, record_transport_failure(conn, budget))
         if http_code in (401, 409):
-            notice_id = raise_condition(
-                conn, "api-%d" % http_code, str(http_code)
+            return announce(
+                conn, raise_condition(conn, "api-%d" % http_code, str(http_code))
             )
-            if notice_id is not None:
-                return emit_notice(conn, notice_id)
-            return 3
         if http_code != 200:
-            notice_id = record_transport_failure(conn, budget)
-            if notice_id is not None:
-                return emit_notice(conn, notice_id)
-            return 3
+            return announce(conn, record_transport_failure(conn, budget))
         if body is None:
             raise LocalStateError("response-body-missing", "HTTP 200 has no body")
         try:
             plan = validate_batch(body, offset, credentials)
         except ProtocolError:
-            notice_id = raise_condition(conn, "protocol", "invalid-response")
-            if notice_id is not None:
-                return emit_notice(conn, notice_id)
-            return 3
-        notice_id = commit_batch(conn, plan)
-        if notice_id is not None:
-            return emit_notice(conn, notice_id)
-        return 3
+            return announce(conn, raise_condition(conn, "protocol", "invalid-response"))
+        return announce(conn, commit_batch(conn, plan))
     finally:
         conn.close()
 
@@ -1582,7 +1569,7 @@ def build_migration_plan(state: Path) -> MigrationPlan:
             "legacy messages are both live and handled: %s"
             % ",".join(str(value) for value in sorted(overlapping))
         )
-    for update_id, message in receipts.items():
+    for update_id, message in list(receipts.items()):
         if update_id in handled:
             del receipts[update_id]
             continue
@@ -1649,7 +1636,7 @@ def command_migrate(state: Path) -> int:
     relative_archive = archive.relative_to(state).as_posix()
     try:
         plan = build_migration_plan(state)
-    except UserError as exc:
+    except Exception as exc:
         fingerprint = state_fingerprint("migration-ambiguous", exc)
         conn = create_store(
             state,

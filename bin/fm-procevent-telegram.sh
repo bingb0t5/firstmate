@@ -157,6 +157,8 @@ cmd_source_id() {
 
 cmd_arm() {
   [ "$#" -eq 0 ] || usage
+  engine_available \
+    || die "Telegram state engine is unavailable; python3 and an unmodified $ENGINE are required"
   run_engine credential-check >/dev/null \
     || die "no valid Telegram credential at $(env_file_path)"
   run_engine arm-state >/dev/null || exit 1
@@ -166,9 +168,12 @@ cmd_arm() {
 }
 
 cmd_migrate() {
-  local snapshot
+  local snapshot retire_output retire_status=0
   [ "$#" -eq 0 ] || usage
-  "$SCRIPT_DIR/fm-procevent.sh" retire "$SOURCE_ID" >/dev/null 2>&1 || exit 1
+  retire_output=$("$SCRIPT_DIR/fm-procevent.sh" retire "$SOURCE_ID" 2>&1) || retire_status=$?
+  if [ "$retire_status" -ne 0 ]; then
+    die "cannot retire the $SOURCE_ID source before migration: ${retire_output:-exit $retire_status}"
+  fi
   if [ -e "$STATE/telegram-watch.check.sh" ] || [ -L "$STATE/telegram-watch.check.sh" ]; then
     die "legacy telegram-watch.check.sh is still registered; deregister it before migration"
   fi

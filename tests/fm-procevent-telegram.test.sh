@@ -827,6 +827,101 @@ assert_contains "$ambiguous_poll" "blocked: migration-blocked ambiguous" \
 assert_no_curl "blocked migration called Telegram from a guessed offset"
 pass "ambiguous migration preserves evidence, guesses nothing, and remains visibly blocked"
 
+H_RECEIPT_HANDLED="$TMP_ROOT/migrate-receipt-handled"
+RECEIPT_HANDLED_ENV="$TMP_ROOT/migrate-receipt-handled.env"
+new_home "$H_RECEIPT_HANDLED"
+write_env_file "$RECEIPT_HANDLED_ENV" "$TOKEN"
+printf '1003\n' > "$H_RECEIPT_HANDLED/state/.telegram-offset"
+mkdir -p "$H_RECEIPT_HANDLED/state/telegram-inbox/handled"
+printf '{"update_id":1002,"date":2,"chat_id":555,"from_id":909,"text":"receipt then handled"}\n' \
+  > "$H_RECEIPT_HANDLED/state/telegram-inbox/handled/1002.json"
+mkdir -p "$H_RECEIPT_HANDLED/state/.telegram-delivery-receipts"
+cp "$H_RECEIPT_HANDLED/state/telegram-inbox/handled/1002.json" \
+  "$H_RECEIPT_HANDLED/state/.telegram-delivery-receipts/1002.json"
+receipt_handled_status=0
+receipt_handled_out=$(FM_HOME="$H_RECEIPT_HANDLED" FM_TELEGRAM_ENV_FILE="$RECEIPT_HANDLED_ENV" \
+  "$ADAPTER" migrate 2>&1) || receipt_handled_status=$?
+[ "$receipt_handled_status" -eq 0 ] \
+  || fail "a receipt already in handled state failed migration: $receipt_handled_out"
+assert_contains "$receipt_handled_out" "migrated: archive=" \
+  "a receipt already in handled state did not migrate coherently"
+assert_equal "$(db_query "$H_RECEIPT_HANDLED" "SELECT migration_status FROM meta")" complete \
+  "a receipt already in handled state did not complete migration"
+assert_equal "$(db_query "$H_RECEIPT_HANDLED" "SELECT committed_offset FROM meta")" 1003 \
+  "a receipt already in handled state changed the committed offset"
+assert_equal "$(db_query "$H_RECEIPT_HANDLED" "SELECT count(*) FROM messages")" 1 \
+  "a receipt already in handled state duplicated its message"
+assert_equal "$(db_query "$H_RECEIPT_HANDLED" "SELECT count(*) FROM messages WHERE handled_at IS NOT NULL")" 1 \
+  "an already handled legacy message was reimported as pending"
+assert_present "$H_RECEIPT_HANDLED/state/.telegram-delivery-receipts/1002.json" \
+  "migration deleted the already handled receipt"
+clear_curl_calls
+receipt_handled_poll=$(poll_once "$H_RECEIPT_HANDLED" "$RECEIPT_HANDLED_ENV" "$FIXTURES/empty.json") \
+  || true
+assert_equal "$receipt_handled_poll" "" \
+  "a fully handled legacy receipt announced a phantom pending message"
+pass "a receipt whose update is already handled migrates without a phantom pending message"
+
+H_UNREADABLE="$TMP_ROOT/migrate-unreadable"
+UNREADABLE_ENV="$TMP_ROOT/migrate-unreadable.env"
+new_home "$H_UNREADABLE"
+write_env_file "$UNREADABLE_ENV" "$TOKEN"
+printf '1002\n' > "$H_UNREADABLE/state/.telegram-offset"
+mkdir -p "$H_UNREADABLE/state/telegram-inbox"
+python3 -c 'import sys; open(sys.argv[1], "w").write("[" * 60000 + "]" * 60000)' \
+  "$H_UNREADABLE/state/telegram-inbox/1002.json"
+unreadable_status=0
+unreadable_out=$(FM_HOME="$H_UNREADABLE" FM_TELEGRAM_ENV_FILE="$UNREADABLE_ENV" \
+  "$ADAPTER" migrate 2>&1) || unreadable_status=$?
+[ "$unreadable_status" -ne 0 ] || fail "an unreadable legacy payload reported migration success"
+assert_contains "$unreadable_out" "blocked: migration-ambiguous" \
+  "a non-UserError legacy read failure escaped the blocked migration path"
+assert_equal "$(db_query "$H_UNREADABLE" "SELECT migration_status FROM meta")" blocked \
+  "a non-UserError legacy read failure published no blocked cutover"
+assert_equal "$(db_query "$H_UNREADABLE" "SELECT committed_offset FROM meta")" 0 \
+  "a non-UserError legacy read failure guessed an offset"
+assert_present "$H_UNREADABLE/state/telegram-inbox/1002.json" \
+  "a non-UserError legacy read failure deleted its evidence"
+pass "a legacy read failure that is not a UserError still publishes an actionable blocked migration"
+
+H_TORN="$TMP_ROOT/migrate-torn-claim"
+TORN_ENV="$TMP_ROOT/migrate-torn-claim.env"
+new_home "$H_TORN"
+write_env_file "$TORN_ENV" "$TOKEN"
+printf '1002\n' > "$H_TORN/state/.telegram-offset"
+mkdir -p "$H_TORN/state/telegram-inbox"
+: > "$H_TORN/state/telegram-inbox/1002.json"
+torn_status=0
+torn_out=$(FM_HOME="$H_TORN" FM_TELEGRAM_ENV_FILE="$TORN_ENV" "$ADAPTER" migrate 2>&1) \
+  || torn_status=$?
+[ "$torn_status" -ne 0 ] || fail "a torn legacy claim reported migration success"
+assert_contains "$torn_out" "blocked: migration-ambiguous" \
+  "a torn legacy claim did not block the cutover"
+torn_archive_rel=$(db_query "$H_TORN" "SELECT migration_archive FROM meta")
+torn_archive="$H_TORN/state/$torn_archive_rel"
+assert_present "$torn_archive/manifest.json" "a torn legacy claim produced no archive manifest"
+assert_grep 'telegram-inbox/1002.json' "$torn_archive/manifest.json" \
+  "the archive omitted the torn legacy claim"
+assert_present "$torn_archive/state/telegram-inbox/1002.json" \
+  "the archive did not preserve the torn legacy claim itself"
+assert_present "$H_TORN/state/telegram-inbox/1002.json" \
+  "migration deleted the torn legacy claim"
+assert_equal "$(tr -d '\n' < "$H_TORN/state/.telegram-offset")" 1002 \
+  "migration advanced the unadvanced legacy offset"
+assert_equal "$(db_query "$H_TORN" "SELECT migration_status FROM meta")" blocked \
+  "a torn legacy claim did not persist a blocked cutover"
+assert_equal "$(db_query "$H_TORN" "SELECT committed_offset FROM meta")" 0 \
+  "a torn legacy claim guessed an offset"
+FM_HOME="$H_TORN" FM_TELEGRAM_ENV_FILE="$TORN_ENV" "$ADAPTER" arm >/dev/null
+clear_curl_calls
+torn_poll=$(poll_once "$H_TORN" "$TORN_ENV" "$FIXTURES/one-text.json")
+assert_contains "$torn_poll" "blocked: migration-blocked ambiguous" \
+  "a torn legacy claim did not announce its blocked migration through the channel"
+assert_no_curl "a blocked torn-claim migration still called Telegram"
+assert_equal "$(db_query "$H_TORN" "SELECT committed_offset FROM meta")" 0 \
+  "a poll from a blocked torn-claim migration advanced the committed offset"
+pass "a torn legacy claim is archived, visibly blocked, and never advances the irreversible offset"
+
 # --- explicit rollback export can only move the old format forward ----------
 H_EXPORT="$TMP_ROOT/export"
 EXPORT_ENV="$TMP_ROOT/export.env"
