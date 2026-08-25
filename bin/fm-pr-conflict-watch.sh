@@ -349,7 +349,7 @@ resolve_project_repo() {
   [ -d "$dir" ] || return 1
   url=$(git -C "$dir" remote get-url origin 2>/dev/null) || return 1
   slug=$(fm_repo_slug "$url")
-  [ -n "$slug" ] || return 1
+  valid_repo_slug "$slug" || return 2
   printf '%s\n' "$slug"
 }
 
@@ -452,7 +452,7 @@ add_repo_target() {
 # neither the origin remotes nor the registry are re-read per repository while
 # the same budget is paying for GitHub probes.
 discover_targets() {
-  local project slug owner names
+  local project slug owner names resolve_status
   EXPECTED_TARGETS=
   TARGET_REPO_MAP=
   TARGET_OWNER_MAP=
@@ -477,10 +477,15 @@ discover_targets() {
   }
   while IFS= read -r project; do
     [ -n "$project" ] || continue
-    slug=$(resolve_project_repo "$project" 2>/dev/null) || slug=
-    if [ -z "$slug" ] || ! valid_repo_slug "$slug"; then
+    slug=$(resolve_project_repo "$project" 2>/dev/null)
+    resolve_status=$?
+    if [ "$resolve_status" -ne 0 ]; then
       DISCOVERY_COMPLETE=0
-      add_target "project:$project" '' '' invalid-origin
+      if [ "$resolve_status" -eq 2 ]; then
+        add_target "project:$project" '' '' invalid-origin
+      else
+        add_target "project:$project" '' '' discovery
+      fi
       continue
     fi
     if [ -n "$FIRSTMATE_SLUG" ] && [ "$slug" = "$FIRSTMATE_SLUG" ]; then

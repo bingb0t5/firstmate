@@ -1099,6 +1099,29 @@ test_firstmate_origin_failure_causes_are_distinguished() {
   pass "firstmate origin lookup and identity failures keep distinct causes"
 }
 
+test_project_origin_failure_causes_are_distinguished() {
+  local home out
+  home=$(make_home project-missing-origin)
+  git -C "$home/projects/alpha" remote remove origin
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=project:alpha" \
+    "a missing project origin must preserve the project target"
+  assert_contains "$(cat "$out")" "latest-cause=discovery" \
+    "a failed project origin lookup must be a discovery failure"
+
+  home=$(make_home project-invalid-origin)
+  git -C "$home/projects/alpha" remote set-url origin \
+    https://gitlab.com/acme/alpha.git
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=project:alpha" \
+    "a rejected project origin must preserve the project target"
+  assert_contains "$(cat "$out")" "latest-cause=invalid-origin" \
+    "a present non-GitHub project origin must be an identity refusal"
+  pass "project origin lookup and identity failures keep distinct causes"
+}
+
 # An unreadable projects registry is a source-level gap, not an unnamed sweep.
 test_unreadable_registry_is_a_source_coverage_gap() {
   local home out
@@ -1229,6 +1252,7 @@ test_coverage_gap_retains_age_across_cause_flaps
 test_coverage_recovery_then_new_outage_notifies_again
 test_malformed_origin_round_trips_as_local_target
 test_firstmate_origin_failure_causes_are_distinguished
+test_project_origin_failure_causes_are_distinguished
 test_unreadable_registry_is_a_source_coverage_gap
 test_mixed_sweep_does_not_cross_write_ledgers
 test_coverage_omitted_by_line_cap_is_emitted_later
