@@ -1,0 +1,32 @@
+$ FM_TASK="Ship the widget." bin/fm-brief.sh demo-refuse firstmate --mode no-mistakes
+error: ship brief cannot earn Sol exemption without auditable evidence:
+  - missing exactly one Acceptance command: `...` line
+exit=1
+brief_written=no
+
+$ FM_TASK=<acceptance plus bounded wait> bin/fm-brief.sh demo-pass firstmate --mode no-mistakes
+scaffolded: /home/rich/.no-mistakes/evidence/01M0VV3J4K8PAFKXZQHRPPMG7J/fm-brief-sol-exemption-state/pass/data/demo-pass/brief.md (ship, mode=no-mistakes; Sol exemption earned)
+# Task
+Fix the widget.
+Acceptance command: `make test`
+Wait: CI green bound=30m escape=append-blocked
+
+# Sol exemption evidence
+Acceptance command: `make test`
+Wait: CI green bound=30m escape=append-blocked
+
+# Herdr lifecycle declaration - NOT ENABLED
+**HARD SAFETY GATE:** this scaffold never inspects the task text above for Herdr lifecycle intent.
+Delivery contract: mode=no-mistakes
+Sol exemption: earned
+
+$ FM_TASK="Acceptance command: `make test` then wait forever" bin/fm-brief.sh demo-wait firstmate --mode direct-PR
+error: ship brief cannot earn Sol exemption without auditable evidence:
+  - unbounded wait mention requires a Wait: line with bound= and escape=
+exit=1
+brief_written=no
+
+$ bin/fm-brief.sh demo-scout alpha --scout
+scaffolded: /home/rich/.no-mistakes/evidence/01M0VV3J4K8PAFKXZQHRPPMG7J/fm-brief-sol-exemption-state/kinds/data/demo-scout/brief.md (scout; replace {TASK})
+$ bin/fm-brief.sh demo-secondmate --secondmate --no-projects
+scaffolded: /home/rich/.no-mistakes/evidence/01M0VV3J4K8PAFKXZQHRPPMG7J/fm-brief-sol-exemption-state/kinds/data/demo-secondmate/brief.md (secondmate charter; replace {TASK})
