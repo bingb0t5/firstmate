@@ -106,6 +106,132 @@ SH
   chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
 }
 
+# A local bare GitHub stand-in lets the forecast tests use real fetches and
+# real git merge-tree semantics without contacting or mutating a forge.
+make_forecast_case() {
+  local name=$1 case_dir source remote fakebin real_git root base candidate already newly clean
+  case_dir="$TMP_ROOT/forecast-$name"
+  source="$case_dir/source"
+  remote="$case_dir/remote.git"
+  fakebin="$case_dir/fakebin"
+  real_git=$(command -v git)
+  mkdir -p "$case_dir/state" "$fakebin"
+  git init -q "$source"
+  git -C "$source" config user.name fmtest
+  git -C "$source" config user.email fmtest@example.invalid
+  printf 'root\n' > "$source/shared.txt"
+  git -C "$source" add shared.txt
+  git -C "$source" commit -qm root
+  root=$(git -C "$source" rev-parse HEAD)
+  git -C "$source" branch -M main
+  printf 'base\n' > "$source/shared.txt"
+  git -C "$source" commit -qam base
+  base=$(git -C "$source" rev-parse HEAD)
+  git -C "$source" checkout -qb candidate
+  printf 'candidate\n' > "$source/shared.txt"
+  git -C "$source" commit -qam candidate
+  candidate=$(git -C "$source" rev-parse HEAD)
+  git -C "$source" checkout -q -b already "$root"
+  printf 'already\n' > "$source/shared.txt"
+  git -C "$source" commit -qam already
+  already=$(git -C "$source" rev-parse HEAD)
+  git -C "$source" checkout -q -b newly "$base"
+  printf 'newly\n' > "$source/shared.txt"
+  git -C "$source" commit -qam newly
+  newly=$(git -C "$source" rev-parse HEAD)
+  git -C "$source" checkout -q -b clean "$base"
+  printf 'clean\n' > "$source/clean.txt"
+  git -C "$source" add clean.txt
+  git -C "$source" commit -qm clean
+  clean=$(git -C "$source" rev-parse HEAD)
+  git init -q --bare "$remote"
+  git -C "$source" remote add forecast "$remote"
+  git -C "$source" push -q forecast main:refs/heads/main
+  git -C "$source" push -q forecast candidate:refs/pull/10/head
+  git -C "$source" push -q forecast already:refs/pull/20/head
+  git -C "$source" push -q forecast newly:refs/pull/30/head
+  git -C "$source" push -q forecast clean:refs/pull/40/head
+  cat > "$case_dir/snapshot.json" <<EOF
+$(jq -n --arg base "$base" --arg candidate "$candidate" --arg already "$already" --arg newly "$newly" --arg clean "$clean" '{data:{repository:{defaultBranchRef:{name:"main",target:{oid:$base}},pullRequests:{nodes:[{number:10,title:"candidate",url:"https://github.com/example/repo/pull/10",isDraft:false,baseRefName:"main",baseRefOid:$base,headRefName:"candidate",headRefOid:$candidate,headRepository:{nameWithOwner:"example/repo"}},{number:20,title:"already",url:"https://github.com/example/repo/pull/20",isDraft:false,baseRefName:"main",baseRefOid:$base,headRefName:"already",headRefOid:$already,headRepository:{nameWithOwner:"example/repo"}},{number:30,title:"newly",url:"https://github.com/example/repo/pull/30",isDraft:false,baseRefName:"main",baseRefOid:$base,headRefName:"newly",headRefOid:$newly,headRepository:{nameWithOwner:"example/repo"}},{number:40,title:"clean",url:"https://github.com/example/repo/pull/40",isDraft:false,baseRefName:"main",baseRefOid:$base,headRefName:"clean",headRefOid:$clean,headRepository:{nameWithOwner:"example/repo"}}],pageInfo:{hasNextPage:false,endCursor:null}}}}}')
+EOF
+  cat > "$fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = api ]; then
+  printf 'api_response:\n  body: '
+  base64 -w0 "$FM_TEST_FORECAST_SNAPSHOT"
+  printf '\n  truncated: false\n'
+  exit 0
+fi
+printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
+exit 0
+SH
+  cat > "$fakebin/git" <<SH
+#!/usr/bin/env bash
+exec "$real_git" -c "url.file://$remote.insteadOf=https://github.com/example/repo.git" "\$@"
+SH
+  chmod +x "$fakebin/gh-axi" "$fakebin/git"
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=fm-task-x1" "worktree=$case_dir/wt" "project=$case_dir/project" \
+    "kind=ship" "mode=no-mistakes"
+  printf '%s\n' "$case_dir"
+}
+
+run_forecast() {
+  local case_dir=$1
+  FM_ROOT_OVERRIDE="$ROOT" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_TEST_FORECAST_SNAPSHOT="$case_dir/snapshot.json" \
+  FM_TEST_GH_AXI_LOG="$case_dir/gh-axi.log" \
+  PATH="$case_dir/fakebin:$BASE_PATH" \
+    "$PR_MERGE" task-x1 https://github.com/example/repo/pull/10 --forecast \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+}
+
+test_forecast_classifies_open_prs_with_git_merge_semantics() {
+  local case_dir rc before
+  case_dir=$(make_forecast_case clean)
+  before=$(cat "$case_dir/state/task-x1.meta")
+  run_forecast "$case_dir"
+  rc=$?
+  expect_code 0 "$rc" "forecast-clean: read-only forecast should succeed"
+  assert_grep 'forecast: candidate=https://github.com/example/repo/pull/10 candidate-head=' "$case_dir/stdout" \
+    "forecast-clean: report did not identify the candidate head"
+  assert_grep 'method=squash' "$case_dir/stdout" \
+    "forecast-clean: report did not identify the merge method"
+  assert_grep 'already-conflicting: count=1' "$case_dir/stdout" \
+    "forecast-clean: already-conflicting count was wrong"
+  assert_grep 'newly-conflicting-after-candidate: count=1' "$case_dir/stdout" \
+    "forecast-clean: newly-conflicting count was wrong"
+  assert_grep 'still-clean-after-candidate: count=1' "$case_dir/stdout" \
+    "forecast-clean: still-clean count was wrong"
+  assert_grep 'already-conflicting: pr=20 url=https://github.com/example/repo/pull/20' "$case_dir/stdout" \
+    "forecast-clean: already-conflicting PR identity was not preserved"
+  assert_grep 'newly-conflicting-after-candidate: pr=30 url=https://github.com/example/repo/pull/30' "$case_dir/stdout" \
+    "forecast-clean: newly-conflicting PR identity was not preserved"
+  assert_grep 'still-clean-after-candidate: pr=40 url=https://github.com/example/repo/pull/40' "$case_dir/stdout" \
+    "forecast-clean: still-clean PR identity was not preserved"
+  [ "$(cat "$case_dir/state/task-x1.meta")" = "$before" ] \
+    || fail "forecast-clean: read-only forecast changed task metadata"
+  [ ! -s "$case_dir/gh-axi.log" ] || fail "forecast-clean: forecast called the forge merge surface"
+  pass "fm-pr-merge forecast classifies clean, existing conflicts, and newly introduced conflicts"
+}
+
+test_forecast_refuses_incomplete_git_evidence() {
+  local case_dir rc
+  case_dir=$(make_forecast_case unavailable)
+  git --git-dir="$case_dir/remote.git" update-ref -d refs/pull/40/head
+  set +e
+  run_forecast "$case_dir"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "forecast-unavailable: incomplete Git evidence should refuse"
+  assert_grep 'Git evidence is unavailable while fetching PR #40' "$case_dir/stderr" \
+    "forecast-unavailable: refusal did not name the missing Git evidence"
+  assert_no_grep 'already-conflicting:' "$case_dir/stdout" \
+    "forecast-unavailable: partial category output was presented as authoritative"
+  pass "fm-pr-merge forecast refuses an incomplete fetched-ref set"
+}
+
 # glab mock recording every invocation together with the GITLAB_HOST it was
 # given, so a test can prove the instance came from the URL. `mr view` answers
 # from the case's JSON payload; marker files in the case dir drive the failure
@@ -834,3 +960,5 @@ test_gitlab_unreadable_state_refuses
 test_gitlab_invalid_head_refuses
 test_gitlab_missing_tool_refuses_before_recording
 test_gitlab_head_override_args_refuse_before_recording
+test_forecast_classifies_open_prs_with_git_merge_semantics
+test_forecast_refuses_incomplete_git_evidence
