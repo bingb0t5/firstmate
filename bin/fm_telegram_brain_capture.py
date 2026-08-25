@@ -370,29 +370,30 @@ def post_capture(
     token: str, brain_url: str, text: str, source: str, workdir: Path, timeout: int
 ) -> str:
     body = json.dumps({"text": text, "source": source}, ensure_ascii=False)
+    staged = []
     try:
-        fd, body_name = tempfile.mkstemp(prefix=".beanz-body.", dir=str(workdir))
-        os.fchmod(fd, 0o600)
-        os.close(fd)
-        resp_fd, resp_name = tempfile.mkstemp(prefix=".beanz-resp.", dir=str(workdir))
-        os.fchmod(resp_fd, 0o600)
-        os.close(resp_fd)
-    except OSError as exc:
-        raise UserError("cannot stage the brain capture request: %s" % exc)
-    body_path = Path(body_name)
-    resp_path = Path(resp_name)
-    config = (
-        'url = "%s/v1/capture"\n'
-        'header = "Authorization: Bearer %s"\n'
-        'header = "Content-Type: application/json"\n'
-        'data-binary = "@%s"\n'
-        % (
-            curl_config_value(brain_url),
-            curl_config_value(token),
-            curl_config_value(str(body_path)),
+        try:
+            for prefix in (".beanz-body.", ".beanz-resp."):
+                fd, name = tempfile.mkstemp(prefix=prefix, dir=str(workdir))
+                staged.append(Path(name))
+                try:
+                    os.fchmod(fd, 0o600)
+                finally:
+                    os.close(fd)
+        except OSError as exc:
+            raise UserError("cannot stage the brain capture request: %s" % exc)
+        body_path, resp_path = staged
+        config = (
+            'url = "%s/v1/capture"\n'
+            'header = "Authorization: Bearer %s"\n'
+            'header = "Content-Type: application/json"\n'
+            'data-binary = "@%s"\n'
+            % (
+                curl_config_value(brain_url),
+                curl_config_value(token),
+                curl_config_value(str(body_path)),
+            )
         )
-    )
-    try:
         try:
             body_path.write_bytes(body.encode("utf-8"))
         except OSError as exc:
@@ -431,25 +432,24 @@ def post_capture(
         if not re.fullmatch(r"[0-9]{3}", status_text):
             raise UserError("brain capture returned a malformed status")
         status = int(status_text)
-        try:
-            size = resp_path.stat().st_size
-            if size > MAX_RESPONSE_BYTES:
-                raise UserError("brain capture response is too large")
-            raw = resp_path.read_bytes()
-        except OSError as exc:
-            raise UserError("cannot read the brain capture response: %s" % exc)
         if not 200 <= status < 300:
             raise http_failure_error(status)(
                 "brain capture failed with HTTP %s" % status
             )
         try:
+            if resp_path.stat().st_size > MAX_RESPONSE_BYTES:
+                raise CaptureError("brain capture response is too large")
+            raw = resp_path.read_bytes()
+        except OSError as exc:
+            raise UserError("cannot read the brain capture response: %s" % exc)
+        try:
             response = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
-            raise UserError("brain capture returned no capture_id")
+            raise CaptureError("brain capture returned no capture_id")
         capture_id = response.get("capture_id") if isinstance(response, dict) else None
-        return validated_capture_id(capture_id, "brain capture")
+        return validated_capture_id(capture_id, "brain capture", CaptureError)
     finally:
-        for path in (body_path, resp_path):
+        for path in staged:
             try:
                 path.unlink()
             except OSError:

@@ -31,8 +31,8 @@
 # `skipped:unsupported <update_id> <reason>` and the batch keeps walking.
 # A refusal already scoped to one update_id fails that line, keeps walking, and
 # exits non-zero without acking: a receipt whose content disagrees with the
-# payload, or a brain that rejects this one message with a 4xx other than 401,
-# 403, 404, 405, or 429.
+# payload, a brain that rejects this one message with a 4xx other than 401,
+# 403, 404, 405, or 429, or a 2xx whose body carries no usable capture_id.
 # Every such refusal names its update_id first, as `error: <update_id> <reason>`,
 # so the failing payload stays attributable when the batch walks past it.
 # Only a systemic failure stops the batch: a transport failure, any 3xx or 5xx,
@@ -119,6 +119,8 @@
 # curl runs with -q so no ambient .curlrc can change the wire, and redirects are
 # never followed, so the token is only ever offered to the configured origin.
 # A capture succeeds on any 2xx whose body carries a usable capture_id.
+# A 2xx without one is the brain refusing this one text, so it fails that
+# payload and keeps walking rather than stopping the batch.
 #
 # RECEIPTS.
 # Successful writes are recorded under state/telegram-brain-capture/<update_id>

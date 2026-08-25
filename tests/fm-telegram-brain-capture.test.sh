@@ -73,9 +73,11 @@ done <<EOF
 $config
 EOF
 code=${FAKE_CAPTURE_CODE:-200}
+matched=""
 if [ -n "${FAKE_CAPTURE_FAIL_MATCH:-}" ] && [ -n "$bodyfile" ] \
   && grep -q -F -- "$FAKE_CAPTURE_FAIL_MATCH" "$bodyfile"; then
   code=${FAKE_CAPTURE_FAIL_CODE:-500}
+  matched=1
 fi
 if [ -n "${FAKE_CURL_LOG:-}" ]; then
   {
@@ -89,6 +91,9 @@ if [ -n "${FAKE_CURL_BODY_LOG:-}" ] && [ -n "$bodyfile" ]; then
 fi
 if [ -n "$ofile" ]; then
   body=${FAKE_CAPTURE_BODY-}
+  if [ -n "$matched" ] && [ -n "${FAKE_CAPTURE_FAIL_BODY:-}" ]; then
+    body=$FAKE_CAPTURE_FAIL_BODY
+  fi
   if [ -z "$body" ]; then
     body='{"capture_id":"cap-1","status":"captured"}'
   fi
@@ -131,6 +136,7 @@ run_capture() {
     FAKE_CAPTURE_CODE="${FAKE_CAPTURE_CODE-}" \
     FAKE_CAPTURE_FAIL_MATCH="${FAKE_CAPTURE_FAIL_MATCH-}" \
     FAKE_CAPTURE_FAIL_CODE="${FAKE_CAPTURE_FAIL_CODE-}" \
+    FAKE_CAPTURE_FAIL_BODY="${FAKE_CAPTURE_FAIL_BODY-}" \
     FAKE_CURL_EXIT="${FAKE_CURL_EXIT-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_GROUP="${FM_TELEGRAM_BRAIN_CAPTURE_GROUP-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT="${FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT-}" \
@@ -668,6 +674,37 @@ assert_present "$reject/state/telegram-brain-capture/9921" \
 assert_present "$reject/state/telegram-brain-capture/9922" \
   "a payload-scoped rejection blocked a later payload"
 pass "a 4xx confined to one message fails its line, keeps walking, and exits non-zero"
+
+# --- a 2xx without a capture_id is scoped to that message -------------------
+nocap=$(make_home no-capture-id)
+nocap_bin=$(make_fake_curl "$nocap")
+FAKE_CURL_LOG="$nocap/curl.log"
+FAKE_CAPTURE_FAIL_MATCH="the brain answers without an id"
+FAKE_CAPTURE_FAIL_CODE=200
+FAKE_CAPTURE_FAIL_BODY='{"error":"text too long"}'
+{
+  payload 9930 "the brain answers without an id"
+  payload 9931 "a later thought"
+  payload 9932 "a last thought"
+} > "$nocap/batch.jsonl"
+if run_capture "$nocap" "$nocap_bin" capture - < "$nocap/batch.jsonl" \
+  >"$nocap/out" 2>"$nocap/err"; then
+  fail "a 2xx without a capture_id must stay fail-closed"
+fi
+FAKE_CAPTURE_FAIL_MATCH=
+FAKE_CAPTURE_FAIL_CODE=
+FAKE_CAPTURE_FAIL_BODY=
+assert_grep "9930 brain capture has no capture_id" "$nocap/err" \
+  "the id-less answer was not blamed on its own update_id"
+assert_absent "$nocap/state/telegram-brain-capture/9930" \
+  "a 2xx without a capture_id left a receipt"
+assert_not_contains "$(cat "$nocap/out")" "unattempted" \
+  "a 2xx without a capture_id stopped the batch"
+assert_present "$nocap/state/telegram-brain-capture/9931" \
+  "a 2xx without a capture_id blocked a later payload"
+assert_present "$nocap/state/telegram-brain-capture/9932" \
+  "a 2xx without a capture_id blocked a later payload"
+pass "a 2xx carrying no capture_id fails its line, keeps walking, and exits non-zero"
 
 # --- an endpoint-level 404 is systemic and stops the batch ------------------
 gone=$(make_home http-gone)
