@@ -34,12 +34,14 @@
 # comes back UNKNOWN is never treated as clean or conflicted; only that pull
 # request is reread, with short waits, until the state settles or stays unknown.
 #
-# A repository the sweep could not account for is not silence about a clean
-# fleet. GitHub reads that fail and repositories the sweep budget never reached
-# are tracked separately and worded differently, because the first points at
-# GitHub and the second points at local budget settings. A transient hole is
-# ignored, but one that outlasts FM_PR_CONFLICT_UNREAD_GRACE_SECS is disclosed
-# once, and either kind stops the sweep counting as complete.
+# Coverage is a separate ledger from conflicts. A conflict is a positive
+# observation keyed by repository, pull request number, and head SHA. A coverage
+# gap is an absence of a trustworthy observation keyed by a stable target, with
+# an opening time, latest cause, and delivery state. Cause is diagnostic
+# metadata on that gap: changing it never resets age and never opens a second
+# gap. A transient gap stays silent; one that outlasts
+# FM_PR_CONFLICT_UNREAD_GRACE_SECS is disclosed once as a coverage-hole, not as
+# a conflict. Sweep completeness is derived from per-target outcomes.
 #
 # Detection and routing only: this script never resolves conflicts.
 set -u
@@ -59,7 +61,8 @@ CHECK_ID=pr-conflict-watch
 CHECK_SHIM="$STATE/$CHECK_ID.check.sh"
 CHECK_TRUST="$STATE/$CHECK_ID.check-trust"
 REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
-RECORD_SCHEMA=fm-pr-conflict-watch-v1
+RECORD_SCHEMA=fm-pr-conflict-watch-v2
+RECORD_SCHEMA_V1=fm-pr-conflict-watch-v1
 GH_AXI=${FM_PR_CONFLICT_GH_AXI:-gh-axi}
 MAX_LINE=1000
 FINDING_PREFIX='pr-conflict: '
@@ -201,26 +204,42 @@ if [ "$BUDGET_SECS" -gt "$BUDGET_MAX" ]; then
   BUDGET_SECS=$BUDGET_MAX
 fi
 
-record_epoch_now() { date +%s; }
+# FM_PR_CONFLICT_NOW is a test hook that freezes coverage-gap age without
+# changing the wall-clock sweep budget. It is not an operator knob.
+record_epoch_now() {
+  case "${FM_PR_CONFLICT_NOW:-}" in
+    ''|*[!0-9]*) date +%s ;;
+    *) printf '%s\n' "$FM_PR_CONFLICT_NOW" ;;
+  esac
+}
 
 real_epoch() { date +%s; }
 
 DEADLINE=0
 REPORTED_KEYS=
 RECORD_EPOCH=0
+FINDING_KINDS=()
+FINDING_IDS=()
 FINDING_TEXTS=()
 FINDING_KEYS=()
 FINDING_LINE=
-FINDING_LINE_KEYS=
+FINDING_DELIVERED=
 FINDING_OMITTED=0
+EXPECTED_TARGETS=
+TARGET_REPO_MAP=
+TARGET_OWNER_MAP=
+TARGET_CAUSE_MAP=
 DISCOVERED_REPOS=
 REPO_OWNER_MAP=
 PROJECT_OWNER_MAP=
 FIRSTMATE_SLUG=
 SWEPT_REPOS=
 SEEN_KEYS=
-UNREAD_MAP=
-UNREAD_PENDING=
+OBSERVED_TARGETS=
+COVERAGE_JSON='[]'
+LAST_READ_CAUSE=
+GH_API_BODY=
+ATTEMPT_CAUSE=
 SWEEP_COMPLETE=1
 DISCOVERY_COMPLETE=1
 RESOLVED_STATE=
@@ -244,32 +263,33 @@ list_parts() {
   done
 }
 
-# A finding is queued together with the dedupe key that would suppress its
-# repeat, and that key is recorded only once the finding survives the line cap.
-# A finding cut from the printed line was never reported, so recording it would
-# silence that conflict for good: its head does not change, so no later sweep
-# re-triggers it.
-queue_finding() {
-  local text
-  text=$(printf '%s' "$1" | tr '\t\r\n' '   ')
+# A notification is queued as kind, identity, text, and optional conflict key.
+# Delivery acknowledgement uses those identities, never a substring of the
+# rendered line: a coverage item omitted by the cap stays undisclosed, and a
+# conflict omitted by the cap is not recorded as reported.
+queue_item() {
+  local kind=$1 id=$2 text=$3
+  text=$(printf '%s' "$text" | tr '\t\r\n' '   ')
+  FINDING_KINDS+=("$kind")
+  FINDING_IDS+=("$id")
   FINDING_TEXTS+=("$text")
-  FINDING_KEYS+=("${2:-}")
+  FINDING_KEYS+=("${4:-}")
 }
 
 # Fill the line in queue order up to <reserve> characters short of the cap, and
-# collect the keys of exactly the findings that fit. The first finding is always
-# taken, so a single over-long finding still reports something - the title is
-# the only unbounded field and it is last, so the final cut takes that tail -
-# rather than leaving the sweep permanently silent.
+# collect the identities of exactly the items that fit. The first item is always
+# taken, so a single over-long finding still reports something.
 build_finding_line() {
-  local reserve=$1 total i text key candidate room
+  local reserve=$1 total i text kind id key candidate room
   FINDING_LINE=
-  FINDING_LINE_KEYS=
+  FINDING_DELIVERED=
   FINDING_OMITTED=0
   total=${#FINDING_TEXTS[@]}
   room=$((MAX_LINE - reserve))
   i=0
   while [ "$i" -lt "$total" ]; do
+    kind=${FINDING_KINDS[$i]}
+    id=${FINDING_IDS[$i]}
     text=${FINDING_TEXTS[$i]}
     key=${FINDING_KEYS[$i]}
     if [ -z "$FINDING_LINE" ]; then
@@ -279,7 +299,8 @@ build_finding_line() {
     fi
     if [ "$i" -eq 0 ] || [ "${#candidate}" -le "$room" ]; then
       FINDING_LINE=$candidate
-      [ -z "$key" ] || FINDING_LINE_KEYS="${FINDING_LINE_KEYS:+$FINDING_LINE_KEYS;}$key"
+      FINDING_DELIVERED="${FINDING_DELIVERED}${kind}	${id}	${key}
+"
     else
       FINDING_OMITTED=$((FINDING_OMITTED + 1))
     fi
@@ -385,50 +406,94 @@ owner_for_project() {
   map_lookup "$PROJECT_OWNER_MAP" "$1"
 }
 
+target_known() {
+  local id=$1
+  case "
+$EXPECTED_TARGETS" in
+    *"
+$id
+"*) return 0 ;;
+  esac
+  return 1
+}
+
+# Stable coverage targets are defined before any GitHub read. A valid repository
+# is repo:<owner/repo>. A registered project that cannot resolve to a valid
+# repository is project:<name>. A source that fails before any repository can be
+# named is source:projects-registry or source:firstmate-origin. Unvalidated
+# origin strings are never persistence keys and never GraphQL values.
+add_target() {
+  local id=$1 repo=${2:-} owner=${3:-} cause=${4:-}
+  target_known "$id" && return 0
+  EXPECTED_TARGETS="$EXPECTED_TARGETS$id
+"
+  [ -z "$repo" ] || TARGET_REPO_MAP="$TARGET_REPO_MAP$id $repo
+"
+  [ -z "$owner" ] || TARGET_OWNER_MAP="$TARGET_OWNER_MAP$id $owner
+"
+  [ -z "$cause" ] || TARGET_CAUSE_MAP="$TARGET_CAUSE_MAP$id $cause
+"
+}
+
+add_repo_target() {
+  local slug=$1 owner=$2
+  valid_repo_slug "$slug" || return 1
+  case " $DISCOVERED_REPOS " in
+    *" $slug "*) return 0 ;;
+  esac
+  DISCOVERED_REPOS="$DISCOVERED_REPOS $slug"
+  REPO_OWNER_MAP="$REPO_OWNER_MAP$slug $owner
+"
+  add_target "repo:$slug" "$slug" "$owner"
+}
+
 # Repositories and their owning targets are derived together, once per sweep, so
 # neither the origin remotes nor the registry are re-read per repository while
 # the same budget is paying for GitHub probes.
-discover_repos() {
+discover_targets() {
   local project slug owner names
+  EXPECTED_TARGETS=
+  TARGET_REPO_MAP=
+  TARGET_OWNER_MAP=
+  TARGET_CAUSE_MAP=
   DISCOVERED_REPOS=
   REPO_OWNER_MAP=
   DISCOVERY_COMPLETE=1
   load_project_owners
   FIRSTMATE_SLUG=$(firstmate_repo_slug 2>/dev/null) || FIRSTMATE_SLUG=
-  [ -n "$FIRSTMATE_SLUG" ] || DISCOVERY_COMPLETE=0
-  # An unread registry leaves every project repository unnamed, so the firstmate
-  # origin still resolving does not make this discovery complete.
-  names=$(project_names 2>/dev/null) || { names=; DISCOVERY_COMPLETE=0; }
+  if [ -z "$FIRSTMATE_SLUG" ]; then
+    DISCOVERY_COMPLETE=0
+    add_target source:firstmate-origin '' '' discovery
+  elif ! valid_repo_slug "$FIRSTMATE_SLUG"; then
+    DISCOVERY_COMPLETE=0
+    add_target source:firstmate-origin '' '' invalid-origin
+    FIRSTMATE_SLUG=
+  fi
+  names=$(project_names 2>/dev/null) || {
+    names=
+    DISCOVERY_COMPLETE=0
+    add_target source:projects-registry '' '' discovery
+  }
   while IFS= read -r project; do
     [ -n "$project" ] || continue
-    # A project whose clone or origin cannot be read names no slug, so the sweep
-    # cannot tell which repository went unread. That leaves the whole discovery
-    # partial rather than this one entry skippable.
-    slug=$(resolve_project_repo "$project" 2>/dev/null) || { DISCOVERY_COMPLETE=0; continue; }
-    case " $DISCOVERED_REPOS " in
-      *" $slug "*) continue ;;
-    esac
+    slug=$(resolve_project_repo "$project" 2>/dev/null) || slug=
+    if [ -z "$slug" ] || ! valid_repo_slug "$slug"; then
+      DISCOVERY_COMPLETE=0
+      add_target "project:$project" '' '' invalid-origin
+      continue
+    fi
     if [ -n "$FIRSTMATE_SLUG" ] && [ "$slug" = "$FIRSTMATE_SLUG" ]; then
       owner=$MAIN_OWNER
     else
       owner=$(owner_for_project "$project") || owner=
       [ -n "$owner" ] || owner=$MAIN_OWNER
     fi
-    DISCOVERED_REPOS="$DISCOVERED_REPOS $slug"
-    REPO_OWNER_MAP="$REPO_OWNER_MAP$slug $owner
-"
+    add_repo_target "$slug" "$owner"
   done <<EOF
 $names
 EOF
   if [ -n "$FIRSTMATE_SLUG" ]; then
-    case " $DISCOVERED_REPOS " in
-      *" $FIRSTMATE_SLUG "*) ;;
-      *)
-        DISCOVERED_REPOS="$DISCOVERED_REPOS $FIRSTMATE_SLUG"
-        REPO_OWNER_MAP="$REPO_OWNER_MAP$FIRSTMATE_SLUG $MAIN_OWNER
-"
-        ;;
-    esac
+    add_repo_target "$FIRSTMATE_SLUG" "$MAIN_OWNER"
   fi
 }
 
@@ -445,15 +510,19 @@ conflict_key() {
 }
 
 record_read() {
-  local line first=1
+  local line first=1 schema=
   RECORD_EPOCH=0
   REPORTED_KEYS=
-  UNREAD_MAP=
+  COVERAGE_JSON='[]'
   [ -f "$RECORD" ] || return 0
   while IFS= read -r line; do
     if [ "$first" = 1 ]; then
       first=0
-      [ "$line" = "$RECORD_SCHEMA" ] || return 0
+      schema=$line
+      case "$schema" in
+        "$RECORD_SCHEMA"|"$RECORD_SCHEMA_V1") ;;
+        *) return 0 ;;
+      esac
       continue
     fi
     case "$line" in
@@ -465,7 +534,13 @@ record_read() {
         esac
         ;;
       reported=*) REPORTED_KEYS=${line#reported=} ;;
-      unread=*) unread_load "${line#unread=}" ;;
+      coverage=*)
+        line=${line#coverage=}
+        if printf '%s' "$line" | jq -e 'type == "array"' >/dev/null 2>&1; then
+          COVERAGE_JSON=$line
+        fi
+        ;;
+      unread=*) ;;
     esac
   done < "$RECORD"
 }
@@ -478,7 +553,7 @@ record_write() {
     printf '%s\n' "$RECORD_SCHEMA"
     printf 'epoch=%s\n' "$(record_epoch_now)"
     printf 'reported=%s\n' "$reported"
-    printf 'unread=%s\n' "$(unread_serialize)"
+    printf 'coverage=%s\n' "$COVERAGE_JSON"
   } > "$tmp" || { rm -f -- "$tmp"; return 1; }
   mv -f -- "$tmp" "$RECORD" || { rm -f -- "$tmp"; return 1; }
 }
@@ -517,160 +592,122 @@ record_remove_key() {
   REPORTED_KEYS=$out
 }
 
-# A repository the sweep could not account for is remembered across sweeps: the
-# epoch the hole opened, whether it has been disclosed yet, and which kind of
-# hole it is. GitHub blips constantly, so a hole that has not yet outlasted
-# FM_PR_CONFLICT_UNREAD_GRACE_SECS stays silent - waking on every transient
-# error is noise. One that does outlast it is a real gap in coverage and is said
-# once, naming the repository and how long it has been open.
-#
-# The two kinds are tracked and worded apart. `github` means the read itself
-# failed, which points at credentials, rate limits, or the network. `budget`
-# means the sweep ran out of its own time before reaching the repository, which
-# points at FM_PR_CONFLICT_BUDGET_SECS and FM_CHECK_TIMEOUT. Telling an operator
-# GitHub is unreadable when the truth is a local budget setting sends them to
-# the wrong place, so a repository that changes from one kind to the other
-# starts a fresh hole rather than inheriting the other one's age.
-#
-# Either kind means the sweep is no longer complete: a sweep that could not
-# account for everything must not prune keys for repositories it never saw.
-hole_set() {
-  local repo=$1 first=$2 disclosed=$3 reason=$4 out='' line
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    [ "${line%% *}" = "$repo" ] && continue
-    out="$out$line
-"
-  done <<EOF
-$UNREAD_MAP
-EOF
-  UNREAD_MAP="$out$repo $first $disclosed $reason
-"
+# One continuous coverage gap per target. Cause is the latest failed attempt,
+# not the gap's identity: gap_touch keeps opened_at and disclosed, and a cause
+# change never resets age. JSON round-trips target ids that contain the
+# characters a delimiter packing could not.
+coverage_text() {
+  local id=$1 repo=$2 elapsed=$3 cause=$4
+  if [ -n "$repo" ]; then
+    printf 'coverage-hole target=%s repo=%s unaccounted-for=%ss latest-cause=%s' \
+      "$id" "$repo" "$elapsed" "$cause"
+  else
+    printf 'coverage-hole target=%s unaccounted-for=%ss latest-cause=%s' \
+      "$id" "$elapsed" "$cause"
+  fi
 }
 
-repo_read_ok() {
-  local repo=$1 out='' line
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    [ "${line%% *}" = "$repo" ] && continue
-    out="$out$line
-"
-  done <<EOF
-$UNREAD_MAP
-EOF
-  UNREAD_MAP=$out
-}
-
-hole_text() {
-  local repo=$1 elapsed=$2 reason=$3
-  case "$reason" in
-    budget)
-      printf 'unswept repo=%s for %ss - sweep budget ran out before reaching it, conflict coverage has a hole' \
-        "$repo" "$elapsed"
-      ;;
-    *)
-      printf 'unread repo=%s for %ss - GitHub reads failing, conflict coverage has a hole' \
-        "$repo" "$elapsed"
-      ;;
-  esac
-}
-
-repo_hole() {
-  local repo=$1 reason=$2 entry first disclosed was now elapsed
-  SWEEP_COMPLETE=0
+gap_touch() {
+  local id=$1 cause=$2 repo=${3:-} now opened disclosed elapsed next
   now=$(record_epoch_now)
-  entry=$(map_lookup "$UNREAD_MAP" "$repo") || entry=
-  first=${entry%% *}
-  was=${entry##* }
-  entry=${entry#* }
-  disclosed=${entry%% *}
-  case "$first" in ''|*[!0-9]*) first=$now ;; esac
+  next=$(printf '%s' "$COVERAGE_JSON" | jq -c \
+    --arg id "$id" --arg cause "$cause" --arg repo "$repo" --argjson now "$now" '
+    (map(select(.target_id == $id)) | .[0]) as $g |
+    if $g == null then
+      . + [{
+        target_id: $id,
+        repo: (if $repo == "" then null else $repo end),
+        opened_at: $now,
+        last_attempt_at: $now,
+        latest_cause: $cause,
+        disclosed: 0
+      }]
+    else
+      map(if .target_id == $id then
+        .last_attempt_at = $now
+        | .latest_cause = $cause
+        | .repo = (if $repo == "" then .repo else $repo end)
+      else . end)
+    end
+  ' 2>/dev/null) || return 1
+  COVERAGE_JSON=$next
+  opened=$(printf '%s' "$COVERAGE_JSON" | jq -r --arg id "$id" \
+    'map(select(.target_id == $id)) | .[0].opened_at // empty')
+  disclosed=$(printf '%s' "$COVERAGE_JSON" | jq -r --arg id "$id" \
+    'map(select(.target_id == $id)) | .[0].disclosed // 0')
+  case "$opened" in ''|*[!0-9]*) opened=$now ;; esac
   case "$disclosed" in 1) disclosed=1 ;; *) disclosed=0 ;; esac
-  # A hole that changed kind is a different hole, and inheriting the old one's
-  # age would let it be disclosed under the wrong diagnosis.
-  if [ "$was" != "$reason" ]; then
-    first=$now
-    disclosed=0
-  fi
   elapsed=0
-  [ "$now" -gt "$first" ] && elapsed=$((now - first))
+  [ "$now" -gt "$opened" ] && elapsed=$((now - opened))
   if [ "$disclosed" -eq 0 ] && [ "$elapsed" -ge "$UNREAD_GRACE" ]; then
-    # Marked as said only once it survives into the printed line, so a
-    # disclosure dropped by the line cap is repeated on a later sweep instead
-    # of being silently counted as delivered.
-    queue_finding "$(hole_text "$repo" "$elapsed" "$reason")"
-    UNREAD_PENDING="${UNREAD_PENDING:+$UNREAD_PENDING }$repo"
+    [ -n "$repo" ] || repo=$(printf '%s' "$COVERAGE_JSON" | jq -r --arg id "$id" \
+      'map(select(.target_id == $id)) | .[0].repo // empty')
+    [ "$repo" = null ] && repo=
+    queue_item coverage "$id" "$(coverage_text "$id" "$repo" "$elapsed" "$cause")"
   fi
-  hole_set "$repo" "$first" "$disclosed" "$reason"
 }
 
-unread_serialize() {
-  local out='' line
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    # shellcheck disable=SC2086 # deliberate split into repo, epoch, disclosed, reason
-    set -- $line
-    [ "$#" -eq 4 ] || continue
-    out="${out:+$out;}$1@$2@$3@$4"
-  done <<EOF
-$UNREAD_MAP
-EOF
-  printf '%s\n' "$out"
+gap_close() {
+  local id=$1 next
+  next=$(printf '%s' "$COVERAGE_JSON" | jq -c --arg id "$id" \
+    'map(select(.target_id != $id))' 2>/dev/null) || return 0
+  COVERAGE_JSON=$next
 }
 
-unread_load() {
-  local raw=$1 part repo first disclosed reason
-  UNREAD_MAP=
-  while IFS= read -r part; do
-    [ -n "$part" ] || continue
-    repo=${part%%@*}
-    part=${part#*@}
-    first=${part%%@*}
-    part=${part#*@}
-    disclosed=${part%%@*}
-    reason=${part#*@}
-    [ -n "$repo" ] || continue
-    case "$first" in ''|*[!0-9]*) continue ;; esac
-    case "$disclosed" in 0|1) ;; *) continue ;; esac
-    case "$reason" in github|budget) ;; *) continue ;; esac
-    UNREAD_MAP="$UNREAD_MAP$repo $first $disclosed $reason
-"
-  done < <(list_parts "$raw" ';')
+coverage_mark_disclosed() {
+  local id=$1 next
+  next=$(printf '%s' "$COVERAGE_JSON" | jq -c --arg id "$id" \
+    'map(if .target_id == $id then .disclosed = 1 else . end)' 2>/dev/null) || return 0
+  COVERAGE_JSON=$next
 }
 
-unread_confirm_disclosed() {
-  local line=$1 repo entry first reason
-  for repo in $UNREAD_PENDING; do
-    [ -n "$repo" ] || continue
-    case "$line" in
-      *"repo=$repo for "*) ;;
-      *) continue ;;
-    esac
-    entry=$(map_lookup "$UNREAD_MAP" "$repo") || continue
-    first=${entry%% *}
-    reason=${entry##* }
-    hole_set "$repo" "$first" 1 "$reason"
-  done
-}
-
-# A repository this fleet no longer works in cannot go on holding an unread
-# entry, but absence from a partial discovery is a failed read rather than
-# proof it was dropped - the same rule the conflict keys are pruned under.
-unread_prune() {
-  local out='' line repo
+# Gaps for targets complete discovery no longer expects are closed. Absence
+# from a partial discovery is a failed read, not proof the target was dropped.
+coverage_prune() {
+  local next
   [ "$DISCOVERY_COMPLETE" -eq 1 ] || return 0
-  [ -n "$DISCOVERED_REPOS" ] || return 0
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    repo=${line%% *}
-    case " $DISCOVERED_REPOS " in
-      *" $repo "*) out="$out$line
-" ;;
+  next=$(printf '%s' "$COVERAGE_JSON" | jq -c --arg targets "$EXPECTED_TARGETS" '
+    ($targets | split("\n") | map(select(. != ""))) as $ids |
+    map(select(.target_id as $t | $ids | index($t) != null))
+  ' 2>/dev/null) || return 0
+  COVERAGE_JSON=$next
+}
+
+ack_delivered() {
+  local kind id key
+  while IFS=$'\t' read -r kind id key; do
+    [ -n "$kind" ] || continue
+    case "$kind" in
+      conflict) [ -z "$key" ] || record_add_key "$key" ;;
+      coverage) coverage_mark_disclosed "$id" ;;
     esac
   done <<EOF
-$UNREAD_MAP
+$FINDING_DELIVERED
 EOF
-  UNREAD_MAP=$out
+}
+
+sweep_complete_from_outcomes() {
+  local id
+  [ "$DISCOVERY_COMPLETE" -eq 1 ] || return 1
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    case " $OBSERVED_TARGETS " in
+      *" $id "*) ;;
+      *) return 1 ;;
+    esac
+  done <<EOF
+$EXPECTED_TARGETS
+EOF
+  return 0
+}
+
+mark_observed() {
+  local id=$1
+  case " $OBSERVED_TARGETS " in
+    *" $id "*) return 0 ;;
+  esac
+  OBSERVED_TARGETS="$OBSERVED_TARGETS $id"
+  gap_close "$id"
 }
 
 # Every open pull request this sweep read is remembered, so the record can be
@@ -739,8 +776,10 @@ record_prune() {
 gh_api() {
   local query=$1
   shift
-  local out line body='' have_body=0 truncated=false enveloped=0
-  out=$(gh_bounded api "$@" --jq "$query" --full 2>/dev/null) || return 2
+  local out line body='' have_body=0 truncated=false enveloped=0 rc=0
+  LAST_READ_CAUSE=
+  GH_API_BODY=
+  out=$(gh_bounded api "$@" --jq "$query" --full 2>/dev/null) || rc=$?
   while IFS= read -r line; do
     case "$line" in
       'api_response:') enveloped=1 ;;
@@ -751,21 +790,24 @@ gh_api() {
         ;;
       '  truncated: '*) truncated=${line#'  truncated: '} ;;
     esac
-  done <<EOF
-$out
-EOF
-  # A scalar that needs no envelope is printed bare, so an unenveloped read is
-  # passed through rather than treated as a parse failure.
+  done < <(printf '%s\n' "$out")
+  if [ "$truncated" != false ]; then
+    LAST_READ_CAUSE=truncated
+    return 2
+  fi
+  if [ "$rc" -ne 0 ]; then
+    LAST_READ_CAUSE=github
+    return 2
+  fi
   if [ "$enveloped" -eq 0 ]; then
-    printf '%s\n' "$out"
+    GH_API_BODY=$out
     return 0
   fi
-  [ "$truncated" = false ] || return 2
-  [ "$have_body" -eq 1 ] || return 2
+  [ "$have_body" -eq 1 ] || { LAST_READ_CAUSE=github; return 2; }
   case "$body" in
-    '"'*) body=$(printf '%s' "$body" | jq -r '.' 2>/dev/null) || return 2 ;;
+    '"'*) body=$(printf '%s' "$body" | jq -r '.' 2>/dev/null) || { LAST_READ_CAUSE=github; return 2; } ;;
   esac
-  printf '%s\n' "$body"
+  GH_API_BODY=$body
 }
 
 # An owner/repo slug is interpolated into a GraphQL document, so it is held to
@@ -788,19 +830,21 @@ valid_repo_slug() {
 # GraphQL answers with HTTP 200 and a null repository when the repository cannot
 # be read, which through a plain field selection is byte-identical to a
 # repository with no open pull requests. Both guards below therefore fail the jq
-# program, which fails the gh-axi call, which reaches the unread disclosure -
+# program, which fails the gh-axi call, which is an unobserved GitHub outcome -
 # an unreadable repository must never arrive as a clean one.
 GQL_GUARD='if ((.errors // []) | length) > 0 then error("graphql errors") '
 
-# One tab-separated record per open pull request: number, head SHA, draft flag,
-# mergeability, url, title. A single read per repository carries mergeability
-# for every open pull request, so only the UNKNOWN ones cost a further read.
+# Compact JSON array of open pull requests. Title bytes are preserved; tabs and
+# newlines are sanitized only when formatting the wake line. A single read per
+# repository carries mergeability, so only UNKNOWN pull requests cost a further
+# read.
 pr_list_records() {
   local repo=$1 owner name
-  valid_repo_slug "$repo" || return 2
+  valid_repo_slug "$repo" || { LAST_READ_CAUSE=invalid-origin; return 2; }
   owner=${repo%%/*}
   name=${repo#*/}
-  gh_api "${GQL_GUARD}elif (.data.repository.pullRequests.nodes | type) != \"array\" then error(\"no repository\") else [.data.repository.pullRequests.nodes[] | [(.number|tostring), (.headRefOid // \"\"), (.isDraft|tostring), (.mergeable // \"UNKNOWN\"), (.url // \"\"), ((.title // \"\") | gsub(\"[\\t\\r\\n]\"; \" \"))] | @tsv] | join(\"\\n\") end" \
+  LAST_READ_CAUSE=
+  gh_api "${GQL_GUARD}elif (.data.repository.pullRequests.nodes | type) != \"array\" then error(\"no repository\") else ([.data.repository.pullRequests.nodes[] | {number, headRefOid: (.headRefOid // \"\"), isDraft, mergeable: (.mergeable // \"UNKNOWN\"), url: (.url // \"\"), title: (.title // \"\")}]) | tojson end" \
     POST /graphql --field "query={ repository(owner:\"$owner\", name:\"$name\") { pullRequests(states:OPEN, first:$PR_LIMIT) { nodes { number mergeable isDraft title url headRefOid } } } }"
 }
 
@@ -808,10 +852,11 @@ pr_list_records() {
 # reread a pull request whose mergeability GitHub had not computed yet.
 pr_view_record() {
   local repo=$1 number=$2 owner name
-  valid_repo_slug "$repo" || return 2
+  valid_repo_slug "$repo" || { LAST_READ_CAUSE=invalid-origin; return 2; }
   owner=${repo%%/*}
   name=${repo#*/}
-  gh_api "${GQL_GUARD}elif (.data.repository.pullRequest | type) != \"object\" then error(\"no pull request\") else [.data.repository.pullRequest | (.mergeable // \"UNKNOWN\"), (.headRefOid // \"\"), (.isDraft|tostring)] | @tsv end" \
+  LAST_READ_CAUSE=
+  gh_api "${GQL_GUARD}elif (.data.repository.pullRequest | type) != \"object\" then error(\"no pull request\") else (.data.repository.pullRequest | {mergeable: (.mergeable // \"UNKNOWN\"), headRefOid: (.headRefOid // \"\"), isDraft}) | tojson end" \
     POST /graphql --field "query={ repository(owner:\"$owner\", name:\"$name\") { pullRequest(number:$number) { mergeable headRefOid isDraft } } }"
 }
 
@@ -833,12 +878,13 @@ pr_mergeable_resolved() {
   while :; do
     if budget_exhausted; then
       RESOLVED_STATE=unknown
+      LAST_READ_CAUSE=budget
       return 0
     fi
-    record=$(pr_view_record "$repo" "$number") || return 2
-    IFS=$'\t' read -r mergeable head _ <<EOF
-$record
-EOF
+    pr_view_record "$repo" "$number" || return 2
+    record=$GH_API_BODY
+    mergeable=$(printf '%s' "$record" | jq -r '.mergeable // "UNKNOWN"' 2>/dev/null) || return 2
+    head=$(printf '%s' "$record" | jq -r '.headRefOid // ""' 2>/dev/null) || return 2
     case "$mergeable" in
       MERGEABLE)
         RESOLVED_STATE=clean
@@ -858,6 +904,7 @@ EOF
         fi
         if [ $((DEADLINE - $(real_epoch))) -le $((UNKNOWN_WAIT + PROBE_MIN_SECS)) ]; then
           RESOLVED_STATE=unknown
+          LAST_READ_CAUSE=budget
           return 0
         fi
         [ "$UNKNOWN_WAIT" -eq 0 ] || sleep "$UNKNOWN_WAIT"
@@ -880,32 +927,39 @@ format_finding() {
 }
 
 evaluate_repo() {
-  local repo=$1 owner_team=$2 records count=0
+  local repo=$1 owner_team=$2 records count=0 n i
   local number head draft mergeable url title key state
-  budget_exhausted && return 1
-  if ! records=$(pr_list_records "$repo"); then
-    # A read the sweep's own deadline killed is a budget hole, not a GitHub
-    # one, and the two are worded differently because they point the reader at
-    # different things.
-    budget_exhausted && return 1
-    repo_hole "$repo" github
-    return 0
+  ATTEMPT_CAUSE=
+  budget_exhausted && { ATTEMPT_CAUSE=budget; return 1; }
+  if ! pr_list_records "$repo"; then
+    budget_exhausted && { ATTEMPT_CAUSE=budget; return 1; }
+    ATTEMPT_CAUSE=${LAST_READ_CAUSE:-github}
+    return 1
   fi
-  while IFS=$'\t' read -r number head draft mergeable url title; do
-    [ -n "$number" ] || continue
+  records=$GH_API_BODY
+  n=$(printf '%s' "$records" | jq 'length' 2>/dev/null) || { ATTEMPT_CAUSE=github; return 1; }
+  i=0
+  while [ "$i" -lt "$n" ]; do
     count=$((count + 1))
-    budget_exhausted && return 1
+    budget_exhausted && { ATTEMPT_CAUSE=budget; return 1; }
+    number=$(printf '%s' "$records" | jq -r --argjson i "$i" '.[$i].number | tostring')
+    head=$(printf '%s' "$records" | jq -r --argjson i "$i" '.[$i].headRefOid // ""')
+    draft=$(printf '%s' "$records" | jq -r --argjson i "$i" '.[$i].isDraft | tostring')
+    mergeable=$(printf '%s' "$records" | jq -r --argjson i "$i" '.[$i].mergeable // "UNKNOWN"')
+    url=$(printf '%s' "$records" | jq -r --argjson i "$i" '.[$i].url // ""')
+    title=$(printf '%s' "$records" | jq -r --argjson i "$i" '.[$i].title // ""')
+    i=$((i + 1))
+    [ -n "$number" ] && [ "$number" != null ] || continue
     [ -n "$head" ] || continue
     seen_key "$(conflict_key "$repo" "$number" "$head")"
     case "$mergeable" in
       MERGEABLE) state=clean ;;
       CONFLICTING) state=conflicted ;;
       *)
-        # Only a pull request GitHub had not judged yet costs a further read.
         if ! pr_mergeable_resolved "$repo" "$number"; then
-          budget_exhausted && return 1
-          repo_hole "$repo" github
-          return 0
+          budget_exhausted && { ATTEMPT_CAUSE=budget; return 1; }
+          ATTEMPT_CAUSE=${LAST_READ_CAUSE:-github}
+          return 1
         fi
         state=$RESOLVED_STATE
         if [ -n "$RESOLVED_HEAD" ] && [ "$RESOLVED_HEAD" != "$head" ]; then
@@ -925,15 +979,10 @@ evaluate_repo() {
       *) continue ;;
     esac
     record_has_key "$key" && continue
-    queue_finding "$(format_finding "$owner_team" "$repo" "$number" "$head" "$draft" "$url" "$title")" "$key"
-  done <<EOF
-$records
-EOF
-  # Reaching here means every read this repository needed succeeded, so a
-  # repository that had been an unread or unswept hole is no longer one.
-  repo_read_ok "$repo"
-  # Only a page that was not itself cut short by PR_LIMIT can be read as the
-  # repository's whole open set, which is what pruning its stale keys relies on.
+    queue_item conflict "$key" "$(format_finding "$owner_team" "$repo" "$number" "$head" "$draft" "$url" "$title")" "$key"
+  done
+  budget_exhausted && { ATTEMPT_CAUSE=budget; return 1; }
+  mark_observed "repo:$repo"
   if [ "$count" -lt "$PR_LIMIT" ]; then
     SWEPT_REPOS="$SWEPT_REPOS $repo"
   fi
@@ -941,7 +990,7 @@ EOF
 }
 
 action_check() {
-  local repo owner_team line now notice cut
+  local id repo owner_team line now notice cut cause
   if ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
@@ -957,53 +1006,69 @@ action_check() {
   fi
 
   DEADLINE=$(($(real_epoch) + BUDGET_SECS))
+  OBSERVED_TARGETS=
+  SWEPT_REPOS=
+  SEEN_KEYS=
+  FINDING_KINDS=()
+  FINDING_IDS=()
+  FINDING_TEXTS=()
+  FINDING_KEYS=()
 
   if [ -n "$BUDGET_CUT_FROM" ]; then
-    queue_finding "sweep budget ${BUDGET_CUT_FROM}s cut to ${BUDGET_SECS}s to stay inside the watcher check timeout of ${CHECK_TIMEOUT}s"
+    queue_item notice budget-cut "sweep budget ${BUDGET_CUT_FROM}s cut to ${BUDGET_SECS}s to stay inside the watcher check timeout of ${CHECK_TIMEOUT}s"
   fi
 
-  discover_repos
+  discover_targets
   cut=0
-  for repo in $DISCOVERED_REPOS; do
-    [ -n "$repo" ] || continue
-    # Once the budget is gone the sweep keeps walking the discovered set, not to
-    # read it but to name it. A sweep that stopped early and said nothing is
-    # reporting no conflicts for repositories it never looked at.
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    repo=$(map_lookup "$TARGET_REPO_MAP" "$id") || repo=
+    cause=$(map_lookup "$TARGET_CAUSE_MAP" "$id") || cause=
+    case "$id" in
+      source:*|project:*)
+        gap_touch "$id" "${cause:-discovery}" "$repo"
+        continue
+        ;;
+    esac
     if [ "$cut" -eq 1 ] || budget_exhausted; then
       cut=1
-      repo_hole "$repo" budget
+      gap_touch "$id" budget "$repo"
       continue
     fi
     owner_team=$(owner_for_repo "$repo")
     if ! evaluate_repo "$repo" "$owner_team"; then
-      cut=1
-      repo_hole "$repo" budget
+      if [ "${ATTEMPT_CAUSE:-}" = budget ]; then
+        cut=1
+      fi
+      gap_touch "$id" "${ATTEMPT_CAUSE:-github}" "$repo"
     fi
-  done
+  done <<EOF
+$EXPECTED_TARGETS
+EOF
+
+  if sweep_complete_from_outcomes; then
+    SWEEP_COMPLETE=1
+  else
+    SWEEP_COMPLETE=0
+  fi
 
   line=
   if [ "${#FINDING_TEXTS[@]}" -gt 0 ]; then
     build_finding_line 0
     if [ "$FINDING_OMITTED" -gt 0 ]; then
-      # Reserve the widest the disclosure can be, so the second pass cannot be
-      # invalidated by the count it is making room for.
       notice="; ${#FINDING_TEXTS[@]} more omitted (line cap)"
       build_finding_line "${#notice}"
       if [ "$FINDING_OMITTED" -gt 0 ]; then
         FINDING_LINE="$FINDING_LINE; $FINDING_OMITTED more omitted (line cap)"
       fi
     fi
-    # A last cut through the shared rule, so an over-long single finding ends
-    # with the same visible truncation marker the digests use.
     fm_cap_line_var "$FINDING_LINE" "$MAX_LINE"
     line=$FM_LINE_CAP_LINE
   fi
 
-  unread_confirm_disclosed "$line"
+  ack_delivered
   record_prune
-  unread_prune
-  record_add_keys "$FINDING_LINE_KEYS"
-
+  coverage_prune
   if [ -n "$line" ]; then
     printf '%s\n' "$line"
   fi

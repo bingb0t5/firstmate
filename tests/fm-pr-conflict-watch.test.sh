@@ -529,7 +529,7 @@ test_resolved_conflicts_leave_the_record() {
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "a closed pull request must not wake: $(cat "$out")"
   # state/.pr-conflict-watch is this script's own persisted record; its
-  # fm-pr-conflict-watch-v1 shape is the contract being asserted.
+  # reported keys are the contract being asserted.
   assert_not_contains "$(cat "$home/state/.pr-conflict-watch")" "$HEAD_ONE" \
     "the record must not keep a key for a pull request it no longer sees"
   add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false CONFLICTING "Broken"
@@ -717,12 +717,12 @@ test_persistent_read_failure_is_disclosed_once() {
   : > "$out"
   run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
     FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
-  assert_contains "$(cat "$out")" "unread repo=$REPO_A" \
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_A" \
     "a persistently unreadable repository must be named"
-  assert_contains "$(cat "$out")" "conflict coverage has a hole" \
-    "the disclosure must say coverage is incomplete"
+  assert_contains "$(cat "$out")" "latest-cause=github" \
+    "the disclosure must carry the latest failed-attempt cause"
   assert_not_contains "$(cat "$out")" "owner-team=" \
-    "an unread repository is a coverage hole, not a routed conflict"
+    "a coverage hole is not a routed conflict"
   [ "$(wc -l < "$out" | tr -d '[:space:]')" = 1 ] || fail "the disclosure must be one line"
   : > "$out"
   run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
@@ -737,7 +737,7 @@ test_persistent_read_failure_is_disclosed_once() {
   : > "$out"
   run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
     FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
-  assert_contains "$(cat "$out")" "unread repo=$REPO_A" \
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_A" \
     "a hole that reopens after recovery is a new disclosure"
   pass "a persistent GitHub read failure is disclosed once as a coverage hole"
 }
@@ -772,8 +772,10 @@ test_truncated_read_is_not_read_as_clean() {
   out="$home/out.txt"
   run_check "$home" "$out" env FM_TEST_PR_CONFLICT_TRUNCATE=1 \
     FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
-  assert_contains "$(cat "$out")" "unread repo=$REPO_A" \
-    "a truncated body must be refused as an unread repository"
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_A" \
+    "a truncated body must be refused as an unobserved repository"
+  assert_contains "$(cat "$out")" "latest-cause=truncated" \
+    "a truncated envelope is not a GitHub-root-cause claim"
   assert_not_contains "$(cat "$out")" "number=7" \
     "a truncated read must not be parsed into findings"
   pass "a truncated api body is treated as a failed read, not a short list"
@@ -875,8 +877,10 @@ test_unresolvable_repository_is_not_read_as_clean() {
   out="$home/out.txt"
   run_check "$home" "$out" env FM_TEST_PR_CONFLICT_NOREPO="$REPO_A" \
     FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
-  assert_contains "$(cat "$out")" "unread repo=$REPO_A" \
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_A" \
     "an unresolvable repository must be disclosed, not read as clean"
+  assert_contains "$(cat "$out")" "latest-cause=github" \
+    "a GraphQL null repository is a GitHub read failure"
   pass "a GraphQL null repository is a failed read, not an empty one"
 }
 
@@ -890,8 +894,12 @@ test_untrustworthy_slug_is_refused_not_swept() {
     'https://github.com/acme/alpha"){id}}}#'
   out="$home/out.txt"
   run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
-  assert_contains "$(cat "$out")" "unread repo=" \
-    "a slug that cannot be trusted in a query must be disclosed as unread"
+  assert_contains "$(cat "$out")" "coverage-hole target=project:alpha" \
+    "a slug that cannot be trusted in a query must be a local identity gap"
+  assert_contains "$(cat "$out")" "latest-cause=invalid-origin" \
+    "the cause must be local identity, not GitHub"
+  assert_not_contains "$(cat "$out")" "latest-cause=github" \
+    "a refused slug must not be blamed on GitHub"
   pass "a slug that is unsafe to interpolate is refused rather than swept"
 }
 
@@ -907,53 +915,203 @@ test_budget_cut_names_the_repositories_not_reached() {
   run_check "$home" "$out" env FM_PR_CONFLICT_BUDGET_SECS=1 \
     FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 FM_TEST_PR_CONFLICT_SLOW="$REPO_A" \
     FM_TEST_PR_CONFLICT_SLOW_SECS=2
-  assert_contains "$(cat "$out")" "unswept repo=$REPO_B" \
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_B" \
     "a repository the budget never reached must be named"
-  assert_contains "$(cat "$out")" "sweep budget ran out" \
-    "the disclosure must point at the sweep budget"
+  assert_contains "$(cat "$out")" "latest-cause=budget" \
+    "the disclosure must name budget as the latest cause"
   pass "a budget-cut sweep names the repositories it never reached"
 }
 
-# A local budget timeout and a GitHub read failure are different problems with
-# different fixes, so they must not be reported with the same words.
+# A local budget timeout and a GitHub read failure are different latest-cause
+# values on the same coverage item shape. They must not share a diagnosis.
 test_budget_and_github_holes_are_worded_apart() {
   local home out
-  home=$(make_home hole-wording)
+  home=$(make_home hole-wording-budget)
   add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false MERGEABLE "Slow A"
   add_pr "$home" "$REPO_B" 9 "$HEAD_TWO" false CONFLICTING "Broken B"
   out="$home/out.txt"
   run_check "$home" "$out" env FM_PR_CONFLICT_BUDGET_SECS=1 \
     FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 FM_TEST_PR_CONFLICT_SLOW="$REPO_A" \
     FM_TEST_PR_CONFLICT_SLOW_SECS=2
-  assert_not_contains "$(cat "$out")" "GitHub reads failing" \
+  assert_contains "$(cat "$out")" "latest-cause=budget" "a budget cut names budget"
+  assert_not_contains "$(cat "$out")" "latest-cause=github" \
     "a sweep that ran out of its own budget must not blame GitHub"
-  : > "$out"
+  home=$(make_home hole-wording-github)
+  add_pr "$home" "$REPO_B" 9 "$HEAD_TWO" false CONFLICTING "Broken B"
+  out="$home/out.txt"
   run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_B" \
     FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
-  assert_contains "$(cat "$out")" "unread repo=$REPO_B" "a failed read is an unread repository"
-  assert_contains "$(cat "$out")" "GitHub reads failing" "a failed read names GitHub"
-  assert_not_contains "$(cat "$out")" "unswept repo=$REPO_B" \
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_B" "a failed read is a coverage hole"
+  assert_contains "$(cat "$out")" "latest-cause=github" "a failed read names github as latest-cause"
+  assert_not_contains "$(cat "$out")" "latest-cause=budget" \
     "a failed read must not be reported as a budget cut"
   pass "budget holes and GitHub holes are separately worded"
 }
 
-# A repository whose hole changes kind starts a fresh one, so it cannot be
-# disclosed under the previous diagnosis.
-test_hole_changing_kind_is_disclosed_under_its_new_diagnosis() {
-  local home out
-  home=$(make_home hole-kind-change)
+# A continuously unobserved target keeps one gap. Cause flaps update latest-cause
+# without resetting age, so the gap discloses once at the original opening time.
+test_coverage_gap_retains_age_across_cause_flaps() {
+  local home out record opened
+  home=$(make_home coverage-flap)
   add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false CONFLICTING "Broken A"
   out="$home/out.txt"
   run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
-    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
-  assert_contains "$(cat "$out")" "GitHub reads failing" "the first hole is a GitHub one"
+    FM_PR_CONFLICT_NOW=1000 FM_PR_CONFLICT_UNREAD_GRACE_SECS=30
+  [ ! -s "$out" ] || fail "a fresh gap must stay silent inside the grace: $(cat "$out")"
   : > "$out"
   run_check "$home" "$out" env FM_PR_CONFLICT_BUDGET_SECS=1 \
-    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 FM_TEST_PR_CONFLICT_SLOW="$REPO_A" \
-    FM_TEST_PR_CONFLICT_SLOW_SECS=2
-  assert_not_contains "$(cat "$out")" "unread repo=$REPO_A" \
-    "the same repository must not still be reported as a GitHub failure"
-  pass "a hole that changes kind is disclosed under its new diagnosis"
+    FM_TEST_PR_CONFLICT_SLOW="$REPO_A" FM_TEST_PR_CONFLICT_SLOW_SECS=2 \
+    FM_PR_CONFLICT_NOW=1010 FM_PR_CONFLICT_UNREAD_GRACE_SECS=30
+  [ ! -s "$out" ] || fail "a cause change inside the grace must stay silent: $(cat "$out")"
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
+    FM_PR_CONFLICT_NOW=1020 FM_PR_CONFLICT_UNREAD_GRACE_SECS=30
+  [ ! -s "$out" ] || fail "the same gap must still be silent before the grace: $(cat "$out")"
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_BUDGET_SECS=1 \
+    FM_TEST_PR_CONFLICT_SLOW="$REPO_A" FM_TEST_PR_CONFLICT_SLOW_SECS=2 \
+    FM_PR_CONFLICT_NOW=1030 FM_PR_CONFLICT_UNREAD_GRACE_SECS=30
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_A" \
+    "the continuous gap must disclose once the grace elapses"
+  assert_contains "$(cat "$out")" "unaccounted-for=30s" \
+    "the age must be measured from the original opening time"
+  assert_contains "$(cat "$out")" "latest-cause=budget" \
+    "the disclosure must carry the latest cause, not the first"
+  record=$(sed -n 's/^coverage=//p' "$home/state/.pr-conflict-watch")
+  opened=$(printf '%s' "$record" | jq -r --arg id "repo:$REPO_A" \
+    'map(select(.target_id == $id)) | .[0].opened_at')
+  [ "$opened" = 1000 ] || fail "opened_at must stay 1000 across cause flaps, got $opened"
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
+    FM_PR_CONFLICT_NOW=1040 FM_PR_CONFLICT_UNREAD_GRACE_SECS=30
+  [ ! -s "$out" ] || fail "a cause change after disclosure must not notify again: $(cat "$out")"
+  pass "a continuous coverage gap keeps its age and discloses once"
+}
+
+# Recovery closes the gap. A later outage is a new gap that can notify again.
+test_coverage_recovery_then_new_outage_notifies_again() {
+  local home out
+  home=$(make_home coverage-reopen)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false CONFLICTING "Broken A"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  [ -s "$out" ] || fail "first poll should wake"
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_A" "first outage discloses"
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  [ ! -s "$out" ] || fail "recovery must close the gap silently: $(cat "$out")"
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_A" \
+    "a later outage is a new gap"
+  pass "recovery followed by a later outage can notify again"
+}
+
+# A malformed origin is a local target. It never reaches GraphQL and must
+# round-trip through the coverage JSON even with delimiter characters.
+test_malformed_origin_round_trips_as_local_target() {
+  local home out record id
+  home=$(make_home malformed-origin)
+  git -C "$home/projects/alpha" remote set-url origin \
+    'https://github.com/acme/al;pha@x" y\z.git'
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=project:alpha" \
+    "a malformed origin is a project target, not a repo slug"
+  assert_contains "$(cat "$out")" "latest-cause=invalid-origin"
+  record=$(sed -n 's/^coverage=//p' "$home/state/.pr-conflict-watch")
+  id=$(printf '%s' "$record" | jq -r '.[0].target_id')
+  [ "$id" = "project:alpha" ] || fail "coverage JSON must round-trip project:alpha, got $id"
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  [ ! -s "$out" ] || fail "the same local gap must disclose once: $(cat "$out")"
+  pass "a malformed origin never reaches GraphQL and round-trips as a local target"
+}
+
+# An unreadable projects registry is a source-level gap, not an unnamed sweep.
+test_unreadable_registry_is_a_source_coverage_gap() {
+  local home out
+  home=$(make_home registry-source-gap)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false CONFLICTING "Broken A"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  [ -s "$out" ] || fail "first poll should wake"
+  mv "$home/data/projects.md" "$home/data/projects.md.away"
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=source:projects-registry" \
+    "an unreadable registry must name the source target"
+  assert_contains "$(cat "$out")" "latest-cause=discovery"
+  mv "$home/data/projects.md.away" "$home/data/projects.md"
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  [ ! -s "$out" ] || fail "the unchanged conflict must not wake after the registry returns: $(cat "$out")"
+  pass "an unreadable registry is a source-level coverage gap"
+}
+
+# Conflicts and coverage events share a line without sharing ledgers.
+test_mixed_sweep_does_not_cross_write_ledgers() {
+  local home out record
+  home=$(make_home mixed-ledgers)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false CONFLICTING "Broken A"
+  add_pr "$home" "$REPO_B" 9 "$HEAD_TWO" false CONFLICTING "Broken B"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  [ -s "$out" ] || fail "first poll should wake both conflicts"
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_B" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_B"
+  assert_not_contains "$(cat "$out")" "number=7" "alpha's unchanged conflict must stay silent"
+  record=$(sed -n 's/^coverage=//p' "$home/state/.pr-conflict-watch")
+  printf '%s' "$record" | jq -e --arg id "repo:$REPO_B" \
+    'map(select(.target_id == $id)) | length == 1' >/dev/null \
+    || fail "beta must have exactly one coverage gap"
+  assert_contains "$(cat "$home/state/.pr-conflict-watch")" "$HEAD_ONE" \
+    "alpha's conflict key must remain in the reported ledger"
+  pass "a mixed sweep keeps conflict and coverage ledgers separate"
+}
+
+# A coverage item omitted by the line cap stays undisclosed and is emitted later.
+test_coverage_omitted_by_line_cap_is_emitted_later() {
+  local home out i
+  home=$(make_home coverage-cap)
+  i=1
+  while [ "$i" -le 12 ]; do
+    add_pr "$home" "$REPO_A" "$i" "$HEAD_ONE" false CONFLICTING "Conflicted branch $i"
+    i=$((i + 1))
+  done
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_B" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  if grep -q "coverage-hole target=repo:$REPO_B" "$out"; then
+    pass "coverage fit on the first capped line"
+    return 0
+  fi
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_B" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=repo:$REPO_B" \
+    "an omitted coverage item must still be undisclosed and wake later"
+  pass "a coverage item omitted by the line cap is emitted later"
+}
+
+# Title backslashes are literal. Tabs and newlines become spaces at format time.
+test_title_backslash_is_literal() {
+  local home out
+  home=$(make_home title-backslash)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false CONFLICTING $'fix regex \\d+\tand\nnewline'
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" 'title=fix regex \d+ and newline' \
+    "a title backslash must not be doubled and whitespace must be safe"
+  assert_not_contains "$(cat "$out")" 'title=fix regex \\d+' \
+    "tsv escaping must not reach the wake line"
+  pass "PR titles preserve a literal backslash and safe whitespace"
 }
 
 test_arm_registers_check() {
@@ -998,5 +1156,11 @@ test_unresolvable_repository_is_not_read_as_clean
 test_untrustworthy_slug_is_refused_not_swept
 test_budget_cut_names_the_repositories_not_reached
 test_budget_and_github_holes_are_worded_apart
-test_hole_changing_kind_is_disclosed_under_its_new_diagnosis
+test_coverage_gap_retains_age_across_cause_flaps
+test_coverage_recovery_then_new_outage_notifies_again
+test_malformed_origin_round_trips_as_local_target
+test_unreadable_registry_is_a_source_coverage_gap
+test_mixed_sweep_does_not_cross_write_ledgers
+test_coverage_omitted_by_line_cap_is_emitted_later
+test_title_backslash_is_literal
 test_arm_registers_check

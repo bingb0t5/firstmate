@@ -445,7 +445,7 @@ That list stays the non-exclusive clone list the [`secondmate-provisioning` skil
 Arm once per home with `bin/fm-pr-conflict-watch.sh arm`.
 That writes `state/pr-conflict-watch.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence and turns a newly conflicted pull request into one `check:` wake line.
 `bin/fm-pr-conflict-watch.sh disarm` removes the shim, trust binding, and dedupe record.
-The check prints nothing when no new conflict exists, apart from the cut-budget disclosure described below.
+The check prints nothing when no new conflict exists, apart from the cut-budget disclosure described below and a coverage-hole when a target has stayed unaccounted for longer than the grace period.
 Draft pull requests are included; a conflicted draft is reported with `draft=yes`.
 
 Each wake line begins with `pr-conflict:` and carries `owner-team`, `repo`, `number`, `head`, `draft`, `url`, and `title` so firstmate can route without re-deriving ownership.
@@ -453,7 +453,7 @@ Dedupe keys are repository, pull request number, and head SHA: the same conflict
 GitHub is read through `gh-axi api`, whose replies arrive as an axi envelope rather than as raw JSON.
 One GraphQL read per repository carries every open pull request together with its mergeability, so sweep cost scales with the number of repositories rather than with the number of pull requests.
 GitHub computes mergeability lazily; a pull request that comes back `UNKNOWN` is reread on its own, and a persistently unknown state is treated as unknown rather than clean or conflicted.
-A GraphQL read of a repository that cannot be resolved answers with a null repository rather than an error, which would otherwise be indistinguishable from a repository with no open pull requests, so the query refuses that shape and the repository is disclosed as unread instead.
+A GraphQL read of a repository that cannot be resolved answers with a null repository rather than an error, which would otherwise be indistinguishable from a repository with no open pull requests, so the query refuses that shape and the repository is an unobserved GitHub coverage gap instead.
 A reread that settles the state also names the head it settled for, so a branch force-updated between the listing and the reread is reported and deduped under the SHA that was actually judged.
 A sweep that finds more conflicts than one line can carry reports the ones that fit and discloses the rest as `N more omitted (line cap)`; an omitted conflict is not marked as reported, so it wakes on a later sweep instead of being lost.
 The dedupe record is cut back to the conflicts each sweep still observes, so it stays the size of the live conflict set rather than growing one entry per head forever.
@@ -462,23 +462,25 @@ A sweep whose repository discovery was incomplete keeps the whole record for the
 That covers the degenerate case where discovery reads nothing as well as the partial case where it reads some clones and fails on others.
 
 This is a safety net, not a cure: conflicts happen because pull requests wait unmerged while the default branch moves underneath them.
-Silence is not a proof that every repository was checked, either.
-A repository the sweep could not account for is not counted as clean: the sweep stops counting as complete, so it prunes nothing it did not see.
-Two different holes are tracked and worded apart, because they have different fixes.
-`unread repo=<slug> ... GitHub reads failing` means the read itself failed, which points at credentials, rate limits, or the network.
-`unswept repo=<slug> ... sweep budget ran out before reaching it` means the sweep ran out of its own time first, which points at `FM_PR_CONFLICT_BUDGET_SECS` and `FM_CHECK_TIMEOUT` rather than at GitHub.
-A repository whose hole changes from one kind to the other starts a fresh one, so it is never disclosed under the previous diagnosis.
-GitHub fails transiently often enough that waking on each blip would be noise, so a hole is disclosed only once it has stayed open for longer than `FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800 seconds, `0` to disclose on the first sweep).
-That disclosure names the repository and how long it has been unreadable, is said once rather than on every sweep, and is a hole in coverage rather than a conflict.
-A disclosure that does not fit the line is not counted as said, so it is repeated on a later sweep.
-A sweep that runs out of budget stops reading where it is, but it still walks the rest of the discovered set to name it, so the repositories it never reached are disclosed rather than passed over in silence.
-The sweep order is fixed, so a fleet too large for one budget leaves the same tail of repositories unswept on every poll.
+Silence is not a proof that every repository was checked.
+Conflicts found and coverage holes are two models that share a sweep because coverage decides which conflict conclusions are justified.
+A conflict is a positive observation keyed by repository, pull request number, and head SHA.
+A coverage gap is an absence of a trustworthy observation keyed by a stable target: `repo:<owner/repo>` for a valid repository, `project:<name>` when a registered project's clone or origin cannot resolve to a valid repository, and `source:projects-registry` or `source:firstmate-origin` when discovery fails before a repository can be named.
+The durable fact is that the target has remained unaccounted for since it first failed; the latest cause of that failure is metadata on the gap, not a second gap.
+A cause change does not reset age and does not notify again after the gap has been disclosed.
+GitHub fails transiently often enough that waking on each blip would be noise, so a gap is disclosed only once it has stayed open for longer than `FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800 seconds, `0` to disclose on the first sweep).
+That disclosure is one `coverage-hole` item naming the target, the valid repository when one is known, how long it has been unaccounted for, and `latest-cause` (`github`, `budget`, `truncated`, `invalid-origin`, or `discovery`).
+It is not a conflict, and it does not claim a root cause the sweep did not observe: a local identity refusal is `invalid-origin`, a local deadline is `budget`, and a cut tool envelope is `truncated`.
+A coverage item that does not fit the line is not counted as disclosed, so it is repeated on a later sweep.
+A sweep is complete only when every expected target was observed and discovery itself completed; an incomplete sweep prunes nothing it did not see.
+A sweep that runs out of budget still names the targets it never reached, so they are coverage gaps rather than silent clean repositories.
+The sweep order is fixed, so a fleet too large for one budget leaves the same tail unaccounted for on every poll.
 Raise `FM_PR_CONFLICT_BUDGET_SECS` with `FM_CHECK_TIMEOUT` when the fleet outgrows one sweep.
 
 `FM_PR_CONFLICT_INTERVAL` (default 300 seconds, `0` to probe on every run) sets how often sweeps run, `FM_PR_CONFLICT_PROBE_SECS` (default 5) bounds one GitHub call, and `FM_PR_CONFLICT_BUDGET_SECS` (default 20) bounds a whole sweep.
 `FM_PR_CONFLICT_UNKNOWN_ATTEMPTS` (default 3) and `FM_PR_CONFLICT_UNKNOWN_WAIT` (default 1 second) control lazy mergeability polling.
 `FM_PR_CONFLICT_PR_LIMIT` (default 30) caps open pull requests read per repository.
-`FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800) sets how long a repository must stay unaccounted for - whether its GitHub reads keep failing or the sweep budget keeps failing to reach it - before the resulting hole in coverage is disclosed.
+`FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800) sets how long a target must stay unaccounted for before the resulting coverage gap is disclosed.
 The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a larger budget is cut to fit rather than refused, and the `UNKNOWN` reread loop stops at the sweep deadline too, because a run the watcher kills prints and records nothing at all.
 A cut budget is disclosed at the head of the line, and it is the one thing this check reports without a conflict behind it; because it describes a setting rather than an event, it repeats on every sweep until the two settings agree.
 
