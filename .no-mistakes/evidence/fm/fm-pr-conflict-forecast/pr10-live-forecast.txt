@@ -1,0 +1,6 @@
+forecast: candidate=https://github.com/bingb0t5/firstmate/pull/10 candidate-head=64d2d19469034c004ca64ee215100f75941e8322 method=squash current-base=main current-base-sha=15a930fca3b58fef13a1da0168d6e4849e3657ee post-candidate-base=474e88e147b7b0ecd1e8b274ae58221796df2608 open-prs=1 other-open-prs=0 evidence=fetched-GitHub-refs+git-merge-tree
+already-conflicting: count=0
+newly-conflicting-after-candidate: count=0
+still-clean-after-candidate: count=0
+
+exit-code: 0
