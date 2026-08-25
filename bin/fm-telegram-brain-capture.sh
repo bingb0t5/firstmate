@@ -29,11 +29,13 @@
 # that the result named no payloads.
 # A line the canonical shape rejects never blocks another: it is reported as
 # `skipped:unsupported <update_id> <reason>` and the batch keeps walking.
-# A refusal already scoped to one update_id, such as a receipt whose content
-# disagrees with the payload, fails that line, keeps walking, and exits
-# non-zero without acking.
-# Only a systemic failure stops the batch: a failed brain write or transport,
-# an unusable credential or config, or a receipt store this home cannot use.
+# A refusal already scoped to one update_id fails that line, keeps walking, and
+# exits non-zero without acking: a receipt whose content disagrees with the
+# payload, or a brain that rejects this one message with a 4xx other than 401,
+# 403, or 429.
+# Only a systemic failure stops the batch: a transport failure, HTTP 5xx, 429,
+# 401 or 403, an unusable credential or config, or a receipt store this home
+# cannot use.
 # A stop prints `unattempted <count>`, counting the payloads behind it that
 # would have been posted, not the input lines it stopped reading.
 # One brain outage therefore costs one timeout rather than one per payload, and
@@ -50,11 +52,12 @@
 # Records are separated by newline only, so U+2028, U+2029, and U+0085 inside a
 # JSON string stay part of the text they belong to.
 # Each line is one JSON object with positive signed 32-bit update_id, nonempty
-# text, integer chat_id, and integer from_id, matching the interrupt adapter's
-# canonical message shape.
+# text, and integer chat_id, matching the interrupt adapter's canonical message
+# shape.
 # Boolean JSON numbers are rejected.
-# Any other field, including the adapter's date, is ignored rather than typed,
-# so a field this path never reads can never cost a capturable message.
+# Any other field, including the adapter's date and from_id, is ignored rather
+# than typed, so a field this path never reads can never cost a capturable
+# message, and a channel post that carries no sender is still captured.
 #
 # GROUP DISCUSSION.
 # Captain direct messages are captured by default.
@@ -94,8 +97,9 @@
 # Successful writes are recorded under state/telegram-brain-capture/<update_id>
 # at mode 0600 inside a mode-0700 directory.
 # A matching receipt skips the POST on retry.
-# The hash covers update_id, text, chat_id, and from_id, so the optional date
-# being present on one run and absent on the next is not a disagreement.
+# The hash covers update_id, text, and chat_id, the fields this path reads, so
+# an optional field such as date or from_id being present on one run and absent
+# on the next is not a disagreement.
 # A receipt whose payload hash disagrees with the current line is refused, and
 # stays refused until an operator inspects it and removes
 # state/telegram-brain-capture/<update_id> to allow a fresh write.

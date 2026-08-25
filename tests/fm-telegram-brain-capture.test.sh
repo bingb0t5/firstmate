@@ -75,7 +75,7 @@ EOF
 code=${FAKE_CAPTURE_CODE:-200}
 if [ -n "${FAKE_CAPTURE_FAIL_MATCH:-}" ] && [ -n "$bodyfile" ] \
   && grep -q -F -- "$FAKE_CAPTURE_FAIL_MATCH" "$bodyfile"; then
-  code=500
+  code=${FAKE_CAPTURE_FAIL_CODE:-500}
 fi
 if [ -n "${FAKE_CURL_LOG:-}" ]; then
   {
@@ -125,6 +125,7 @@ run_capture() {
     FAKE_CAPTURE_BODY="${FAKE_CAPTURE_BODY-}" \
     FAKE_CAPTURE_CODE="${FAKE_CAPTURE_CODE-}" \
     FAKE_CAPTURE_FAIL_MATCH="${FAKE_CAPTURE_FAIL_MATCH-}" \
+    FAKE_CAPTURE_FAIL_CODE="${FAKE_CAPTURE_FAIL_CODE-}" \
     FAKE_CURL_EXIT="${FAKE_CURL_EXIT-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_GROUP="${FM_TELEGRAM_BRAIN_CAPTURE_GROUP-}" \
     FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT="${FM_TELEGRAM_BRAIN_CAPTURE_FAILPOINT-}" \
@@ -578,6 +579,81 @@ assert_contains "$out" "captured 9905 cap-1" "a field this path never reads drop
 assert_not_contains "$out" "skipped:unsupported" "an unread field was treated as a shape rejection"
 assert_present "$extra/state/telegram-brain-capture/9905" "the message was never receipted"
 pass "fields this path never reads, including date, are ignored not typed"
+
+# --- a payload-scoped 4xx fails its line without blocking the rest ----------
+reject=$(make_home payload-reject)
+reject_bin=$(make_fake_curl "$reject")
+FAKE_CURL_LOG="$reject/curl.log"
+FAKE_CAPTURE_FAIL_MATCH="the brain refuses this one"
+FAKE_CAPTURE_FAIL_CODE=400
+{
+  payload 9920 "the brain refuses this one"
+  payload 9921 "a later thought"
+  payload 9922 "a last thought"
+} > "$reject/batch.jsonl"
+if run_capture "$reject" "$reject_bin" capture - < "$reject/batch.jsonl" \
+  >"$reject/out" 2>"$reject/err"; then
+  fail "a rejected message must stay fail-closed"
+fi
+FAKE_CAPTURE_FAIL_MATCH=
+FAKE_CAPTURE_FAIL_CODE=
+assert_grep "HTTP 400" "$reject/err" "the rejected message was not reported"
+assert_absent "$reject/state/telegram-brain-capture/9920" "the rejected message left a receipt"
+assert_not_contains "$(cat "$reject/out")" "unattempted" \
+  "a payload-scoped rejection stopped the batch"
+assert_present "$reject/state/telegram-brain-capture/9921" \
+  "a payload-scoped rejection blocked a later payload"
+assert_present "$reject/state/telegram-brain-capture/9922" \
+  "a payload-scoped rejection blocked a later payload"
+pass "a 4xx confined to one message fails its line, keeps walking, and exits non-zero"
+
+# --- a credential-systemic 401 still stops the batch ------------------------
+denied=$(make_home http-denied)
+denied_bin=$(make_fake_curl "$denied")
+FAKE_CURL_LOG="$denied/curl.log"
+FAKE_CAPTURE_FAIL_MATCH="the brain denies the token"
+FAKE_CAPTURE_FAIL_CODE=401
+{
+  payload 9930 "the brain denies the token"
+  payload 9931 "a later thought"
+} > "$denied/batch.jsonl"
+if run_capture "$denied" "$denied_bin" capture - < "$denied/batch.jsonl" \
+  >"$denied/out" 2>"$denied/err"; then
+  fail "a denied token must stay fail-closed"
+fi
+FAKE_CAPTURE_FAIL_MATCH=
+FAKE_CAPTURE_FAIL_CODE=
+assert_grep "HTTP 401" "$denied/err" "the denied token was not reported"
+assert_grep "unattempted 1" "$denied/out" "a credential-systemic 401 did not stop the batch"
+assert_absent "$denied/state/telegram-brain-capture/9931" "a 401 still POSTed the next payload"
+pass "a 401 is systemic and still stops the batch"
+
+# --- a channel post carrying no sender is captured --------------------------
+channel=$(make_home channel-post)
+printf 'on\n' > "$channel/config/telegram-brain-capture-group"
+channel_bin=$(make_fake_curl "$channel")
+FAKE_CURL_LOG="$channel/curl.log"
+out=$(printf '%s\n' '{"chat_id":-1001234567890,"text":"shipping monday","update_id":9401}' | \
+  run_capture "$channel" "$channel_bin" capture -)
+expect_code 0 $? "a channel post should capture when group capture is on"
+assert_contains "$out" "captured 9401 cap-1" "a channel post with no sender was dropped"
+assert_not_contains "$out" "skipped:unsupported" "a missing from_id was treated as a shape rejection"
+assert_grep '"source":"firstmate-telegram-group"' "$channel/state/telegram-brain-capture/9401" \
+  "the channel post was not recorded as group discussion"
+pass "a channel post that carries no sender is captured as group discussion"
+
+# --- the receipt digest ignores an appearing or vanishing from_id -----------
+senderdrift=$(make_home sender-drift)
+senderdrift_bin=$(make_fake_curl "$senderdrift")
+FAKE_CURL_LOG="$senderdrift/curl.log"
+out=$(payload 9940 "the same thought" | run_capture "$senderdrift" "$senderdrift_bin" capture -)
+expect_code 0 $? "the first capture should succeed"
+assert_contains "$out" "captured 9940 cap-1" "the first capture did not report the capture_id"
+out=$(printf '{"chat_id":%s,"text":"the same thought","update_id":9940}\n' "$CAPTAIN_CHAT" | \
+  run_capture "$senderdrift" "$senderdrift_bin" capture -)
+expect_code 0 $? "the same thought without a sender must not disagree with its receipt"
+assert_contains "$out" "already-captured 9940 cap-1" "a dropped from_id was read as a receipt mismatch"
+pass "the receipt digest survives from_id appearing or disappearing"
 
 # --- unattempted counts payloads, not remaining input lines -----------------
 count=$(make_home unattempted-count)

@@ -34,7 +34,8 @@ GROUP_SOURCE = "firstmate-telegram-group"
 UPDATE_ID_RE = re.compile(r"^[1-9][0-9]*$")
 BRAIN_URL_RE = re.compile(r"https://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
 MAX_CAPTURE_ID_CHARS = 200
-RECEIPT_IDENTITY_FIELDS = ("update_id", "text", "chat_id", "from_id")
+RECEIPT_IDENTITY_FIELDS = ("update_id", "text", "chat_id")
+SYSTEMIC_HTTP_STATUSES = (401, 403, 429)
 
 
 class UserError(Exception):
@@ -324,17 +325,19 @@ def parse_payload(line: str) -> Dict[str, object]:
     if not isinstance(text, str) or not text:
         raise PayloadError("text is not a nonempty string", update_id)
     chat_id = payload.get("chat_id")
-    from_id = payload.get("from_id")
     if type(chat_id) is not int or isinstance(chat_id, bool):
         raise PayloadError("chat_id is not an integer", update_id)
-    if type(from_id) is not int or isinstance(from_id, bool):
-        raise PayloadError("from_id is not an integer", update_id)
     return {
         "update_id": update_id,
         "text": text,
         "chat_id": chat_id,
-        "from_id": from_id,
     }
+
+
+def http_failure_error(status: int):
+    if 400 <= status < 500 and status not in SYSTEMIC_HTTP_STATUSES:
+        return CaptureError
+    return UserError
 
 
 def curl_config_value(value: str) -> str:
@@ -414,7 +417,9 @@ def post_capture(token: str, brain_url: str, text: str, source: str, workdir: Pa
         except OSError as exc:
             raise UserError("cannot read the brain capture response: %s" % exc)
         if status != 200:
-            raise UserError("brain capture failed with HTTP %s" % status)
+            raise http_failure_error(status)(
+                "brain capture failed with HTTP %s" % status
+            )
         try:
             response = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
