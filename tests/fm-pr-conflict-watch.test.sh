@@ -1134,6 +1134,31 @@ test_project_origin_failure_causes_are_distinguished() {
   pass "project origin lookup and identity failures keep distinct causes"
 }
 
+test_project_gap_recovery_is_independent() {
+  local home out
+  home=$(make_home project-independent-recovery)
+  git -C "$home/projects/alpha" remote set-url origin https://gitlab.com/acme/alpha.git
+  git -C "$home/projects/beta" remote set-url origin https://gitlab.com/acme/beta.git
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=project:alpha"
+  assert_contains "$(cat "$out")" "coverage-hole target=project:beta"
+
+  git -C "$home/projects/alpha" remote set-url origin "https://github.com/$REPO_A.git"
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  [ ! -s "$out" ] || fail "alpha recovery must retain beta without redisclosing it: $(cat "$out")"
+
+  git -C "$home/projects/alpha" remote set-url origin https://gitlab.com/acme/alpha.git
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "coverage-hole target=project:alpha" \
+    "alpha must open a new gap after its independent recovery"
+  assert_not_contains "$(cat "$out")" "coverage-hole target=project:beta" \
+    "beta's continuous disclosed gap must remain deduped"
+  pass "project gaps recover independently"
+}
+
 # An unreadable projects registry is a source-level gap, not an unnamed sweep.
 test_unreadable_registry_is_a_source_coverage_gap() {
   local home out
@@ -1269,6 +1294,40 @@ test_runtime_dependency_gaps_notify_dedupe_and_recover() {
   pass "runtime dependency gaps notify once and recover"
 }
 
+test_runtime_recovery_persists_through_interval_throttle() {
+  local home out nojq status=0
+  home=$(make_home runtime-throttled-recovery)
+  env FM_HOME="$home" FM_ROOT="$ROOT" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROJECTS_OVERRIDE="$home/projects" FM_STATE_OVERRIDE="$home/state" \
+    PATH="$home/fakebin:$BASE_PATH" "$WATCH" arm >"$home/arm.out" 2>&1 || status=$?
+  expect_code 0 "$status" "runtime throttled recovery arm exit"
+  nojq="$home/nojq-bin"
+  make_path_without_jq "$nojq"
+  out="$home/out.txt"
+
+  env PATH="$nojq" FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 \
+    "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  assert_contains "$(cat "$out")" "coverage-hole target=source:runtime-jq"
+  run_check "$home" "$out" env FM_PR_CONFLICT_INTERVAL=300
+  [ ! -s "$out" ] || fail "throttled jq recovery must stay silent: $(cat "$out")"
+  env PATH="$nojq" FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 \
+    "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  assert_contains "$(cat "$out")" "coverage-hole target=source:runtime-jq" \
+    "jq recovery must persist before the interval return"
+
+  run_check "$home" "$out"
+  env FM_PR_CONFLICT_GH_AXI=missing-gh-axi FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 \
+    PATH="$home/fakebin:$BASE_PATH" "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  assert_contains "$(cat "$out")" "coverage-hole target=source:runtime-gh-axi"
+  run_check "$home" "$out" env FM_PR_CONFLICT_INTERVAL=300
+  [ ! -s "$out" ] || fail "throttled gh-axi recovery must stay silent: $(cat "$out")"
+  env FM_PR_CONFLICT_GH_AXI=missing-gh-axi FM_PR_CONFLICT_UNREAD_GRACE_SECS=0 \
+    PATH="$home/fakebin:$BASE_PATH" "$home/state/pr-conflict-watch.check.sh" >"$out" 2>&1
+  assert_contains "$(cat "$out")" "coverage-hole target=source:runtime-gh-axi" \
+    "gh-axi recovery must persist before the interval return"
+  pass "runtime recovery persists through interval throttling"
+}
+
 test_arm_registers_check() {
   local home out status=0
   home=$(make_home arm)
@@ -1318,9 +1377,11 @@ test_coverage_recovery_then_new_outage_notifies_again
 test_malformed_origin_round_trips_as_local_target
 test_firstmate_origin_failure_causes_are_distinguished
 test_project_origin_failure_causes_are_distinguished
+test_project_gap_recovery_is_independent
 test_unreadable_registry_is_a_source_coverage_gap
 test_mixed_sweep_does_not_cross_write_ledgers
 test_coverage_omitted_by_line_cap_is_emitted_later
 test_title_backslash_is_literal
 test_runtime_dependency_gaps_notify_dedupe_and_recover
+test_runtime_recovery_persists_through_interval_throttle
 test_arm_registers_check

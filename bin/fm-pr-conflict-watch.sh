@@ -473,12 +473,16 @@ discover_targets() {
     DISCOVERY_COMPLETE=0
     add_target source:firstmate-origin '' '' invalid-origin
     FIRSTMATE_SLUG=
+  else
+    gap_close source:firstmate-origin
   fi
-  names=$(project_names 2>/dev/null) || {
+  if names=$(project_names 2>/dev/null); then
+    gap_close source:projects-registry
+  else
     names=
     DISCOVERY_COMPLETE=0
     add_target source:projects-registry '' '' discovery
-  }
+  fi
   while IFS= read -r project; do
     [ -n "$project" ] || continue
     slug=$(resolve_project_repo "$project" 2>/dev/null)
@@ -492,6 +496,7 @@ discover_targets() {
       fi
       continue
     fi
+    gap_close "project:$project"
     if [ -n "$FIRSTMATE_SLUG" ] && [ "$slug" = "$FIRSTMATE_SLUG" ]; then
       owner=$MAIN_OWNER
     else
@@ -1086,7 +1091,7 @@ evaluate_repo() {
 }
 
 action_check() {
-  local id repo owner_team now cut cause jq_present=1 gh_present=1
+  local id repo owner_team now cut cause jq_present=1 gh_present=1 runtime_recovered=0
   record_read
   command -v jq >/dev/null 2>&1 || jq_present=0
   command -v "$GH_AXI" >/dev/null 2>&1 || gh_present=0
@@ -1109,11 +1114,14 @@ action_check() {
     record_write "$REPORTED_KEYS" || true
     return 0
   fi
+  [ "$RUNTIME_JQ_OPENED" = 0 ] || runtime_recovered=1
+  [ "$RUNTIME_GH_OPENED" = 0 ] || runtime_recovered=1
   runtime_gap_close jq
   runtime_gap_close gh-axi
   now=$(record_epoch_now)
   if [ "$INTERVAL" -ne 0 ] && [ "$RECORD_EPOCH" -gt 0 ] \
     && [ "$now" -ge "$RECORD_EPOCH" ] && [ $((now - RECORD_EPOCH)) -lt "$INTERVAL" ]; then
+    [ "$runtime_recovered" -eq 0 ] || record_write "$REPORTED_KEYS" || true
     return 0
   fi
 
