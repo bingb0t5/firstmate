@@ -197,6 +197,16 @@ fi
 # Ship Sol-exemption evidence is mechanical. A Wait: line is bounded only when it
 # carries non-empty, non-vacuous bound= and escape= values; a value that is just
 # the other key (bound=escape=...) is not a bound.
+fm_brief_trim_surrounding_punctuation() {
+  FM_BRIEF_NORMALIZED=$1
+  while [[ $FM_BRIEF_NORMALIZED == [[:punct:]]* ]]; do
+    FM_BRIEF_NORMALIZED=${FM_BRIEF_NORMALIZED#?}
+  done
+  while [[ $FM_BRIEF_NORMALIZED == *[[:punct:]] ]]; do
+    FM_BRIEF_NORMALIZED=${FM_BRIEF_NORMALIZED%?}
+  done
+}
+
 fm_brief_wait_is_bounded() {
   local line=$1 field value normalized
   for field in bound escape; do
@@ -210,7 +220,9 @@ fm_brief_wait_is_bounded() {
     case "$value" in
       bound=*|escape=*) return 1 ;;
     esac
-    normalized=${value,,}
+    fm_brief_trim_surrounding_punctuation "$value"
+    normalized=${FM_BRIEF_NORMALIZED,,}
+    [ -n "$normalized" ] || return 1
     case "$normalized" in
       forever|none|unbounded|never|n/a|infinite|inf) return 1 ;;
     esac
@@ -226,7 +238,8 @@ fm_brief_strip_backticked_names() {
     result+=${BASH_REMATCH[1]}
     token=${BASH_REMATCH[2]}
     suffix=${BASH_REMATCH[3]}
-    normalized=${token,,}
+    fm_brief_trim_surrounding_punctuation "$token"
+    normalized=${FM_BRIEF_NORMALIZED,,}
     if [[ $normalized =~ ^a?wait(s|ed|ing)?$ ]]; then
       result+=$token
     fi

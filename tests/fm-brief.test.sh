@@ -837,7 +837,8 @@ $wait_line" "$ROOT/bin/fm-brief.sh" "sol-bound-$i" firstmate --mode no-mistakes 
 
 test_ship_sol_exemption_refuses_vacuous_bound_and_escape() {
   local home out status value field wait_line i=0
-  for value in forever none unbounded never n/a infinite inf FoReVeR NONE; do
+  for value in forever none unbounded never n/a infinite inf FoReVeR NONE \
+               'forever,' '"none"' "'unbounded'" '(never)' '[n/a]' 'infinite;' 'inf.'; do
     for field in bound escape; do
       i=$((i + 1))
       home="$TMP_ROOT/sol-vacuous-home-$i"
@@ -868,7 +869,7 @@ test_ship_sol_exemption_ignores_backticked_command_names() {
   status=0
   # shellcheck disable=SC2016 # The task body is a literal fixture string.
   FM_HOME="$home" FM_TASK='Acceptance command: `make test`
-Run `wait-for-ci.sh` as part of setup, then land `await-queue.py`.' \
+Run `wait-for-ci.sh`, then land `(await-queue.py)` and archive `wait-for-ci.sh,`.' \
     "$ROOT/bin/fm-brief.sh" sol-backtick-1 firstmate --mode no-mistakes >/dev/null 2>&1 || status=$?
   expect_code 0 "$status" "backticked command names containing 'wait' must not refuse"
   brief="$home/data/sol-backtick-1/brief.md"
@@ -880,7 +881,8 @@ Run `wait-for-ci.sh` as part of setup, then land `await-queue.py`.' \
 
 test_ship_sol_exemption_refuses_backticked_wait_tokens() {
   local home out status token i=0
-  for token in wait waits waited waiting await awaits awaiting WAIT Awaiting; do
+  for token in wait waits waited waiting await awaits awaiting WAIT Awaiting \
+               'wait,' '(awaiting)' '"WAIT"' '[waited]' 'awaits!'; do
     i=$((i + 1))
     home="$TMP_ROOT/sol-backtick-token-home-$i"
     mkdir -p "$home/data"
