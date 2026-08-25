@@ -470,7 +470,7 @@ def classify_chat(
 
 def capture_line(
     line: str,
-    state: Path,
+    receipts: Path,
     token: str,
     brain_url: str,
     captain_chat: int,
@@ -481,7 +481,7 @@ def capture_line(
     update_id = int(payload["update_id"])
     try:
         return capture_payload(
-            payload, state, token, brain_url, captain_chat, group_on, timeout
+            payload, receipts, token, brain_url, captain_chat, group_on, timeout
         )
     except CaptureError as exc:
         raise CaptureError("%d %s" % (update_id, exc))
@@ -489,7 +489,7 @@ def capture_line(
 
 def capture_payload(
     payload: Dict[str, object],
-    state: Path,
+    receipts: Path,
     token: str,
     brain_url: str,
     captain_chat: int,
@@ -502,7 +502,6 @@ def capture_payload(
     if source is None:
         return "skipped:%s %d" % (skipped, update_id)
     digest = payload_hash(payload)
-    receipts = ensure_receipt_dir(state)
     path = receipt_path(receipts, update_id)
     if path.exists() or path.is_symlink():
         existing = read_receipt(path)
@@ -590,6 +589,7 @@ def command_capture(state: Path, config: Path) -> int:
         captain_chat = captain_chat_id()
         token, brain_url = brain_credentials()
         timeout = timeout_seconds()
+        receipts = ensure_receipt_dir(state)
     except UserError as exc:
         print("error: %s" % exc, file=sys.stderr)
         report_unattempted(lines, state, captain_chat, group_on)
@@ -599,7 +599,7 @@ def command_capture(state: Path, config: Path) -> int:
         try:
             print(
                 capture_line(
-                    line, state, token, brain_url, captain_chat, group_on, timeout
+                    line, receipts, token, brain_url, captain_chat, group_on, timeout
                 )
             )
         except PayloadError as exc:
