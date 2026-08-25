@@ -2808,6 +2808,72 @@ EOF
   pass "idle kind=secondmate pane is healthy and not stale"
 }
 
+test_secondmate_idle_manager_with_busy_child_is_not_stale() {
+  local home subhome fakebin out pid window key pane_hash capture
+  home="$TMP_ROOT/watch-busy-child-home"
+  subhome="$TMP_ROOT/watch-busy-child-subhome"
+  mkdir -p "$home/state" "$subhome/state"
+  printf 'platform\n' > "$subhome/.fm-secondmate-home"
+  window="firstmate:fm-platform"
+  cat > "$home/state/platform.meta" <<EOF
+window=$window
+worktree=$subhome
+project=$subhome
+harness=echo
+kind=secondmate
+home=$subhome
+projects=alpha
+EOF
+  cat > "$subhome/state/spawn-ownership.meta" <<EOF
+window=firstmate:fm-spawn-ownership
+worktree=$subhome/projects/alpha
+project=$subhome/projects/alpha
+harness=echo
+kind=ship
+mode=no-mistakes
+yolo=off
+EOF
+  fakebin=$(make_fake_tmux "$TMP_ROOT/watch-busy-child-fake")
+  capture="$TMP_ROOT/watch-busy-child-fake/pane.txt"
+  printf 'idle while workers run\n' > "$capture"
+  cat > "$fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+id=${1:-}
+key=$(printf '%s' "$id" | tr -c 'A-Za-z0-9' '_')
+var="FM_FAKE_CREW_STATE_$key"
+val=${!var:-${FM_FAKE_CREW_STATE:-}}
+printf '%s\n' "${val:-state: unknown · source: none · fake default}"
+SH
+  chmod +x "$fakebin/fm-crew-state.sh"
+  key=$(printf '%s' "$window" | tr '.:/' '___')
+  pane_hash=$(printf 'idle while workers run' | md5sum | cut -d' ' -f1)
+  printf '%s' "$pane_hash" > "$home/state/.hash-$key"
+  printf '2\n' > "$home/state/.count-$key"
+  printf '%s' "$pane_hash" > "$home/state/.stale-$key"
+  printf '%s\n' $(( $(date +%s) - 500 )) > "$home/state/.stale-since-$key"
+  printf '1\n' > "$home/state/.wedge-escalations-$key"
+  out="$TMP_ROOT/watch-busy-child-fake/watch.out"
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_WINDOW="$window" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/watch-busy-child-fake/tmux.log" FM_FAKE_TMUX_CAPTURE="$capture" \
+    FM_FAKE_CREW_STATE_platform='state: unknown · source: none · idle manager' \
+    FM_FAKE_CREW_STATE_spawn_ownership='state: working · source: run-step · validating' \
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch.sh" > "$out" &
+  pid=$!
+  if ! wait_live "$pid" 25; then
+    wait "$pid" || true
+    grep -F "stale: $window" "$out" >/dev/null && fail "idle manager with busy child triggered stale wake"
+    fail "watcher exited unexpectedly while supervising idle manager with busy child"
+  fi
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  grep -F "stale: $window" "$out" >/dev/null && fail "idle manager with busy child triggered stale wake"
+  grep -F "possible wedge" "$out" >/dev/null && fail "idle manager with busy child was mislabeled a wedge"
+  pass "idle kind=secondmate manager with busy child crew is not stale"
+}
+
 test_secondmate_charter_brief_is_idle_by_default() {
   local home brief
   home="$TMP_ROOT/idle-charter-home"
@@ -3027,6 +3093,7 @@ test_secondmate_force_teardown_refuses_child_repo_descendant
 test_secondmate_force_teardown_refuses_unregistered_child_worktree
 test_secondmate_teardown_path_boundary_matrix
 test_secondmate_idle_pane_is_not_stale
+test_secondmate_idle_manager_with_busy_child_is_not_stale
 test_secondmate_charter_brief_is_idle_by_default
 test_backlog_handoff_aborts_safely
 test_backlog_handoff_refuses_done_items_and_non_secondmate_homes
