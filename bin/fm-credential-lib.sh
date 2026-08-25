@@ -25,6 +25,13 @@
 #   fm_credential_safe_die <message> [exit-code]
 #       Redacted stderr message and exit (default 1).
 #
+#   fm_credential_assignment_key <line>
+#       Prints the key of a well-formed <IDENTIFIER>=<value> line and exits 0;
+#       exits 1 for anything else. The single owner of "is this line an
+#       assignment" for every parser in these tools, so a continuation line or
+#       binary noise cannot be mistaken for a key by one reader and rejected by
+#       another.
+#
 #   fm_credential_env_get <file> <KEY>
 #       Reads exactly one KEY=value assignment from a credential file using
 #       line-at-a-time parsing (never source/dot). Exit 0 and prints the value
@@ -43,7 +50,7 @@
 #   fm_credential_resolve_value_from <source>
 #       Resolves --value-from sources:
 #         literal:<text>          non-secret literal (may contain colons)
-#         env:<file>:<KEY>        KEY from $BEANZ_CONFIG/<file>
+#         env:<file>:<KEY>        KEY from the beanz config dir
 #         brain:<identity>        token from BRAIN_TOKENS in brain.env
 #       Prints the resolved value on stdout. Redaction is the caller's job:
 #       this runs inside a command substitution, so it cannot register anything
@@ -138,27 +145,30 @@ fm_credential_basename_ok() {
   esac
 }
 
+fm_credential_assignment_key() {
+  local line=$1 key=${1%%=*}
+  [ "$key" != "$line" ] || return 1
+  case "$key" in
+    '' | [!A-Za-z_]* | *[!A-Za-z0-9_]*) return 1 ;;
+  esac
+  printf '%s' "$key"
+}
+
 fm_credential_env_get() {
   fm_credential_xtrace_off
-  local file=$1 key=$2 line count=0 value=
+  local file=$1 key=$2 line line_key count=0 value=
   [ -f "$file" ] && [ -r "$file" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       ''|'#'*) continue ;;
-      "$key"=*)
-        value=${line#"$key="}
-        case "$value" in
-          '"'* | "'"* | *$'\r'*) return 2 ;;
-        esac
-        count=$((count + 1))
-        ;;
-      [A-Za-z_][A-Za-z0-9_]*=*)
-        continue
-        ;;
-      *)
-        return 2
-        ;;
     esac
+    line_key=$(fm_credential_assignment_key "$line") || return 2
+    [ "$line_key" = "$key" ] || continue
+    value=${line#"$key="}
+    case "$value" in
+      '"'* | "'"* | *$'\r'*) return 2 ;;
+    esac
+    count=$((count + 1))
   done < "$file"
   [ "$count" -eq 1 ] || return 1
   printf '%s' "$value"

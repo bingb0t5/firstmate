@@ -15,7 +15,7 @@
 # Usage:
 #   fm-beanz-manifest.sh write [--output PATH]
 #
-# Default output: $BEANZ_CONFIG/README.md
+# Default output: <beanz config dir>/README.md
 #
 # Environment:
 #   FM_BEANZ_CONFIG_DIR   beanz config directory (default ~/.config/beanz)
@@ -168,19 +168,18 @@ list_env_keys() {
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       ''|'#'*) continue ;;
-      [A-Za-z_][A-Za-z0-9_]*=*)
-        key=${line%%=*}
-        printf '%s\n' "$key"
-        ;;
     esac
+    key=$(fm_credential_assignment_key "$line") || return 1
+    printf '%s\n' "$key"
   done < "$file"
 }
 
 cmd_write() {
-  local config_dir=$1 output=$2 env_file base sidecar service obtain key purpose
+  local output=$1 config_dir env_file base sidecar service obtain key keys purpose
   config_dir=$(fm_credential_config_dir) || die "config directory is not available" 1
   [ -d "$config_dir" ] || die "config directory does not exist" 1
   output=${output:-"$config_dir/README.md"}
+  : > "$output" 2>/dev/null || die "cannot write the output path" 1
 
   {
     printf '# Beanz credential index\n\n'
@@ -200,6 +199,12 @@ cmd_write() {
       printf '| --- | --- |\n'
       printf '| File | %s |\n' "\`$env_file\`"
       printf '| Obtain | %s |\n\n' "$obtain"
+    } >> "$output"
+    if ! keys=$(list_env_keys "$env_file"); then
+      printf 'This file is not a plain list of KEY=value lines, so no keys are listed for it.\n\n' >> "$output"
+      continue
+    fi
+    {
       printf '| Key | Purpose |\n'
       printf '| --- | --- |\n'
     } >> "$output"
@@ -209,7 +214,7 @@ cmd_write() {
         || purpose=$(builtin_key_purpose "$base" "$key")
       [ -n "$purpose" ] || purpose='(document purpose in a .env.beanz sidecar)'
       printf '| %s | %s |\n' "\`$key\`" "$purpose" >> "$output"
-    done < <(list_env_keys "$env_file")
+    done <<< "$keys"
     printf '\n' >> "$output"
   done
 }
@@ -238,5 +243,5 @@ done
 [ -n "$SUBCMD" ] || die "a command is required (try --help)" 2
 
 case "$SUBCMD" in
-  write) cmd_write "" "$OUTPUT" ;;
+  write) cmd_write "$OUTPUT" ;;
 esac

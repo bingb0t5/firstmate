@@ -10,7 +10,7 @@
 #   fm-coolify-env.sh set <service> <KEY> --value-from <source>
 #
 # <service> names an entry in the Coolify service registry
-# ($FM_COOLIFY_SERVICES_FILE or $BEANZ_CONFIG/coolify-services.env):
+# ($FM_COOLIFY_SERVICES_FILE or <beanz config dir>/coolify-services.env):
 #   COOLIFY_SERVICE_<service>=<application-uuid>
 #
 # --value-from sources (see fm-credential-lib.sh):
@@ -21,7 +21,7 @@
 # Coolify API (documented at coolify.io/docs/api): PATCH
 # /api/v1/applications/{uuid}/envs with JSON {"key","value"}. On HTTP 404 the
 # tool POSTs to create the env. COOLIFY_URL and COOLIFY_API_TOKEN come from
-# $FM_COOLIFY_ENV_FILE or $BEANZ_CONFIG/coolify.env.
+# $FM_COOLIFY_ENV_FILE or <beanz config dir>/coolify.env.
 #
 # Success prints exactly: ok: <service> <KEY> set
 # Failures print a generic reason with no secret material and exit non-zero.
@@ -73,10 +73,10 @@ Sources for --value-from:
   brain:<identity>      token for identity from BRAIN_TOKENS in brain.env
 
 Service registry (COOLIFY_SERVICE_<service>=uuid):
-  $FM_COOLIFY_SERVICES_FILE or $BEANZ_CONFIG/coolify-services.env
+  $FM_COOLIFY_SERVICES_FILE or <beanz config dir>/coolify-services.env
 
 Coolify credentials (COOLIFY_URL, COOLIFY_API_TOKEN):
-  $FM_COOLIFY_ENV_FILE or $BEANZ_CONFIG/coolify.env
+  $FM_COOLIFY_ENV_FILE or <beanz config dir>/coolify.env
 
 Success output: ok: <service> <KEY> set
 
@@ -229,6 +229,8 @@ while [ $# -gt 0 ]; do
       SUBCMD='set'
       shift
       [ $# -ge 2 ] || die "set requires <service> <KEY>" 2
+      case "$1" in -*) die "set requires <service> <KEY>" 2 ;; esac
+      case "$2" in -*) die "set requires <service> <KEY>" 2 ;; esac
       SERVICE=$1
       ENV_KEY=$2
       shift 2

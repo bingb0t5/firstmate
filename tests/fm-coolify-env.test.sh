@@ -28,18 +28,47 @@ setup_config() {
   chmod 600 "$dir/brain.env"
 }
 
+# The recorder turns the request body into a value-free receipt: the key
+# verbatim plus a digest of the value. That proves what was transmitted without
+# putting the secret in the test log.
+write_body_recorder() {
+  cat > "$1" <<'PYX'
+import hashlib
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+digest = hashlib.sha256(payload.get("value", "").encode("utf-8")).hexdigest()
+print("body key=%s value_sha256=%s" % (payload.get("key", ""), digest))
+PYX
+}
+
+value_digest() {
+  printf '%s' "$1" | python3 -c \
+    'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+}
+
 make_fakebin() {
   local dir=$1 fakebin log=$2 mode=${3:-ok}
   fakebin=$(fm_fakebin "$dir")
+  write_body_recorder "$dir/record-body.py"
   cat > "$fakebin/curl" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$log"
 method=GET
+body=
 prev=
 for arg in "\$@"; do
   [ "\$prev" = -X ] && method=\$arg
+  case "\$prev" in
+    -d) body=\${arg#@} ;;
+  esac
   prev=\$arg
 done
+if [ -n "\$body" ] && [ -f "\$body" ]; then
+  python3 "$dir/record-body.py" "\$body" >> "$log" 2>&1
+fi
 case "\${FM_FAKE_CURL_MODE:-$mode}" in
   ok)
     printf '{"uuid":"env-1"}\n200'
@@ -112,8 +141,10 @@ test_success_from_env_file() {
   capture_run "$case_dir" set brain POSTHOG_API_KEY --value-from "env:posthog.env:POSTHOG_API_KEY"
   expect_code 0 "$CAPTURE_RC" "success path should exit 0"
   assert_contains "$CAPTURE_OUT" 'ok: brain POSTHOG_API_KEY set' "success path should print ok line"
+  assert_grep "body key=POSTHOG_API_KEY value_sha256=$(value_digest "$SECRET")" "$case_dir/curl.log" \
+    "the request body must carry the requested key and the resolved secret"
   assert_no_secret "success path"
-  pass "success path prints ok and never leaks the secret"
+  pass "success path transmits the resolved credential and never leaks it"
 }
 
 test_auth_failure() {
@@ -159,6 +190,8 @@ test_brain_identity_lookup() {
   capture_run "$case_dir" set brain BRAIN_TOKEN_N8N --value-from 'brain:n8n'
   expect_code 0 "$CAPTURE_RC" "brain identity lookup should succeed"
   assert_contains "$CAPTURE_OUT" 'ok: brain BRAIN_TOKEN_N8N set' "brain lookup should print ok"
+  assert_grep "body key=BRAIN_TOKEN_N8N value_sha256=$(value_digest "$SECRET")" "$case_dir/curl.log" \
+    "the request body must carry the token resolved for the identity"
   assert_no_secret "brain identity lookup"
   pass "brain identity lookup succeeds without leaking the token"
 }
@@ -171,6 +204,8 @@ test_creates_env_var_when_coolify_reports_404() {
   expect_code 0 "$CAPTURE_RC" "a 404 from PATCH should fall through to a create"
   assert_contains "$CAPTURE_OUT" 'ok: brain NEW_KEY set' "create path should print ok"
   assert_grep '-X POST' "$case_dir/curl.log" "a 404 from PATCH must be followed by a POST create"
+  assert_grep "body key=NEW_KEY value_sha256=$(value_digest "$SECRET")" "$case_dir/curl.log" \
+    "the create request must carry the requested key and the resolved secret"
   assert_no_secret "create path"
   pass "a missing env var is created via POST after PATCH returns 404"
 }
@@ -211,8 +246,10 @@ test_missing_set_operands_fail_closed() {
   setup_config "$case_dir/config"
   capture_run "$case_dir" set brain --value-from "env:posthog.env:POSTHOG_API_KEY"
   expect_code 2 "$CAPTURE_RC" "set without a KEY should exit 2"
+  assert_contains "$CAPTURE_OUT" 'set requires <service> <KEY>' \
+    "an option in an operand position should name the missing operand, not the option"
   assert_absent "$case_dir/curl.log" "an incomplete set must not reach the Coolify API"
-  pass "set without both operands fails closed"
+  pass "an option token is never consumed as a set operand"
 }
 
 test_literal_source_is_not_redacted() {
