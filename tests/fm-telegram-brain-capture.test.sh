@@ -461,6 +461,34 @@ assert_absent "$forged/state/telegram-brain-capture/8008" "a forged capture_id w
 FAKE_CAPTURE_BODY=
 pass "a capture_id carrying control bytes never reaches stdout or a receipt"
 
+# --- a surrogate capture_id fails only its payload -------------------------
+surrogate_id=$(make_home surrogate-capture-id)
+surrogate_id_bin=$(make_fake_curl "$surrogate_id")
+FAKE_CURL_LOG="$surrogate_id/curl.log"
+FAKE_CAPTURE_FAIL_MATCH="the brain returns a surrogate id"
+FAKE_CAPTURE_FAIL_CODE=200
+FAKE_CAPTURE_FAIL_BODY='{"capture_id":"\ud800"}'
+{
+  payload 8009 "the brain returns a surrogate id"
+  payload 8010 "a later thought"
+} > "$surrogate_id/batch.jsonl"
+if run_capture "$surrogate_id" "$surrogate_id_bin" capture - \
+  < "$surrogate_id/batch.jsonl" >"$surrogate_id/out" 2>"$surrogate_id/err"; then
+  fail "a surrogate capture_id must stay fail-closed"
+fi
+FAKE_CAPTURE_FAIL_MATCH=
+FAKE_CAPTURE_FAIL_CODE=
+FAKE_CAPTURE_FAIL_BODY=
+assert_grep "8009 brain capture returned a capture_id that is not valid UTF-8" \
+  "$surrogate_id/err" "the surrogate capture_id was not reported"
+assert_not_contains "$(cat "$surrogate_id/out")" "unattempted" \
+  "a surrogate capture_id stopped the batch"
+assert_absent "$surrogate_id/state/telegram-brain-capture/8009" \
+  "the surrogate capture_id was receipted"
+assert_present "$surrogate_id/state/telegram-brain-capture/8010" \
+  "the surrogate capture_id blocked a later payload"
+pass "a surrogate capture_id fails its payload without stopping the batch"
+
 # --- one bad line never blocks the rest of the batch ------------------------
 batch=$(make_home batch)
 batch_bin=$(make_fake_curl "$batch")

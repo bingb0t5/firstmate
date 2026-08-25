@@ -160,6 +160,10 @@ def validated_capture_id(value: object, origin: str, error=UserError) -> str:
         raise error("%s returned an oversized capture_id" % origin)
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise error("%s returned a capture_id with control bytes" % origin)
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise error("%s returned a capture_id that is not valid UTF-8" % origin)
     return value
 
 
