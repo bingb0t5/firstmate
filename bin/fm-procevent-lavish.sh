@@ -112,8 +112,7 @@ cmd_arm() {
     || die "cannot resolve the artifact path: $artifact"
   # This adapter's own listener command, which runs the plain blocking form with
   # no --timeout-ms so completion is a server event, and absorbs only the exact
-  # transient interruption. The generic arm seam owns registration and lets
-  # reconcile start this blocking argv.
+  # transient interruption. See the fm-procevent.sh header for the arm contract.
   fm_procevent_arm "$STATE" lavish "$id" \
     "$SCRIPT_DIR/fm-procevent-lavish.sh" poll "$real" \
     || die "cannot publish the registration"
