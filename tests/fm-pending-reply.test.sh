@@ -877,6 +877,37 @@ test_answered_obligation_leaves_the_open_list() {
   pass "an answered obligation leaves the open list"
 }
 
+test_crew_obligation_requires_a_new_terminal_status() {
+  local dir fb log home rc corr listed rec
+  dir="$TMP_ROOT/crew-status-baseline"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_parent crew-status-baseline)
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+  printf 'done: previous request\n' > "$home/state/build.status"
+  run_send "$fb" "$home" "$log" build "perform new work"; rc=$?
+  expect_code 0 "$rc" "crewmate send should succeed"
+  corr=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  rec=$(fm_pending_reply_path "$home/state" "$corr")
+  if fm_pending_reply_try_resolve "$home/state" "$corr"; then
+    fail "pre-existing terminal status must not resolve new work"
+  fi
+  rm -f "$home/state/build.meta"
+  fm_pending_reply_tick_one "$home/state" "$corr" idle \
+    || fail "crew tick without mutable metadata should succeed"
+  [ "$(fm_pending_reply_get "$rec" phase)" = awaiting_report ] \
+    || fail "crew obligation must not enter secondmate recovery without metadata"
+  printf 'done: new work complete\n' >> "$home/state/build.status"
+  fm_pending_reply_tick_one "$home/state" "$corr" idle \
+    || fail "new terminal status should reconcile"
+  listed=$(list_open "$home")
+  case "$listed" in
+    *"corr=$corr"*) fail "new terminal status must close the crew obligation" ;;
+  esac
+  pass "crew obligations use durable kind and a request-time status baseline"
+}
+
 test_quoted_corr_opens_a_distinct_obligation() {
   local dir fb log home rc first second listed
   dir="$TMP_ROOT/quoted-corr"; mkdir -p "$dir"
@@ -1383,6 +1414,7 @@ test_restart_preserves_expectation_and_parent_destination
 test_wrong_home_detected_not_acknowledged
 test_crewmate_inbox_send_opens_pending_obligation
 test_answered_obligation_leaves_the_open_list
+test_crew_obligation_requires_a_new_terminal_status
 test_quoted_corr_opens_a_distinct_obligation
 test_open_list_orders_by_epoch_and_surfaces_malformed_records
 test_typed_plane_and_key_stay_off_the_open_list

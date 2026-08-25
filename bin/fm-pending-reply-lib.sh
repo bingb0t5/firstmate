@@ -30,6 +30,8 @@
 #   schema=fm-pending-reply.v1
 #   corr_id=                privacy-safe correlation token
 #   task_id=                task id in the parent home
+#   target_kind=            secondmate | crew; absent legacy records derive
+#                           from current metadata, defaulting to secondmate
 #   parent_home=            absolute parent FM_HOME
 #   parent_status=          absolute path of parent state/<task_id>.status
 #   parent_status_scan_signature=
@@ -256,10 +258,12 @@ fm_pending_reply_embed_corr() {  # <message> <corr_id> <result-var> [plain]
 
 # Create a durable pending-reply expectation. Prints corr_id on success.
 # Does not deliver anything. Fails if parent paths cannot be prepared.
-fm_pending_reply_create() {  # <parent-home> <state-dir> <task_id> <request-text>
+fm_pending_reply_create() {  # <parent-home> <state-dir> <task_id> <request-text> [secondmate|crew]
   local parent_home=$1 state=$2 task_id=$3 request_text=$4
-  local dir rec corr now summary status_path tmp
+  local target_kind=${5:-secondmate}
+  local dir rec corr now summary status_path status_signature tmp
   [ -n "$parent_home" ] && [ -n "$state" ] && [ -n "$task_id" ] || return 2
+  case "$target_kind" in secondmate|crew) ;; *) return 2 ;; esac
   dir=$(fm_pending_reply_dir "$state")
   mkdir -p "$dir" || return 1
   chmod 700 "$dir" 2>/dev/null || true
@@ -284,14 +288,19 @@ fm_pending_reply_create() {  # <parent-home> <state-dir> <task_id> <request-text
     /*) ;;
     *) parent_home=$(cd "$parent_home" 2>/dev/null && pwd) || parent_home=$1 ;;
   esac
+  status_signature=
+  if [ "$target_kind" = crew ]; then
+    status_signature=$(fm_pending_reply_file_signature "$status_path")
+  fi
   tmp="$dir/.${corr}.tmp.$$"
   cat > "$tmp" <<EOF
 schema=$FM_PENDING_REPLY_SCHEMA
 corr_id=$corr
 task_id=$task_id
+target_kind=$target_kind
 parent_home=$parent_home
 parent_status=$status_path
-parent_status_scan_signature=
+parent_status_scan_signature=$status_signature
 request_summary=$summary
 created_epoch=$now
 delivered_epoch=
@@ -551,14 +560,24 @@ fm_pending_reply_find_resolve_line() {  # <status-file> <corr_id>
 }
 
 fm_pending_reply_find_crew_terminal_line() {  # <state-dir> <record-path> <status-file>
-  local state=$1 rec=$2 status_file=$3 task_id meta line
-  task_id=$(fm_pending_reply_get "$rec" task_id)
-  meta="$state/$task_id.meta"
-  [ -f "$meta" ] || return 0
-  [ "$(fm_meta_get "$meta" kind)" != secondmate ] || return 0
+  local state=$1 rec=$2 status_file=$3 line
+  [ "$(fm_pending_reply_target_kind "$state" "$rec")" = crew ] || return 0
   line=$(last_status_line "$status_file")
   status_is_terminal_verb "$line" || return 0
   printf '%s' "$line"
+}
+
+fm_pending_reply_target_kind() {  # <state-dir> <record-path>
+  local state=$1 rec=$2 target_kind task_id meta_kind
+  target_kind=$(fm_pending_reply_get "$rec" target_kind)
+  case "$target_kind" in secondmate|crew) printf '%s' "$target_kind"; return 0 ;; esac
+  task_id=$(fm_pending_reply_get "$rec" task_id)
+  meta_kind=$(fm_meta_get "$state/$task_id.meta" kind)
+  if [ -n "$meta_kind" ] && [ "$meta_kind" != secondmate ]; then
+    printf 'crew'
+  else
+    printf 'secondmate'
+  fi
 }
 
 fm_pending_reply_file_signature() {  # <path>
@@ -647,7 +666,7 @@ _fm_pending_reply_try_resolve_locked() {  # <state-dir> <corr_id> [status-file-o
     [ "$signature" != "$previous" ] || return 1
   fi
   line=$(fm_pending_reply_find_resolve_line "$status_file" "$corr")
-  if [ -z "$line" ]; then
+  if [ -z "$line" ] && [ -z "$status_override" ]; then
     line=$(fm_pending_reply_find_crew_terminal_line "$state" "$rec" "$status_file")
   fi
   if [ -z "$line" ]; then
@@ -1255,12 +1274,12 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
   rec=$(fm_pending_reply_path "$state" "$corr")
   [ -f "$rec" ] || return 1
   task_id=$(fm_pending_reply_get "$rec" task_id)
-  target_kind=$(fm_meta_get "$state/$task_id.meta" kind)
+  target_kind=$(fm_pending_reply_target_kind "$state" "$rec")
   fm_pending_reply_reconcile_delivery "$state" "$corr" || true
   phase=$(fm_pending_reply_get "$rec" phase)
   delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
   if [ -z "$delivered" ]; then
-    [ -z "$target_kind" ] || [ "$target_kind" = secondmate ] || return 0
+    [ "$target_kind" = secondmate ] || return 0
     case "$phase" in
       delivery_unknown) fm_pending_reply_maybe_escalate "$state" "$corr" 2>/dev/null || true ;;
       escalated) fm_pending_reply_try_resolve "$state" "$corr" >/dev/null 2>&1 || true ;;
@@ -1271,7 +1290,7 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
   if fm_pending_reply_try_resolve "$state" "$corr"; then
     return 0
   fi
-  if [ -n "$target_kind" ] && [ "$target_kind" != secondmate ]; then
+  if [ "$target_kind" != secondmate ]; then
     return 0
   fi
   phase=$(fm_pending_reply_get "$rec" phase)

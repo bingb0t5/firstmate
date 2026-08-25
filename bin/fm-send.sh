@@ -691,7 +691,12 @@ else
         echo "error: cannot create pending-reply expectation without a resolvable task id; refusing to deliver the instruction untracked" >&2
         exit 1
       fi
-      PENDING_REPLY_CORR=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$TARGET_TASK_ID" "$MESSAGE") \
+      if [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
+        pending_target_kind=secondmate
+      else
+        pending_target_kind=crew
+      fi
+      PENDING_REPLY_CORR=$(fm_pending_reply_create "$FM_HOME" "$STATE" "$TARGET_TASK_ID" "$MESSAGE" "$pending_target_kind") \
         || { echo "error: failed to create parent pending-reply expectation for $TARGET_TASK_ID; refusing to deliver the instruction untracked" >&2; exit 1; }
       PENDING_REPLY_CREATED=1
     fi
