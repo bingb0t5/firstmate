@@ -28,15 +28,15 @@
 #   validated state/<id>.meta, so --backend, --scout, --secondmate, a project
 #   positional, and batch pairs are all refused alongside it; only harness,
 #   model, and effort may change, which is what makes a harness switch one
-#   ordinary relaunch. A ship or scout task whose durable record carries
-#   spawn_gen= refuses here until a Sol spec exists at
-#   data/<task-id>/report.md or spec.md (bin/fm-second-attempt-lib.sh).
-#   A recovery-grade backend's authoritatively missing endpoint is agent-free
+#   ordinary relaunch. A recovery-grade backend's authoritatively missing
+#   endpoint is agent-free
 #   after the recorded worktree passes the isolation proof, so fm-spawn
 #   recreates that endpoint before launching. Otherwise it requires a
 #   positively agent-free endpoint whose shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
-#   the new incarnation.
+#   the new incarnation. A ship task whose durable record carries spawn_gen=
+#   refuses here until a Sol spec exists at data/<task-id>/spec.md; scout
+#   relaunches stay ungated (bin/fm-second-attempt-lib.sh).
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
