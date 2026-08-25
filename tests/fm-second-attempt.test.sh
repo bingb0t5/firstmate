@@ -231,6 +231,20 @@ test_spawn_relaunch_refuses_without_a_spec() {
   pass "fm-spawn: --relaunch refuses without a Sol spec"
 }
 
+test_scout_relaunch_refuses_after_an_existing_attempt() {
+  local dir out rc
+  dir=$(new_case scout-relaunch-refuse sa10)
+  add_ship_task "$dir" sa10 scout
+  out=$(run_control "$dir" sa10 relaunch --note "replace implementation attempt"); rc=$?
+  expect_code 1 "$rc" "scout relaunch after an existing attempt should refuse without a spec"
+  assert_contains "$out" "relaunch of scout task sa10 refused" \
+    "scout relaunch refusal did not identify the gated task kind"
+  assert_contains "$out" "commission a Sol spec scout" \
+    "scout relaunch refusal did not name the next legal action"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "scout relaunch refusal stopped the running agent"
+  pass "fm-control: scout relaunch after an existing attempt refuses without a Sol spec"
+}
+
 # Same fixture as test_spawn_relaunch_refuses_without_a_spec, differing only in
 # kind=, so reaching the later agent-free refusal proves the gate was executed
 # and exempted this task rather than never being consulted.
@@ -343,6 +357,7 @@ test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent
 test_control_relaunch_proceeds_once_spec_md_exists
 test_scout_report_clears_the_gate
 test_spawn_relaunch_refuses_without_a_spec
+test_scout_relaunch_refuses_after_an_existing_attempt
 test_secondmate_relaunch_is_unaffected_by_the_gate
 test_nm_third_fix_round_marker_refuses_through_fm_control
 test_nm_third_fix_round_marker_with_no_payload_refuses

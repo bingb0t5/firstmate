@@ -34,7 +34,7 @@
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME endpoint and SAME worktree, on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. A ship task whose durable record already carries
+#              of this verb. A ship or scout task whose durable record carries
 #              spawn_gen= refuses here until a Sol spec exists at
 #              data/<task-id>/report.md or spec.md (bin/fm-second-attempt-lib.sh).
 #              With no explicit axis, a secondmate re-resolves its
