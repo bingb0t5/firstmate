@@ -583,13 +583,14 @@ fm_pending_reply_find_crew_terminal_line() {  # <state-dir> <record-path> <statu
 
 fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-file> <corr-id> <signature>
   local state=$1 rec=$2 status_file=$3 corr=$4 signature=$5
-  local task_id dir lock claim claim_path claimed candidate candidate_corr candidate_created
+  local task_id dir lock claim claim_path claim_identity status_identity current_identity claimed candidate candidate_corr candidate_created
   local other other_task other_phase other_created other_corr baseline line line_no matched_line tmp
   task_id=$(fm_pending_reply_get "$rec" task_id)
   case "$task_id" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
   dir=$(fm_pending_reply_dir "$state")
   lock="$state/.pending-reply-crew-terminal-$task_id.lock"
   fm_lock_try_acquire "$lock" || return 1
+  status_identity=$(fm_pending_reply_file_identity "$status_file")
   line_no=0
   matched_line=
   while IFS= read -r line || [ -n "$line" ]; do
@@ -597,8 +598,22 @@ fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-fi
     fm_pending_reply_crew_line_is_terminal "$line" || continue
     claim_path="$dir/.crew-terminal-$task_id-$line_no"
     if [ -f "$claim_path" ] && [ ! -L "$claim_path" ]; then
-      [ "$(fm_pending_reply_get "$claim_path" corr_id)" = "$corr" ] && matched_line=$line
-      continue
+      claim_identity=$(fm_pending_reply_get "$claim_path" status_identity)
+      if [ -z "$claim_identity" ]; then
+        claim_identity=$(fm_pending_reply_signature_identity \
+          "$(fm_pending_reply_get "$claim_path" signature)")
+        current_identity=$(fm_pending_reply_signature_identity "$signature")
+      else
+        current_identity=$status_identity
+      fi
+      if [ -n "$claim_identity" ] && [ "$claim_identity" = "$current_identity" ]; then
+        [ "$(fm_pending_reply_get "$claim_path" corr_id)" = "$corr" ] && matched_line=$line
+        continue
+      fi
+      rm -f -- "$claim_path" || {
+        fm_lock_release "$lock"
+        return 1
+      }
     fi
     [ ! -e "$claim_path" ] && [ ! -L "$claim_path" ] || continue
     candidate=''
@@ -638,7 +653,8 @@ fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-fi
     done
     [ -n "$candidate_corr" ] || continue
     tmp="$dir/.crew-terminal-$task_id-$line_no.tmp.$$"
-    if ! printf 'signature=%s\ncorr_id=%s\n' "$signature" "$candidate_corr" > "$tmp" \
+    if ! printf 'signature=%s\nstatus_identity=%s\ncorr_id=%s\n' \
+      "$signature" "$status_identity" "$candidate_corr" > "$tmp" \
       || ! chmod 600 "$tmp" 2>/dev/null \
       || ! mv -f "$tmp" "$claim_path"; then
       rm -f "$tmp"
@@ -650,6 +666,26 @@ fm_pending_reply_claim_crew_terminal() {  # <state-dir> <record-path> <status-fi
   fm_lock_release "$lock"
   [ -n "$matched_line" ] && printf '%s' "$matched_line"
   return 0
+}
+
+fm_pending_reply_signature_identity() {  # <file-signature>
+  local signature=$1 first rest second
+  case "$signature" in missing|unreadable|'') return 0 ;; esac
+  first=${signature%%:*}
+  rest=${signature#*:}
+  [ "$rest" != "$signature" ] || return 0
+  second=${rest%%:*}
+  printf '%s:%s' "$first" "$second"
+}
+
+fm_pending_reply_file_identity() {  # <path>
+  local path=$1
+  [ -f "$path" ] || return 0
+  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+    LC_ALL=C stat -f '%d:%i:%B' "$path" 2>/dev/null || true
+  else
+    LC_ALL=C stat -c '%d:%i:%W' "$path" 2>/dev/null || true
+  fi
 }
 
 fm_pending_reply_target_kind() {  # <state-dir> <record-path>

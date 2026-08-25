@@ -944,6 +944,36 @@ test_crew_terminal_resolves_only_oldest_obligation() {
   pass "crew terminal transitions resolve one oldest obligation each"
 }
 
+test_reused_crew_task_does_not_inherit_terminal_claims() {
+  local dir fb log home rc first second listed
+  dir="$TMP_ROOT/crew-task-reuse"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_parent crew-task-reuse)
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+  run_send "$fb" "$home" "$log" build "finish the first incarnation"; rc=$?
+  expect_code 0 "$rc" "first task incarnation send should succeed"
+  first=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  printf 'done: first incarnation complete\n' > "$home/state/build.status"
+  fm_pending_reply_try_resolve "$home/state" "$first" \
+    || fail "first task incarnation should consume its terminal status"
+
+  rm -f "$home/state/build.meta" "$home/state/build.status"
+  fm_write_meta "$home/state/build.meta" \
+    "window=sess:fm-build" "worktree=$home/wt" "project=$home/p" \
+    "harness=echo" "kind=ship" "mode=no-mistakes" "yolo=off"
+  run_send "$fb" "$home" "$log" build "finish the reused incarnation"; rc=$?
+  expect_code 0 "$rc" "reused task incarnation send should succeed"
+  second=$(fm_pending_reply_extract_corr "$(latest_record_body "$home" build)")
+  printf 'done: reused incarnation complete\n' > "$home/state/build.status"
+  fm_pending_reply_try_resolve "$home/state" "$second" \
+    || fail "reused task must not inherit the retired incarnation's terminal claim"
+  listed=$(list_open "$home")
+  [ -z "$listed" ] || fail "reused task terminal status should close its obligation:"$'\n'"$listed"
+  pass "reused crew task starts with fresh terminal claims"
+}
+
 test_crew_consumes_each_unseen_terminal_transition() {
   local dir fb log home rc older newer listed
   dir="$TMP_ROOT/crew-unseen-terminals"; mkdir -p "$dir"
@@ -1485,6 +1515,7 @@ test_crewmate_inbox_send_opens_pending_obligation
 test_answered_obligation_leaves_the_open_list
 test_crew_obligation_requires_a_new_terminal_status
 test_crew_terminal_resolves_only_oldest_obligation
+test_reused_crew_task_does_not_inherit_terminal_claims
 test_crew_consumes_each_unseen_terminal_transition
 test_quoted_corr_opens_a_distinct_obligation
 test_open_list_orders_by_epoch_and_surfaces_malformed_records
