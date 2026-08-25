@@ -24,9 +24,17 @@
 # wake on a later sweep instead of being silenced. The record is cut back to the
 # conflicts each sweep still observes, so it cannot grow without bound.
 #
-# GitHub computes mergeability lazily. A single read that returns UNKNOWN is
-# never treated as clean or conflicted; the check polls with short waits until
-# the state settles or stays unknown.
+# GitHub is read through `gh-axi api`, which answers with an axi envelope rather
+# than raw JSON. GitHub computes mergeability lazily and omits it from the pull
+# request list endpoint entirely, so each open pull request is resolved by its
+# own read. A read that returns null mergeability is never treated as clean or
+# conflicted; the check polls with short waits until the state settles or stays
+# unknown.
+#
+# A repository GitHub cannot be read for is not silence about a clean fleet. A
+# transient failure is ignored, but one that outlasts
+# FM_PR_CONFLICT_UNREAD_GRACE_SECS is disclosed once as a hole in coverage, and
+# any failed read stops the sweep counting as complete.
 #
 # Detection and routing only: this script never resolves conflicts.
 set -u
@@ -136,6 +144,18 @@ if [ "$UNKNOWN_ATTEMPTS" -gt 10 ]; then
   exit 2
 fi
 
+UNREAD_GRACE=${FM_PR_CONFLICT_UNREAD_GRACE_SECS:-1800}
+case "$UNREAD_GRACE" in
+  ''|*[!0-9]*)
+    printf 'fm-pr-conflict-watch: FM_PR_CONFLICT_UNREAD_GRACE_SECS must be a whole number from 0 to 86400\n' >&2
+    exit 2
+    ;;
+esac
+if [ "$UNREAD_GRACE" -gt 86400 ]; then
+  printf 'fm-pr-conflict-watch: FM_PR_CONFLICT_UNREAD_GRACE_SECS must be a whole number from 0 to 86400\n' >&2
+  exit 2
+fi
+
 UNKNOWN_WAIT=${FM_PR_CONFLICT_UNKNOWN_WAIT:-1}
 case "$UNKNOWN_WAIT" in
   ''|*[!0-9]*)
@@ -176,12 +196,7 @@ if [ "$BUDGET_SECS" -gt "$BUDGET_MAX" ]; then
   BUDGET_SECS=$BUDGET_MAX
 fi
 
-record_epoch_now() {
-  case "${FM_PR_CONFLICT_NOW:-}" in
-    ''|*[!0-9]*) date +%s ;;
-    *) printf '%s\n' "$FM_PR_CONFLICT_NOW" ;;
-  esac
-}
+record_epoch_now() { date +%s; }
 
 real_epoch() { date +%s; }
 
@@ -199,6 +214,8 @@ PROJECT_OWNER_MAP=
 FIRSTMATE_SLUG=
 SWEPT_REPOS=
 SEEN_KEYS=
+UNREAD_MAP=
+UNREAD_PENDING=
 SWEEP_COMPLETE=1
 DISCOVERY_COMPLETE=1
 RESOLVED_STATE=
@@ -426,6 +443,7 @@ record_read() {
   local line first=1
   RECORD_EPOCH=0
   REPORTED_KEYS=
+  UNREAD_MAP=
   [ -f "$RECORD" ] || return 0
   while IFS= read -r line; do
     if [ "$first" = 1 ]; then
@@ -442,6 +460,7 @@ record_read() {
         esac
         ;;
       reported=*) REPORTED_KEYS=${line#reported=} ;;
+      unread=*) unread_load "${line#unread=}" ;;
     esac
   done < "$RECORD"
 }
@@ -454,6 +473,7 @@ record_write() {
     printf '%s\n' "$RECORD_SCHEMA"
     printf 'epoch=%s\n' "$(record_epoch_now)"
     printf 'reported=%s\n' "$reported"
+    printf 'unread=%s\n' "$(unread_serialize)"
   } > "$tmp" || { rm -f -- "$tmp"; return 1; }
   mv -f -- "$tmp" "$RECORD" || { rm -f -- "$tmp"; return 1; }
 }
@@ -490,6 +510,129 @@ record_remove_key() {
     out="${out:+$out;}$part"
   done < <(list_parts "$REPORTED_KEYS" ';')
   REPORTED_KEYS=$out
+}
+
+# A repository whose GitHub read fails is remembered as unread across sweeps:
+# the epoch its reads started failing, and whether that hole has been disclosed
+# yet. GitHub blips constantly, so a failure that has not yet outlasted
+# FM_PR_CONFLICT_UNREAD_GRACE_SECS stays silent - waking on every transient
+# error is noise. A failure that does outlast it is a real hole in coverage and
+# is said once, naming the repository and how long it has been unreadable. It
+# is not a conflict, and it is never recorded as one.
+#
+# Either way the sweep is no longer complete: a sweep that could not read
+# everything must not be able to prune keys for repositories it never saw.
+unread_set() {
+  local repo=$1 first=$2 disclosed=$3 out='' line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    [ "${line%% *}" = "$repo" ] && continue
+    out="$out$line
+"
+  done <<EOF
+$UNREAD_MAP
+EOF
+  UNREAD_MAP="$out$repo $first $disclosed
+"
+}
+
+repo_read_ok() {
+  local repo=$1 out='' line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    [ "${line%% *}" = "$repo" ] && continue
+    out="$out$line
+"
+  done <<EOF
+$UNREAD_MAP
+EOF
+  UNREAD_MAP=$out
+}
+
+repo_read_failed() {
+  local repo=$1 entry first disclosed now elapsed
+  SWEEP_COMPLETE=0
+  now=$(record_epoch_now)
+  entry=$(map_lookup "$UNREAD_MAP" "$repo") || entry=
+  first=${entry%% *}
+  disclosed=${entry##* }
+  case "$first" in ''|*[!0-9]*) first=$now ;; esac
+  case "$disclosed" in 1) disclosed=1 ;; *) disclosed=0 ;; esac
+  elapsed=0
+  [ "$now" -gt "$first" ] && elapsed=$((now - first))
+  if [ "$disclosed" -eq 0 ] && [ "$elapsed" -ge "$UNREAD_GRACE" ]; then
+    # Marked as said only once it survives into the printed line, so a
+    # disclosure dropped by the line cap is repeated on a later sweep instead
+    # of being silently counted as delivered.
+    queue_finding "unread repo=$repo for ${elapsed}s - GitHub reads failing, conflict coverage has a hole"
+    UNREAD_PENDING="${UNREAD_PENDING:+$UNREAD_PENDING }$repo"
+  fi
+  unread_set "$repo" "$first" "$disclosed"
+}
+
+unread_serialize() {
+  local out='' line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    # shellcheck disable=SC2086 # deliberate split into repo, epoch, disclosed
+    set -- $line
+    [ "$#" -eq 3 ] || continue
+    out="${out:+$out;}$1@$2@$3"
+  done <<EOF
+$UNREAD_MAP
+EOF
+  printf '%s\n' "$out"
+}
+
+unread_load() {
+  local raw=$1 part repo first disclosed
+  UNREAD_MAP=
+  while IFS= read -r part; do
+    [ -n "$part" ] || continue
+    repo=${part%%@*}
+    part=${part#*@}
+    first=${part%%@*}
+    disclosed=${part#*@}
+    [ -n "$repo" ] || continue
+    case "$first" in ''|*[!0-9]*) continue ;; esac
+    case "$disclosed" in 0|1) ;; *) continue ;; esac
+    UNREAD_MAP="$UNREAD_MAP$repo $first $disclosed
+"
+  done < <(list_parts "$raw" ';')
+}
+
+# A repository this fleet no longer works in cannot go on holding an unread
+# entry, but absence from a partial discovery is a failed read rather than
+# proof it was dropped - the same rule the conflict keys are pruned under.
+unread_prune() {
+  local out='' line repo
+  [ "$DISCOVERY_COMPLETE" -eq 1 ] || return 0
+  [ -n "$DISCOVERED_REPOS" ] || return 0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    repo=${line%% *}
+    case " $DISCOVERED_REPOS " in
+      *" $repo "*) out="$out$line
+" ;;
+    esac
+  done <<EOF
+$UNREAD_MAP
+EOF
+  UNREAD_MAP=$out
+}
+
+unread_confirm_disclosed() {
+  local line=$1 repo entry first
+  for repo in $UNREAD_PENDING; do
+    [ -n "$repo" ] || continue
+    case "$line" in
+      *"unread repo=$repo for "*) ;;
+      *) continue ;;
+    esac
+    entry=$(map_lookup "$UNREAD_MAP" "$repo") || continue
+    first=${entry%% *}
+    unread_set "$repo" "$first" 1
+  done
 }
 
 # Every open pull request this sweep read is remembered, so the record can be
@@ -539,10 +682,69 @@ record_prune() {
   REPORTED_KEYS=$out
 }
 
-json_field() {
-  local json=$1 query=$2
-  command -v jq >/dev/null 2>&1 || return 1
-  printf '%s' "$json" | jq -er "$query" 2>/dev/null
+# gh-axi has no --json flag and never emits raw JSON. An API read is rendered as
+# an axi envelope:
+#
+#   api_response:
+#     body: <value>
+#     truncated: <true|false>
+#
+# The body is a YAML-ish scalar: bare when the value needs no quoting, and a
+# JSON string literal when it contains a colon, a quote, a backslash, a tab, or
+# a newline. Every query below asks jq for a single string, which is the shape
+# that always arrives inside the envelope, so a quoted body is decoded back
+# through jq rather than unescaped by hand.
+#
+# A truncated body is refused instead of parsed. Cutting a record set mid-line
+# would read as a shorter list of pull requests, which is silence about the
+# ones that were dropped - the same failure this envelope layer exists to stop.
+gh_api() {
+  local path=$1 query=$2 out line body='' have_body=0 truncated=false enveloped=0
+  out=$(gh_bounded api "$path" --jq "$query" --full 2>/dev/null) || return 2
+  while IFS= read -r line; do
+    case "$line" in
+      'api_response:') enveloped=1 ;;
+      '  body: '*)
+        [ "$have_body" -eq 0 ] || continue
+        have_body=1
+        body=${line#'  body: '}
+        ;;
+      '  truncated: '*) truncated=${line#'  truncated: '} ;;
+    esac
+  done <<EOF
+$out
+EOF
+  # A scalar that needs no envelope is printed bare, so an unenveloped read is
+  # passed through rather than treated as a parse failure.
+  if [ "$enveloped" -eq 0 ]; then
+    printf '%s\n' "$out"
+    return 0
+  fi
+  [ "$truncated" = false ] || return 2
+  [ "$have_body" -eq 1 ] || return 2
+  case "$body" in
+    '"'*) body=$(printf '%s' "$body" | jq -r '.' 2>/dev/null) || return 2 ;;
+  esac
+  printf '%s\n' "$body"
+}
+
+# One tab-separated record per open pull request: number, head SHA, draft flag,
+# url, title. The REST list endpoint does not carry mergeability at all, so the
+# state each pull request is judged on comes from the per-pull-request read
+# below rather than from this page.
+pr_list_records() {
+  local repo=$1
+  gh_api "/repos/$repo/pulls?state=open&per_page=$PR_LIMIT" \
+    '[.[] | [(.number|tostring), (.head.sha // ""), (.draft|tostring), (.html_url // ""), ((.title // "") | gsub("[\t\r\n]"; " "))] | @tsv] | join("\n")'
+}
+
+# mergeable, head SHA, draft flag, url, title for one pull request. REST
+# reports lazily computed mergeability as true, false, or null, where null is
+# the not-yet-computed state this check must never read as an answer.
+pr_view_record() {
+  local repo=$1 number=$2
+  gh_api "/repos/$repo/pulls/$number" \
+    '[(.mergeable|tostring), (.head.sha // ""), (.draft|tostring), (.html_url // ""), ((.title // "") | gsub("[\t\r\n]"; " "))] | @tsv'
 }
 
 # Resolve one pull request's lazily computed mergeability into RESOLVED_STATE,
@@ -557,7 +759,7 @@ json_field() {
 # finding it made and repeats that loss on every poll. An unsettled read stays
 # unknown, which is silent, and never becomes clean or conflicted.
 pr_mergeable_resolved() {
-  local repo=$1 number=$2 mergeable='' attempt=0 json head
+  local repo=$1 number=$2 attempt=0 record mergeable head
   RESOLVED_STATE=unknown
   RESOLVED_HEAD=
   while :; do
@@ -565,22 +767,22 @@ pr_mergeable_resolved() {
       RESOLVED_STATE=unknown
       return 0
     fi
-    json=$(gh_bounded pr view "$number" --repo "$repo" \
-      --json mergeable,mergeStateStatus,number,title,url,headRefOid,isDraft 2>/dev/null) || return 2
-    mergeable=$(json_field "$json" '.mergeable // "UNKNOWN"') || return 2
-    head=$(json_field "$json" '.headRefOid // ""') || head=
+    record=$(pr_view_record "$repo" "$number") || return 2
+    IFS=$'\t' read -r mergeable head _ <<EOF
+$record
+EOF
     case "$mergeable" in
-      MERGEABLE)
+      true)
         RESOLVED_STATE=clean
         RESOLVED_HEAD=$head
         return 0
         ;;
-      CONFLICTING)
+      false)
         RESOLVED_STATE=conflicted
         RESOLVED_HEAD=$head
         return 0
         ;;
-      UNKNOWN)
+      null|'')
         attempt=$((attempt + 1))
         if [ "$attempt" -ge "$UNKNOWN_ATTEMPTS" ]; then
           RESOLVED_STATE=unknown
@@ -610,39 +812,26 @@ format_finding() {
 }
 
 evaluate_repo() {
-  local repo=$1 owner_team=$2 json count i row number title head draft url mergeable key state
+  local repo=$1 owner_team=$2 records count=0
+  local number head draft url title key state
   budget_exhausted && return 1
-  json=$(gh_bounded pr list --repo "$repo" --state open --limit "$PR_LIMIT" \
-    --json number,title,url,headRefOid,isDraft,mergeable 2>/dev/null) || return 0
-  [ -n "$json" ] || json='[]'
-  count=$(json_field "$json" 'length' 2>/dev/null) || return 0
-  i=0
-  while [ "$i" -lt "$count" ]; do
+  records=$(pr_list_records "$repo") || { repo_read_failed "$repo"; return 0; }
+  while IFS=$'\t' read -r number head draft url title; do
+    [ -n "$number" ] || continue
+    count=$((count + 1))
     budget_exhausted && return 1
-    row=$(json_field "$json" ".[$i]" 2>/dev/null) || { i=$((i + 1)); continue; }
-    number=$(json_field "$row" '.number') || { i=$((i + 1)); continue; }
-    title=$(json_field "$row" '.title // ""') || title=
-    url=$(json_field "$row" '.url // ""') || url=
-    head=$(json_field "$row" '.headRefOid // ""') || head=
-    draft=$(json_field "$row" '.isDraft // false') || draft=false
-    mergeable=$(json_field "$row" '.mergeable // "UNKNOWN"') || mergeable=UNKNOWN
-    i=$((i + 1))
     [ -n "$head" ] || continue
     seen_key "$(conflict_key "$repo" "$number" "$head")"
-    case "$mergeable" in
-      MERGEABLE) state=clean ;;
-      CONFLICTING) state=conflicted ;;
-      UNKNOWN)
-        pr_mergeable_resolved "$repo" "$number" || continue
-        state=$RESOLVED_STATE
-        if [ -n "$RESOLVED_HEAD" ] && [ "$RESOLVED_HEAD" != "$head" ]; then
-          record_remove_key "$(conflict_key "$repo" "$number" "$head")"
-          head=$RESOLVED_HEAD
-          seen_key "$(conflict_key "$repo" "$number" "$head")"
-        fi
-        ;;
-      *) continue ;;
-    esac
+    # Mergeability is absent from the list page, so every open pull request is
+    # resolved through its own read. A read that fails leaves this repository
+    # unswept rather than silently clean.
+    pr_mergeable_resolved "$repo" "$number" || { repo_read_failed "$repo"; return 0; }
+    state=$RESOLVED_STATE
+    if [ -n "$RESOLVED_HEAD" ] && [ "$RESOLVED_HEAD" != "$head" ]; then
+      record_remove_key "$(conflict_key "$repo" "$number" "$head")"
+      head=$RESOLVED_HEAD
+      seen_key "$(conflict_key "$repo" "$number" "$head")"
+    fi
     key=$(conflict_key "$repo" "$number" "$head")
     case "$state" in
       conflicted) ;;
@@ -654,7 +843,12 @@ evaluate_repo() {
     esac
     record_has_key "$key" && continue
     queue_finding "$(format_finding "$owner_team" "$repo" "$number" "$head" "$draft" "$url" "$title")" "$key"
-  done
+  done <<EOF
+$records
+EOF
+  # Reaching here means every read this repository needed succeeded, so a
+  # repository that had been failing is no longer an unread hole.
+  repo_read_ok "$repo"
   # Only a page that was not itself cut short by PR_LIMIT can be read as the
   # repository's whole open set, which is what pruning its stale keys relies on.
   if [ "$count" -lt "$PR_LIMIT" ]; then
@@ -714,7 +908,9 @@ action_check() {
     line=$FM_LINE_CAP_LINE
   fi
 
+  unread_confirm_disclosed "$line"
   record_prune
+  unread_prune
   record_add_keys "$FINDING_LINE_KEYS"
 
   if [ -n "$line" ]; then

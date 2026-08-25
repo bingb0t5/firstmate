@@ -450,7 +450,8 @@ Draft pull requests are included; a conflicted draft is reported with `draft=yes
 
 Each wake line begins with `pr-conflict:` and carries `owner-team`, `repo`, `number`, `head`, `draft`, `url`, and `title` so firstmate can route without re-deriving ownership.
 Dedupe keys are repository, pull request number, and head SHA: the same conflict on the same head is reported once, while a force-updated head that conflicts again is a new event.
-GitHub computes mergeability lazily; the check polls short rereads when `mergeable` is `UNKNOWN` and treats a persistent `UNKNOWN` as unknown rather than clean or conflicted.
+GitHub is read through `gh-axi api`, whose replies arrive as an axi envelope rather than as raw JSON.
+GitHub computes mergeability lazily and omits it from the pull request list endpoint altogether, so each open pull request is resolved by its own read; the check polls short rereads while mergeability is still uncomputed and treats a persistently uncomputed state as unknown rather than clean or conflicted.
 A reread that settles the state also names the head it settled for, so a branch force-updated between the listing and the reread is reported and deduped under the SHA that was actually judged.
 A sweep that finds more conflicts than one line can carry reports the ones that fit and discloses the rest as `N more omitted (line cap)`; an omitted conflict is not marked as reported, so it wakes on a later sweep instead of being lost.
 The dedupe record is cut back to the conflicts each sweep still observes, so it stays the size of the live conflict set rather than growing one entry per head forever.
@@ -460,12 +461,17 @@ That covers the degenerate case where discovery reads nothing as well as the par
 
 This is a safety net, not a cure: conflicts happen because pull requests wait unmerged while the default branch moves underneath them.
 Silence is not a proof that every repository was checked, either.
+A repository GitHub cannot be read for is not counted as clean: the sweep stops counting as complete, so it prunes nothing it did not see.
+GitHub fails transiently often enough that waking on each blip would be noise, so a failing repository is disclosed only once its reads have been failing for longer than `FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800 seconds, `0` to disclose on the first failure).
+That disclosure names the repository and how long it has been unreadable, is said once rather than on every sweep, and is a hole in coverage rather than a conflict.
+A disclosure that does not fit the line is not counted as said, so it is repeated on a later sweep.
 A sweep that runs out of budget stops where it is and says nothing about the repositories it did not reach, and the sweep order is fixed, so a fleet too large for one budget leaves the same tail of repositories unswept on every poll.
 Raise `FM_PR_CONFLICT_BUDGET_SECS` with `FM_CHECK_TIMEOUT` when the fleet outgrows one sweep.
 
 `FM_PR_CONFLICT_INTERVAL` (default 300 seconds, `0` to probe on every run) sets how often sweeps run, `FM_PR_CONFLICT_PROBE_SECS` (default 5) bounds one GitHub call, and `FM_PR_CONFLICT_BUDGET_SECS` (default 20) bounds a whole sweep.
 `FM_PR_CONFLICT_UNKNOWN_ATTEMPTS` (default 3) and `FM_PR_CONFLICT_UNKNOWN_WAIT` (default 1 second) control lazy mergeability polling.
 `FM_PR_CONFLICT_PR_LIMIT` (default 30) caps open pull requests read per repository.
+`FM_PR_CONFLICT_UNREAD_GRACE_SECS` (default 1800) sets how long a repository's GitHub reads must keep failing before the resulting hole in coverage is disclosed.
 The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a larger budget is cut to fit rather than refused, and the `UNKNOWN` reread loop stops at the sweep deadline too, because a run the watcher kills prints and records nothing at all.
 A cut budget is disclosed at the head of the line, and it is the one thing this check reports without a conflict behind it; because it describes a setting rather than an event, it repeats on every sweep until the two settings agree.
 

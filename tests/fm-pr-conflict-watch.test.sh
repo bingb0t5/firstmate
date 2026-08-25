@@ -17,13 +17,198 @@ REPO_B=acme/beta
 HEAD_ONE=1111111111111111111111111111111111111111
 HEAD_TWO=2222222222222222222222222222222222222222
 
+# The fake stands in for gh-axi 0.1.32. It models the surface that CLI actually
+# exposes rather than a convenient one: `pr list` has no --json flag and its
+# --fields selector cannot name mergeability, and `api` answers with an axi
+# envelope (api_response/body/truncated) rather than with raw JSON. Unknown
+# flags are refused with the real VALIDATION_ERROR exit 2, so a watcher that
+# reaches for a flag gh-axi does not have fails the suite here instead of
+# falling silent in production.
+#
+# Fixtures are GitHub REST payloads and the requested --jq expression is applied
+# to them with the real jq, so the tests exercise the watcher's real query and
+# its real envelope decoding rather than a hand-built answer.
+make_fake_gh_axi() {
+  cat > "$1" <<'SH'
+#!/usr/bin/env bash
+set -u
+fixture="$FM_TEST_PR_CONFLICT_FIXTURE"
+
+die_validation() {
+  printf 'error: "%s"\n' "$1"
+  printf 'code: VALIDATION_ERROR\n'
+  exit 2
+}
+
+# gh-axi quotes a scalar as a JSON string literal when it would otherwise be
+# ambiguous, and prints it bare when it would not. An empty value is always
+# quoted. Numbers and booleans are printed with no envelope at all.
+emit_envelope() {
+  local body=$1 truncated=$2 quote=0 nl
+  nl=$'\n'
+  [ -n "$body" ] || quote=1
+  case "$body" in
+    *:*|*'"'*|*'\'*|*"$nl"*|*"$(printf '\t')"*) quote=1 ;;
+  esac
+  printf 'api_response:\n'
+  if [ "$quote" -eq 1 ]; then
+    printf '  body: %s\n' "$(jq -nr --arg v "$body" '$v | tojson')"
+  else
+    printf '  body: %s\n' "$body"
+  fi
+  printf '  truncated: %s\n' "$truncated"
+}
+
+cmd=${1:-}
+shift || true
+
+case "$cmd" in
+  pr)
+    sub=${1:-}
+    shift || true
+    case "$sub" in
+      list|view) ;;
+      *) die_validation "unknown subcommand for gh-axi pr: $sub" ;;
+    esac
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --repo|--state|--limit|--base|--head|--author|--assignee|--label) shift 2 ;;
+        --draft|--comments|--reviews|--full) shift ;;
+        --fields)
+          # The real selector exists but cannot name any field this watcher
+          # needs, so asking for one is the same refusal the real CLI gives.
+          case "$2" in
+            *number*|*mergeable*|*headRefOid*|*isDraft*|*title*|*url*)
+              die_validation "Unknown field(s); available: body, createdAt, labels, mergedAt, milestone, url" ;;
+          esac
+          shift 2
+          ;;
+        -*) die_validation "unknown flag for gh-axi pr $sub: $1" ;;
+        *) shift ;;
+      esac
+    done
+    exit 0
+    ;;
+  api) ;;
+  *) die_validation "unknown command: $cmd" ;;
+esac
+
+path=
+expr=.
+full=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --jq) expr=$2; shift 2 ;;
+    --full) full=1; shift ;;
+    --paginate) shift ;;
+    --header|--field|--template|-X) shift 2 ;;
+    GET|POST|PUT|PATCH|DELETE|HEAD) shift ;;
+    -*) die_validation "unknown flag for gh-axi api: $1" ;;
+    *) [ -n "$path" ] || path=$1; shift ;;
+  esac
+done
+
+base=${path%%\?*}
+query=
+case "$path" in *'?'*) query=${path#*\?} ;; esac
+
+per_page=30
+case "$query" in
+  *per_page=*)
+    per_page=${query#*per_page=}
+    per_page=${per_page%%&*}
+    ;;
+esac
+
+case "$base" in
+  /repos/*/pulls)
+    mode=list
+    rest=${base#/repos/}
+    repo=${rest%/pulls}
+    ;;
+  /repos/*/pulls/*)
+    mode=view
+    rest=${base#/repos/}
+    repo=${rest%/pulls/*}
+    number=${rest##*/}
+    ;;
+  *)
+    printf 'error: "not found"\n' >&2
+    exit 1
+    ;;
+esac
+
+slug=${repo//\//__}
+
+# A repository GitHub cannot be read for, injected per repository.
+case " ${FM_TEST_PR_CONFLICT_FAIL:-} " in
+  *" $repo "*)
+    printf 'error: "read failed"\n' >&2
+    exit 1
+    ;;
+esac
+
+doc=$(mktemp) || exit 1
+trap 'rm -f -- "$doc"' EXIT
+
+if [ "$mode" = list ]; then
+  file="$fixture/pulls/${slug}.json"
+  if [ -f "$file" ]; then
+    jq -c ".[:$per_page]" "$file" > "$doc" || exit 1
+  else
+    printf '[]\n' > "$doc"
+  fi
+else
+  file="$fixture/pull/${slug}-${number}.json"
+  seqfile="$fixture/pull/${slug}-${number}.seq"
+  if [ -f "$seqfile" ]; then
+    idx=$(cat "$seqfile")
+    idx=$((idx + 1))
+    printf '%s\n' "$idx" > "$seqfile"
+    jq -c ".[$((idx - 1))] // .[-1]" "$file" > "$doc" || exit 1
+  elif [ -f "$file" ]; then
+    cp "$file" "$doc"
+  else
+    printf 'error: "not found"\n' >&2
+    exit 1
+  fi
+fi
+
+values=$(jq -c "$expr" "$doc" 2>/dev/null) || { printf 'error: "jq failed"\n' >&2; exit 1; }
+
+# A lone number or boolean is rendered bare by gh-axi, with no envelope at all.
+if [ "$(printf '%s\n' "$values" | wc -l)" -eq 1 ]; then
+  case "$values" in
+    true|false|null|-[0-9]*|[0-9]*)
+      printf '%s\n' "$values"
+      exit 0
+      ;;
+  esac
+fi
+
+body=$(jq -r "$expr" "$doc" 2>/dev/null) || { printf 'error: "jq failed"\n' >&2; exit 1; }
+
+truncated=false
+if [ "${FM_TEST_PR_CONFLICT_TRUNCATE:-0}" = 1 ]; then
+  truncated=true
+elif [ "$full" -eq 0 ] && [ "${#body}" -gt 200 ]; then
+  body=${body:0:200}
+  truncated=true
+fi
+
+emit_envelope "$body" "$truncated"
+exit 0
+SH
+  chmod +x "$1"
+}
+
 make_home() {
   local name=$1 home fakebin fixture
   home="$TMP_ROOT/$name"
   fixture="$home/fixture"
   fakebin="$home/fakebin"
   mkdir -p "$home/state" "$home/data" "$home/projects/alpha" "$home/projects/beta" \
-    "$fixture/lists" "$fixture/views" "$fakebin"
+    "$fixture/pulls" "$fixture/pull" "$fakebin"
   cat > "$home/data/projects.md" <<'MD'
 # Projects
 
@@ -41,99 +226,75 @@ MD
   git -C "$home/projects/beta" init -q
   git -C "$home/projects/beta" remote add origin "https://github.com/$REPO_B.git"
   fm_slug=$(git -C "$ROOT" remote get-url origin 2>/dev/null | sed -n 's#.*github\.com[:/]\([^/]*/[^/]*\)#\1#p' | sed 's#\.git$##')
-  cat > "$fakebin/gh-axi" <<'SH'
-#!/usr/bin/env bash
-set -u
-fixture="$FM_TEST_PR_CONFLICT_FIXTURE"
-repo=
-number=
-mode=
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    pr)
-      mode=$2
-      shift 2
-      ;;
-    --repo)
-      repo=$2
-      shift 2
-      ;;
-    --repo=*)
-      repo=${1#--repo=}
-      shift
-      ;;
-    --json|--state)
-      shift
-      ;;
-    --limit)
-      shift 2
-      ;;
-    [0-9]*)
-      number=$1
-      shift
-      ;;
-    *)
-      shift
-      ;;
-  esac
-done
-slug=${repo//\//__}
-case "$mode" in
-  list)
-    file="$fixture/lists/${slug}.json"
-    if [ -f "$file" ]; then
-      cat "$file"
-    else
-      printf '[]\n'
-    fi
-    exit 0
-    ;;
-  view)
-    file="$fixture/views/${slug}-${number}.json"
-    seqfile="$fixture/views/${slug}-${number}.seq"
-    if [ -f "$seqfile" ]; then
-      idx=$(cat "$seqfile")
-      idx=$((idx + 1))
-      printf '%s\n' "$idx" > "$seqfile"
-      jq -c ".[$((idx - 1))]" "$file"
-      exit 0
-    fi
-    if [ -f "$file" ]; then
-      cat "$file"
-    fi
-    exit 0
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/gh-axi"
+  make_fake_gh_axi "$fakebin/gh-axi"
   ln -sf "$JQ_BIN" "$fakebin/jq"
   if [ -n "$fm_slug" ]; then
-    write_list "$home" "$fm_slug" '[]'
+    reset_repo "$home" "$fm_slug"
   fi
   printf '%s\n' "$home"
 }
 
-write_list() {
-  local home=$1 repo=$2 json=$3
+reset_repo() {
+  local home=$1 repo=$2 slug
   slug=${repo//\//__}
-  printf '%s\n' "$json" > "$home/fixture/lists/${slug}.json"
+  printf '[]\n' > "$home/fixture/pulls/${slug}.json"
+  rm -f "$home/fixture/pull/${slug}-"*
 }
 
-write_view() {
-  local home=$1 repo=$2 number=$3 json=$4
+# One open pull request, in the GitHub REST shape the watcher actually reads:
+# the list page carries no mergeability at all, so it is only ever answered by
+# the per-pull-request read.
+add_pr() {
+  local home=$1 repo=$2 number=$3 head=$4 draft=$5 mergeable=$6 title=$7
+  local slug lf vf url
   slug=${repo//\//__}
-  printf '%s\n' "$json" > "$home/fixture/views/${slug}-${number}.json"
+  url="https://github.com/$repo/pull/$number"
+  lf="$home/fixture/pulls/${slug}.json"
+  vf="$home/fixture/pull/${slug}-${number}.json"
+  [ -f "$lf" ] || printf '[]\n' > "$lf"
+  jq --argjson n "$number" --arg t "$title" --arg u "$url" --arg h "$head" \
+    --argjson d "$draft" \
+    '. + [{number:$n, title:$t, html_url:$u, head:{sha:$h}, draft:$d}]' "$lf" > "$lf.tmp" \
+    && mv "$lf.tmp" "$lf"
+  jq -n --argjson n "$number" --arg t "$title" --arg u "$url" --arg h "$head" \
+    --argjson d "$draft" --argjson m "$mergeable" \
+    '{number:$n, title:$t, html_url:$u, head:{sha:$h}, draft:$d, mergeable:$m}' > "$vf"
+  rm -f "$home/fixture/pull/${slug}-${number}.seq"
 }
 
-# The fake gh-axi reads a scripted view sequence by array index, so the payloads
-# are stored as one JSON array rather than as a stream of objects.
-write_view_sequence() {
-  local home=$1 repo=$2 number=$3
+# A scripted sequence of per-pull-request reads, one per reread, so lazy
+# mergeability that settles part way through can be exercised.
+add_pr_sequence() {
+  local home=$1 repo=$2 number=$3 head=$4 title=$5
+  shift 5
+  local slug lf vf url m
   slug=${repo//\//__}
-  shift 3
-  printf '%s\n' "$@" | jq -s '.' > "$home/fixture/views/${slug}-${number}.json"
-  printf '0\n' > "$home/fixture/views/${slug}-${number}.seq"
+  url="https://github.com/$repo/pull/$number"
+  lf="$home/fixture/pulls/${slug}.json"
+  vf="$home/fixture/pull/${slug}-${number}.json"
+  [ -f "$lf" ] || printf '[]\n' > "$lf"
+  jq --argjson n "$number" --arg t "$title" --arg u "$url" --arg h "$head" \
+    '. + [{number:$n, title:$t, html_url:$u, head:{sha:$h}, draft:false}]' "$lf" > "$lf.tmp" \
+    && mv "$lf.tmp" "$lf"
+  : > "$vf.parts"
+  for m in "$@"; do
+    # Each entry is "mergeable[:head]", so a reread can settle on a head the
+    # listing never carried.
+    local state=${m%%:*} h=$head
+    case "$m" in *:*) h=${m#*:} ;; esac
+    jq -nc --argjson n "$number" --arg t "$title" --arg u "$url" --arg h "$h" \
+      --argjson m "$state" \
+      '{number:$n, title:$t, html_url:$u, head:{sha:$h}, draft:false, mergeable:$m}' >> "$vf.parts"
+  done
+  jq -s '.' "$vf.parts" > "$vf"
+  rm -f "$vf.parts"
+  printf '0\n' > "$home/fixture/pull/${slug}-${number}.seq"
+}
+
+view_reads() {
+  local home=$1 repo=$2 number=$3 slug
+  slug=${repo//\//__}
+  cat "$home/fixture/pull/${slug}-${number}.seq"
 }
 
 run_check() {
@@ -146,6 +307,37 @@ run_check() {
     FM_TEST_PR_CONFLICT_FIXTURE="$home/fixture" \
     PATH="$home/fakebin:$BASE_PATH" "$@" "$WATCH" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "check exit"
+}
+
+# The fake gh-axi is only useful as a regression net if it refuses what the real
+# CLI refuses and answers in the shape the real CLI answers in. Both were
+# verified against gh-axi 0.1.32 directly.
+test_fake_gh_axi_matches_the_real_cli_contract() {
+  local home status=0 out
+  home=$(make_home fake-contract)
+  out=$(env FM_TEST_PR_CONFLICT_FIXTURE="$home/fixture" PATH="$home/fakebin:$BASE_PATH" \
+    gh-axi pr list --repo "$REPO_A" --state open --limit 2 \
+    --json number,title,url,headRefOid,isDraft,mergeable 2>&1) || status=$?
+  expect_code 2 "$status" "gh-axi has no --json flag and must refuse it"
+  assert_contains "$out" "unknown flag for gh-axi pr list: --json" "refusal must name the flag"
+
+  status=0
+  out=$(env FM_TEST_PR_CONFLICT_FIXTURE="$home/fixture" PATH="$home/fakebin:$BASE_PATH" \
+    gh-axi pr list --repo "$REPO_A" --fields number,mergeable 2>&1) || status=$?
+  expect_code 2 "$status" "the real --fields selector cannot name mergeability"
+
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken"
+  out=$(env FM_TEST_PR_CONFLICT_FIXTURE="$home/fixture" PATH="$home/fakebin:$BASE_PATH" \
+    gh-axi api "/repos/$REPO_A/pulls/7" --jq '.head.sha' --full 2>&1)
+  assert_contains "$out" "api_response:" "an api read answers with an axi envelope"
+  assert_contains "$out" "truncated: false" "the envelope carries a truncation flag"
+  assert_contains "$out" "body: $HEAD_ONE" "an unambiguous scalar body is printed bare"
+
+  out=$(env FM_TEST_PR_CONFLICT_FIXTURE="$home/fixture" PATH="$home/fakebin:$BASE_PATH" \
+    gh-axi api "/repos/$REPO_A/pulls/7" --jq '.html_url' --full 2>&1)
+  assert_contains "$out" 'body: "https://github.com/acme/alpha/pull/7"' \
+    "a body needing quoting is a JSON string literal"
+  pass "the fake gh-axi refuses what gh-axi refuses and answers in its envelope"
 }
 
 # The watcher and the bearings snapshot must name the same repository from the
@@ -178,7 +370,7 @@ CASES
 test_newly_conflicted_wakes() {
   local home out
   home=$(make_home wake-new)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken"
   out="$home/out.txt"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" "pr-conflict:" "missing wake prefix"
@@ -188,6 +380,7 @@ test_newly_conflicted_wakes() {
   assert_contains "$(cat "$out")" "head=$HEAD_ONE" "missing head"
   assert_contains "$(cat "$out")" "draft=no" "missing draft flag"
   assert_contains "$(cat "$out")" "title=Broken" "missing title"
+  assert_contains "$(cat "$out")" "url=https://github.com/$REPO_A/pull/7" "missing url"
   [ "$(wc -l < "$out" | tr -d '[:space:]')" = 1 ] || fail "wake must be one line"
   pass "newly conflicted PR wakes once with routing fields"
 }
@@ -195,7 +388,7 @@ test_newly_conflicted_wakes() {
 test_same_head_stays_silent() {
   local home out
   home=$(make_home wake-silent)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken"
   out="$home/out.txt"
   run_check "$home" "$out"
   [ -s "$out" ] || fail "first poll should wake"
@@ -208,11 +401,12 @@ test_same_head_stays_silent() {
 test_new_head_after_force_update_wakes_again() {
   local home out
   home=$(make_home wake-new-head)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken"
   out="$home/out.txt"
   run_check "$home" "$out"
   [ -s "$out" ] || fail "first head should wake"
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken again\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_TWO\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  reset_repo "$home" "$REPO_A"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_TWO" false false "Broken again"
   : > "$out"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" "head=$HEAD_TWO" "force-updated head should wake again"
@@ -222,51 +416,43 @@ test_new_head_after_force_update_wakes_again() {
 test_unknown_never_reported() {
   local home out
   home=$(make_home wake-unknown)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"UNKNOWN\"}]"
-  write_view_sequence "$home" "$REPO_A" 7 \
-    '{"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","number":7,"title":"Maybe","url":"https://github.com/acme/alpha/pull/7","headRefOid":"1111111111111111111111111111111111111111","isDraft":false}' \
-    '{"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","number":7,"title":"Maybe","url":"https://github.com/acme/alpha/pull/7","headRefOid":"1111111111111111111111111111111111111111","isDraft":false}' \
-    '{"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","number":7,"title":"Maybe","url":"https://github.com/acme/alpha/pull/7","headRefOid":"1111111111111111111111111111111111111111","isDraft":false}'
+  add_pr_sequence "$home" "$REPO_A" 7 "$HEAD_ONE" "Maybe" null null null
   out="$home/out.txt"
   run_check "$home" "$out" env FM_PR_CONFLICT_UNKNOWN_ATTEMPTS=3
-  [ ! -s "$out" ] || fail "persistent UNKNOWN must stay silent: $(cat "$out")"
+  [ ! -s "$out" ] || fail "persistent unknown mergeability must stay silent: $(cat "$out")"
   # The fake's cursor is how many rereads the check actually made, so a silent
-  # run that never reread is not mistaken for UNKNOWN being handled.
-  [ "$(cat "$home/fixture/views/acme__alpha-7.seq")" = 3 ] \
-    || fail "UNKNOWN should be reread up to the attempt limit, got $(cat "$home/fixture/views/acme__alpha-7.seq")"
-  pass "persistent UNKNOWN is never reported as conflicted or clean"
+  # run that never reread is not mistaken for the unknown state being handled.
+  [ "$(view_reads "$home" "$REPO_A" 7)" = 3 ] \
+    || fail "unknown should be reread up to the attempt limit, got $(view_reads "$home" "$REPO_A" 7)"
+  pass "persistent unknown mergeability is never reported as conflicted or clean"
 }
 
 test_unknown_resolving_to_conflicting_wakes() {
   local home out
   home=$(make_home wake-unknown-conflict)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"UNKNOWN\"}]"
-  write_view_sequence "$home" "$REPO_A" 7 \
-    "{\"mergeable\":\"UNKNOWN\",\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false}" \
-    "{\"mergeable\":\"CONFLICTING\",\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false}"
+  add_pr_sequence "$home" "$REPO_A" 7 "$HEAD_ONE" "Maybe" null false
   out="$home/out.txt"
   run_check "$home" "$out" env FM_PR_CONFLICT_UNKNOWN_ATTEMPTS=3
-  assert_contains "$(cat "$out")" "number=7" "settled CONFLICTING must wake"
+  assert_contains "$(cat "$out")" "number=7" "a settled conflict must wake"
   assert_contains "$(cat "$out")" "head=$HEAD_ONE" "settled wake carries the head"
   : > "$out"
   run_check "$home" "$out" env FM_PR_CONFLICT_UNKNOWN_ATTEMPTS=3
   [ ! -s "$out" ] || fail "a settled conflict must stay silent on the next poll: $(cat "$out")"
-  pass "UNKNOWN that settles on CONFLICTING wakes once"
+  pass "unknown mergeability that settles on a conflict wakes once"
 }
 
 test_unknown_wake_uses_the_head_the_reread_judged() {
   local home out
   home=$(make_home wake-unknown-head)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"UNKNOWN\"}]"
-  write_view "$home" "$REPO_A" 7 \
-    "{\"mergeable\":\"CONFLICTING\",\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_TWO\",\"isDraft\":false}"
+  add_pr_sequence "$home" "$REPO_A" 7 "$HEAD_ONE" "Maybe" "false:$HEAD_TWO"
   out="$home/out.txt"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" "head=$HEAD_TWO" "the wake must name the head the reread judged"
   assert_not_contains "$(cat "$out")" "head=$HEAD_ONE" "the stale listed head must not label the wake"
   # The next sweep sees the force-updated head as the listed one, and it is the
   # same conflict that already woke, so it must not wake a second time.
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_TWO\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  reset_repo "$home" "$REPO_A"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_TWO" false false "Maybe"
   : > "$out"
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "the reread head must be what was recorded: $(cat "$out")"
@@ -277,15 +463,13 @@ test_unknown_wake_uses_the_head_the_reread_judged() {
 # ones it never printed: their heads do not change, so nothing would ever
 # re-trigger them and they would be lost for good.
 test_conflicts_past_the_line_cap_wake_on_a_later_sweep() {
-  local home out i rows='' seen='' round total=12 number
+  local home out i seen='' round total=12 number
   home=$(make_home wake-cap)
   i=1
   while [ "$i" -le "$total" ]; do
-    [ -z "$rows" ] || rows="$rows,"
-    rows="$rows{\"number\":$i,\"title\":\"Conflicted branch $i\",\"url\":\"https://github.com/$REPO_A/pull/$i\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}"
+    add_pr "$home" "$REPO_A" "$i" "$HEAD_ONE" false false "Conflicted branch $i"
     i=$((i + 1))
   done
-  write_list "$home" "$REPO_A" "[$rows]"
   out="$home/out.txt"
   round=0
   while [ "$round" -lt 6 ]; do
@@ -318,11 +502,11 @@ test_conflicts_past_the_line_cap_wake_on_a_later_sweep() {
 test_resolved_conflicts_leave_the_record() {
   local home out
   home=$(make_home record-prune)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken"
   out="$home/out.txt"
   run_check "$home" "$out"
   [ -s "$out" ] || fail "first poll should wake"
-  write_list "$home" "$REPO_A" '[]'
+  reset_repo "$home" "$REPO_A"
   : > "$out"
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "a closed pull request must not wake: $(cat "$out")"
@@ -330,7 +514,7 @@ test_resolved_conflicts_leave_the_record() {
   # fm-pr-conflict-watch-v1 shape is the contract being asserted.
   assert_not_contains "$(cat "$home/state/.pr-conflict-watch")" "$HEAD_ONE" \
     "the record must not keep a key for a pull request it no longer sees"
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken"
   : > "$out"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" "number=7" "a conflict that comes back must wake again"
@@ -344,7 +528,7 @@ test_resolved_conflicts_leave_the_record() {
 test_empty_discovery_keeps_the_record() {
   local home out
   home=$(make_home discovery-outage)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken"
   out="$home/out.txt"
   run_check "$home" "$out"
   [ -s "$out" ] || fail "first poll should wake"
@@ -363,13 +547,12 @@ test_empty_discovery_keeps_the_record() {
 # Discovery that reads some repositories and fails on others is partial, not
 # empty: a clone whose origin cannot be read this sweep was never inspected, so
 # its absence from the discovered set says nothing about whether the fleet still
-# works in it. Pruning its keys there would re-wake every unchanged conflict it
-# holds as soon as the clone resolves again.
+# works in it.
 test_partial_discovery_keeps_the_record() {
   local home out
   home=$(make_home discovery-partial)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken A\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
-  write_list "$home" "$REPO_B" "[{\"number\":9,\"title\":\"Broken B\",\"url\":\"https://github.com/$REPO_B/pull/9\",\"headRefOid\":\"$HEAD_TWO\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken A"
+  add_pr "$home" "$REPO_B" 9 "$HEAD_TWO" false false "Broken B"
   out="$home/out.txt"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" "repo=$REPO_A" "first poll should wake for alpha"
@@ -388,19 +571,14 @@ test_partial_discovery_keeps_the_record() {
 }
 
 # A registry that cannot be read this sweep enumerates no projects, which is
-# indistinguishable from a home that registered none. The firstmate origin still
-# resolving does not make that a complete discovery: every project repository
-# went unread, so pruning their keys would re-wake each unchanged conflict as
-# soon as the registry returned.
+# indistinguishable from a home that registered none.
 test_unreadable_registry_keeps_the_record() {
   local home out
   home=$(make_home discovery-registry-gone)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken A\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken A"
   out="$home/out.txt"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" "repo=$REPO_A" "first poll should wake for alpha"
-  # The project registry goes away while the firstmate checkout keeps resolving
-  # its origin, exactly as a transient unreadable data directory would leave it.
   mv "$home/data/projects.md" "$home/data/projects.md.away"
   : > "$out"
   run_check "$home" "$out"
@@ -415,18 +593,15 @@ test_unreadable_registry_keeps_the_record() {
 # The other side of the same rule: when discovery resolved every project it
 # enumerated, a repository missing from the result is one this home genuinely
 # stopped working in, and its keys are dropped so the record stays the size of
-# the live conflict set. Retaining them for an unread repository must not turn
-# into retaining them forever.
+# the live conflict set.
 test_deregistered_project_leaves_the_record() {
   local home out
   home=$(make_home discovery-deregistered)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Broken A\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
-  write_list "$home" "$REPO_B" "[{\"number\":9,\"title\":\"Broken B\",\"url\":\"https://github.com/$REPO_B/pull/9\",\"headRefOid\":\"$HEAD_TWO\",\"isDraft\":false,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken A"
+  add_pr "$home" "$REPO_B" 9 "$HEAD_TWO" false false "Broken B"
   out="$home/out.txt"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" "repo=$REPO_B" "first poll should wake for beta"
-  # beta is deregistered while every project still listed resolves, so discovery
-  # is complete and beta is genuinely gone rather than unread.
   cat > "$home/data/projects.md" <<'MD'
 # Projects
 
@@ -453,9 +628,7 @@ MD
 test_unknown_rereads_stop_at_the_sweep_deadline() {
   local home out started elapsed
   home=$(make_home unknown-deadline)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"UNKNOWN\"}]"
-  write_view "$home" "$REPO_A" 7 \
-    "{\"mergeable\":\"UNKNOWN\",\"number\":7,\"title\":\"Maybe\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false}"
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false null "Maybe"
   out="$home/out.txt"
   started=$(date +%s)
   # Ten attempts five seconds apart is 55s of rereads on a one second budget.
@@ -464,14 +637,13 @@ test_unknown_rereads_stop_at_the_sweep_deadline() {
   elapsed=$(( $(date +%s) - started ))
   [ "$elapsed" -lt 15 ] || fail "the reread loop ran past the sweep deadline: ${elapsed}s"
   [ ! -s "$out" ] || fail "an unsettled pull request must stay silent: $(cat "$out")"
-  pass "UNKNOWN rereads stop at the sweep deadline"
+  pass "unknown-mergeability rereads stop at the sweep deadline"
 }
 
 test_clean_fleet_is_silent() {
   local home out
   home=$(make_home wake-clean)
-  write_list "$home" "$REPO_A" "[{\"number\":7,\"title\":\"Fine\",\"url\":\"https://github.com/$REPO_A/pull/7\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":false,\"mergeable\":\"MERGEABLE\"}]"
-  write_list "$home" "$REPO_B" '[]'
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false true "Fine"
   out="$home/out.txt"
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "clean fleet should print nothing: $(cat "$out")"
@@ -481,12 +653,143 @@ test_clean_fleet_is_silent() {
 test_draft_conflicts_are_reported() {
   local home out
   home=$(make_home wake-draft)
-  write_list "$home" "$REPO_B" "[{\"number\":3,\"title\":\"Draft broken\",\"url\":\"https://github.com/$REPO_B/pull/3\",\"headRefOid\":\"$HEAD_ONE\",\"isDraft\":true,\"mergeable\":\"CONFLICTING\"}]"
+  add_pr "$home" "$REPO_B" 3 "$HEAD_ONE" true false "Draft broken"
   out="$home/out.txt"
   run_check "$home" "$out"
   assert_contains "$(cat "$out")" "draft=yes" "draft conflict must be marked"
   assert_contains "$(cat "$out")" "owner-team=team-b" "draft repo routes to owning team"
   pass "conflicted draft PRs are reported"
+}
+
+# GitHub blips constantly, so a repository that has only just started failing is
+# not worth a wake. It must still not be counted as swept: silence here means
+# "no news", and pruning its keys would re-wake every unchanged conflict once
+# the read recovered.
+test_transient_read_failure_stays_silent_and_keeps_the_record() {
+  local home out
+  home=$(make_home read-transient)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken A"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "repo=$REPO_A" "first poll should wake for alpha"
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A"
+  [ ! -s "$out" ] || fail "a fresh read failure must stay silent: $(cat "$out")"
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A"
+  [ ! -s "$out" ] || fail "a still-fresh read failure must stay silent: $(cat "$out")"
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "the unchanged conflict must not wake again once reads recover: $(cat "$out")"
+  pass "a transient GitHub read failure is silent and leaves the record intact"
+}
+
+# A read failure that outlasts the grace is a hole in coverage, and silence
+# would be indistinguishable from a clean fleet. It is disclosed once, naming
+# the repository and how long it has been unreadable, and it is not a conflict.
+test_persistent_read_failure_is_disclosed_once() {
+  local home out
+  home=$(make_home read-persistent)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken A"
+  out="$home/out.txt"
+  # The conflict is read and recorded first, so the silence after recovery below
+  # is the record holding rather than the conflict having never been seen.
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "number=7" "first poll should wake for alpha"
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "unread repo=$REPO_A" \
+    "a persistently unreadable repository must be named"
+  assert_contains "$(cat "$out")" "conflict coverage has a hole" \
+    "the disclosure must say coverage is incomplete"
+  assert_not_contains "$(cat "$out")" "owner-team=" \
+    "an unread repository is a coverage hole, not a routed conflict"
+  [ "$(wc -l < "$out" | tr -d '[:space:]')" = 1 ] || fail "the disclosure must be one line"
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  [ ! -s "$out" ] || fail "the same hole must be disclosed once, not on every sweep: $(cat "$out")"
+  # Once the repository is readable again its conflict is unchanged, so the
+  # recovered sweep is silent rather than re-waking it.
+  : > "$out"
+  run_check "$home" "$out" env FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  [ ! -s "$out" ] || fail "a recovered repository must not re-wake its unchanged conflict: $(cat "$out")"
+  # A fresh outage after recovery is a new hole and is disclosed again.
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "unread repo=$REPO_A" \
+    "a hole that reopens after recovery is a new disclosure"
+  pass "a persistent GitHub read failure is disclosed once as a coverage hole"
+}
+
+# The disclosure is gated on elapsed time, not merely on having failed before:
+# repeated failures inside the grace stay silent however many sweeps they span.
+test_read_failure_inside_the_grace_stays_silent() {
+  local home out i
+  home=$(make_home read-grace)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken A"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  [ -s "$out" ] || fail "first poll should wake"
+  i=0
+  while [ "$i" -lt 3 ]; do
+    : > "$out"
+    run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A" \
+      FM_PR_CONFLICT_UNREAD_GRACE_SECS=86400
+    [ ! -s "$out" ] || fail "a failure inside the grace must stay silent: $(cat "$out")"
+    i=$((i + 1))
+  done
+  pass "read failures inside the disclosure grace stay silent"
+}
+
+# A body cut off mid-record is not a shorter list of pull requests. Accepting it
+# would silently drop the conflicts that fell off the end, so a truncated read
+# is a failed read.
+test_truncated_read_is_not_read_as_clean() {
+  local home out
+  home=$(make_home read-truncated)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken A"
+  out="$home/out.txt"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_TRUNCATE=1 \
+    FM_PR_CONFLICT_UNREAD_GRACE_SECS=0
+  assert_contains "$(cat "$out")" "unread repo=$REPO_A" \
+    "a truncated body must be refused as an unread repository"
+  assert_not_contains "$(cat "$out")" "number=7" \
+    "a truncated read must not be parsed into findings"
+  pass "a truncated api body is treated as a failed read, not a short list"
+}
+
+# An unreadable repository must not let the sweep count as complete, or it would
+# prune keys for repositories it never saw.
+test_read_failure_does_not_prune_another_repository() {
+  local home out
+  home=$(make_home read-no-prune)
+  add_pr "$home" "$REPO_A" 7 "$HEAD_ONE" false false "Broken A"
+  add_pr "$home" "$REPO_B" 9 "$HEAD_TWO" false false "Broken B"
+  out="$home/out.txt"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" "repo=$REPO_B" "first poll should wake for beta"
+  # beta is deregistered in the same sweep alpha becomes unreadable. Discovery
+  # is complete, but the sweep is not, so beta's keys must survive.
+  cat > "$home/data/projects.md" <<'MD'
+# Projects
+
+- alpha - alpha repo (added 2026-08-25)
+MD
+  : > "$out"
+  run_check "$home" "$out" env FM_TEST_PR_CONFLICT_FAIL="$REPO_A"
+  cat > "$home/data/projects.md" <<'MD'
+# Projects
+
+- alpha - alpha repo (added 2026-08-25)
+- beta - beta repo (added 2026-08-25)
+MD
+  : > "$out"
+  run_check "$home" "$out"
+  [ ! -s "$out" ] || fail "an incomplete sweep must not have pruned beta's key: $(cat "$out")"
+  pass "a sweep with an unreadable repository prunes nothing it did not see"
 }
 
 test_arm_registers_check() {
@@ -503,6 +806,7 @@ test_arm_registers_check() {
   pass "arm writes and registers the watcher check"
 }
 
+test_fake_gh_axi_matches_the_real_cli_contract
 test_repo_slug_parses_github_remotes
 test_newly_conflicted_wakes
 test_same_head_stays_silent
@@ -519,4 +823,9 @@ test_deregistered_project_leaves_the_record
 test_unknown_rereads_stop_at_the_sweep_deadline
 test_clean_fleet_is_silent
 test_draft_conflicts_are_reported
+test_transient_read_failure_stays_silent_and_keeps_the_record
+test_persistent_read_failure_is_disclosed_once
+test_read_failure_inside_the_grace_stays_silent
+test_truncated_read_is_not_read_as_clean
+test_read_failure_does_not_prune_another_repository
 test_arm_registers_check
