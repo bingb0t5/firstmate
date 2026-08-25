@@ -53,6 +53,9 @@
 # destructive, irreversible, or security-sensitive actions.
 #
 # CANONICAL PAYLOAD.
+# The batch is read as UTF-8 bytes whatever the ambient locale says, so captured
+# text reaches the brain byte-exact; input that is not UTF-8 is refused rather
+# than decoded into a memory nobody can correct.
 # Records are separated by newline only, so U+2028, U+2029, and U+0085 inside a
 # JSON string stay part of the text they belong to.
 # Each line is one JSON object with positive signed 32-bit update_id, nonempty
