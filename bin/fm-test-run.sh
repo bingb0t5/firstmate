@@ -988,6 +988,16 @@ families_for_changed_path() {
     bin/fm-x-*|bin/fm-check*)
       printf '%s\n' pr-forge
       ;;
+    bin/fm_procevent_telegram_validation.py)
+      # The shared Telegram update-identifier validator is imported only by
+      # bin/fm-procevent-telegram.sh's poll and receipt-recovery helpers, and
+      # is named nowhere else, so the basename reference scan below cannot see
+      # a consuming suite. Resolve it through the adapter that imports it so a
+      # change to the validator selects exactly what a change to the adapter
+      # selects.
+      families_for_test_reference fm-procevent-telegram.sh \
+        || printf '%s\n' "__unmapped__:$path"
+      ;;
     bin/fm-nm-run-lib.sh)
       # Shared no-mistakes run-attribution primitives, sourced by both
       # bin/fm-crew-state.sh (pure-contract-unit) and bin/fm-teardown.sh's
