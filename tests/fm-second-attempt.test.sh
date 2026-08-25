@@ -313,6 +313,36 @@ EOF
   pass "fm-control: an attributed no-mistakes third fix round is recorded and refuses automatically"
 }
 
+# Scout lifecycle calls are exempt from the implementation gate itself, so an
+# attributed validation status must not leave implementation-gate state behind.
+test_nm_third_fix_round_does_not_mark_a_scout() {
+  local dir wt branch head out rc marker
+  dir=$(new_case nm-round-scout sa12)
+  add_ship_task "$dir" sa12 scout
+  wt="$dir/wt"
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD)
+  head=$(git -C "$wt" rev-parse --short HEAD)
+  cat > "$dir/fakebin/no-mistakes" <<EOF
+#!/usr/bin/env bash
+cat <<'STATUS'
+run:
+  id: fixture-run
+  branch: $branch
+  status: fixing
+  head: $head
+  active_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
+    review,fixing,1s,now,123,fix 3
+STATUS
+EOF
+  chmod +x "$dir/fakebin/no-mistakes"
+  marker="$dir/home/state/sa12.nm-third-fix-round"
+  out=$(run_control "$dir" sa12 relaunch --note "continue scouting"); rc=$?
+  expect_code 0 "$rc" "an attributed third fix round must not gate a scout"$'\n'"$out"
+  assert_not_contains "$out" "Sol spec" "scout relaunch was blocked by the implementation gate"
+  [ ! -e "$marker" ] || fail "scout relaunch persisted ship-only third-round state"
+  pass "fm-control: an attributed no-mistakes third fix round leaves scouts exempt"
+}
+
 # The no-mistakes side owns the marker payload, so a `touch`-style marker with
 # no parseable round must still refuse rather than standing the gate down - and
 # must report what it observed instead of asserting a round it never read.
@@ -399,6 +429,7 @@ test_scout_relaunch_is_ungated_after_an_existing_attempt
 test_secondmate_relaunch_is_unaffected_by_the_gate
 test_nm_third_fix_round_marker_refuses_through_fm_control
 test_nm_third_fix_round_is_recorded_automatically
+test_nm_third_fix_round_does_not_mark_a_scout
 test_nm_third_fix_round_marker_with_no_payload_refuses
 test_nm_non_numeric_marker_payload_refuses_without_claiming_a_round
 test_nm_first_fix_round_marker_does_not_claim_the_third_round

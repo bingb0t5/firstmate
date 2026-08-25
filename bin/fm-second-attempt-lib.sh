@@ -167,14 +167,15 @@ fm_second_attempt_gate_reason() {
 fm_second_attempt_refuse_if_needed() {
   local state=$1 data=$2 id=$3 meta=$4 trigger=$5
   local reason spec next marker kind task_kind
+  kind=$(fm_meta_get "$meta" kind)
+  [ -n "$kind" ] || kind=ship
+  [ "$kind" = ship ] || return 0
   fm_second_attempt_sync_nm_fix_round "$state" "$id" "$meta"
   fm_second_attempt_gate_reason "$state" "$data" "$id" "$meta" "$trigger"
   reason=$FM_SECOND_ATTEMPT_GATE_REASON
   [ "$reason" != none ] || return 0
   fm_second_attempt_spec_present "$data" "$id" && return 0
   spec=$(fm_second_attempt_spec_path "$data" "$id")
-  kind=$(fm_meta_get "$meta" kind)
-  [ -n "$kind" ] || kind=ship
   task_kind="$kind task"
   next="commission a Sol spec scout, place its reviewed deliverable at $spec, then start another implementation worker; do not treat report.md as the spec and do not guess a model"
   case "$reason" in
