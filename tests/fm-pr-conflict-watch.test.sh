@@ -148,6 +148,33 @@ run_check() {
   expect_code 0 "$status" "check exit"
 }
 
+# The watcher and the bearings snapshot must name the same repository from the
+# same remote, so the shared parser they both source is exercised directly here:
+# a slug that differed between them would route one pull request two ways.
+test_repo_slug_parses_github_remotes() {
+  local got
+  # shellcheck source=bin/fm-repo-slug-lib.sh
+  # shellcheck disable=SC1091
+  . "$ROOT/bin/fm-repo-slug-lib.sh"
+  local url expected
+  while IFS='|' read -r url expected; do
+    [ -n "$url" ] || continue
+    got=$(fm_repo_slug "$url")
+    [ "$got" = "$expected" ] \
+      || fail "fm_repo_slug '$url' expected '$expected', got '$got'"
+  done <<'CASES'
+https://github.com/acme/alpha.git|acme/alpha
+https://github.com/acme/alpha|acme/alpha
+https://github.com/acme/alpha/|acme/alpha
+https://github.com/acme/alpha/pull/12|acme/alpha
+git@github.com:acme/alpha.git|acme/alpha
+ssh://git@github.com/acme/alpha.git|acme/alpha
+https://gitlab.com/acme/alpha.git|
+/home/example/projects/alpha|
+CASES
+  pass "the shared remote parser resolves GitHub slugs and refuses to guess"
+}
+
 test_newly_conflicted_wakes() {
   local home out
   home=$(make_home wake-new)
@@ -388,6 +415,7 @@ test_arm_registers_check() {
   pass "arm writes and registers the watcher check"
 }
 
+test_repo_slug_parses_github_remotes
 test_newly_conflicted_wakes
 test_same_head_stays_silent
 test_new_head_after_force_update_wakes_again
