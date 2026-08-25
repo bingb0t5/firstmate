@@ -1,0 +1,188 @@
+
+===== 1. doctor on a home that has never configured capture =====
+
+$ fm-telegram-brain-capture.sh doctor
+brain-env: missing
+brain-url: unknown
+captain-chat: configured
+group-capture: off
+receipts: absent
+
+===== 2. the captain drops in the brain credential file, then re-checks readiness =====
+
+$ fm-telegram-brain-capture.sh doctor
+brain-env: present
+brain-url: https://localhost:46811
+captain-chat: configured
+group-capture: off
+receipts: absent
+
+===== 3. capture a batch of canonical Telegram JSON lines from the interrupt adapter =====
+
+$ cat batch.jsonl
+{"chat_id": 4242, "date": 1756100000, "from_id": 909, "text": "Remember: the homestay partner signs Thursday - caf\u00e9 \u2615 deal is on", "update_id": 5001}
+{"chat_id": -1001999, "date": 1756100000, "from_id": 909, "text": "group chatter about the roadmap", "update_id": 5002}
+{"chat_id": 777001, "date": 1756100000, "from_id": 909, "text": "hello from a stranger DM", "update_id": 5003}
+{"chat_id": 4242, "date": 1756100000, "from_id": 909, "text": "two paragraphs, one Telegram message:\u2028second paragraph", "update_id": 5004}
+
+$ fm-telegram-brain-capture.sh capture batch.jsonl
+captured 5001 beanz-0001
+skipped:group 5002
+skipped:private 5003
+captured 5004 beanz-0002
+exit=0
+
+===== 4. what Mr Beanz actually received on the wire =====
+
+$ cat beanz-received.jsonl
+{
+  "accepted": true,
+  "authorization_ok": true,
+  "body": {
+    "source": "firstmate-telegram",
+    "text": "Remember: the homestay partner signs Thursday - café ☕ deal is on"
+  },
+  "content_type": "application/json",
+  "path": "/v1/capture"
+}
+{
+  "accepted": true,
+  "authorization_ok": true,
+  "body": {
+    "source": "firstmate-telegram",
+    "text": "two paragraphs, one Telegram message: second paragraph"
+  },
+  "content_type": "application/json",
+  "path": "/v1/capture"
+}
+
+===== 5. the captured text is byte-exact against the payload the adapter emitted =====
+update 5001  bytes match: b'Remember: the homestay partner signs Thursday - caf\xc3\xa9 \xe2\x98\x95 deal is on'
+update 5004  bytes match: b'two paragraphs, one Telegram message:\xe2\x80\xa8second paragraph'
+
+===== 6. the durable receipt this home now holds =====
+
+$ ls -la state/telegram-brain-capture && cat state/telegram-brain-capture/5001
+total 16
+drwx------ 2 rich rich 4096 Aug 25 13:15 .
+drwx------ 3 rich rich 4096 Aug 25 13:15 ..
+-rw------- 1 rich rich  183 Aug 25 13:15 5001
+-rw------- 1 rich rich  183 Aug 25 13:15 5004
+
+{"capture_id":"beanz-0001","captured_at":1787638520,"payload_sha256":"3d1c65225e3a5c792eb240e1816b4a9fcf06abd10c7b3cc2ed3a4a56514fafa9","source":"firstmate-telegram","update_id":5001}
+
+===== 7. replay of the identical batch (the Telegram ack was lost) =====
+
+$ fm-telegram-brain-capture.sh capture batch.jsonl
+already-captured 5001 beanz-0001
+skipped:group 5002
+skipped:private 5003
+already-captured 5004 beanz-0002
+exit=0
+brain writes during the replay: 0
+
+===== 8. the captain turns group discussion on =====
+
+$ printf 'on\n' > config/telegram-brain-capture-group && fm-telegram-brain-capture.sh doctor
+brain-env: present
+brain-url: https://localhost:46811
+captain-chat: configured
+group-capture: on
+receipts: present
+
+$ fm-telegram-brain-capture.sh capture batch.jsonl
+already-captured 5001 beanz-0001
+captured 5002 beanz-0003
+skipped:private 5003
+already-captured 5004 beanz-0002
+exit=0
+
+$ tail -1 beanz-received.jsonl   # group text lands under its own source name
+{"accepted": true, "authorization_ok": true, "body": {"source": "firstmate-telegram-group", "text": "group chatter about the roadmap"}, "content_type": "application/json", "path": "/v1/capture"}
+
+===== 9. the brain goes down mid-conversation: no ack, nothing lost =====
+
+$ fm-telegram-brain-capture.sh capture outage.jsonl   # brain returns 500
+error: brain capture failed with HTTP 500
+unattempted 2
+exit=1
+
+$ ls state/telegram-brain-capture   # no receipt for any 6xxx payload
+5001
+5002
+5004
+
+===== 10. the retry that the withheld Telegram ack guarantees =====
+
+$ fm-telegram-brain-capture.sh capture outage.jsonl
+captured 6001 beanz-0004
+captured 6002 beanz-0005
+captured 6003 beanz-0006
+exit=0
+
+$ the memories Mr Beanz now holds, in the order it accepted them
+firstmate-telegram         Remember: the homestay partner signs Thursday - café ☕ deal is on
+firstmate-telegram         two paragraphs, one Telegram message:<U+2028>second paragraph
+firstmate-telegram-group   group chatter about the roadmap
+firstmate-telegram         decision: we ship the capture half first
+firstmate-telegram         promise: I will call the accountant Friday
+firstmate-telegram         idea: fold the digest into the morning brief
+
+===== 11. an unusable receipt store refuses the whole batch before any brain write =====
+
+$ chmod 0755 state/telegram-brain-capture && fm-telegram-brain-capture.sh doctor
+brain-env: present
+brain-url: https://localhost:43763
+captain-chat: configured
+group-capture: on
+receipts: unreadable
+
+$ fm-telegram-brain-capture.sh capture wedged.jsonl
+error: receipt directory mode is not 700
+unattempted 3
+exit=1
+brain writes attempted during the refusal: 0
+
+===== 12. a bad capture timeout is refused in the same pre-flight =====
+
+$ FM_BEANZ_CAPTURE_TIMEOUT=0 fm-telegram-brain-capture.sh capture wedged.jsonl
+error: FM_BEANZ_CAPTURE_TIMEOUT must be a positive integer
+unattempted 3
+exit=1
+
+===== 13. composing with the interrupt adapter: from-result =====
+
+$ PATH=adapterbin:$PATH fm-telegram-brain-capture.sh from-result result.json
+captured 8001 beanz-0007
+exit=0
+
+$ tail -1 beanz-received.jsonl
+{"accepted": true, "authorization_ok": true, "body": {"source": "firstmate-telegram", "text": "from the interrupt result: book the flights"}, "content_type": "application/json", "path": "/v1/capture"}
+
+$ every call this path made to the interrupt adapter
+classify <work>/result.json
+messages <work>/result.json
+
+===== 14. every outbound request this path made, start to finish =====
+
+$ cat wire.log   # only the configured brain origin
+request-url: "https://localhost:<port>/v1/capture"
+argv: -q -s -o <work>/home/state/telegram-brain-capture/.beanz-resp.ggc5i00l -w %{http_code} --max-time 30 -K -
+request-url: "https://localhost:<port>/v1/capture"
+argv: -q -s -o <work>/home/state/telegram-brain-capture/.beanz-resp.cb6oedyg -w %{http_code} --max-time 30 -K -
+request-url: "https://localhost:<port>/v1/capture"
+argv: -q -s -o <work>/home/state/telegram-brain-capture/.beanz-resp.wbpb6j46 -w %{http_code} --max-time 30 -K -
+request-url: "https://localhost:<port>/v1/capture"
+argv: -q -s -o <work>/home/state/telegram-brain-capture/.beanz-resp.0bml61dp -w %{http_code} --max-time 30 -K -
+request-url: "https://localhost:<port>/v1/capture"
+argv: -q -s -o <work>/home/state/telegram-brain-capture/.beanz-resp.q94ut57t -w %{http_code} --max-time 30 -K -
+request-url: "https://localhost:<port>/v1/capture"
+argv: -q -s -o <work>/home/state/telegram-brain-capture/.beanz-resp.pws8_v7p -w %{http_code} --max-time 30 -K -
+request-url: "https://localhost:<port>/v1/capture"
+argv: -q -s -o <work>/home/state/telegram-brain-capture/.beanz-resp.okwhwgq3 -w %{http_code} --max-time 30 -K -
+request-url: "https://localhost:<port>/v1/capture"
+argv: -q -s -o <work>/home/state/telegram-brain-capture/.beanz-resp._vf_fj_d -w %{http_code} --max-time 30 -K -
+
+requests to api.telegram.org: 0
+getUpdates / offset advances: 0
+brain token anywhere in the logged curl argv: 0
