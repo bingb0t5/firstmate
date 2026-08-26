@@ -105,7 +105,10 @@
 # keyed status decision is transferred to its durable owner with a
 # `captain-held [key=...]` status close naming the inventory. Later review
 # passes may add ids. A post-teardown visual review can complete against the
-# surviving report and tasks without recreating task state.
+# surviving artifact and tasks without recreating task state. Which file that is
+# belongs to bin/fm-scout-artifact-lib.sh, so a Sol spec scout that only ever
+# wrote data/<id>/spec.md still proves its own origin, while an undeclared task
+# is held to data/<id>/report.md and a stray spec.md proves nothing.
 # `verify` is read-only and is called by scout teardown, so teardown cannot
 # erase a source before this gate has succeeded: every recorded inventory
 # entry must still be durable and no keyed status decision may be open.
@@ -134,6 +137,9 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # shellcheck source=bin/fm-classify-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-scout-artifact-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-scout-artifact-lib.sh"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
@@ -259,7 +265,7 @@ show_field_value() {  # <show-output> <field>
 
 origin_exists_here() {  # <origin-id>
   [ -f "$STATE/$1.meta" ] && return 0
-  [ -f "$DATA/$1/report.md" ] && return 0
+  [ -f "$(fm_scout_deliverable_path "$DATA" "$1")" ] && return 0
   task_show "$1" >/dev/null 2>&1
 }
 
