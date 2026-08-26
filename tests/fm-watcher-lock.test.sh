@@ -954,8 +954,13 @@ test_stopped_watcher_is_live_but_stale_then_exit_is_classified() {
   fi
 
   kill -CONT "$watcher_pid" 2>/dev/null || true
+  # The resumed watcher can only touch the beacon at the TOP of its next cycle,
+  # so the first fresh heartbeat is structurally at least one FM_POLL (5s) away.
+  # Bound the barrier well above that (20s) so a loaded runner cannot turn the
+  # race this barrier removes into a timing failure; the assertion stays
+  # deterministic because the beacon is backdated and any fresh touch wins.
   i=0
-  while [ "$i" -lt 80 ] && [ ! "$state/.last-watcher-beat" -nt "$stale_beacon" ]; do
+  while [ "$i" -lt 200 ] && [ ! "$state/.last-watcher-beat" -nt "$stale_beacon" ]; do
     sleep 0.1
     i=$((i + 1))
   done

@@ -440,6 +440,46 @@ EOF
   pass "snapshot includes durable scout reports after teardown"
 }
 
+# Readiness, not just the post-teardown inventory, must follow the declared
+# artifact: while a Sol-spec scout is still in flight its meta renders through
+# tasks[], and that is exactly the window firstmate uses to decide the scout is
+# done and to relay before teardown.
+test_task_report_readiness_follows_the_declared_artifact() {
+  local home out
+  home=$(make_home live-artifact-readiness)
+  mkdir -p "$home/data/sol-spec-scout" "$home/data/plain-scout"
+  printf 'spec.md\n' > "$home/data/sol-spec-scout/.deliverable"
+  printf '# Sol spec\n' > "$home/data/sol-spec-scout/spec.md"
+  printf '# Plain Scout\n' > "$home/data/plain-scout/report.md"
+  fm_write_meta "$home/state/sol-spec-scout.meta" \
+    "window=firstmate:fm-sol-spec-scout" \
+    "worktree=$home/projects/sol-spec-worktree" \
+    "project=alpha" \
+    "harness=claude" \
+    "kind=scout" \
+    "mode=scout" \
+    "yolo=off"
+  fm_write_meta "$home/state/plain-scout.meta" \
+    "window=firstmate:fm-plain-scout" \
+    "worktree=$home/projects/plain-worktree" \
+    "project=alpha" \
+    "harness=claude" \
+    "kind=scout" \
+    "mode=scout" \
+    "yolo=off"
+  out=$(FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e --arg home "$home" '
+    (.tasks[] | select(.id == "sol-spec-scout")) as $sol
+    | (.tasks[] | select(.id == "plain-scout")) as $plain
+    | $sol.paths.report.path == ($home + "/data/sol-spec-scout/spec.md")
+      and $sol.paths.report.present == true
+      and $sol.hints.scout_report_present == true
+      and $plain.paths.report.path == ($home + "/data/plain-scout/report.md")
+      and $plain.paths.report.present == true
+  ' >/dev/null || fail "a live task's report readiness must follow its declared artifact"
+  pass "snapshot reports readiness on each live task's declared artifact"
+}
+
 # The inventory must show the artifact a task actually delivers. A Sol-spec
 # scout's declared spec.md is its only work product, so it belongs in
 # scout_reports[]; an undeclared task's stray spec.md does not, because the
@@ -834,6 +874,7 @@ test_completed_scout_report_is_pointer_not_pending
 test_parked_scout_decision_stays_pending
 test_scout_reports_include_teardown_reports
 test_scout_reports_follow_the_declared_artifact
+test_task_report_readiness_follows_the_declared_artifact
 test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
 test_view_renders_dead_secondmate_agent_status

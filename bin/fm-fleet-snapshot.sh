@@ -42,6 +42,13 @@
 #     endpoint.exists is the cheap backend endpoint-presence read.
 #     endpoint.agent_alive is populated for secondmates only, where it is useful
 #     return-channel supervision data; other tasks use "not_checked".
+#     paths.report and hints.scout_report_present track this task's DECLARED
+#     surviving artifact under data/<id>/, resolved by the same
+#     bin/fm-scout-artifact-lib.sh classifier scout_reports[] uses: report.md for
+#     an ordinary undeclared task, spec.md where the owning script declared it.
+#     A Sol spec scout therefore reports readiness on the spec it actually
+#     writes, while it is still in flight, rather than on a report.md that will
+#     never exist.
 #   scout_reports[]: present pointers to each task's declared surviving artifact
 #     under data/<id>/ - report.md for an ordinary scout, and spec.md where the
 #     owning script declared it (bin/fm-scout-artifact-lib.sh), so a Sol spec
@@ -461,7 +468,7 @@ task_json_lines() {
       target=$(fm_backend_target_of_meta "$meta")
     fi
     status_log="$STATE/$id.status"
-    report_path="$DATA/$id/report.md"
+    report_path=$(fm_scout_deliverable_path "$DATA" "$id")
     pr=$(meta_value "$meta" pr)
     pr_source=meta
     if [ -z "$pr" ]; then

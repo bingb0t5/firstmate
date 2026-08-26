@@ -293,6 +293,29 @@ test_sol_spec_install_promotes_the_artifact_not_the_task() {
   pass "fm-promote --sol-spec-for: installs the reviewed spec and leaves both task records intact"
 }
 
+# An install that placed the spec but failed to declare it exits nonzero, so the
+# operator retries the identical command. That retry must finish the job rather
+# than report a clean success over a half-installed artifact.
+test_sol_spec_install_retry_completes_a_missing_declaration() {
+  local home out status marker
+  home=$(sol_spec_home sol-spec-retry)
+  sol_spec_scout "$home" spec-s4
+  sol_spec_gated_ship "$home" ship-g4
+  marker="$home/data/ship-g4/.deliverable"
+
+  out=$(run_promote "$home" spec-s4 --sol-spec-for ship-g4); status=$?
+  expect_code 0 "$status" "the first install should succeed"$'\n'"$out"
+  rm -f "$marker"
+
+  out=$(run_promote "$home" spec-s4 --sol-spec-for ship-g4); status=$?
+  expect_code 0 "$status" "the identical retry should converge, not refuse"$'\n'"$out"
+  [ "$(cat "$marker" 2>/dev/null)" = spec.md ] \
+    || fail "the idempotent retry reported success while leaving the artifact undeclared"
+  cmp -s "$home/data/spec-s4/spec.md" "$home/data/ship-g4/spec.md" \
+    || fail "the idempotent retry disturbed the installed artifact"
+  pass "fm-promote --sol-spec-for: an idempotent retry converges on the declared artifact"
+}
+
 test_sol_spec_install_never_overwrites_a_different_spec() {
   local home out status
   home=$(sol_spec_home sol-spec-overwrite)
@@ -393,6 +416,7 @@ test_spawn_notices_a_rigor_downgrade_against_the_registry
 test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
 test_sol_spec_install_promotes_the_artifact_not_the_task
+test_sol_spec_install_retry_completes_a_missing_declaration
 test_sol_spec_install_never_overwrites_a_different_spec
 test_sol_spec_install_fails_closed_on_every_leg_of_the_contract
 test_project_mode_maps_the_conditional_policy
