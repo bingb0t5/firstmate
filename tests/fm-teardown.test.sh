@@ -544,7 +544,7 @@ run_teardown() {
   local case_dir=$1; shift
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_STATE_OVERRIDE="$case_dir/state" \
-  FM_DATA_OVERRIDE="${TEARDOWN_DATA_OVERRIDE:-$ROOT/data}" \
+  FM_DATA_OVERRIDE="${TEARDOWN_DATA_OVERRIDE:-$case_dir/data}" \
   FM_CONFIG_OVERRIDE="$case_dir/config" \
   PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
     "$TEARDOWN" task-x1 "$@"
