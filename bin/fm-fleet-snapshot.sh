@@ -56,7 +56,10 @@
 #     consumed by pull and fresh ordinary spawn transactions.
 #   pull: {eligible[],ineligible[],rows[]} - local backlog rows with mechanical
 #     eligibility reasons, ordered by priority, since date, and id.
-#   scout_reports[]: present data/<id>/report.md pointers.
+#   scout_reports[]: present pointers to each task's declared surviving artifact
+#     under data/<id>/ - report.md for an ordinary scout, and spec.md where the
+#     owning script declared it (bin/fm-scout-artifact-lib.sh), so a Sol spec
+#     scout's deliverable and an installed gated-ship spec are both inventoried.
 #   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
 #     main-home current-inventory checks shared with secondmate_home_summary_json
 #     (orphan structured in-flight ids with no state/<id>.meta, and unstructured
@@ -166,6 +169,9 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 # shellcheck source=bin/fm-pr-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-scout-artifact-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-scout-artifact-lib.sh"
 # shellcheck source=bin/fm-ff-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-ff-lib.sh"  # validate_secondmate_home: shared seeded-home boundary checks
@@ -1616,15 +1622,17 @@ secondmate_landed_from_current_json() {  # <secondmate-current-json-file>
 }
 
 scout_report_lines() {
-  local report id
+  local dir id report
   if [ ! -d "$DATA" ]; then
     jq -n '[]'
     return 0
   fi
-  LC_ALL=C find "$DATA" -mindepth 2 -maxdepth 2 -type f -name report.md -print \
+  LC_ALL=C find "$DATA" -mindepth 1 -maxdepth 1 -type d -print \
     | sort \
-    | while IFS= read -r report; do
-      id=$(basename "$(dirname "$report")")
+    | while IFS= read -r dir; do
+      id=$(basename "$dir")
+      report=$(fm_scout_deliverable_path "$DATA" "$id")
+      [ -f "$report" ] || continue
       jq -n --arg id "$id" --arg path "$report" '{id:$id,path:$path}'
     done \
     | jq -s 'sort_by(.id)'
