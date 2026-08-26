@@ -159,6 +159,16 @@ META="$STATE/$ID.meta"
 [ -d "$STATE" ] || { echo "error: state dir not found: $STATE" >&2; exit 1; }
 HOME_Q=$(printf '%q' "$FM_HOME")
 
+# Installed and declared are one state, so both the fresh install and the
+# idempotent re-run converge on it. A run that placed the spec but failed to
+# declare it exits nonzero, and the obvious identical retry then completes the
+# declaration instead of reporting a clean success over a half-finished install.
+sol_spec_declare_installed() {  # <data-dir> <task-id> <installed-spec-path>
+  fm_scout_deliverable_declare "$1" "$2" spec.md && return 0
+  echo "error: $3 is in place for $2 but could not be declared as its surviving artifact; re-run this command to converge" >&2
+  return 1
+}
+
 if [ "$SOL_SPEC_FOR_SET" -eq 1 ]; then
   TARGET_LOCK="$STATE/.control-$SOL_SPEC_FOR.lock"
   fm_lock_try_acquire "$TARGET_LOCK" || {
@@ -191,6 +201,7 @@ if [ "$SOL_SPEC_FOR_SET" -eq 1 ]; then
   TARGET_SPEC=$(fm_second_attempt_spec_path "$DATA" "$SOL_SPEC_FOR")
   if [ -e "$TARGET_SPEC" ] || [ -L "$TARGET_SPEC" ]; then
     if [ -f "$TARGET_SPEC" ] && [ ! -L "$TARGET_SPEC" ] && cmp -s "$SOURCE_SPEC" "$TARGET_SPEC"; then
+      sol_spec_declare_installed "$DATA" "$SOL_SPEC_FOR" "$TARGET_SPEC" || exit 1
       echo "Sol spec for $SOL_SPEC_FOR already installed at $TARGET_SPEC from scout $ID (unchanged)"
       echo "next: FM_HOME=$HOME_Q bin/fm-control.sh $SOL_SPEC_FOR relaunch --note '<progress so far>'"
       exit 0
@@ -203,10 +214,7 @@ if [ "$SOL_SPEC_FOR_SET" -eq 1 ]; then
   cat "$SOURCE_SPEC" > "$TMP" || { echo "error: could not stage the Sol spec at $TMP" >&2; exit 1; }
   mv "$TMP" "$TARGET_SPEC" || { echo "error: could not install the Sol spec at $TARGET_SPEC" >&2; exit 1; }
   TMP=
-  fm_scout_deliverable_declare "$DATA" "$SOL_SPEC_FOR" spec.md || {
-    echo "error: installed $TARGET_SPEC but could not declare it as $SOL_SPEC_FOR's artifact" >&2
-    exit 1
-  }
+  sol_spec_declare_installed "$DATA" "$SOL_SPEC_FOR" "$TARGET_SPEC" || exit 1
   echo "installed Sol spec for $SOL_SPEC_FOR at $TARGET_SPEC from scout $ID"
   echo "$ID stays a scout and is torn down normally; $SOL_SPEC_FOR keeps its worktree, branch, commits, and PR"
   echo "next: FM_HOME=$HOME_Q bin/fm-control.sh $SOL_SPEC_FOR relaunch --note '<progress so far>'"

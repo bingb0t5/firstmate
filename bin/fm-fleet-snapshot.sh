@@ -56,6 +56,13 @@
 #     consumed by pull and fresh ordinary spawn transactions.
 #   pull: {eligible[],ineligible[],rows[]} - local backlog rows with mechanical
 #     eligibility reasons, ordered by priority, since date, and id.
+#     paths.report and hints.scout_report_present track this task's DECLARED
+#     surviving artifact under data/<id>/, resolved by the same
+#     bin/fm-scout-artifact-lib.sh classifier scout_reports[] uses: report.md for
+#     an ordinary undeclared task, spec.md where the owning script declared it.
+#     A Sol spec scout therefore reports readiness on the spec it actually
+#     writes, while it is still in flight, rather than on a report.md that will
+#     never exist.
 #   scout_reports[]: present pointers to each task's declared surviving artifact
 #     under data/<id>/ - report.md for an ordinary scout, and spec.md where the
 #     owning script declared it (bin/fm-scout-artifact-lib.sh), so a Sol spec
@@ -541,7 +548,7 @@ task_json_lines() {
       target=$(fm_backend_target_of_meta "$meta")
     fi
     status_log="$STATE/$id.status"
-    report_path="$DATA/$id/report.md"
+    report_path=$(fm_scout_deliverable_path "$DATA" "$id")
     last_changed_at=$(task_last_changed_at "$meta" "$status_log")
     pr=$(meta_value "$meta" pr)
     pr_source=meta
