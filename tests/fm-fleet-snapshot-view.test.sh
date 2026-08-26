@@ -440,6 +440,74 @@ EOF
   pass "snapshot includes durable scout reports after teardown"
 }
 
+# The declared-artifact classifier is scout readiness, so it must not reclassify
+# a gated ship. Consumers project scout_reports[] as the scout-report inventory
+# and some drop the kind field, so a live ship carrying an installed Sol spec
+# must stay out of it and must not report scout readiness on that spec.
+test_installed_ship_spec_is_not_a_scout_deliverable() {
+  local home out
+  home=$(make_home ship-spec-not-scout)
+  mkdir -p "$home/data/gated-ship" "$home/data/spec-scout"
+  printf 'spec.md\n' > "$home/data/gated-ship/.deliverable"
+  printf '# installed Sol spec\n' > "$home/data/gated-ship/spec.md"
+  printf 'spec.md\n' > "$home/data/spec-scout/.deliverable"
+  printf '# Sol spec\n' > "$home/data/spec-scout/spec.md"
+  fm_write_meta "$home/state/gated-ship.meta" \
+    "window=firstmate:fm-gated-ship" \
+    "worktree=$home/projects/gated-worktree" \
+    "project=alpha" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  fm_write_meta "$home/state/spec-scout.meta" \
+    "window=firstmate:fm-spec-scout" \
+    "worktree=$home/projects/spec-worktree" \
+    "project=alpha" \
+    "harness=claude" \
+    "kind=scout" \
+    "mode=scout" \
+    "yolo=off"
+  out=$(FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e --arg home "$home" '
+    ([.scout_reports[].id] == ["spec-scout"])
+    and ((.tasks[] | select(.id == "gated-ship")) as $ship
+         | $ship.hints.scout_report_present == false
+           and $ship.paths.report.path == ($home + "/data/gated-ship/report.md")
+           and $ship.paths.report.present == false)
+    and ((.tasks[] | select(.id == "spec-scout")) as $scout
+         | $scout.hints.scout_report_present == true
+           and $scout.paths.report.path == ($home + "/data/spec-scout/spec.md"))
+  ' >/dev/null || fail "a gated ship's installed Sol spec must not read as a scout deliverable"
+  pass "snapshot keeps an installed ship spec out of the scout deliverable surfaces"
+}
+
+# A landed Sol-spec scout's Done row points at its spec, and the completed-work
+# surfaces read the artifact pointer from that row. The pointer must be the
+# task's own artifact, so another task's path mentioned in the same row is not
+# adopted as this row's deliverable.
+test_backlog_artifact_pointer_covers_the_declared_artifact_set() {
+  local home out
+  home=$(make_home backlog-artifact-pointer)
+  cat > "$home/data/backlog.md" <<'EOF'
+## Done
+- [x] sol-spec-scout - Sol Spec Scout data/sol-spec-scout/spec.md (repo: alpha, reported 2026-07-07) (kind: scout)
+- [x] plain-scout - Plain Scout data/plain-scout/report.md (repo: alpha, reported 2026-07-07) (kind: scout)
+- [x] borrowed-path - Borrowed Path data/someone-else/spec.md (repo: alpha, reported 2026-07-07) (kind: scout)
+EOF
+  out=$(FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    (.backlog.records[] | select(.id == "sol-spec-scout")) as $sol
+    | (.backlog.records[] | select(.id == "plain-scout")) as $plain
+    | (.backlog.records[] | select(.id == "borrowed-path")) as $borrowed
+    | $sol.report_path == "data/sol-spec-scout/spec.md"
+      and $sol.title == "Sol Spec Scout"
+      and $plain.report_path == "data/plain-scout/report.md"
+      and $borrowed.report_path == null
+  ' >/dev/null || fail "completed rows must carry the task-owned declared artifact pointer"
+  pass "backlog rows capture the task's own report.md or spec.md artifact pointer"
+}
+
 # Readiness, not just the post-teardown inventory, must follow the declared
 # artifact: while a Sol-spec scout is still in flight its meta renders through
 # tasks[], and that is exactly the window firstmate uses to decide the scout is
@@ -875,6 +943,8 @@ test_parked_scout_decision_stays_pending
 test_scout_reports_include_teardown_reports
 test_scout_reports_follow_the_declared_artifact
 test_task_report_readiness_follows_the_declared_artifact
+test_installed_ship_spec_is_not_a_scout_deliverable
+test_backlog_artifact_pointer_covers_the_declared_artifact_set
 test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
 test_view_renders_dead_secondmate_agent_status

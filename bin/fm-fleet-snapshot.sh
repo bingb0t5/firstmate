@@ -42,17 +42,20 @@
 #     endpoint.exists is the cheap backend endpoint-presence read.
 #     endpoint.agent_alive is populated for secondmates only, where it is useful
 #     return-channel supervision data; other tasks use "not_checked".
-#     paths.report and hints.scout_report_present track this task's DECLARED
-#     surviving artifact under data/<id>/, resolved by the same
-#     bin/fm-scout-artifact-lib.sh classifier scout_reports[] uses: report.md for
-#     an ordinary undeclared task, spec.md where the owning script declared it.
-#     A Sol spec scout therefore reports readiness on the spec it actually
-#     writes, while it is still in flight, rather than on a report.md that will
-#     never exist.
-#   scout_reports[]: present pointers to each task's declared surviving artifact
-#     under data/<id>/ - report.md for an ordinary scout, and spec.md where the
-#     owning script declared it (bin/fm-scout-artifact-lib.sh), so a Sol spec
-#     scout's deliverable and an installed gated-ship spec are both inventoried.
+#     paths.report and hints.scout_report_present are SCOUT readiness, so they
+#     follow the declared surviving artifact (bin/fm-scout-artifact-lib.sh) only
+#     for kind=scout: report.md for an ordinary scout, spec.md where the owning
+#     script declared it, so a Sol spec scout reports readiness on the spec it
+#     actually writes while it is still in flight. Every other kind stays on
+#     data/<id>/report.md; a gated ship carrying an installed Sol spec is not a
+#     scout with a deliverable ready to relay, and must not read as one.
+#   scout_reports[]: present pointers to each task's surviving artifact under
+#     data/<id>/ - report.md as before for any kind, plus spec.md for kind=scout
+#     tasks whose owning script declared it (bin/fm-scout-artifact-lib.sh), so a
+#     Sol spec scout's deliverable is inventoried. A declared spec.md on a
+#     non-scout task is deliberately excluded: consumers project this list as the
+#     scout-report inventory and some drop the kind field, so a gated ship's
+#     installed spec must not appear there as a deliverable ready to relay.
 #   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
 #     main-home current-inventory checks shared with secondmate_home_summary_json
 #     (orphan structured in-flight ids with no state/<id>.meta, and unstructured
@@ -305,14 +308,19 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
     def metadata_word($rest; $key):
       cap($rest; ".*(?:\\(|,[[:space:]]*)" + $key + "[[:space:]]+(?<v>[^,)]*)");
     def url_pattern: "https?://[^[:space:])\"<>]+";
+    def artifact_path($rest; $id):
+      ([$rest | scan("data/[^[:space:])]+/(?:report|spec)\\.md")]
+       | map(select(. == ("data/" + $id + "/report.md")
+                      or . == ("data/" + $id + "/spec.md")))
+       | .[0]) // null;
     def wrapped_url_pattern: "<?" + url_pattern + ">?";
     def links($rest): [$rest | scan(url_pattern)];
     def strip_trailing_metadata:
       reduce range(0; 20) as $_ (.;
         sub("[[:space:]]*\\([[:space:]]*(?:(?:repo|kind|priority|hold|hold-kind|hold-until):[[:space:]]*[^)]*|(?:since|merged|reported|done)[[:space:]]+[^)]*)[[:space:]]*\\)[[:space:]]*$"; ""));
     def strip_title_artifacts:
-      sub("[[:space:]]+-[[:space:]]+data/[^[:space:])]+/report\\.md$"; "")
-      | sub("[[:space:]]+data/[^[:space:])]+/report\\.md$"; "")
+      sub("[[:space:]]+-[[:space:]]+data/[^[:space:])]+/(?:report|spec)\\.md$"; "")
+      | sub("[[:space:]]+data/[^[:space:])]+/(?:report|spec)\\.md$"; "")
       | sub("[[:space:]]+-[[:space:]]+local main$"; "")
       | sub("[[:space:]]+local main$"; "")
       | sub("[[:space:]]+-[[:space:]]*$"; "");
@@ -380,7 +388,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
              completion:completion($rest),
              links:links($rest),
              pr_url:((links($rest) | map(select(test("/pull/[0-9]+"))) | .[0]) // null),
-             report_path:cap($rest; ".*(?<v>data/[^[:space:])]+/report\\.md).*"),
+             report_path:artifact_path($rest; ($m.id | trim)),
              local_note:local_note($rest),
              raw:$line,
              body_lines:[],
@@ -468,7 +476,11 @@ task_json_lines() {
       target=$(fm_backend_target_of_meta "$meta")
     fi
     status_log="$STATE/$id.status"
-    report_path=$(fm_scout_deliverable_path "$DATA" "$id")
+    if [ "$kind" = scout ]; then
+      report_path=$(fm_scout_deliverable_path "$DATA" "$id")
+    else
+      report_path="$DATA/$id/report.md"
+    fi
     pr=$(meta_value "$meta" pr)
     pr_source=meta
     if [ -z "$pr" ]; then
@@ -1372,7 +1384,7 @@ secondmate_landed_from_current_json() {  # <secondmate-current-json>
 }
 
 scout_report_lines() {
-  local dir id report
+  local dir id report artifact
   if [ ! -d "$DATA" ]; then
     jq -n '[]'
     return 0
@@ -1381,9 +1393,11 @@ scout_report_lines() {
     | sort \
     | while IFS= read -r dir; do
       id=$(basename "$dir")
+      artifact=$(fm_scout_deliverable_name "$DATA" "$id")
       report=$(fm_scout_deliverable_path "$DATA" "$id")
       [ -f "$report" ] || continue
-      jq -n --arg id "$id" --arg path "$report" '{id:$id,path:$path}'
+      jq -n --arg id "$id" --arg path "$report" --arg artifact "$artifact" \
+        '{id:$id,path:$path,artifact:$artifact}'
     done \
     | jq -s 'sort_by(.id)'
 }
@@ -1430,7 +1444,10 @@ jq -n \
      backlog:$backlog,
      tasks:($tasks | map(. + {backlog:backlog_by_id(.id)})),
      main_inventory:$main_inventory,
-     scout_reports:($scout_reports | map(. + {kind:report_kind(.id)})),
+     scout_reports:($scout_reports
+       | map(. + {kind:report_kind(.id)})
+       | map(select(.artifact == "report.md" or .kind == "scout"))
+       | map(del(.artifact))),
      secondmate_current:$secondmate_current,
      secondmate_landed:$secondmate_landed,
      secondmate_guidance:{
