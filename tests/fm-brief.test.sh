@@ -215,6 +215,14 @@ test_ship_modes_generate_clean_briefs() {
     assert_grep "echo \"{state} [at=\$(date +%s)]: {one short line}\"" "$brief" \
       "$id: status protocol omitted its meaningful-event epoch"
     assert_no_grep "EOF" "$brief" "$id: brief leaked a heredoc EOF marker (unterminated heredoc)"
+    if [ "$mode" = direct-PR ]; then
+      assert_grep "PR_REPO=\$(bin/fm-pr-target.sh .)" "$brief" \
+        "$id: direct-PR brief must resolve its repository through the public target helper"
+      assert_grep "pass \`--repo \\\"\$PR_REPO\\\"\`" "$brief" \
+        "$id: direct-PR brief must scope every gh-axi PR operation"
+      assert_no_grep 'gh-axi.*pr .*without' "$brief" \
+        "$id: direct-PR brief contains an unscoped PR instruction"
+    fi
   done
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
 }

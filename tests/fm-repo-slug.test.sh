@@ -63,4 +63,19 @@ fm_repo_slug_parse '' >/dev/null 2>&1 || true
 [ "$FM_REPO_SLUG_STATUS" = invalid-origin ] || fail "empty input did not replace stale status"
 [ -z "$FM_REPO_SLUG" ] || fail "empty input retained a stale slug"
 
+# The public direct-PR resolver must use the origin push URL explicitly.
+# Put upstream first to reproduce the multi-remote topology where an unscoped
+# GitHub command would otherwise choose the wrong repository.
+project="$TMP_ROOT/multi-remote-project"
+mkdir -p "$project"
+git -C "$project" init -q
+git -C "$project" remote add upstream https://github.com/kunchenguid/firstmate.git
+git -C "$project" remote add origin https://github.com/kunchenguid/firstmate.git
+git -C "$project" config remote.origin.pushurl https://github.com/bingb0t5/firstmate.git
+resolved=$("$ROOT/bin/fm-pr-target.sh" "$project") || fail "direct-PR target resolver refused a valid origin push URL"
+[ "$resolved" = bingb0t5/firstmate ] || fail "direct-PR target resolver selected $resolved instead of bingb0t5/firstmate"
+[ "$(git -C "$project" remote get-url upstream)" = https://github.com/kunchenguid/firstmate.git ] \
+  || fail "resolver test changed the upstream fetch remote"
+
 pass "GitHub origins are parsed structurally without sensitive retention"
+pass "direct-PR target resolution uses origin push URL, not multi-remote inference"
