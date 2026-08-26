@@ -402,6 +402,67 @@ EOF
   pass "fm-control: an out-of-range fix round is attributed instead of failing open"
 }
 
+# no-mistakes labels an auto-fix round `auto-fix <round>/<limit>`. The round is
+# the numerator; the denominator is the retry budget and is never a round. Both
+# halves matter: a run at auto-fix 3/9 has reached the third fix round, and a run
+# at auto-fix 1/3 has not - reading the limit would invert both answers.
+test_nm_auto_fix_round_reads_the_round_not_the_retry_limit() {
+  local dir wt branch head out rc marker
+  dir=$(new_case nm-round-autofix sa16)
+  add_ship_task "$dir" sa16
+  wt="$dir/wt"
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD)
+  head=$(git -C "$wt" rev-parse --short HEAD)
+  cat > "$dir/fakebin/no-mistakes" <<EOF
+#!/usr/bin/env bash
+cat <<'STATUS'
+run:
+  id: fixture-run
+  branch: $branch
+  status: fixing
+  head: $head
+  active_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
+    review,fixing,4s,now,124,auto-fix 3/9
+STATUS
+EOF
+  chmod +x "$dir/fakebin/no-mistakes"
+  marker="$dir/home/state/sa16.nm-third-fix-round"
+  out=$(run_control "$dir" sa16 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "an attributed auto-fix third round should refuse the relaunch"
+  [ "$(cat "$marker" 2>/dev/null)" = 3 ] \
+    || fail "auto-fix 3/9 did not record round 3 (recorded: $(cat "$marker" 2>/dev/null))"
+  assert_contains "$out" "reached no-mistakes fix round 3" \
+    "the refusal did not name the observed auto-fix round"
+
+  dir=$(new_case nm-round-autofix-early sa17)
+  add_ship_task "$dir" sa17
+  wt="$dir/wt"
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD)
+  head=$(git -C "$wt" rev-parse --short HEAD)
+  cat > "$dir/fakebin/no-mistakes" <<EOF
+#!/usr/bin/env bash
+cat <<'STATUS'
+run:
+  id: fixture-run
+  branch: $branch
+  status: fixing
+  head: $head
+  active_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
+    review,fixing,1s,now,123,auto-fix 1/3
+STATUS
+EOF
+  chmod +x "$dir/fakebin/no-mistakes"
+  marker="$dir/home/state/sa17.nm-third-fix-round"
+  out=$(run_control "$dir" sa17 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "the relaunch still refuses on the ordinary second-attempt reason"
+  [ ! -e "$marker" ] \
+    || fail "auto-fix 1/3 recorded a fix round from the retry limit (recorded: $(cat "$marker"))"
+  assert_not_contains "$out" "fix round" "a first auto-fix round was reported as a third fix round"
+  assert_contains "$out" "relaunch of ship task sa17" \
+    "the first auto-fix round did not fall through to the relaunch reason"
+  pass "fm-control: auto-fix <round>/<limit> attributes the round, never the retry limit"
+}
+
 # Scout lifecycle calls are exempt from the implementation gate itself, so an
 # attributed validation status must not leave implementation-gate state behind.
 test_nm_third_fix_round_does_not_mark_a_scout() {
@@ -499,6 +560,7 @@ test_sol_spec_install_from_a_fresh_scout_clears_the_gated_relaunch() {
   printf 'window=fmses:fm-sa15-spec\nkind=scout\nworktree=%s\n' "$dir/wt" > "$scout_meta"
   mkdir -p "$dir/home/data/sa15-spec"
   printf '# Sol spec\n\nImplementation constraints for sa15.\n' > "$dir/home/data/sa15-spec/spec.md"
+  printf 'spec.md\n' > "$dir/home/data/sa15-spec/.deliverable"
 
   out=$(run_promote "$dir" sa15-spec --sol-spec-for sa15); rc=$?
   expect_code 0 "$rc" "installing a fresh scout's Sol spec for the gated task should succeed"$'\n'"$out"
@@ -555,6 +617,7 @@ test_nm_third_fix_round_marker_refuses_through_fm_control
 test_nm_third_fix_round_is_recorded_automatically
 test_nm_fix_round_attribution_takes_the_highest_active_round
 test_nm_fix_round_attribution_survives_an_out_of_range_round
+test_nm_auto_fix_round_reads_the_round_not_the_retry_limit
 test_nm_third_fix_round_does_not_mark_a_scout
 test_nm_third_fix_round_marker_with_no_payload_refuses
 test_nm_non_numeric_marker_payload_refuses_without_claiming_a_round

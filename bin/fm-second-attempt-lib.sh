@@ -16,6 +16,10 @@
 #   3. Before another implementation worker starts, the lifecycle entrypoint
 #      reads the task worktree's attributed no-mistakes status and records
 #      state/<id>.nm-third-fix-round when an active fix round is 3 or later.
+#      no-mistakes labels that column `fix <n>`, `auto-fix <n>`, or
+#      `auto-fix <n>/<limit>`; all three are read, and the round is always <n>,
+#      never the retry <limit>. `round <n>` execution rounds are not fix rounds
+#      and are deliberately not matched.
 #      The marker also remains a durable fail-closed handoff if no-mistakes is
 #      no longer running. Only a payload that parses as a round
 #      number strictly below 3 stands the gate down, and an empty or
@@ -110,14 +114,15 @@ fm_second_attempt_sync_nm_fix_round() {
   [ "$run_branch" = "$branch" ] || return 0
   fm_nm_head_matches_worktree "$wt" "$run_head" || return 0
   rows=$(printf '%s\n' "$out" \
-    | grep -E '^[[:space:]]*[^,]+,[[:space:]]*"?fixing"?,.*,[[:space:]]*"?(auto-)?fix[[:space:]]+[0-9]+"?[[:space:]]*$')
+    | grep -E '^[[:space:]]*[^,]+,[[:space:]]*"?fixing"?,.*,[[:space:]]*"?(auto-)?fix[[:space:]]+[0-9]+(/[0-9]+)?"?[[:space:]]*$')
   [ -n "$rows" ] || return 0
   best=
   while IFS= read -r row; do
     [ -n "$row" ] || continue
     rest=${row##*,}
     rest=$(fm_nm_strip_quotes "$rest")
-    round=${rest##*[!0-9]}
+    round=${rest##*[[:space:]]}
+    round=${round%%/*}
     case "$round" in ''|*[!0-9]*) continue ;; esac
     while [ "${#round}" -gt 1 ] && [ "${round#0}" != "$round" ]; do
       round=${round#0}
