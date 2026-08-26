@@ -556,6 +556,11 @@ test_scout_reports_follow_the_declared_artifact() {
   local home out
   home=$(make_home declared-artifact)
   mkdir -p "$home/data/sol-spec-scout" "$home/data/plain-scout" "$home/data/stray-spec"
+  cat > "$home/data/backlog.md" <<'EOF'
+## Done
+- [x] sol-spec-scout - Sol Spec Scout (repo: alpha, reported 2026-07-07) (kind: scout)
+- [x] stray-spec - Stray Spec (repo: alpha, reported 2026-07-07) (kind: scout)
+EOF
   printf 'spec.md\n' > "$home/data/sol-spec-scout/.deliverable"
   printf '# Sol spec\n' > "$home/data/sol-spec-scout/spec.md"
   printf '# Plain Scout\n' > "$home/data/plain-scout/report.md"
@@ -568,6 +573,45 @@ test_scout_reports_follow_the_declared_artifact() {
     ]
   ' >/dev/null || fail "scout_reports must list the declared artifact and skip an undeclared spec.md"
   pass "snapshot inventories each task's declared surviving artifact"
+}
+
+# A declared spec.md is only a scout deliverable when something positively says
+# the task is a scout. A torn-down Sol-spec scout and a torn-down gated ship
+# leave byte-identical data/<id>/ state, so with no kind evidence the spec is
+# excluded rather than guessed at. A real report.md is never subject to that
+# test: it is an artifact in its own right, and promoting a scout in place does
+# not stop its report from being one.
+test_scout_reports_require_positive_scout_evidence_for_a_spec() {
+  local home out
+  home=$(make_home spec-kind-evidence)
+  mkdir -p "$home/data/landed-scout" "$home/data/landed-ship" \
+    "$home/data/orphan-spec" "$home/data/promoted-ship"
+  cat > "$home/data/backlog.md" <<'EOF'
+## Done
+- [x] landed-scout - Landed Sol Scout (repo: alpha, reported 2026-07-07) (kind: scout)
+- [x] landed-ship - Landed Ship (repo: alpha, reported 2026-07-07)
+EOF
+  for id in landed-scout landed-ship orphan-spec promoted-ship; do
+    printf 'spec.md\n' > "$home/data/$id/.deliverable"
+    printf '# Sol spec for %s\n' "$id" > "$home/data/$id/spec.md"
+  done
+  printf '# Promoted scout report\n' > "$home/data/promoted-ship/report.md"
+  fm_write_meta "$home/state/promoted-ship.meta" \
+    "window=firstmate:fm-promoted-ship" \
+    "worktree=$home/projects/promoted-worktree" \
+    "project=alpha" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  out=$(FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e --arg home "$home" '
+    .scout_reports == [
+      {id:"landed-scout",path:($home + "/data/landed-scout/spec.md"),kind:"scout"},
+      {id:"promoted-ship",path:($home + "/data/promoted-ship/report.md"),kind:"ship"}
+    ]
+  ' >/dev/null || fail "a declared spec belongs in scout_reports only on positive kind=scout evidence"
+  pass "scout_reports admits a declared spec only on positive scout evidence and never hides a report"
 }
 
 test_backlog_tasks_axi_forms_and_overrides() {
@@ -942,6 +986,7 @@ test_completed_scout_report_is_pointer_not_pending
 test_parked_scout_decision_stays_pending
 test_scout_reports_include_teardown_reports
 test_scout_reports_follow_the_declared_artifact
+test_scout_reports_require_positive_scout_evidence_for_a_spec
 test_task_report_readiness_follows_the_declared_artifact
 test_installed_ship_spec_is_not_a_scout_deliverable
 test_backlog_artifact_pointer_covers_the_declared_artifact_set

@@ -49,13 +49,18 @@
 #     actually writes while it is still in flight. Every other kind stays on
 #     data/<id>/report.md; a gated ship carrying an installed Sol spec is not a
 #     scout with a deliverable ready to relay, and must not read as one.
-#   scout_reports[]: present pointers to each task's surviving artifact under
-#     data/<id>/ - report.md as before for any kind, plus spec.md for kind=scout
-#     tasks whose owning script declared it (bin/fm-scout-artifact-lib.sh), so a
-#     Sol spec scout's deliverable is inventoried. A declared spec.md on a
-#     non-scout task is deliberately excluded: consumers project this list as the
+#   scout_reports[]: present pointers to each task's surviving artifacts under
+#     data/<id>/, one entry per artifact. A real data/<id>/report.md is always
+#     listed, whatever the task's kind is now - promotion in place leaves the
+#     scout's report untouched, and it stays the deliverable it always was. A
+#     declared spec.md (bin/fm-scout-artifact-lib.sh) is listed IN ADDITION, and
+#     only on positive kind=scout evidence from a live meta or a backlog row.
+#     Unknown kind excludes the spec: consumers project this list as the
 #     scout-report inventory and some drop the kind field, so a gated ship's
-#     installed spec must not appear there as a deliverable ready to relay.
+#     installed spec must never appear there as a deliverable ready to relay, and
+#     a torn-down ship leaves state byte-identical to a torn-down Sol spec scout.
+#     A landed Sol spec scout stays discoverable through its own artifact once its
+#     backlog row records (kind: scout), and through that row's report_path.
 #   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
 #     main-home current-inventory checks shared with secondmate_home_summary_json
 #     (orphan structured in-flight ids with no state/<id>.meta, and unstructured
@@ -1383,8 +1388,14 @@ secondmate_landed_from_current_json() {  # <secondmate-current-json>
     | .records |= sort_by([(.completion.date // ""), .id]) | .records |= reverse'
 }
 
+# A real data/<id>/report.md is an artifact in its own right and is always
+# enumerated, whatever the task's kind is now: promoting a scout in place leaves
+# its report untouched, and that report stays the scout deliverable it always
+# was. A declared spec.md is enumerated as a SECOND entry, tagged so the
+# kind-aware filter downstream - which is where task kind is actually known -
+# can drop it for anything that is not positively a scout.
 scout_report_lines() {
-  local dir id report artifact
+  local dir id report artifact spec
   if [ ! -d "$DATA" ]; then
     jq -n '[]'
     return 0
@@ -1393,10 +1404,16 @@ scout_report_lines() {
     | sort \
     | while IFS= read -r dir; do
       id=$(basename "$dir")
+      report="$DATA/$id/$FM_SCOUT_ARTIFACT_DEFAULT"
+      if [ -f "$report" ]; then
+        jq -n --arg id "$id" --arg path "$report" --arg artifact "$FM_SCOUT_ARTIFACT_DEFAULT" \
+          '{id:$id,path:$path,artifact:$artifact}'
+      fi
       artifact=$(fm_scout_deliverable_name "$DATA" "$id")
-      report=$(fm_scout_deliverable_path "$DATA" "$id")
-      [ -f "$report" ] || continue
-      jq -n --arg id "$id" --arg path "$report" --arg artifact "$artifact" \
+      [ "$artifact" != "$FM_SCOUT_ARTIFACT_DEFAULT" ] || continue
+      spec=$(fm_scout_deliverable_path "$DATA" "$id")
+      [ -f "$spec" ] || continue
+      jq -n --arg id "$id" --arg path "$spec" --arg artifact "$artifact" \
         '{id:$id,path:$path,artifact:$artifact}'
     done \
     | jq -s 'sort_by(.id)'
@@ -1436,6 +1453,7 @@ jq -n \
   'def backlog_by_id($id): ($backlog.records[]? | select(.structured == true and .id == $id) | .) // null;
    def task_by_id($id): ($tasks[]? | select(.id == $id) | .) // null;
    def report_kind($id): (task_by_id($id).kind // backlog_by_id($id).kind // "scout");
+   def kind_evidence($id): (task_by_id($id).kind // backlog_by_id($id).kind);
    {
      schema:"fm-fleet-snapshot.v1",
      generated:$generated,
@@ -1446,7 +1464,7 @@ jq -n \
      main_inventory:$main_inventory,
      scout_reports:($scout_reports
        | map(. + {kind:report_kind(.id)})
-       | map(select(.artifact == "report.md" or .kind == "scout"))
+       | map(select(.artifact == "report.md" or kind_evidence(.id) == "scout"))
        | map(del(.artifact))),
      secondmate_current:$secondmate_current,
      secondmate_landed:$secondmate_landed,
