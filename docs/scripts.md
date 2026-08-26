@@ -106,6 +106,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-lease-lib.sh`        | One owner of the supervision lease contract and the main-only role-partition guards  |
 | `fm-control.sh`          | Agent lifecycle control plane: allowlisted `interrupt`, `exit`, and transactional `relaunch` verbs for an exact task id ([agent-control.md](agent-control.md)) |
 | `fm-control-lib.sh`      | One executable owner of the control-plane verb allowlist, per-harness interrupt/exit mechanics, and per-backend capability |
+| `fm-second-attempt-lib.sh` | One owner of the second-attempt Sol-spec gate: its ship-only refusals and the attributed no-mistakes fix-round marker ([agent-control.md](agent-control.md)) |
 | `fm-busy-lib.sh`         | Single owner of the semantic busy-state contract: verdicts, source attribution, and per-harness sources |
 | `fm-busy-event.sh`       | The only writer of a task's semantic busy-state record; arms an incarnation and applies lifecycle events |
 | `fm-tmux-lib.sh`         | Shared tmux pane primitives for composer capture, verified submit, and the submit-time busy check |
@@ -119,7 +120,8 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-pr-check-migrate.sh` | Quarantine older task polls without execution and rebuild only canonical polls       |
 | `fm-pr-check.sh`         | Record validated `pr=` and `pr_head=` values, then atomically arm a static merge poll |
 | `fm-pr-merge.sh`         | Record PR metadata, then merge a task's canonical full GitHub or GitLab URL          |
-| `fm-promote.sh`          | Promote a scout task in place to a protected ship task with an explicit delivery mode |
+| `fm-promote.sh`          | Promote a scout task in place to a protected ship task with an explicit delivery mode, or install a Sol spec scout's artifact for a gated ship task |
+| `fm-scout-artifact-lib.sh` | One owner of which file under `data/<id>/` is a task's declared surviving artifact |
 | `fm-teardown.sh`         | Fail-closed teardown: return landed ship worktrees, require completed scout deliverables, retire secondmate homes |
 | `fm-harness.sh`          | Detect the running harness and resolve crew or secondmate harness, model, and effort |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                      |

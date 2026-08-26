@@ -88,7 +88,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
   <id>/spec.md       task-owned Sol spec that clears the ship relaunch gate; see docs/agent-control.md
-  <id>/.deliverable  which file under <id>/ is this task's surviving artifact (report.md or spec.md), declared by the scaffolding or installing script; absent means report.md - bin/fm-scout-artifact-lib.sh owns the contract that teardown and the fleet inventory read
+  <id>/.deliverable  which file under <id>/ is this task's surviving artifact (report.md or spec.md), declared by the scaffolding or installing script; absent means report.md - bin/fm-scout-artifact-lib.sh owns that contract and its consumers
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
 state/               runtime records and signals; gitignored
   <id>.status        appended by crewmates: "<state>: <note>" wake-event lines, not current-state truth
@@ -387,7 +387,7 @@ Retire one only on an explicit captain or main-firstmate decision, after loading
 
 ### Scout outcome and promotion
 
-A completed scout must leave a self-contained report before its scratch worktree can be discarded; read and relay its findings, record the report as the Done artifact, and re-evaluate the queue.
+A completed scout must leave its self-contained deliverable before its scratch worktree can be discarded; read and relay its findings, record that artifact as the Done artifact, and re-evaluate the queue.
 A report may recommend implementation but does not authorize it.
 Before treating the investigation or any visual review as complete, load `captain-hold-lifecycle`; teardown enforces that shared completion gate.
 When a scout's deliverable is a visual artifact the captain will iterate on, prefer keeping that scout alive to host its own Lavish loop rather than tearing it down and mediating from firstmate, so the scout keeps its investigation context and the captain iterates in one continuous session.
