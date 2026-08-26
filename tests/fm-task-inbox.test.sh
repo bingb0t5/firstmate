@@ -265,6 +265,30 @@ test_concurrent_writers_never_clobber() {
   pass "inbox: concurrent writers serialize on the sequence lock and lose nothing"
 }
 
+test_lock_refuses_unavailable_age_evidence_without_recursive_steals() {
+  local state lock suffix i rc
+  state="$TMP_ROOT/unavailable-lock-age/state"; mkdir -p "$state"
+  lock="$state/t1.inbox/.seq.lock"
+  mkdir -p "${lock%/*}"
+  suffix=
+  for i in 1 2 3 4 5 6; do
+    ln -s "$state/missing-owner-$i" "$lock$suffix"
+    suffix="$suffix.steal"
+  done
+  FM_STATE_OVERRIDE="$state" FUNCNEST=20 bash -c '
+    . "$1"
+    fm_path_age() { return 1; }
+    fm_lock_try_acquire "$2"
+  ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$lock" > "$state/stdout" 2> "$state/stderr"
+  rc=$?
+  [ "$rc" -eq 1 ] || fail "unavailable lock age evidence should refuse acquisition, got $rc"
+  [ ! -s "$state/stderr" ] \
+    || fail "unavailable lock age evidence triggered recursive lock errors:$(printf '\n%s' "$(cat "$state/stderr")")"
+  [ ! -e "$lock$suffix" ] && [ ! -L "$lock$suffix" ] \
+    || fail "unavailable lock age evidence created a deeper recursive steal lock"
+  pass "inbox: unavailable lock age evidence refuses without recursive steal acquisition"
+}
+
 test_ladder_writes_ignore_vanished_inbox() {
   local state rec
   state="$TMP_ROOT/vanished/state"; mkdir -p "$state"
@@ -484,6 +508,7 @@ test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence
 test_concurrent_writers_never_clobber
+test_lock_refuses_unavailable_age_evidence_without_recursive_steals
 test_ladder_writes_ignore_vanished_inbox
 test_ring_ladder_policy
 test_watcher_rerings_idle_pane_quietly

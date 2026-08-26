@@ -27,7 +27,10 @@
 # Extra args must not include --repo or -R in any form, including a bundled
 # short-option cluster such as -yR, because the repository comes only from the
 # URL, nor --sha on GitLab because the head comes only from the live read.
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--forecast] [-- <extra forge merge args>]
+# With --forecast, the command reports a read-only GitHub merge forecast and
+# does not record task state or call the forge merge API. The optional forecast
+# method is one of --squash, --merge, or --rebase.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,6 +66,11 @@ PR_NUMBER=$FM_PR_NUMBER
 # rebuilt from the parsed identity rather than read from any ambient default.
 PROJECT_URL="https://$FM_PR_HOST/$FM_PR_PATH"
 shift 2
+FORECAST=0
+if [ "${1:-}" = "--forecast" ]; then
+  FORECAST=1
+  shift
+fi
 [ "${1:-}" = "--" ] && shift
 
 caller_has_merge_method() {
@@ -115,6 +123,10 @@ if [ ! -f "$META" ] || [ -L "$META" ]; then
   echo "error: task metadata is unavailable" >&2
   exit 1
 fi
+if [ "$FORECAST" -eq 1 ] && [ "$PROVIDER" != github ]; then
+  echo "error: PR conflict forecast is supported for GitHub pull requests only" >&2
+  exit 1
+fi
 
 # Reading the merge request state needs both tools. Report them together and
 # before anything is recorded, so a missing tool is a named prerequisite rather
@@ -129,6 +141,48 @@ if [ "$PROVIDER" = gitlab ]; then
     echo "error: merging a GitLab merge request requires $GITLAB_MISSING on PATH" >&2
     exit 1
   fi
+fi
+
+if [ "$FORECAST" -eq 1 ]; then
+  forecast_method=
+  case "$#" in
+    0) ;;
+    1)
+      case "$1" in
+        --squash|--merge|--rebase) forecast_method=$1 ;;
+        --method=squash) forecast_method=--squash ;;
+        --method=merge) forecast_method=--merge ;;
+        --method=rebase) forecast_method=--rebase ;;
+        *)
+          echo "error: forecast accepts only one merge method: --squash, --merge, or --rebase" >&2
+          exit 2
+          ;;
+      esac
+      ;;
+    2)
+      [ "$1" = "--method" ] || {
+        echo "error: forecast accepts only one merge method: --squash, --merge, or --rebase" >&2
+        exit 2
+      }
+      case "$2" in
+        squash|merge|rebase) forecast_method="--$2" ;;
+        *)
+          echo "error: forecast accepts only one merge method: --squash, --merge, or --rebase" >&2
+          exit 2
+          ;;
+      esac
+      ;;
+    *)
+      echo "error: forecast accepts only one merge method: --squash, --merge, or --rebase" >&2
+      exit 2
+      ;;
+  esac
+  if [ -n "$forecast_method" ]; then
+    "$SCRIPT_DIR/fm-pr-forecast.sh" "$URL" "$forecast_method"
+  else
+    "$SCRIPT_DIR/fm-pr-forecast.sh" "$URL"
+  fi
+  exit $?
 fi
 
 # The recorded head is read before bin/fm-pr-check.sh rewrites the metadata,
