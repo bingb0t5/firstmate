@@ -28,11 +28,13 @@
 #   - Recovery that does not start another implementation worker
 #
 # Refusal names the missing artifact path and the next legal action. The gated
-# task id is not the recovery vehicle: bin/fm-brief.sh refuses to scaffold over
-# an existing brief, and every gated task has one. So the refusal directs a
-# fresh Sol spec scout task id, which writes its own data/<new-id>/spec.md and
-# is then promoted in place as the next implementation task. It never guesses a
-# model.
+# task id is not the scaffolding vehicle: bin/fm-brief.sh refuses to scaffold
+# over an existing brief, and every gated task has one. So the refusal directs a
+# fresh Sol spec scout task id, which writes its own data/<new-id>/spec.md, and
+# then bin/fm-promote.sh <new-id> --sol-spec-for <gated-id> installs that
+# reviewed artifact at the gated task's own spec path. The gated task keeps its
+# worktree, branch, commits, no-mistakes run, and PR, and the refused action is
+# simply repeated. It never guesses a model.
 #
 # Sourced by bin/fm-control.sh and bin/fm-spawn.sh. No side effects on source.
 
@@ -65,6 +67,26 @@ fm_second_attempt_meta_had_implementation() {
 # fm_second_attempt_nm_third_fix_round_marker <state-dir> <task-id>
 fm_second_attempt_nm_third_fix_round_marker() {
   printf '%s/%s.nm-third-fix-round' "${1%/}" "$2"
+}
+
+# fm_second_attempt_round_gt <a> <b>
+# Both arguments are digit strings with leading zeros already stripped. `[ -gt ]`
+# aborts with "integer expression expected" on a value wider than the shell's
+# integers, and the round is produced outside this repo, so ordering is decided
+# by digit count first and only then lexically - never by shell arithmetic.
+fm_second_attempt_round_gt() {
+  local a=$1 b=$2
+  [ "${#a}" -eq "${#b}" ] || { [ "${#a}" -gt "${#b}" ]; return; }
+  [ "$a" \> "$b" ]
+}
+
+# fm_second_attempt_round_reached <round>
+# True when a normalized digit string is 3 or more, without arithmetic on a
+# value this repo did not produce: anything with two or more digits is >= 10.
+fm_second_attempt_round_reached() {
+  local round=$1
+  case "$round" in ''|*[!0-9]*) return 1 ;; esac
+  [ "${#round}" -gt 1 ] || [ "$round" -ge 3 ]
 }
 
 # fm_second_attempt_sync_nm_fix_round <state-dir> <task-id> <meta-path>
@@ -100,13 +122,13 @@ fm_second_attempt_sync_nm_fix_round() {
     while [ "${#round}" -gt 1 ] && [ "${round#0}" != "$round" ]; do
       round=${round#0}
     done
-    [ -z "$best" ] || [ "$round" -gt "$best" ] || continue
+    [ -z "$best" ] || fm_second_attempt_round_gt "$round" "$best" || continue
     best=$round
   done <<EOF
 $rows
 EOF
   [ -n "$best" ] || return 0
-  [ "$best" -ge 3 ] || return 0
+  fm_second_attempt_round_reached "$best" || return 0
   mkdir -p "$state" || return 0
   tmp="$marker.tmp.$$"
   ( umask 077; printf '%s\n' "$best" > "$tmp" ) || { rm -f -- "$tmp"; return 0; }
@@ -142,7 +164,7 @@ fm_second_attempt_nm_fix_round_state() {
     round=${round#0}
   done
   FM_SECOND_ATTEMPT_NM_MARKER_ROUND=$round
-  if [ "${#round}" -gt 1 ] || [ "$round" -ge 3 ]; then
+  if fm_second_attempt_round_reached "$round"; then
     FM_SECOND_ATTEMPT_NM_MARKER_STATE=reached
   else
     FM_SECOND_ATTEMPT_NM_MARKER_STATE=below
@@ -197,7 +219,7 @@ fm_second_attempt_refuse_if_needed() {
   fm_second_attempt_spec_present "$data" "$id" && return 0
   spec=$(fm_second_attempt_spec_path "$data" "$id")
   task_kind="$kind task"
-  next="commission a Sol spec scout under a fresh task id (fm-brief.sh <new-scout-id> <repo> --scout --sol-spec), let that scout write its own data/<new-scout-id>/spec.md, then promote that same scout in place as the next implementation task; $id keeps its brief and stays gated, do not treat report.md as the spec and do not guess a model"
+  next="commission a Sol spec scout under a fresh task id (fm-brief.sh <new-scout-id> <repo> --scout --sol-spec), let that scout write its own data/<new-scout-id>/spec.md, then install it for this task with fm-promote.sh <new-scout-id> --sol-spec-for $id and repeat this action; $id keeps its worktree, branch, commits, and PR, do not treat report.md as the spec and do not guess a model"
   case "$reason" in
     relaunch)
       echo "error: relaunch of $task_kind $id refused - no Sol spec at $spec; $next" >&2

@@ -11,6 +11,7 @@ set -u
 
 SPAWN="$ROOT/bin/fm-spawn.sh"
 CONTROL="$ROOT/bin/fm-control.sh"
+PROMOTE="$ROOT/bin/fm-promote.sh"
 TMP_ROOT=$(fm_test_tmproot fm-second-attempt)
 # A completed relaunch reaches bin/fm-spawn.sh's per-task scratch, which is a
 # fixed /tmp/fm-<id> path outside this suite's root, so track and remove every
@@ -147,6 +148,14 @@ run_control() {
     "$CONTROL" "$@" 2>&1
 }
 
+run_promote() {
+  local dir=$1
+  shift
+  env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" \
+    FM_STATE_OVERRIDE="$dir/home/state" FM_DATA_OVERRIDE="$dir/home/data" \
+    "$PROMOTE" "$@" 2>&1
+}
+
 run_spawn_case() {
   local dir=$1
   shift
@@ -188,8 +197,10 @@ test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent() {
     "relaunch refusal did not name the accepted spec path"
   assert_contains "$out" "commission a Sol spec scout under a fresh task id" \
     "relaunch refusal did not direct a fresh Sol spec scout task id"
-  assert_contains "$out" "promote that same scout in place" \
-    "relaunch refusal did not name the scout-plus-promote recovery"
+  assert_contains "$out" "fm-promote.sh <new-scout-id> --sol-spec-for sa1" \
+    "relaunch refusal did not name the artifact install that clears this task's gate"
+  assert_contains "$out" "sa1 keeps its worktree, branch, commits, and PR" \
+    "relaunch refusal did not say the gated task's work is preserved"
   assert_not_contains "$out" "fm-brief.sh sa1" \
     "relaunch refusal prescribed re-scaffolding the gated task id, which fm-brief.sh refuses"
   assert_contains "$out" "do not treat report.md as the spec" \
@@ -238,6 +249,8 @@ test_spawn_relaunch_refuses_without_a_spec() {
   assert_contains "$out" "replacement spawn" "spawn relaunch did not identify itself as a replacement spawn"
   assert_contains "$out" "commission a Sol spec scout under a fresh task id" \
     "spawn relaunch refusal did not direct a fresh Sol spec scout task id"
+  assert_contains "$out" "fm-promote.sh <new-scout-id> --sol-spec-for sa3" \
+    "spawn relaunch refusal did not name the artifact install that clears this task's gate"
   assert_not_contains "$out" "fm-brief.sh sa3" \
     "spawn relaunch refusal prescribed re-scaffolding the gated task id"
   pass "fm-spawn: --relaunch refuses without a Sol spec"
@@ -354,6 +367,41 @@ EOF
   pass "fm-control: fix-round attribution takes the highest active round, not the first row"
 }
 
+# The round label comes from a producer outside this repo, so a value wider than
+# the shell's integers must still be attributed rather than aborting `[ -ge ]`
+# and silently reading as "below round 3".
+test_nm_fix_round_attribution_survives_an_out_of_range_round() {
+  local dir wt branch head out rc marker
+  dir=$(new_case nm-round-huge sa14)
+  add_ship_task "$dir" sa14
+  wt="$dir/wt"
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD)
+  head=$(git -C "$wt" rev-parse --short HEAD)
+  cat > "$dir/fakebin/no-mistakes" <<EOF
+#!/usr/bin/env bash
+cat <<'STATUS'
+run:
+  id: fixture-run
+  branch: $branch
+  status: fixing
+  head: $head
+  active_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
+    test,fixing,4s,now,124,fix 99999999999999999999
+STATUS
+EOF
+  chmod +x "$dir/fakebin/no-mistakes"
+  marker="$dir/home/state/sa14.nm-third-fix-round"
+  out=$(run_control "$dir" sa14 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "an out-of-range attributed fix round should still refuse"
+  assert_not_contains "$out" "integer expression expected" \
+    "an out-of-range round leaked a shell arithmetic error into the operator output"
+  [ "$(cat "$marker" 2>/dev/null)" = 99999999999999999999 ] \
+    || fail "an out-of-range fix round was not attributed at all"
+  assert_contains "$out" "reached no-mistakes fix round 99999999999999999999" \
+    "refusal did not report the out-of-range round it read"
+  pass "fm-control: an out-of-range fix round is attributed instead of failing open"
+}
+
 # Scout lifecycle calls are exempt from the implementation gate itself, so an
 # attributed validation status must not leave implementation-gate state behind.
 test_nm_third_fix_round_does_not_mark_a_scout() {
@@ -435,6 +483,39 @@ test_nm_first_fix_round_marker_does_not_claim_the_third_round() {
   pass "fm-control: a marker below round 3 does not claim the third-fix-round reason"
 }
 
+# The documented recovery, end to end: the gated ship keeps its endpoint and
+# worktree while a fresh Sol spec scout's artifact is installed for it, and the
+# very relaunch that was refused then proceeds.
+test_sol_spec_install_from_a_fresh_scout_clears_the_gated_relaunch() {
+  local dir out rc scout_meta wt_before
+  dir=$(new_case sol-spec-install sa15)
+  add_ship_task "$dir" sa15
+  wt_before=$(grep '^worktree=' "$dir/home/state/sa15.meta")
+
+  out=$(run_control "$dir" sa15 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "the gated relaunch should refuse before the spec is installed"
+
+  scout_meta="$dir/home/state/sa15-spec.meta"
+  printf 'window=fmses:fm-sa15-spec\nkind=scout\nworktree=%s\n' "$dir/wt" > "$scout_meta"
+  mkdir -p "$dir/home/data/sa15-spec"
+  printf '# Sol spec\n\nImplementation constraints for sa15.\n' > "$dir/home/data/sa15-spec/spec.md"
+
+  out=$(run_promote "$dir" sa15-spec --sol-spec-for sa15); rc=$?
+  expect_code 0 "$rc" "installing a fresh scout's Sol spec for the gated task should succeed"$'\n'"$out"
+  assert_contains "$out" "bin/fm-control.sh sa15 relaunch" \
+    "the install did not hand back the original task's own relaunch"
+  cmp -s "$dir/home/data/sa15-spec/spec.md" "$dir/home/data/sa15/spec.md" \
+    || fail "the installed Sol spec does not match the scout's reviewed deliverable"
+  assert_grep 'kind=scout' "$scout_meta" "the install changed the scout's own contract"
+  [ "$(grep '^worktree=' "$dir/home/state/sa15.meta")" = "$wt_before" ] \
+    || fail "the install disturbed the gated task's worktree binding"
+
+  out=$(run_control "$dir" sa15 relaunch --note "continue with the Sol spec"); rc=$?
+  expect_code 0 "$rc" "the same relaunch should proceed once the Sol spec is installed"$'\n'"$out"
+  assert_contains "$out" "relaunched sa15" "the previously gated relaunch did not complete"
+  pass "fm-promote --sol-spec-for: a fresh scout's spec clears the original task's gate in place"
+}
+
 test_nm_third_fix_round_marker_refuses_without_a_spec() {
   local home meta out rc marker
   home="$TMP_ROOT/nm-fix/home"
@@ -473,9 +554,11 @@ test_secondmate_relaunch_is_unaffected_by_the_gate
 test_nm_third_fix_round_marker_refuses_through_fm_control
 test_nm_third_fix_round_is_recorded_automatically
 test_nm_fix_round_attribution_takes_the_highest_active_round
+test_nm_fix_round_attribution_survives_an_out_of_range_round
 test_nm_third_fix_round_does_not_mark_a_scout
 test_nm_third_fix_round_marker_with_no_payload_refuses
 test_nm_non_numeric_marker_payload_refuses_without_claiming_a_round
 test_nm_first_fix_round_marker_does_not_claim_the_third_round
+test_sol_spec_install_from_a_fresh_scout_clears_the_gated_relaunch
 test_nm_third_fix_round_marker_refuses_without_a_spec
 echo "# all fm-second-attempt tests passed"
