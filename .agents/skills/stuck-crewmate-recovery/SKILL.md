@@ -51,5 +51,5 @@ Escalate in order:
    Genuine wedging means looping, unresponsive, repeating the same obstacle, or truly dead.
    A low context reading is not wedging; modern harnesses auto-compact and keep going.
    The worktree and commits persist, so relaunch is cheap.
-   A ship task whose durable record carries `spawn_gen=` refuses this relaunch until a Sol spec exists at `data/<task-id>/spec.md`; commission a Sol spec scout (`bin/fm-second-attempt-lib.sh`).
+   A ship task whose durable record carries `spawn_gen=` refuses this relaunch until a Sol spec exists at `data/<task-id>/spec.md`, and that task keeps its own brief, so it stays gated; commission a Sol spec scout under a fresh task id, then promote that scout in place as the next implementation task (`bin/fm-second-attempt-lib.sh`, docs/agent-control.md).
 5. If a second relaunch fails too, write `failed` to the backlog and tell the captain the plain failure, preserved work, and consequence using `AGENTS.md` section 9; do not mention metadata, harness, window, or worktree unless the path itself is needed for action.

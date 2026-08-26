@@ -1326,6 +1326,27 @@ test_teardown_missing_busy_sidecar_completes() {
   pass "teardown completes when an exact busy-state sidecar is already absent"
 }
 
+# The second-attempt gate reads state/<id>.nm-third-fix-round as durable truth
+# about this task, so a landed task must not leave it for a later task reusing
+# the same id.
+test_teardown_removes_third_fix_round_marker() {
+  local case_dir rc marker
+  case_dir=$(make_case nm-third-fix-round-cleanup)
+  write_meta "$case_dir" local-only ship
+  marker="$case_dir/state/task-x1.nm-third-fix-round"
+  printf '3\n' > "$marker"
+
+  set +e
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "nm-third-fix-round-cleanup: teardown should complete"
+  assert_absent "$marker" \
+    "nm-third-fix-round-cleanup: teardown left the second-attempt fix-round marker behind"
+  pass "teardown removes the second-attempt third-fix-round marker"
+}
+
 test_herdr_teardown_clears_escalation_marker() {
   local case_dir marker
   case_dir=$(make_case herdr-marker-cleanup)
@@ -2600,6 +2621,7 @@ test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_teardown_missing_busy_sidecar_completes
+test_teardown_removes_third_fix_round_marker
 test_herdr_teardown_clears_escalation_marker
 test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
 test_herdr_flat_teardown_refuses_records_on_unparseable_presence

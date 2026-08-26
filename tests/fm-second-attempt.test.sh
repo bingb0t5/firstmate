@@ -186,8 +186,12 @@ test_control_relaunch_refuses_without_a_spec_and_leaves_the_agent() {
   expect_code 1 "$rc" "relaunch without a spec should refuse"
   assert_contains "$out" "no Sol spec at $dir/home/data/sa1/spec.md" \
     "relaunch refusal did not name the accepted spec path"
-  assert_contains "$out" "place its reviewed deliverable at $dir/home/data/sa1/spec.md" \
-    "relaunch refusal did not give a recovery path that creates the accepted artifact"
+  assert_contains "$out" "commission a Sol spec scout under a fresh task id" \
+    "relaunch refusal did not direct a fresh Sol spec scout task id"
+  assert_contains "$out" "promote that same scout in place" \
+    "relaunch refusal did not name the scout-plus-promote recovery"
+  assert_not_contains "$out" "fm-brief.sh sa1" \
+    "relaunch refusal prescribed re-scaffolding the gated task id, which fm-brief.sh refuses"
   assert_contains "$out" "do not treat report.md as the spec" \
     "relaunch refusal did not reject the ordinary scout artifact"
   assert_contains "$out" "do not guess a model" \
@@ -232,8 +236,10 @@ test_spawn_relaunch_refuses_without_a_spec() {
   out=$(run_spawn_case "$dir" sa3 --relaunch); rc=$?
   expect_code 1 "$rc" "replacement spawn should refuse without a spec"
   assert_contains "$out" "replacement spawn" "spawn relaunch did not identify itself as a replacement spawn"
-  assert_contains "$out" "place its reviewed deliverable at $dir/home/data/sa3/spec.md" \
-    "spawn relaunch did not give a recovery path that creates the accepted artifact"
+  assert_contains "$out" "commission a Sol spec scout under a fresh task id" \
+    "spawn relaunch refusal did not direct a fresh Sol spec scout task id"
+  assert_not_contains "$out" "fm-brief.sh sa3" \
+    "spawn relaunch refusal prescribed re-scaffolding the gated task id"
   pass "fm-spawn: --relaunch refuses without a Sol spec"
 }
 
@@ -311,6 +317,41 @@ EOF
   [ "$(cat "$marker")" = 3 ] || fail "automatic transition did not persist the observed third fix round"
   [ "$(cat "$dir/fake/command")" = claude ] || fail "automatic third-round refusal stopped the running agent"
   pass "fm-control: an attributed no-mistakes third fix round is recorded and refuses automatically"
+}
+
+# The attributed status can list several concurrently fixing steps. The gate must
+# attribute the highest qualifying round it observed, across every round label
+# no-mistakes emits, rather than whichever row happens to come first.
+test_nm_fix_round_attribution_takes_the_highest_active_round() {
+  local dir wt branch head out rc marker
+  dir=$(new_case nm-round-highest sa13)
+  add_ship_task "$dir" sa13
+  wt="$dir/wt"
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD)
+  head=$(git -C "$wt" rev-parse --short HEAD)
+  cat > "$dir/fakebin/no-mistakes" <<EOF
+#!/usr/bin/env bash
+cat <<'STATUS'
+run:
+  id: fixture-run
+  branch: $branch
+  status: fixing
+  head: $head
+  active_steps[2]{step,status,active_for,last_activity,agent_pid,round}:
+    review,fixing,1s,now,123,fix 1
+    test,fixing,4s,now,124,auto-fix 4
+STATUS
+EOF
+  chmod +x "$dir/fakebin/no-mistakes"
+  marker="$dir/home/state/sa13.nm-third-fix-round"
+  out=$(run_control "$dir" sa13 relaunch --note "try again"); rc=$?
+  expect_code 1 "$rc" "the highest attributed fix round should refuse the relaunch"
+  [ "$(cat "$marker" 2>/dev/null)" = 4 ] \
+    || fail "attribution did not record the highest active fix round"
+  assert_contains "$out" "fix round 4" \
+    "refusal did not name the highest observed fix round"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "highest-round refusal stopped the running agent"
+  pass "fm-control: fix-round attribution takes the highest active round, not the first row"
 }
 
 # Scout lifecycle calls are exempt from the implementation gate itself, so an
@@ -412,8 +453,10 @@ test_nm_third_fix_round_marker_refuses_without_a_spec() {
   expect_code 1 "$rc" "third fix-round marker should refuse without a spec"
   out=$(cat "$home/err")
   assert_contains "$out" "fix round 3" "marker refusal did not name the third fix round"
-  assert_contains "$out" "place its reviewed deliverable at $home/data/task-nm/spec.md" \
-    "marker refusal did not give a recovery path that creates the accepted artifact"
+  assert_contains "$out" "commission a Sol spec scout under a fresh task id" \
+    "marker refusal did not direct a fresh Sol spec scout task id"
+  assert_not_contains "$out" "fm-brief.sh task-nm" \
+    "marker refusal prescribed re-scaffolding the gated task id"
   printf '# spec\n' > "$home/data/task-nm/spec.md"
   fm_second_attempt_refuse_if_needed "$home/state" "$home/data" task-nm "$meta" relaunch \
     || fail "marker gate should clear once spec.md exists"
@@ -429,6 +472,7 @@ test_scout_relaunch_is_ungated_after_an_existing_attempt
 test_secondmate_relaunch_is_unaffected_by_the_gate
 test_nm_third_fix_round_marker_refuses_through_fm_control
 test_nm_third_fix_round_is_recorded_automatically
+test_nm_fix_round_attribution_takes_the_highest_active_round
 test_nm_third_fix_round_does_not_mark_a_scout
 test_nm_third_fix_round_marker_with_no_payload_refuses
 test_nm_non_numeric_marker_payload_refuses_without_claiming_a_round

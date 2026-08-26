@@ -99,9 +99,10 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts.
 - A ship task whose durable record already carries `spawn_gen=` is refused **before** the running agent is stopped unless a Sol spec exists at `data/<task-id>/spec.md`, so a second implementation worker cannot start on the same unspecified problem; scout relaunches remain ungated (`bin/fm-second-attempt-lib.sh`).
-  Commission that artifact through the existing scout path with `fm-brief.sh <task-id> <repo> --scout --sol-spec`, then promote the scout in place.
+  The gated task id is not the recovery vehicle: it already has a brief, and `fm-brief.sh` refuses to scaffold over one, so it stays gated.
+  Commission the spec through the existing scout path under a *fresh* task id - `fm-brief.sh <new-scout-id> <repo> --scout --sol-spec` - let that scout write its own `data/<new-scout-id>/spec.md`, then promote that same scout in place (`fm-promote.sh <new-scout-id> --mode <mode> --yolo <on|off>`) as the next implementation task, which clears the gate on its own id.
   Ordinary scouts still write `report.md`, which does not satisfy this gate.
-  Before a ship lifecycle action proceeds, Firstmate attributes the active no-mistakes run by branch and code identity and records a third-fix-round marker when that run is fixing round 3 or later.
+  Before a ship lifecycle action proceeds, Firstmate attributes the active no-mistakes run by branch and code identity and records `state/<task-id>.nm-third-fix-round` with the highest active fix round it observed when that round is 3 or later; teardown removes it with the rest of the task's state.
   That marker refuses on the same missing spec; a marker whose round cannot be read refuses too, saying so rather than claiming a round it never read.
 - `fm-spawn --relaunch` independently refuses unless the recorded endpoint is positively agent-free and its shell is sitting in the recorded worktree, so a replacement can never join a live agent or start outside the copy holding the work.
 
@@ -124,5 +125,5 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 
 - `tests/fm-control.test.sh` - the adapter contract for every verified harness, the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
 - `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, and rollback after a failed launch.
-- `tests/fm-second-attempt.test.sh` - the ship-only Sol-spec gate across both relaunch entry points, including the `spec.md`-only artifact contract, scout and secondmate exemptions, automatic attributed third-fix-round recording, and fail-closed marker handling.
+- `tests/fm-second-attempt.test.sh` - the ship-only Sol-spec gate across both relaunch entry points, including the `spec.md`-only artifact contract, scout and secondmate exemptions, automatic attributed third-fix-round recording at the highest active round, and fail-closed marker handling.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.
