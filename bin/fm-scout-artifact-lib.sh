@@ -15,8 +15,9 @@
 # That distinction is the point: an ordinary scout that leaves a stray spec.md
 # behind is still an ordinary scout, and its teardown still demands report.md.
 #
-# Consumers: bin/fm-teardown.sh's scout work-product gate and backlog hint, and
-# bin/fm-fleet-snapshot.sh's scout_reports[] inventory.
+# Consumers: bin/fm-teardown.sh's scout work-product gate and backlog hint,
+# bin/fm-fleet-snapshot.sh's scout_reports[] inventory and per-task scout
+# readiness, and bin/fm-captain-hold.sh's post-teardown origin-ownership proof.
 # No side effects on source.
 
 FM_SCOUT_ARTIFACT_DEFAULT=report.md
