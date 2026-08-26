@@ -544,6 +544,7 @@ run_teardown() {
   local case_dir=$1; shift
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_DATA_OVERRIDE="${TEARDOWN_DATA_OVERRIDE:-$ROOT/data}" \
   FM_CONFIG_OVERRIDE="$case_dir/config" \
   PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
     "$TEARDOWN" task-x1 "$@"
@@ -1324,6 +1325,67 @@ test_teardown_missing_busy_sidecar_completes() {
   assert_absent "$case_dir/state/task-x1.meta" \
     "missing-busy-sidecar: teardown remained incomplete"
   pass "teardown completes when an exact busy-state sidecar is already absent"
+}
+
+# A scout's surviving artifact is whatever its scaffolding owner declared, so a
+# Sol-spec scout - which writes spec.md and never a report.md - must clear the
+# ordinary non-force work-product gate on that artifact, with the artifact
+# preserved. An undeclared scout is still held to report.md, so a stray spec.md
+# is never a substitute.
+make_scout_case() {  # <name> [<declared-artifact>] -> <case-dir>
+  local name=$1 declared=${2:-} case_dir
+  case_dir=$(make_case "$name")
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=firstmate:fm-task-x1" \
+    "endpoint_task_id=task-x1" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=scout" \
+    "mode=local-only" \
+    "decisions_reviewed=1"
+  mkdir -p "$case_dir/data/task-x1"
+  [ -z "$declared" ] || printf '%s\n' "$declared" > "$case_dir/data/task-x1/.deliverable"
+  printf '%s\n' "$case_dir"
+}
+
+test_sol_spec_scout_tears_down_on_its_declared_spec() {
+  local case_dir rc
+  case_dir=$(make_scout_case sol-spec-scout-teardown spec.md)
+  printf '# Sol spec\n' > "$case_dir/data/task-x1/spec.md"
+
+  set +e
+  TEARDOWN_DATA_OVERRIDE="$case_dir/data" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "a Sol-spec scout should clear non-force teardown on its declared spec.md"
+  ! grep -q REFUSED "$case_dir/stderr" \
+    || fail "sol-spec-scout-teardown: teardown refused the declared spec.md work product"
+  assert_present "$case_dir/data/task-x1/spec.md" \
+    "sol-spec-scout-teardown: teardown did not preserve the surviving Sol spec"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "sol-spec-scout-teardown: teardown did not complete"
+  pass "a Sol-spec scout tears down without --force on its declared spec.md"
+}
+
+test_undeclared_scout_still_requires_a_report() {
+  local case_dir rc
+  case_dir=$(make_scout_case undeclared-scout-teardown)
+  printf '# not the declared artifact\n' > "$case_dir/data/task-x1/spec.md"
+
+  set +e
+  TEARDOWN_DATA_OVERRIDE="$case_dir/data" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  [ "$rc" -ne 0 ] || fail "undeclared-scout-teardown: a stray spec.md satisfied the ordinary scout gate"
+  grep -q "has no report.md" "$case_dir/stderr" \
+    || fail "undeclared-scout-teardown: the refusal did not name the required report.md"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "undeclared-scout-teardown: a refused teardown still retired the task"
+  pass "an undeclared scout is still held to report.md, not any stray spec.md"
 }
 
 # The second-attempt gate reads state/<id>.nm-third-fix-round as durable truth
@@ -2621,6 +2683,8 @@ test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
 test_teardown_missing_busy_sidecar_completes
+test_sol_spec_scout_tears_down_on_its_declared_spec
+test_undeclared_scout_still_requires_a_report
 test_teardown_removes_third_fix_round_marker
 test_herdr_teardown_clears_escalation_marker
 test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes

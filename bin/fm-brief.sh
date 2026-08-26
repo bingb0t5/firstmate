@@ -12,7 +12,11 @@
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   --sol-spec specializes that same scout workflow to write the task-owned Sol
-#   spec at data/<task-id>/spec.md instead. It is valid only with --scout.
+#   spec at data/<task-id>/spec.md instead. It is valid only with --scout, and it
+#   declares that artifact in data/<task-id>/.deliverable (bin/fm-scout-artifact-lib.sh)
+#   so teardown and the fleet inventory recognize the spec as this task's work
+#   product. A Sol spec scout is never promoted in place: its artifact is
+#   installed for the gated ship task it was commissioned for.
 #   --secondmate writes a persistent secondmate charter. The project list
 #   is cloned into the secondmate home, while the natural-language scope
 #   tells the main firstmate when to route work there; routine churn stays in its own home;
@@ -80,6 +84,8 @@ esac
 . "$SCRIPT_DIR/fm-marker-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-scout-artifact-lib.sh
+. "$SCRIPT_DIR/fm-scout-artifact-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 
 resolve_directory_input() {
@@ -331,10 +337,16 @@ if [ "$KIND" = scout ]; then
   SCOUT_ARTIFACT=report.md
   SCOUT_PRODUCT=report
   SCOUT_PURPOSE='written report'
+  SCOUT_HANDOFF="If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the $SCOUT_PRODUCT; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message."
   if [ "$SOL_SPEC" -eq 1 ]; then
     SCOUT_ARTIFACT=spec.md
     SCOUT_PRODUCT='Sol spec'
     SCOUT_PURPOSE='task-owned Sol specification'
+    SCOUT_HANDOFF="This task is a specification pass for an implementation task that is already blocked on it, so you never become that implementation worker and this task is never promoted in place. Write the spec, report it ready for review and for artifact promotion into the gated ship task (firstmate installs it with \`bin/fm-promote.sh $ID --sol-spec-for <gated-ship-task-id>\`), and stop; do not start the implementation yourself."
+    fm_scout_deliverable_declare "$DATA" "$ID" spec.md || {
+      echo "error: could not declare the Sol spec deliverable for $ID" >&2
+      exit 1
+    }
   fi
   cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
@@ -381,7 +393,7 @@ The $SCOUT_PRODUCT must stand alone: what you did, what you found, the evidence 
 If your deliverable is a visual artifact the captain will review and iterate on, you may host the Lavish review loop yourself (poll, revise, re-serve, staying alive) instead of handing it back to firstmate.
 Before reporting done, read and follow \`$FM_ROOT/.agents/skills/captain-hold-lifecycle/SKILL.md\` and pass its shared completion gate for the $SCOUT_PRODUCT and any visual review.
 When the $SCOUT_PRODUCT is complete, append \`done: {one-line conclusion}\` to the status file and stop.
-If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the $SCOUT_PRODUCT; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
+$SCOUT_HANDOFF
 EOF
 echo "scaffolded: $BRIEF (scout, deliverable=$SCOUT_ARTIFACT; replace {TASK})"
 exit 0

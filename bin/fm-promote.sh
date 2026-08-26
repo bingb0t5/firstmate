@@ -50,6 +50,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
 # shellcheck source=bin/fm-second-attempt-lib.sh
 . "$SCRIPT_DIR/fm-second-attempt-lib.sh"
+# shellcheck source=bin/fm-scout-artifact-lib.sh
+. "$SCRIPT_DIR/fm-scout-artifact-lib.sh"
 
 USAGE='usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>
        fm-promote.sh <sol-spec-scout-id> --sol-spec-for <gated-ship-task-id>'
@@ -201,6 +203,10 @@ if [ "$SOL_SPEC_FOR_SET" -eq 1 ]; then
   cat "$SOURCE_SPEC" > "$TMP" || { echo "error: could not stage the Sol spec at $TMP" >&2; exit 1; }
   mv "$TMP" "$TARGET_SPEC" || { echo "error: could not install the Sol spec at $TARGET_SPEC" >&2; exit 1; }
   TMP=
+  fm_scout_deliverable_declare "$DATA" "$SOL_SPEC_FOR" spec.md || {
+    echo "error: installed $TARGET_SPEC but could not declare it as $SOL_SPEC_FOR's artifact" >&2
+    exit 1
+  }
   echo "installed Sol spec for $SOL_SPEC_FOR at $TARGET_SPEC from scout $ID"
   echo "$ID stays a scout and is torn down normally; $SOL_SPEC_FOR keeps its worktree, branch, commits, and PR"
   echo "next: FM_HOME=$HOME_Q bin/fm-control.sh $SOL_SPEC_FOR relaunch --note '<progress so far>'"

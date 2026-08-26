@@ -759,6 +759,12 @@ test_sol_spec_scout_scaffold() {
     "Sol spec scout brief did not name spec.md as its deliverable"
   assert_no_grep "$home/data/sol-spec-a/report.md" "$brief" \
     "Sol spec scout brief still instructed the worker to write report.md"
+  assert_no_grep "promote this task in place" "$brief" \
+    "Sol spec scout brief still invited in-place promotion into the implementation worker"
+  assert_grep "--sol-spec-for" "$brief" \
+    "Sol spec scout brief did not name the artifact-promotion handoff"
+  [ "$(cat "$home/data/sol-spec-a/.deliverable")" = spec.md ] \
+    || fail "Sol spec scout scaffold did not declare spec.md as its surviving artifact"
 
   out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" sol-spec-b alpha --mode local-only --sol-spec 2>&1) || status=$?
   expect_code 1 "${status:-0}" "--sol-spec without --scout must refuse"

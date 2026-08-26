@@ -440,6 +440,28 @@ EOF
   pass "snapshot includes durable scout reports after teardown"
 }
 
+# The inventory must show the artifact a task actually delivers. A Sol-spec
+# scout's declared spec.md is its only work product, so it belongs in
+# scout_reports[]; an undeclared task's stray spec.md does not, because the
+# declaration - not the file's presence - is what classifies the artifact.
+test_scout_reports_follow_the_declared_artifact() {
+  local home out
+  home=$(make_home declared-artifact)
+  mkdir -p "$home/data/sol-spec-scout" "$home/data/plain-scout" "$home/data/stray-spec"
+  printf 'spec.md\n' > "$home/data/sol-spec-scout/.deliverable"
+  printf '# Sol spec\n' > "$home/data/sol-spec-scout/spec.md"
+  printf '# Plain Scout\n' > "$home/data/plain-scout/report.md"
+  printf '# not declared\n' > "$home/data/stray-spec/spec.md"
+  out=$(FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e --arg home "$home" '
+    .scout_reports == [
+      {id:"plain-scout",path:($home + "/data/plain-scout/report.md"),kind:"scout"},
+      {id:"sol-spec-scout",path:($home + "/data/sol-spec-scout/spec.md"),kind:"scout"}
+    ]
+  ' >/dev/null || fail "scout_reports must list the declared artifact and skip an undeclared spec.md"
+  pass "snapshot inventories each task's declared surviving artifact"
+}
+
 test_backlog_tasks_axi_forms_and_overrides() {
   local home data projects fakebin out view
   home=$(make_home overrides)
@@ -811,6 +833,7 @@ test_open_decision_clears_on_keyed_resolution
 test_completed_scout_report_is_pointer_not_pending
 test_parked_scout_decision_stays_pending
 test_scout_reports_include_teardown_reports
+test_scout_reports_follow_the_declared_artifact
 test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
 test_view_renders_dead_secondmate_agent_status

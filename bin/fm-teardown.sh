@@ -26,9 +26,13 @@
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
 # Scout tasks (kind=scout in meta) carve out of that check: their worktree is
-# declared scratch and the report at data/<task-id>/report.md is the work
-# product. Teardown proceeds only once the report exists and the shared
-# unresolved-decision completion gate verifies its captain-held inventory.
+# declared scratch and the artifact under data/<task-id>/ is the work product.
+# Which artifact that is belongs to bin/fm-scout-artifact-lib.sh, not to this
+# script: report.md for an ordinary scout, and spec.md only where the scaffolding
+# owner declared it (a --scout --sol-spec Sol spec scout writes no report.md at
+# all). An undeclared task is held to report.md, so a stray spec.md never
+# satisfies this gate. Teardown proceeds only once that artifact exists and the
+# shared unresolved-decision completion gate verifies its captain-held inventory.
 # Before destructive cleanup, teardown validates task check artifacts and any
 # matching quarantine entries as ordinary single-link files on the state
 # device. It refuses and preserves task state when that proof fails; otherwise
@@ -152,6 +156,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-scout-artifact-lib.sh
+. "$SCRIPT_DIR/fm-scout-artifact-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-lock-lib.sh
@@ -1137,7 +1143,7 @@ backlog_refresh_reminder() {
   if fm_tasks_axi_backend_available "$CONFIG"; then
     case "$KIND" in
       scout)
-        report_path="data/$ID/report.md"
+        report_path="data/$ID/$(fm_scout_deliverable_name "$DATA" "$ID")"
         done_cmd="tasks-axi done $ID --report $report_path"
         ;;
       *)
@@ -2563,10 +2569,10 @@ if [ "$KIND" = secondmate ] && [ "$FORCE" = "--force" ]; then
 fi
 
 if [ "$KIND" = scout ] && [ "$FORCE" != "--force" ]; then
-  REPORT="$DATA/$ID/report.md"
+  REPORT=$(fm_scout_deliverable_path "$DATA" "$ID")
   if [ ! -f "$REPORT" ]; then
-    echo "REFUSED: scout task $ID has no report at $REPORT." >&2
-    echo "The report is the work product. Have the crewmate write it, or use --force after explicit discard approval." >&2
+    echo "REFUSED: scout task $ID has no $(fm_scout_deliverable_name "$DATA" "$ID") at $REPORT." >&2
+    echo "That artifact is the work product. Have the crewmate write it, or use --force after explicit discard approval." >&2
     exit 1
   fi
   if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \

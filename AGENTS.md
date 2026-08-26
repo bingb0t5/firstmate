@@ -88,6 +88,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
   <id>/spec.md       task-owned Sol spec that clears the ship relaunch gate; see docs/agent-control.md
+  <id>/.deliverable  which file under <id>/ is this task's surviving artifact (report.md or spec.md), declared by the scaffolding or installing script; absent means report.md - bin/fm-scout-artifact-lib.sh owns the contract that teardown and the fleet inventory read
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
 state/               runtime records and signals; gitignored
   <id>.status        appended by crewmates: "<state>: <note>" wake-event lines, not current-state truth
@@ -289,7 +290,7 @@ Classify the deliverable:
 
 - **Ship** is the default and produces a project change through the selected delivery mode; once implementation is authorized, dispatch a ship and keep any remaining bounded research inside it unless unresolved uncertainty could materially change whether or what to build.
 - **Scout** produces knowledge in `data/<id>/report.md`, never a PR, and is appropriate for investigation, diagnosis, planning, reproduction, or audit work when the captain explicitly requests a separate knowledge or design deliverable or unresolved uncertainty could materially change whether or what to build.
-  A Sol-spec scout uses the same workflow with `fm-brief.sh --scout --sol-spec` and writes the gate artifact to `data/<id>/spec.md`; `fm-promote.sh <scout-id> --sol-spec-for <gated-ship-id>` then installs that artifact for a gated ship task without disturbing its branch or PR (docs/agent-control.md).
+  A Sol-spec scout uses the same workflow with `fm-brief.sh --scout --sol-spec` and writes the gate artifact to `data/<id>/spec.md`; `fm-promote.sh <scout-id> --sol-spec-for <gated-ship-id>` then installs that artifact for a gated ship task without disturbing its branch or PR, and the scout is torn down as an ordinary scout on its own spec.md (docs/agent-control.md).
 
 If established evidence already answers an informational question, relay it without a design-only scout; when implementation intent is unclear, answer and ask one concise implementation question when useful rather than dispatching speculative design work.
 Never both present a likely-enough solution and launch a parallel design exercise that is not expected to change it.
