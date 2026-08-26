@@ -12,13 +12,31 @@
 # read the scout's report (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never looks it up.
 # no-mistakes-prod-only is a registry policy rather than a task mode and is refused.
+#
+# --sol-spec-for <gated-ship-task-id> is the other half of the same scout+promote
+# path and promotes an ARTIFACT rather than a task: it installs a Sol spec scout's
+# reviewed data/<scout-id>/spec.md at data/<gated-ship-task-id>/spec.md, which is
+# the only artifact that clears the second-attempt gate in
+# bin/fm-second-attempt-lib.sh. It exists because the gated ship task cannot be
+# its own recovery vehicle - fm-brief.sh refuses to scaffold over its existing
+# brief - while a fresh scout promoted to ship in place would strand that task's
+# worktree, branch, commits, no-mistakes run, and PR. So this mode decides no
+# delivery contract and rewrites no meta: the scout stays kind=scout and is torn
+# down normally, the gated ship keeps its endpoint and implementation identity,
+# and the operator simply repeats the refused relaunch through the existing gate.
+# It fails closed before touching anything - the source must be a scout carrying
+# its own non-empty spec.md, the target must be a ship task that is actually
+# gated, and an existing target spec that differs is refused rather than
+# overwritten - and the install itself is an atomic same-directory rename.
 # Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>
+#        fm-promote.sh <sol-spec-scout-id> --sol-spec-for <gated-ship-task-id>
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -30,11 +48,17 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-secondmate-parent-lib.sh"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
+# shellcheck source=bin/fm-second-attempt-lib.sh
+. "$SCRIPT_DIR/fm-second-attempt-lib.sh"
 
+USAGE='usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>
+       fm-promote.sh <sol-spec-scout-id> --sol-spec-for <gated-ship-task-id>'
 MODE=
 YOLO=
+SOL_SPEC_FOR=
 MODE_SET=0
 YOLO_SET=0
+SOL_SPEC_FOR_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -45,6 +69,7 @@ for a in "$@"; do
     case "$want_value" in
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
+      sol-spec-for) SOL_SPEC_FOR=$a; SOL_SPEC_FOR_SET=1 ;;
     esac
     want_value=
     continue
@@ -54,35 +79,53 @@ for a in "$@"; do
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
     --yolo) want_value=yolo ;;
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
+    --sol-spec-for) want_value=sol-spec-for ;;
+    --sol-spec-for=*) SOL_SPEC_FOR=${a#--sol-spec-for=}; SOL_SPEC_FOR_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
 [ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 1; }
-[ "${#POS[@]}" -ge 1 ] || { echo "usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>" >&2; exit 1; }
-[ "$MODE_SET" -eq 1 ] || {
-  echo "error: promotion requires --mode <no-mistakes|direct-PR|local-only>; decide it now from the scout's findings and the project's registered posture in data/projects.md" >&2
-  exit 1
-}
-[ "$YOLO_SET" -eq 1 ] || {
-  echo "error: promotion requires --yolo <on|off>; it is this task's merge authority, not a project lookup" >&2
-  exit 1
-}
-case "$MODE" in
-  no-mistakes|direct-PR|local-only) ;;
-  no-mistakes-prod-only)
-    echo "error: no-mistakes-prod-only is a registry policy, not a task mode; classify this task's surface and resolve it to no-mistakes or direct-PR" >&2
-    exit 1 ;;
-  *) echo "error: --mode must be one of no-mistakes, direct-PR, local-only (got '$MODE')" >&2; exit 1 ;;
-esac
-case "$YOLO" in
-  on|off) ;;
-  *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
-esac
+[ "${#POS[@]}" -ge 1 ] || { echo "$USAGE" >&2; exit 1; }
+if [ "$SOL_SPEC_FOR_SET" -eq 1 ]; then
+  [ "$MODE_SET" -eq 0 ] && [ "$YOLO_SET" -eq 0 ] || {
+    echo "error: --sol-spec-for installs a Sol spec artifact for an existing ship task and decides no delivery contract; drop --mode and --yolo" >&2
+    exit 1
+  }
+else
+  [ "$MODE_SET" -eq 1 ] || {
+    echo "error: promotion requires --mode <no-mistakes|direct-PR|local-only>; decide it now from the scout's findings and the project's registered posture in data/projects.md" >&2
+    exit 1
+  }
+  [ "$YOLO_SET" -eq 1 ] || {
+    echo "error: promotion requires --yolo <on|off>; it is this task's merge authority, not a project lookup" >&2
+    exit 1
+  }
+  case "$MODE" in
+    no-mistakes|direct-PR|local-only) ;;
+    no-mistakes-prod-only)
+      echo "error: no-mistakes-prod-only is a registry policy, not a task mode; classify this task's surface and resolve it to no-mistakes or direct-PR" >&2
+      exit 1 ;;
+    *) echo "error: --mode must be one of no-mistakes, direct-PR, local-only (got '$MODE')" >&2; exit 1 ;;
+  esac
+  case "$YOLO" in
+    on|off) ;;
+    *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
+  esac
+fi
 
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+if [ "$SOL_SPEC_FOR_SET" -eq 1 ]; then
+  fm_task_id_creation_valid "$SOL_SPEC_FOR" || { echo "error: invalid --sol-spec-for task id" >&2; exit 2; }
+  [ "$SOL_SPEC_FOR" != "$ID" ] || {
+    echo "error: --sol-spec-for names the gated ship task, which is never the Sol spec scout itself" >&2
+    exit 1
+  }
+fi
 CONTROL_LOCK="$STATE/.control-$ID.lock"
 CONTROL_LOCK_HELD=0
+TARGET_LOCK=
+TARGET_LOCK_HELD=0
 META_LOCK=
 META_LOCK_HELD=0
 TMP=
@@ -92,6 +135,10 @@ promote_cleanup() {
   if [ "$META_LOCK_HELD" = 1 ]; then
     META_LOCK_HELD=0
     fm_lock_release "$META_LOCK" || true
+  fi
+  if [ "$TARGET_LOCK_HELD" = 1 ]; then
+    TARGET_LOCK_HELD=0
+    fm_lock_release "$TARGET_LOCK" || true
   fi
   if [ "$CONTROL_LOCK_HELD" = 1 ]; then
     CONTROL_LOCK_HELD=0
@@ -108,6 +155,58 @@ CONTROL_LOCK_HELD=1
 "$FM_ROOT/bin/fm-guard.sh" || true
 META="$STATE/$ID.meta"
 [ -d "$STATE" ] || { echo "error: state dir not found: $STATE" >&2; exit 1; }
+HOME_Q=$(printf '%q' "$FM_HOME")
+
+if [ "$SOL_SPEC_FOR_SET" -eq 1 ]; then
+  TARGET_LOCK="$STATE/.control-$SOL_SPEC_FOR.lock"
+  fm_lock_try_acquire "$TARGET_LOCK" || {
+    echo "error: another lifecycle action is already running for task $SOL_SPEC_FOR; nothing was changed" >&2
+    exit 1
+  }
+  TARGET_LOCK_HELD=1
+  TARGET_META="$STATE/$SOL_SPEC_FOR.meta"
+  [ -f "$META" ] || { echo "error: no meta for task $ID at $META" >&2; exit 1; }
+  grep -qx 'kind=scout' "$META" || {
+    echo "error: source task $ID is not a scout task (kind=scout not in meta); --sol-spec-for installs a Sol spec scout's own reviewed deliverable" >&2
+    exit 1
+  }
+  SOURCE_SPEC=$(fm_second_attempt_spec_path "$DATA" "$ID")
+  { [ -f "$SOURCE_SPEC" ] && [ ! -L "$SOURCE_SPEC" ]; } || {
+    echo "error: scout $ID has no Sol spec of its own at $SOURCE_SPEC; only a Sol spec scout that already wrote spec.md can be installed" >&2
+    exit 1
+  }
+  [ -s "$SOURCE_SPEC" ] || { echo "error: the Sol spec at $SOURCE_SPEC is empty; nothing was installed" >&2; exit 1; }
+  [ -f "$TARGET_META" ] || { echo "error: no meta for task $SOL_SPEC_FOR at $TARGET_META" >&2; exit 1; }
+  grep -qx 'kind=ship' "$TARGET_META" || {
+    echo "error: task $SOL_SPEC_FOR is not a ship task (kind=ship not in meta); the second-attempt Sol spec gate applies to ship tasks only" >&2
+    exit 1
+  }
+  TARGET_MARKER=$(fm_second_attempt_nm_third_fix_round_marker "$STATE" "$SOL_SPEC_FOR")
+  if ! fm_second_attempt_meta_had_implementation "$TARGET_META" && [ ! -e "$TARGET_MARKER" ]; then
+    echo "error: ship task $SOL_SPEC_FOR is not gated - it records no implementation attempt and no no-mistakes fix round - so it needs no installed Sol spec" >&2
+    exit 1
+  fi
+  TARGET_SPEC=$(fm_second_attempt_spec_path "$DATA" "$SOL_SPEC_FOR")
+  if [ -e "$TARGET_SPEC" ] || [ -L "$TARGET_SPEC" ]; then
+    if [ -f "$TARGET_SPEC" ] && [ ! -L "$TARGET_SPEC" ] && cmp -s "$SOURCE_SPEC" "$TARGET_SPEC"; then
+      echo "Sol spec for $SOL_SPEC_FOR already installed at $TARGET_SPEC from scout $ID (unchanged)"
+      echo "next: FM_HOME=$HOME_Q bin/fm-control.sh $SOL_SPEC_FOR relaunch --note '<progress so far>'"
+      exit 0
+    fi
+    echo "error: $SOL_SPEC_FOR already has a different Sol spec at $TARGET_SPEC; a reviewed artifact is never overwritten - retire it deliberately first" >&2
+    exit 1
+  fi
+  mkdir -p "$DATA/$SOL_SPEC_FOR" || { echo "error: could not create $DATA/$SOL_SPEC_FOR" >&2; exit 1; }
+  TMP="$DATA/$SOL_SPEC_FOR/.spec.md.install.${BASHPID:-$$}"
+  cat "$SOURCE_SPEC" > "$TMP" || { echo "error: could not stage the Sol spec at $TMP" >&2; exit 1; }
+  mv "$TMP" "$TARGET_SPEC" || { echo "error: could not install the Sol spec at $TARGET_SPEC" >&2; exit 1; }
+  TMP=
+  echo "installed Sol spec for $SOL_SPEC_FOR at $TARGET_SPEC from scout $ID"
+  echo "$ID stays a scout and is torn down normally; $SOL_SPEC_FOR keeps its worktree, branch, commits, and PR"
+  echo "next: FM_HOME=$HOME_Q bin/fm-control.sh $SOL_SPEC_FOR relaunch --note '<progress so far>'"
+  exit 0
+fi
+
 META_LOCK=$(fm_meta_lock_path "$META") || exit 1
 fm_lock_acquire_wait "$META_LOCK"
 META_LOCK_HELD=1
@@ -126,7 +225,6 @@ TMP=
 fm_lock_release "$META_LOCK"
 META_LOCK_HELD=0
 
-HOME_Q=$(printf '%q' "$FM_HOME")
 echo "promoted $ID to ship mode=$MODE yolo=$YOLO (teardown protection restored)"
 echo "next: FM_HOME=$HOME_Q bin/fm-send.sh fm-$ID '<ship instructions for mode=$MODE: review scratch state with git status and git log; reset to a clean default-branch base; carry over only intended fix changes; create branch fm/$ID; implement; report done>'"
 

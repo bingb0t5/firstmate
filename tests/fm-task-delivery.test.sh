@@ -238,6 +238,120 @@ test_promote_requires_and_records_the_delivery_contract() {
   pass "fm-promote: promotion requires the delivery contract and records it exactly once"
 }
 
+# --sol-spec-for promotes the ARTIFACT, not the task: it installs a Sol spec
+# scout's reviewed spec.md for a gated ship task so that task's own relaunch can
+# proceed, instead of starting a fresh implementation task that would strand the
+# gated task's branch, commits, and PR. It fails closed on every leg of that
+# contract and never overwrites a reviewed artifact.
+sol_spec_home() {  # <name> -> <home>
+  local home="$TMP_ROOT/$1/home"
+  mkdir -p "$home/state" "$home/data"
+  printf '%s\n' "$home"
+}
+
+sol_spec_scout() {  # <home> <scout-id> [<spec-body>]
+  local home=$1 id=$2 body=${3:-# Sol spec for the gated task}
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt-%s\n' "$id" "$id" > "$home/state/$id.meta"
+  mkdir -p "$home/data/$id"
+  printf '%s\n' "$body" > "$home/data/$id/spec.md"
+}
+
+sol_spec_gated_ship() {  # <home> <ship-id>
+  local home=$1 id=$2
+  printf 'window=fm-%s\nkind=ship\nworktree=/tmp/wt-%s\nmode=no-mistakes\nyolo=off\nspawn_gen=s1.fixture\n' \
+    "$id" "$id" > "$home/state/$id.meta"
+}
+
+run_promote() {  # <home> <promote-args...>
+  local home=$1
+  shift
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    "$PROMOTE" "$@" 2>&1
+}
+
+test_sol_spec_install_promotes_the_artifact_not_the_task() {
+  local home out status
+  home=$(sol_spec_home sol-spec-install)
+  sol_spec_scout "$home" spec-s1
+  sol_spec_gated_ship "$home" ship-g1
+
+  out=$(run_promote "$home" spec-s1 --sol-spec-for ship-g1); status=$?
+  expect_code 0 "$status" "installing a scout's Sol spec for a gated ship should succeed"$'\n'"$out"
+  cmp -s "$home/data/spec-s1/spec.md" "$home/data/ship-g1/spec.md" \
+    || fail "the installed artifact does not match the scout's reviewed deliverable"
+  assert_grep 'kind=scout' "$home/state/spec-s1.meta" \
+    "the install changed the scout's contract instead of leaving it for normal teardown"
+  assert_grep 'kind=ship' "$home/state/ship-g1.meta" "the install rewrote the gated ship's contract"
+  assert_grep 'spawn_gen=s1.fixture' "$home/state/ship-g1.meta" \
+    "the install disturbed the gated ship's implementation identity"
+  assert_contains "$out" "bin/fm-control.sh ship-g1 relaunch" \
+    "the install did not hand back the gated task's own relaunch"
+
+  out=$(run_promote "$home" spec-s1 --sol-spec-for ship-g1); status=$?
+  expect_code 0 "$status" "re-installing the identical spec should be idempotent"$'\n'"$out"
+  assert_contains "$out" "already installed" "the idempotent re-install did not report the artifact unchanged"
+  pass "fm-promote --sol-spec-for: installs the reviewed spec and leaves both task records intact"
+}
+
+test_sol_spec_install_never_overwrites_a_different_spec() {
+  local home out status
+  home=$(sol_spec_home sol-spec-overwrite)
+  sol_spec_scout "$home" spec-s2 "# Sol spec: second opinion"
+  sol_spec_gated_ship "$home" ship-g2
+  mkdir -p "$home/data/ship-g2"
+  printf '# Sol spec: the reviewed original\n' > "$home/data/ship-g2/spec.md"
+
+  out=$(run_promote "$home" spec-s2 --sol-spec-for ship-g2); status=$?
+  [ "$status" -ne 0 ] || fail "installing over a different reviewed spec should refuse"
+  assert_contains "$out" "already has a different Sol spec" \
+    "the refusal did not name the conflicting artifact"
+  [ "$(cat "$home/data/ship-g2/spec.md")" = "# Sol spec: the reviewed original" ] \
+    || fail "a refused install still modified the existing reviewed spec"
+  pass "fm-promote --sol-spec-for: a differing existing spec is refused, not overwritten"
+}
+
+test_sol_spec_install_fails_closed_on_every_leg_of_the_contract() {
+  local home out status
+  home=$(sol_spec_home sol-spec-failclosed)
+  sol_spec_scout "$home" spec-s3
+  sol_spec_gated_ship "$home" ship-g3
+
+  out=$(run_promote "$home" spec-s3 --sol-spec-for ship-g3 --mode direct-PR --yolo on); status=$?
+  [ "$status" -ne 0 ] || fail "--sol-spec-for with a delivery contract should refuse"
+  assert_contains "$out" "drop --mode and --yolo" "the refusal did not reject the meaningless delivery contract"
+  assert_absent "$home/data/ship-g3/spec.md" "a refused install still wrote the artifact"
+
+  out=$(run_promote "$home" spec-s3 --sol-spec-for spec-s3); status=$?
+  [ "$status" -ne 0 ] || fail "a scout installing for itself should refuse"
+  assert_contains "$out" "never the Sol spec scout itself" "the self-install refusal was not explained"
+
+  printf 'window=fm-noscout\nkind=ship\nworktree=/tmp/wt-noscout\n' > "$home/state/noscout.meta"
+  mkdir -p "$home/data/noscout"
+  printf '# Sol spec\n' > "$home/data/noscout/spec.md"
+  out=$(run_promote "$home" noscout --sol-spec-for ship-g3); status=$?
+  [ "$status" -ne 0 ] || fail "a non-scout source should refuse"
+  assert_contains "$out" "is not a scout task" "the non-scout source refusal did not name the contract"
+
+  printf 'window=fm-bare\nkind=scout\nworktree=/tmp/wt-bare\n' > "$home/state/bare-s.meta"
+  out=$(run_promote "$home" bare-s --sol-spec-for ship-g3); status=$?
+  [ "$status" -ne 0 ] || fail "a scout with no spec.md should refuse"
+  assert_contains "$out" "has no Sol spec of its own" "the missing-source-spec refusal did not name the artifact"
+
+  printf 'window=fm-scoutt\nkind=scout\nworktree=/tmp/wt-scoutt\n' > "$home/state/scout-t.meta"
+  out=$(run_promote "$home" spec-s3 --sol-spec-for scout-t); status=$?
+  [ "$status" -ne 0 ] || fail "a scout target should refuse"
+  assert_contains "$out" "is not a ship task" "the non-ship target refusal did not name the gate's scope"
+
+  printf 'window=fm-fresh\nkind=ship\nworktree=/tmp/wt-fresh\n' > "$home/state/fresh-g.meta"
+  out=$(run_promote "$home" spec-s3 --sol-spec-for fresh-g); status=$?
+  [ "$status" -ne 0 ] || fail "an ungated ship target should refuse"
+  assert_contains "$out" "is not gated" "the ungated-target refusal did not say why no spec is needed"
+  assert_absent "$home/data/fresh-g/spec.md" "a refused install still wrote the artifact"
+
+  assert_absent "$home/data/ship-g3/spec.md" "one of the refused installs still wrote the artifact"
+  pass "fm-promote --sol-spec-for: every unverified source, target, or flag combination refuses without writing"
+}
+
 # The registry parser survives for the mechanical consumers only. It accepts the
 # conditional policy, maps it to its most rigorous leg for them, and exposes the
 # raw annotation for the one caller that must tell a policy from a flat mode.
@@ -278,5 +392,8 @@ test_spawn_refuses_a_brief_mode_mismatch
 test_spawn_notices_a_rigor_downgrade_against_the_registry
 test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
+test_sol_spec_install_promotes_the_artifact_not_the_task
+test_sol_spec_install_never_overwrites_a_different_spec
+test_sol_spec_install_fails_closed_on_every_leg_of_the_contract
 test_project_mode_maps_the_conditional_policy
 echo "# all fm-task-delivery tests passed"
