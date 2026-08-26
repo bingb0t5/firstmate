@@ -249,11 +249,24 @@ sol_spec_home() {  # <name> -> <home>
   printf '%s\n' "$home"
 }
 
+# A Sol spec scout is one fm-brief.sh --scout --sol-spec commissioned, which is
+# recorded by the declared-artifact marker; the spec file alone does not make one.
 sol_spec_scout() {  # <home> <scout-id> [<spec-body>]
   local home=$1 id=$2 body=${3:-# Sol spec for the gated task}
   printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt-%s\n' "$id" "$id" > "$home/state/$id.meta"
   mkdir -p "$home/data/$id"
   printf '%s\n' "$body" > "$home/data/$id/spec.md"
+  printf 'spec.md\n' > "$home/data/$id/.deliverable"
+}
+
+# An ordinary scout: its deliverable is report.md, and any spec.md it leaves
+# behind is scratch from its own investigation.
+ordinary_scout_with_stray_spec() {  # <home> <scout-id>
+  local home=$1 id=$2
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt-%s\n' "$id" "$id" > "$home/state/$id.meta"
+  mkdir -p "$home/data/$id"
+  printf '# Investigation report\n' > "$home/data/$id/report.md"
+  printf '# scratch notes that were never a reviewed Sol spec\n' > "$home/data/$id/spec.md"
 }
 
 sol_spec_gated_ship() {  # <home> <ship-id>
@@ -316,6 +329,30 @@ test_sol_spec_install_retry_completes_a_missing_declaration() {
   pass "fm-promote --sol-spec-for: an idempotent retry converges on the declared artifact"
 }
 
+# The gate is fail-closed, so what clears it must be an artifact somebody
+# commissioned as a Sol spec - not whatever file happens to be named spec.md in
+# an ordinary scout's scratch worktree.
+test_sol_spec_install_requires_a_commissioned_sol_spec_scout() {
+  local home out status
+  home=$(sol_spec_home sol-spec-undeclared)
+  ordinary_scout_with_stray_spec "$home" scratch-s1
+  sol_spec_gated_ship "$home" ship-g5
+
+  out=$(run_promote "$home" scratch-s1 --sol-spec-for ship-g5); status=$?
+  [ "$status" -ne 0 ] || fail "an ordinary scout's stray spec.md was installed as a Sol spec"
+  assert_contains "$out" "was not commissioned as a Sol spec scout" \
+    "the refusal did not say the source scout declares no Sol spec deliverable"
+  assert_absent "$home/data/ship-g5/spec.md" "a refused install still wrote the gated ship's spec"
+  assert_absent "$home/data/ship-g5/.deliverable" "a refused install still declared an artifact"
+
+  printf 'spec.md\n' > "$home/data/scratch-s1/.deliverable"
+  out=$(run_promote "$home" scratch-s1 --sol-spec-for ship-g5); status=$?
+  expect_code 0 "$status" "a declared Sol spec scout should install normally"$'\n'"$out"
+  cmp -s "$home/data/scratch-s1/spec.md" "$home/data/ship-g5/spec.md" \
+    || fail "the declared install did not place the scout's own spec"
+  pass "fm-promote --sol-spec-for: only a commissioned Sol spec scout's declared spec can be installed"
+}
+
 test_sol_spec_install_never_overwrites_a_different_spec() {
   local home out status
   home=$(sol_spec_home sol-spec-overwrite)
@@ -356,8 +393,10 @@ test_sol_spec_install_fails_closed_on_every_leg_of_the_contract() {
   assert_contains "$out" "is not a scout task" "the non-scout source refusal did not name the contract"
 
   printf 'window=fm-bare\nkind=scout\nworktree=/tmp/wt-bare\n' > "$home/state/bare-s.meta"
+  mkdir -p "$home/data/bare-s"
+  printf 'spec.md\n' > "$home/data/bare-s/.deliverable"
   out=$(run_promote "$home" bare-s --sol-spec-for ship-g3); status=$?
-  [ "$status" -ne 0 ] || fail "a scout with no spec.md should refuse"
+  [ "$status" -ne 0 ] || fail "a commissioned Sol spec scout that has not written its spec should refuse"
   assert_contains "$out" "has no Sol spec of its own" "the missing-source-spec refusal did not name the artifact"
 
   printf 'window=fm-scoutt\nkind=scout\nworktree=/tmp/wt-scoutt\n' > "$home/state/scout-t.meta"
@@ -417,6 +456,7 @@ test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
 test_sol_spec_install_promotes_the_artifact_not_the_task
 test_sol_spec_install_retry_completes_a_missing_declaration
+test_sol_spec_install_requires_a_commissioned_sol_spec_scout
 test_sol_spec_install_never_overwrites_a_different_spec
 test_sol_spec_install_fails_closed_on_every_leg_of_the_contract
 test_project_mode_maps_the_conditional_policy

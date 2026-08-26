@@ -24,10 +24,13 @@
 # delivery contract and rewrites no meta: the scout stays kind=scout and is torn
 # down normally, the gated ship keeps its endpoint and implementation identity,
 # and the operator simply repeats the refused relaunch through the existing gate.
-# It fails closed before touching anything - the source must be a scout carrying
-# its own non-empty spec.md, the target must be a ship task that is actually
-# gated, and an existing target spec that differs is refused rather than
-# overwritten - and the install itself is an atomic same-directory rename.
+# It fails closed before touching anything - the source must be a scout that was
+# COMMISSIONED as a Sol spec scout, proven by its declared spec.md deliverable
+# (bin/fm-scout-artifact-lib.sh) and not by the mere presence of a file, so an
+# ordinary scout's scratch spec.md can never clear the gate; it must carry that
+# non-empty spec.md; the target must be a ship task that is actually gated; and
+# an existing target spec that differs is refused rather than overwritten. The
+# install itself is an atomic same-directory rename.
 # Usage: fm-promote.sh <task-id> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off>
 #        fm-promote.sh <sol-spec-scout-id> --sol-spec-for <gated-ship-task-id>
 set -eu
@@ -180,6 +183,10 @@ if [ "$SOL_SPEC_FOR_SET" -eq 1 ]; then
   [ -f "$META" ] || { echo "error: no meta for task $ID at $META" >&2; exit 1; }
   grep -qx 'kind=scout' "$META" || {
     echo "error: source task $ID is not a scout task (kind=scout not in meta); --sol-spec-for installs a Sol spec scout's own reviewed deliverable" >&2
+    exit 1
+  }
+  [ "$(fm_scout_deliverable_name "$DATA" "$ID")" = spec.md ] || {
+    echo "error: scout $ID was not commissioned as a Sol spec scout - it declares no spec.md deliverable in $(fm_scout_deliverable_marker "$DATA" "$ID"); commission one with fm-brief.sh <new-scout-id> <repo> --scout --sol-spec rather than installing another scout's scratch file" >&2
     exit 1
   }
   SOURCE_SPEC=$(fm_second_attempt_spec_path "$DATA" "$ID")
