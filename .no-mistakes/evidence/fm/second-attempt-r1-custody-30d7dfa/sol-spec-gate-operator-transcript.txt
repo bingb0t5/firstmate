@@ -1,0 +1,118 @@
+
+============================================================
+1. First fm-spawn of a ship task, no Sol spec anywhere -> succeeds
+============================================================
+Sol spec present anywhere under data/? no - none
+
+$ fm-spawn.sh ship-a1 <project> codex --mode no-mistakes --yolo off
+warning: /tmp/fm-second-attempt.c5gJxO/first/home/data/ship-a1/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned ship-a1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-ship-a1 worktree=/tmp/fm-second-attempt.c5gJxO/first/pane
+[exit 0]
+
+============================================================
+2. fm-control relaunch of a ship that already had an attempt -> REFUSES
+============================================================
+
+$ fm-control.sh sa1 relaunch --note 'try again'
+error: relaunch of ship task sa1 refused - no Sol spec at /tmp/fm-second-attempt.c5gJxO/demo-refuse-10605/home/data/sa1/spec.md; commission a Sol spec scout under a fresh task id (fm-brief.sh <new-scout-id> <repo> --scout --sol-spec), let that scout write its own data/<new-scout-id>/spec.md, then install it for this task with fm-promote.sh <new-scout-id> --sol-spec-for sa1 and repeat this action; sa1 keeps its worktree, branch, commits, and PR, do not treat report.md as the spec and do not guess a model
+[exit 1]
+
+-- operator-visible side effects --
+running agent in the pane: claude
+lifecycle keystrokes sent to the pane: (none - no replacement worker was started)
+
+============================================================
+3. The SAME relaunch once data/sa1/spec.md exists -> proceeds
+============================================================
+
+$ cat data/sa1/spec.md
+# Sol spec
+
+Implementation constraints for sa1.
+
+$ fm-control.sh sa1 relaunch --note 'continue with the Sol spec'
+relaunched sa1 harness=claude from=claude model=default effort=default backend=tmux endpoint=fmses:fm-sa1 worktree=/tmp/fm-second-attempt.c5gJxO/demo-refuse-10605/wt
+[exit 0]
+
+============================================================
+4. Replacement worker (fm-spawn --relaunch) without a spec -> REFUSES
+============================================================
+
+$ fm-spawn.sh sa3 --relaunch
+error: replacement spawn for ship task sa3 refused - no Sol spec at /tmp/fm-second-attempt.c5gJxO/demo-spawn-15479/home/data/sa3/spec.md; commission a Sol spec scout under a fresh task id (fm-brief.sh <new-scout-id> <repo> --scout --sol-spec), let that scout write its own data/<new-scout-id>/spec.md, then install it for this task with fm-promote.sh <new-scout-id> --sol-spec-for sa3 and repeat this action; sa3 keeps its worktree, branch, commits, and PR, do not treat report.md as the spec and do not guess a model
+[exit 1]
+
+============================================================
+5. --secondmate task relaunch -> gate does not apply (fails later, agent-free check)
+============================================================
+
+$ fm-spawn.sh sa4 --relaunch   # kind=secondmate
+error: task sa4's endpoint reads 'alive'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh sa4 exit)
+[exit 1]
+
+mentions the Sol spec gate? no - exempt
+
+============================================================
+6. Attributed no-mistakes run in auto-fix round 3/9 -> marker written, relaunch REFUSES by name
+============================================================
+
+$ no-mistakes status   # what the gate reads for this task's branch
+run:
+  id: fixture-run
+  branch: task-sa11
+  status: fixing
+  head: ef6e863
+  active_steps[1]{step,status,active_for,last_activity,agent_pid,round}:
+    review,fixing,1s,now,123,auto-fix 3/9
+
+marker file before relaunch: (absent)
+
+$ fm-control.sh sa11 relaunch --note 'try again'
+error: ship task sa11 reached no-mistakes fix round 3 without a Sol spec at /tmp/fm-second-attempt.c5gJxO/demo-round-25925/home/data/sa11/spec.md; commission a Sol spec scout under a fresh task id (fm-brief.sh <new-scout-id> <repo> --scout --sol-spec), let that scout write its own data/<new-scout-id>/spec.md, then install it for this task with fm-promote.sh <new-scout-id> --sol-spec-for sa11 and repeat this action; sa11 keeps its worktree, branch, commits, and PR, do not treat report.md as the spec and do not guess a model
+[exit 1]
+
+marker file after relaunch: state/sa11.nm-third-fix-round = 3   (round, not the 9 retry limit)
+
+============================================================
+7. Documented recovery: scout + promote installs the Sol spec, gated relaunch then proceeds
+============================================================
+
+$ fm-control.sh sa15 relaunch --note 'try again'
+error: relaunch of ship task sa15 refused - no Sol spec at /tmp/fm-second-attempt.c5gJxO/demo-install-5082/home/data/sa15/spec.md; commission a Sol spec scout under a fresh task id (fm-brief.sh <new-scout-id> <repo> --scout --sol-spec), let that scout write its own data/<new-scout-id>/spec.md, then install it for this task with fm-promote.sh <new-scout-id> --sol-spec-for sa15 and repeat this action; sa15 keeps its worktree, branch, commits, and PR, do not treat report.md as the spec and do not guess a model
+[exit 1]
+
+(the operator commissions scout sa15-spec, which delivers its declared spec.md)
+
+$ fm-promote.sh sa15-spec --sol-spec-for sa15
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+installed Sol spec for sa15 at /tmp/fm-second-attempt.c5gJxO/demo-install-5082/home/data/sa15/spec.md from scout sa15-spec
+sa15-spec stays a scout and is torn down normally; sa15 keeps its worktree, branch, commits, and PR
+next: FM_HOME=/tmp/fm-second-attempt.c5gJxO/demo-install-5082/home bin/fm-control.sh sa15 relaunch --note '<progress so far>'
+[exit 0]
+
+$ fm-control.sh sa15 relaunch --note 'continue with the Sol spec'
+relaunched sa15 harness=claude from=claude model=default effort=default backend=tmux endpoint=fmses:fm-sa15 worktree=/tmp/fm-second-attempt.c5gJxO/demo-install-5082/wt
+[exit 0]
+
+============================================================
+8. An ordinary scout with a stray spec.md (no declared deliverable) -> install REFUSES
+============================================================
+
+$ fm-promote.sh sa16-scout --sol-spec-for sa16   # scout never declared spec.md
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: scout sa16-scout was not commissioned as a Sol spec scout - it declares no spec.md deliverable in /tmp/fm-second-attempt.c5gJxO/demo-stray-25414/home/data/sa16-scout/.deliverable; commission one with fm-brief.sh <new-scout-id> <repo> --scout --sol-spec rather than installing another scout's scratch file
+[exit 1]
+
+=== end of transcript ===
