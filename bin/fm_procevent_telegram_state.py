@@ -2839,14 +2839,6 @@ def verify_resolved_evidence(
             raise UserError("resolved legacy payload evidence changed")
 
 
-def safe_resolution_detail(state: Path, error: BaseException) -> str:
-    text = relative_to_state(state, str(error))
-    text = FOREIGN_PATH_RE.sub("<path>", text)
-    text = CONTROL_BYTE_RE.sub("?", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:240] or error.__class__.__name__
-
-
 def command_doctor(state: Path) -> int:
     try:
         conn = connect_existing(state)
@@ -2893,7 +2885,7 @@ def command_doctor(state: Path) -> int:
                 print("migration_resolution=unavailable")
                 print(
                     "migration_resolution_detail=%s"
-                    % safe_resolution_detail(state, exc)
+                    % migration_cause_text(state, exc)
                 )
         elif meta[5] == "complete":
             extension = validate_resolution_extension(conn, meta[5])
@@ -2916,7 +2908,7 @@ def command_doctor(state: Path) -> int:
                     print("migration_resolution_evidence=unavailable")
                     print(
                         "migration_resolution_detail=%s"
-                        % safe_resolution_detail(state, exc)
+                        % migration_cause_text(state, exc)
                     )
         print(
             "pending_notices=%d"

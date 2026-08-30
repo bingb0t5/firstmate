@@ -1760,6 +1760,58 @@ run_resolution "$H_DRIFT" >/dev/null 2>&1 || drift_resolve_status=$?
   || fail "resolve-migration accepted drifted preserved legacy evidence"
 pass "doctor still reports the committed resolution when preserved legacy copies drift"
 
+fixture resolution-resume \
+  '{"ok":true,"result":[{"update_id":6001,"message":{"date":9,"chat":{"id":555},"from":{"id":909},"text":"resumed"}}]}'
+H_RESUME="$TMP_ROOT/resolve-parked-resume"
+RESUME_ENV="$TMP_ROOT/resolve-parked-resume.env"
+seed_resolution_home "$H_RESUME" "$RESUME_ENV"
+resume_notice=$(poll_once "$H_RESUME" "$RESUME_ENV" "$FIXTURES/empty.json")
+assert_contains "$resume_notice" "blocked: migration-blocked" \
+  "the resume fixture did not announce its blocked migration"
+ack_result "$H_RESUME" "$RESUME_ENV" "$resume_notice" >/dev/null \
+  || fail "the resume fixture could not acknowledge its blocked-migration notice"
+resume_poll_file="$TMP_ROOT/resolve-parked-resume.out"
+clear_curl_calls
+CURL_STUB_BODY="$FIXTURES/resolution-resume.json" CURL_STUB_HTTP=200 \
+  FM_TELEGRAM_POLL_TIMEOUT=1 FM_HOME="$H_RESUME" FM_TELEGRAM_ENV_FILE="$RESUME_ENV" \
+  "$ADAPTER" poll >"$resume_poll_file" 2>&1 &
+resume_pid=$!
+sleep 3
+kill -0 "$resume_pid" 2>/dev/null \
+  || fail "the acknowledged blocked migration did not park its poll before resolution"
+[ ! -s "$resume_poll_file" ] || fail "a parked blocked migration emitted a result before resolution"
+assert_no_curl "a parked blocked migration called Telegram before resolution"
+run_resolution "$H_RESUME" >/dev/null || fail "the parked home could not be resolved"
+resume_deadline=$((SECONDS + 30))
+while kill -0 "$resume_pid" 2>/dev/null; do
+  if [ "$SECONDS" -ge "$resume_deadline" ]; then
+    kill "$resume_pid" 2>/dev/null || true
+    fail "the parked poll never resumed after the resolution transaction became visible"
+  fi
+  sleep 0.2
+done
+resume_status=0
+wait "$resume_pid" || resume_status=$?
+assert_equal "$resume_status" 0 "the resumed poll did not exit with a delivered result"
+resume_out=$(cat "$resume_poll_file")
+assert_contains "$resume_out" "message: 1" \
+  "the parked poll did not resume normal polling after resolution"
+assert_equal "$(printf '%s\n' "$resume_out" | grep -c '^message: ')" 1 \
+  "the resumed poll emitted more than one result"
+[ -s "$CURL_CALLS" ] || fail "the resumed poll delivered a message without calling Telegram"
+assert_equal "$(db_query "$H_RESUME" "SELECT count(*) FROM notices WHERE acknowledged_at IS NULL")" 1 \
+  "the resumed poll did not publish exactly one pending notice"
+ack_result "$H_RESUME" "$RESUME_ENV" "$resume_out" >/dev/null \
+  || fail "the resumed poll's result could not be acknowledged"
+assert_equal "$(db_query "$H_RESUME" "SELECT committed_offset FROM meta")" 6002 \
+  "the resumed poll did not advance the offset past its delivered message"
+assert_equal "$(db_query "$H_RESUME" "SELECT migration_status FROM meta")" complete \
+  "the resumed parked poll did not observe the committed resolution"
+assert_equal "$(db_query "$H_RESUME" "SELECT count(*) FROM migration_resolution_payloads")" 2 \
+  "the resumed parked poll did not keep one proof row per blocker"
+pass "a parked blocked poll resumes normal polling exactly once after the resolution commits"
+
+
 
 H_CAUSE="$TMP_ROOT/migrate-blocked-cause"
 CAUSE_ENV="$TMP_ROOT/migrate-blocked-cause.env"
