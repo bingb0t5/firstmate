@@ -1615,7 +1615,151 @@ resolution_replay=$(poll_once "$H_RESOLVE" "$RESOLVE_ENV" "$FIXTURES/resolution-
 [ -z "$resolution_replay" ] || fail "an acknowledged historical replay produced a message result"
 assert_equal "$(db_query "$H_RESOLVE" "SELECT count(*) FROM notices WHERE kind = 'message'")" 0 \
   "an acknowledged historical replay created a message notice"
+fixture resolution-new-message \
+  '{"ok":true,"result":[{"update_id":5001,"message":{"date":9,"chat":{"id":555},"from":{"id":909},"text":"post resolution"}}]}'
+clear_curl_calls
+resolution_new=$(poll_once "$H_RESOLVE" "$RESOLVE_ENV" "$FIXTURES/resolution-new-message.json")
+assert_contains "$resolution_new" "message: 1" \
+  "a resolved channel did not deliver a genuinely new captain message"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT count(*) FROM notices WHERE acknowledged_at IS NULL")" 1 \
+  "a resolved channel did not publish one pending notice for the new message"
+ack_result "$H_RESOLVE" "$RESOLVE_ENV" "$resolution_new" >/dev/null \
+  || fail "a resolved channel could not acknowledge a new captain message"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT count(*) FROM notices WHERE acknowledged_at IS NULL")" 0 \
+  "the new-message notice stayed pending after acknowledgement"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT committed_offset FROM meta")" 5002 \
+  "a resolved channel did not advance its offset past the new message"
+assert_contains "$(FM_HOME="$H_RESOLVE" "$ADAPTER" doctor)" "integrity=ok" \
+  "ordinary traffic after resolution invalidated the store"
+resolution_after_new=$(poll_once "$H_RESOLVE" "$RESOLVE_ENV" "$FIXTURES/empty.json") || true
+assert_equal "$resolution_after_new" "" "a resolved channel stopped polling after ordinary traffic"
+pass "a resolved channel keeps delivering and acknowledging ordinary captain traffic"
+
 pass "resolution proves exact archived payloads, commits tombstones atomically, and retries idempotently"
+
+seed_resolution_home() {
+  local home=$1 env_file=$2 id status=0 doctor line path digest
+  new_home "$home"
+  write_env_file "$env_file" "$TOKEN"
+  printf '0\n' > "$home/state/.telegram-offset"
+  mkdir -p "$home/state/telegram-inbox"
+  for id in 3101 3102; do
+    printf '{"update_id":%s,"date":1,"chat_id":555,"text":"historical"}\n' "$id" \
+      > "$home/state/telegram-inbox/$id.json"
+  done
+  FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate >/dev/null 2>&1 \
+    || status=$?
+  [ "$status" -ne 0 ] || fail "resolution crash fixture did not create a blocked migration"
+  doctor=$(FM_HOME="$home" "$ADAPTER" doctor)
+  RESOLUTION_FINGERPRINT=$(printf '%s\n' "$doctor" | sed -n 's/^migration_fingerprint=//p')
+  RESOLUTION_MANIFEST=$(printf '%s\n' "$doctor" \
+    | sed -n 's/^migration_resolution_manifest_sha256=//p')
+  RESOLUTION_ARGS=()
+  while IFS= read -r line; do
+    path=$(printf '%s' "$line" | cut -d= -f2 | cut -d' ' -f1)
+    digest=$(printf '%s' "$line" | sed -n 's/.* sha256=\([^ ]*\).*/\1/p')
+    RESOLUTION_ARGS+=(--acknowledge-delivered "$path=sha256:$digest")
+  done < <(printf '%s\n' "$doctor" | grep '^migration_resolution_blocker\.')
+  [ "${#RESOLUTION_ARGS[@]}" -eq 4 ] \
+    || fail "resolution crash fixture did not derive both blockers"
+}
+
+run_resolution() {
+  local home=$1
+  FM_HOME="$home" "$ADAPTER" resolve-migration \
+    --blocked-fingerprint "$RESOLUTION_FINGERPRINT" \
+    --archive-manifest-sha256 "$RESOLUTION_MANIFEST" "${RESOLUTION_ARGS[@]}"
+}
+
+assert_resolution_committed() {
+  local home=$1 case_name=$2
+  assert_equal "$(db_query "$home" "SELECT migration_status FROM meta")" complete \
+    "$case_name did not converge to a resolved cutover"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM migration_resolution_payloads")" 2 \
+    "$case_name did not converge to one proof row per blocker"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM messages WHERE payload IS NULL")" 2 \
+    "$case_name did not converge to one tombstone per blocker"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM notices WHERE acknowledged_at IS NULL")" 0 \
+    "$case_name left the migration notice pending"
+  assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 0 \
+    "$case_name advanced the offset from an acknowledged update id"
+  assert_contains "$(FM_HOME="$home" "$ADAPTER" doctor)" \
+    "migration_resolution=operator-acknowledged-delivery" \
+    "$case_name did not converge to a provable resolution"
+}
+
+resolution_crash_case() {
+  local point=$1 committed=$2
+  local home="$TMP_ROOT/resolve-crash-$point" env_file="$TMP_ROOT/resolve-crash-$point.env"
+  seed_resolution_home "$home" "$env_file"
+  local archive_rel archive manifest_before status=0 recovered
+  archive_rel=$(db_query "$home" "SELECT migration_archive FROM meta")
+  archive="$home/state/$archive_rel"
+  manifest_before=$(sha256sum "$archive/manifest.json" | cut -d' ' -f1)
+  FM_TELEGRAM_FAILPOINT="$point" run_resolution "$home" >/dev/null 2>&1 || status=$?
+  assert_equal "$status" 91 "$point did not stop at its resolution crash boundary"
+  assert_contains "$(FM_HOME="$home" "$ADAPTER" doctor)" "integrity=ok" \
+    "$point left an invalid database behind"
+  if [ "$committed" = uncommitted ]; then
+    assert_equal "$(db_query "$home" "SELECT migration_status FROM meta")" blocked \
+      "$point published a resolved cutover past its transaction boundary"
+    assert_equal "$(db_query "$home" "SELECT count(*) FROM sqlite_master WHERE name LIKE 'migration_resolution%'")" 0 \
+      "$point exposed partial resolution proof tables"
+    assert_equal "$(db_query "$home" "SELECT count(*) FROM messages")" 0 \
+      "$point exposed a partial tombstone"
+    assert_equal "$(db_query "$home" "SELECT count(*) FROM notices WHERE acknowledged_at IS NULL")" 1 \
+      "$point acknowledged the migration notice past its transaction boundary"
+    recovered=$(run_resolution "$home")
+    assert_contains "$recovered" "resolved: migration fingerprint=" \
+      "$point could not be recovered by rerunning resolve-migration"
+  else
+    recovered=$(run_resolution "$home")
+    assert_contains "$recovered" "already-resolved:" \
+      "$point did not expose its durable resolution to an exact retry"
+  fi
+  assert_resolution_committed "$home" "$point"
+  assert_equal "$(sha256sum "$archive/manifest.json" | cut -d' ' -f1)" "$manifest_before" \
+    "$point changed the sealed archive manifest"
+  assert_present "$home/state/telegram-inbox/3101.json" \
+    "$point destroyed the preserved legacy bytes"
+}
+
+resolution_crash_case after_resolution_ddl uncommitted
+resolution_crash_case after_resolution_ack uncommitted
+resolution_crash_case after_resolution_tombstone uncommitted
+resolution_crash_case after_resolution_plan uncommitted
+resolution_crash_case after_resolution_meta uncommitted
+resolution_crash_case before_resolution_commit uncommitted
+resolution_crash_case after_resolution_commit committed
+pass "a crash at any resolution boundary leaves the store valid and reruns to one complete resolution"
+
+H_DRIFT="$TMP_ROOT/resolve-evidence-drift"
+DRIFT_ENV="$TMP_ROOT/resolve-evidence-drift.env"
+seed_resolution_home "$H_DRIFT" "$DRIFT_ENV"
+run_resolution "$H_DRIFT" >/dev/null || fail "the drift fixture could not be resolved"
+rm -f "$H_DRIFT/state/telegram-inbox/3101.json"
+drift_status=0
+drift_doctor=$(FM_HOME="$H_DRIFT" "$ADAPTER" doctor) || drift_status=$?
+assert_equal "$drift_status" 0 "doctor refused to report on drifted resolution evidence"
+assert_contains "$drift_doctor" "migration_resolution=operator-acknowledged-delivery" \
+  "doctor dropped the committed resolution proof when preserved copies drifted"
+assert_contains "$drift_doctor" "migration_resolution_evidence=unavailable" \
+  "doctor did not report that the preserved legacy evidence is unavailable"
+assert_contains "$drift_doctor" "migration_resolution_detail=" \
+  "doctor reported unavailable evidence without a bounded reason"
+assert_contains "$drift_doctor" "pending_notices=0" \
+  "doctor stopped before its notice report"
+assert_contains "$drift_doctor" "journal_mode=" \
+  "doctor stopped before its durability report"
+case "$drift_doctor" in
+  *"$H_DRIFT"*) fail "doctor leaked an absolute home path in its unavailable reason" ;;
+esac
+drift_resolve_status=0
+run_resolution "$H_DRIFT" >/dev/null 2>&1 || drift_resolve_status=$?
+[ "$drift_resolve_status" -ne 0 ] \
+  || fail "resolve-migration accepted drifted preserved legacy evidence"
+pass "doctor still reports the committed resolution when preserved legacy copies drift"
+
 
 H_CAUSE="$TMP_ROOT/migrate-blocked-cause"
 CAUSE_ENV="$TMP_ROOT/migrate-blocked-cause.env"

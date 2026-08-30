@@ -481,9 +481,12 @@ def validate_resolution_extension(
     if type(payload_count) is not int or payload_count <= 0:
         raise LocalStateError("resolution-count", repr(payload_count))
     if conn.execute(
-        "SELECT COUNT(*) FROM notices WHERE acknowledged_at IS NULL"
+        "SELECT COUNT(*) FROM notices "
+        "WHERE kind = 'migration-blocked' AND acknowledged_at IS NULL"
     ).fetchone()[0] != 0:
-        raise LocalStateError("resolution-notices", "resolved proof has pending notices")
+        raise LocalStateError(
+            "resolution-notices", "resolved proof has a pending migration notice"
+        )
     payloads = conn.execute(
         "SELECT path, update_id, sha256, size, resolution "
         "FROM migration_resolution_payloads ORDER BY path"
@@ -2075,8 +2078,6 @@ def resolution_payload(path: Path) -> int:
         raise UserError("legacy payload has no usable text")
     if type(data.get("date")) is not int or type(data.get("chat_id")) is not int:
         raise UserError("legacy payload has unsupported identity or date ambiguity")
-    if "from_id" in data and type(data["from_id"]) is not int:
-        raise UserError("legacy payload has malformed sender identity")
     if "from_id" in data:
         raise UserError("legacy payload is not the supported sender-identity gap")
     return update_id
@@ -2146,7 +2147,6 @@ def resolution_evidence(state: Path, conn: sqlite3.Connection) -> ResolutionEvid
     archive_state = archive / "state"
     payloads = resolution_payloads(archive_state)
     for payload in payloads:
-        archived = archive_state / payload.path
         source = state / payload.path
         try:
             source_info = source.lstat()
@@ -2154,8 +2154,6 @@ def resolution_evidence(state: Path, conn: sqlite3.Connection) -> ResolutionEvid
                 raise UserError("preserved legacy source is not a regular file: %s" % payload.path)
             if source_info.st_size != payload.size or hash_regular_file(source) != payload.sha256:
                 raise UserError("preserved legacy source changed: %s" % payload.path)
-            if hash_regular_file(archived) != payload.sha256:
-                raise UserError("archived legacy payload changed: %s" % payload.path)
         except OSError as exc:
             raise UserError("preserved legacy source is unavailable: %s" % exc)
     offset = parse_legacy_offset(archive_state)
@@ -2687,21 +2685,7 @@ def command_resolve_migration(
                 (item.path, item.sha256) for item in stored_rows
             ]:
                 raise UserError("changed resolution intent refuses an already resolved migration")
-            archive, actual_manifest, _ = resolution_archive(state, meta[2])
-            if actual_manifest != stored_manifest:
-                raise UserError("resolved migration archive manifest changed")
-            for item in stored_rows:
-                source = state / item.path
-                archived = archive / "state" / item.path
-                if (
-                    not source.is_file()
-                    or source.is_symlink()
-                    or hash_regular_file(source) != item.sha256
-                    or archived.is_symlink()
-                    or not archived.is_file()
-                    or hash_regular_file(archived) != item.sha256
-                ):
-                    raise UserError("resolved legacy payload evidence changed")
+            verify_resolved_evidence(state, meta[2], stored_manifest, stored_rows)
             print(
                 "already-resolved: migration fingerprint=%s acknowledged-delivered=%d "
                 "offset=%d archive=%s"
@@ -2830,6 +2814,31 @@ def command_resolve_migration(
         conn.close()
 
 
+def verify_resolved_evidence(
+    state: Path,
+    archive_relative: str,
+    manifest_digest: str,
+    rows: Sequence[ResolutionPayload],
+) -> None:
+    archive, actual_digest, _ = resolution_archive(state, archive_relative)
+    if actual_digest != manifest_digest:
+        raise UserError("resolved migration archive manifest changed")
+    for item in rows:
+        source = state / item.path
+        archived = archive / "state" / item.path
+        if (
+            source.is_symlink()
+            or not source.is_file()
+            or archived.is_symlink()
+            or not archived.is_file()
+            or source.stat().st_size != item.size
+            or hash_regular_file(source) != item.sha256
+            or archived.stat().st_size != item.size
+            or hash_regular_file(archived) != item.sha256
+        ):
+            raise UserError("resolved legacy payload evidence changed")
+
+
 def safe_resolution_detail(state: Path, error: BaseException) -> str:
     text = relative_to_state(state, str(error))
     text = FOREIGN_PATH_RE.sub("<path>", text)
@@ -2890,24 +2899,7 @@ def command_doctor(state: Path) -> int:
             extension = validate_resolution_extension(conn, meta[5])
             if extension is not None:
                 fingerprint, digest, resolved_at, count = extension
-                archive, actual_digest, _ = resolution_archive(state, meta[6])
-                if actual_digest != digest:
-                    raise UserError("resolved migration archive manifest changed")
                 rows = resolution_rows(conn)
-                for item in rows:
-                    source = state / item.path
-                    archived = archive / "state" / item.path
-                    if (
-                        source.is_symlink()
-                        or not source.is_file()
-                        or archived.is_symlink()
-                        or not archived.is_file()
-                        or source.stat().st_size != item.size
-                        or hash_regular_file(source) != item.sha256
-                        or archived.stat().st_size != item.size
-                        or hash_regular_file(archived) != item.sha256
-                    ):
-                        raise UserError("resolved legacy payload evidence changed")
                 print("migration_resolution=operator-acknowledged-delivery")
                 print("migration_resolution_at=%d" % resolved_at)
                 print("migration_resolution_payload_count=%d" % count)
@@ -2916,6 +2908,15 @@ def command_doctor(state: Path) -> int:
                     print(
                         "migration_resolution_ack.%d=%s update_id=%d sha256=%s size=%d"
                         % (number, item.path, item.update_id, item.sha256, item.size)
+                    )
+                try:
+                    verify_resolved_evidence(state, meta[6], digest, rows)
+                    print("migration_resolution_evidence=verified")
+                except Exception as exc:
+                    print("migration_resolution_evidence=unavailable")
+                    print(
+                        "migration_resolution_detail=%s"
+                        % safe_resolution_detail(state, exc)
                     )
         print(
             "pending_notices=%d"
