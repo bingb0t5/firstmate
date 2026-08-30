@@ -1,0 +1,116 @@
+=== 1. The cutover blocks and mutates nothing ===
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh migrate
+blocked: migration-ambiguous fingerprint=f26de1a1b30c5280 archive=telegram-migration-archive/20260830T172505Z-31a9d6b7
+detail: legacy payload awaiting delivery has no coherent chat or sender identity: telegram-inbox/3101.json
+(exit 1)
+
+=== 2. The channel announces one blocked notice, which the mate acknowledges ===
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh poll   # fake transport, empty update batch
+blocked: migration-blocked ambiguous notice=d77fbc2e-826b-4daa-ad6e-04b07d2216ae:1
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh classify <result>
+blocked
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh ack <result>
+acknowledged: notice=d77fbc2e-826b-4daa-ad6e-04b07d2216ae:1
+
+=== 3. The next poll parks silently instead of spinning ===
+parked poll after 4s: still running, produced 0 bytes of output, 0 Telegram calls
+
+=== 4. doctor shows the bounded non-secret resolution evidence ===
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh doctor
+integrity=ok
+schema_version=1
+state_uuid=d77fbc2e-826b-4daa-ad6e-04b07d2216ae
+committed_offset=0
+last_success=none
+consecutive_failures=0
+migration_status=blocked
+migration_archive=telegram-migration-archive/20260830T172505Z-31a9d6b7
+migration_fingerprint=f26de1a1b30c5280
+migration_cause=legacy payload awaiting delivery has no coherent chat or sender identity: telegram-inbox/3101.json
+migration_resolution=available
+migration_resolution_manifest_sha256=3bd841d80731a05e9a1e7fe336d668e9634387b24d619459fe3c7fad0276680a
+migration_resolution_blocker_count=2
+migration_resolution_blocker.1=telegram-inbox/3101.json update_id=3101 sha256=dcba9c112fb7c8314086db93529e9caa8f164ce17fa0376c601b4260e1f062d3 size=75
+migration_resolution_blocker.2=telegram-inbox/3102.json update_id=3102 sha256=4395d9c6d08c9166c6498f0c947aa7bbd06c6d9d35073451a96fe262b0165ffa size=75
+pending_notices=0
+active_conditions=none
+journal_mode=delete
+synchronous=2
+fullfsync=1
+
+=== 5. A wrong digest is refused without touching the store ===
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh resolve-migration --blocked-fingerprint f26de1a1b30c5280 --archive-manifest-sha256 3bd841d80731a05e9a1e7fe336d668e9634387b24d619459fe3c7fad0276680a --acknowledge-delivered telegram-inbox/3101.json=sha256:0000000000000000000000000000000000000000000000000000000000000000 --acknowledge-delivered telegram-inbox/3102.json=sha256:4395d9c6d08c9166c6498f0c947aa7bbd06c6d9d35073451a96fe262b0165ffa
+error: acknowledgements must exactly match every derived blocker
+(exit 1)
+migration_status after refusal: blocked
+
+=== 6. The exact acknowledgement commits the guarded exit ===
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh resolve-migration --blocked-fingerprint f26de1a1b30c5280 --archive-manifest-sha256 3bd841d80731a05e9a1e7fe336d668e9634387b24d619459fe3c7fad0276680a --acknowledge-delivered telegram-inbox/3101.json=sha256:dcba9c112fb7c8314086db93529e9caa8f164ce17fa0376c601b4260e1f062d3 --acknowledge-delivered telegram-inbox/3102.json=sha256:4395d9c6d08c9166c6498f0c947aa7bbd06c6d9d35073451a96fe262b0165ffa
+resolved: migration fingerprint=f26de1a1b30c5280 acknowledged-delivered=2 offset=0 archive=telegram-migration-archive/20260830T172505Z-31a9d6b7
+(exit 0)
+
+=== 7. The parked poll resumes on its own and delivers real traffic ===
+the same parked poll process (pid 997404, backgrounded before the resolution) exited 0 with:
+message: 1 notice=d77fbc2e-826b-4daa-ad6e-04b07d2216ae:2
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh messages <result>
+{"chat_id":555,"date":9,"from_id":909,"text":"ahoy, the channel is back","update_id":6001}
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh ack <result>
+acknowledged: notice=d77fbc2e-826b-4daa-ad6e-04b07d2216ae:2
+
+=== 8. On a second resolved home, a replayed historical update is never re-delivered ===
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh resolve-migration ... (second home)
+resolved: migration fingerprint=f26de1a1b30c5280 acknowledged-delivered=1 offset=0 archive=telegram-migration-archive/20260830T172510Z-a82be49c
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh poll   # Telegram replays acknowledged update 3101
+poll exit=1 result=<no result - the tombstone deduplicated it>
+message notices created: 0 | payload-bearing rows for update 3101: 0 | committed_offset: 3102
+
+=== 9. doctor proves the committed resolution; an exact retry is idempotent ===
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh doctor
+integrity=ok
+schema_version=1
+state_uuid=d77fbc2e-826b-4daa-ad6e-04b07d2216ae
+committed_offset=6002
+last_success=1788110710
+consecutive_failures=0
+migration_status=complete
+migration_archive=telegram-migration-archive/20260830T172505Z-31a9d6b7
+migration_fingerprint=f26de1a1b30c5280
+migration_cause=legacy payload awaiting delivery has no coherent chat or sender identity: telegram-inbox/3101.json
+migration_resolution=operator-acknowledged-delivery
+migration_resolution_at=1788110709
+migration_resolution_payload_count=2
+migration_resolution_manifest_sha256=3bd841d80731a05e9a1e7fe336d668e9634387b24d619459fe3c7fad0276680a
+migration_resolution_ack.1=telegram-inbox/3101.json update_id=3101 sha256=dcba9c112fb7c8314086db93529e9caa8f164ce17fa0376c601b4260e1f062d3 size=75
+migration_resolution_ack.2=telegram-inbox/3102.json update_id=3102 sha256=4395d9c6d08c9166c6498f0c947aa7bbd06c6d9d35073451a96fe262b0165ffa size=75
+migration_resolution_evidence=verified
+pending_notices=0
+active_conditions=none
+journal_mode=delete
+synchronous=2
+fullfsync=1
+
+$ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M19QCJYDP935MEHKD32YTY89/bin/fm-procevent-telegram.sh resolve-migration --blocked-fingerprint f26de1a1b30c5280 --archive-manifest-sha256 3bd841d80731a05e9a1e7fe336d668e9634387b24d619459fe3c7fad0276680a --acknowledge-delivered telegram-inbox/3101.json=sha256:dcba9c112fb7c8314086db93529e9caa8f164ce17fa0376c601b4260e1f062d3 --acknowledge-delivered telegram-inbox/3102.json=sha256:4395d9c6d08c9166c6498f0c947aa7bbd06c6d9d35073451a96fe262b0165ffa
+already-resolved: migration fingerprint=f26de1a1b30c5280 acknowledged-delivered=2 offset=6002 archive=telegram-migration-archive/20260830T172505Z-31a9d6b7
+(exit 0)
+
+=== 10. The sealed archive and preserved legacy bytes are untouched ===
+archive=telegram-migration-archive/20260830T172505Z-31a9d6b7
+  telegram-migration-archive/20260830T172505Z-31a9d6b7/manifest.json
+  telegram-migration-archive/20260830T172505Z-31a9d6b7/state/.telegram-offset
+  telegram-migration-archive/20260830T172505Z-31a9d6b7/state/telegram-inbox/3101.json
+  telegram-migration-archive/20260830T172505Z-31a9d6b7/state/telegram-inbox/3102.json
+preserved legacy payload still on disk:
+  {"update_id":3101,"date":1,"chat_id":555,"text":"historical captain text"}
+no absolute home path leaked into doctor: 0 occurrences

@@ -1,0 +1,29 @@
+Both defects reproduced against the base commit 46b8de2 (fix absent).
+
+1. The new behavior regression run against base-commit code
+   (base tree from 'git archive 46b8de2', with only the new test file overlaid):
+
+   ok - staged evidence mutated before verification publishes neither archive nor database
+   ok - coherent migration archives every old byte, imports exact state, and drains notices before polling
+   not ok - an acknowledged blocked migration did not park its poll
+   EXIT=1
+
+2. The guarded exit does not exist on base:
+
+   $ bin/fm-procevent-telegram.sh resolve-migration --blocked-fingerprint deadbeefdeadbeef
+   error: unknown command: resolve-migration
+
+The same suite on the target commit 4cc4327 passes all 52 cases:
+
+   ok - an already-handled legacy row deduplicates a later replay without delivering it again
+   ok - a legacy row still awaiting delivery must carry coherent identity or block the cutover
+   ok - an undelivered legacy payload needs an exact integer date or the cutover blocks
+   ok - a malformed update identifier can never become a dedup tombstone
+   ok - a legacy read failure that is not a UserError still publishes an actionable blocked migration
+   ok - a torn legacy claim is archived, visibly blocked, and never advances the irreversible offset
+   ok - rollback preparation exports the transactional offset forward and never backward
+   ok - creation and reopen agree for state paths containing URI metacharacters or a // prefix
+   ok - a missing engine still yields a blocked result the handler can classify and dispose, and refuses the cutover before deregistering the channel
+   ok - the real runner captures a stable notice whose payload and two acknowledgements complete end to end
+   all fm-procevent-telegram tests passed
+   EXIT=0
