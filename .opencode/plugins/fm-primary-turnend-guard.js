@@ -22,6 +22,13 @@ function runProcess(command, args, input = "") {
     });
     child.on("error", () => resolve({ code: 0, stdout: "", stderr: "" }));
     child.on("close", (code) => resolve({ code: code ?? 0, stdout, stderr }));
+    // A child that exits before draining stdin closes the read end first, so
+    // this write can fail with EPIPE. bin/fm-turnend-guard.sh refuses an
+    // unknown flag and dies on an unsourceable library before it ever reads
+    // the payload. Without a listener that failure is an unhandled 'error'
+    // event on the stdin socket, which kills the whole OpenCode host instead
+    // of ending one turn; the close handler above already owns the outcome.
+    child.stdin.on("error", () => {});
     child.stdin.end(input);
   });
 }

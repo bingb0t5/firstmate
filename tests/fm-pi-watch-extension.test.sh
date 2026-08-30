@@ -2621,6 +2621,61 @@ EOF
   pass "OpenCode watcher plugin coordinates with the turn-end guard"
 }
 
+test_opencode_turnend_guard_survives_a_guard_that_never_drains_stdin() {
+  local guard_plugin repo home out status instant_exit
+  guard_plugin="$ROOT/.opencode/plugins/fm-primary-turnend-guard.js"
+  repo="$TMP_ROOT/opencode-undrained-stdin-root"
+  home="$TMP_ROOT/opencode-undrained-stdin-home"
+  # bin/fm-turnend-guard.sh has real paths that exit before its `PAYLOAD=$(cat)`
+  # line: an unrecognised flag exits 2, and an unsourceable supervision library
+  # aborts under `set -eu`. The plugin still writes the turn-end payload into
+  # that child's stdin, so the write lands on an already-closed read end. Using
+  # the system's own instant-exit binary as the guard makes that ordering
+  # deterministic instead of the load-dependent race that only bites CI: the
+  # spawn call returns after execve, by which point the child is already gone.
+  instant_exit=$(type -P -- false 2>/dev/null || true)
+  { [ -n "$instant_exit" ] && [ -x "$instant_exit" ]; } \
+    || fail "no instant-exit binary available to stand in for a refusing guard"
+  mkdir -p "$repo/bin" "$home/state"
+  git init -q "$repo"
+  : > "$repo/AGENTS.md"
+  ln -s "$instant_exit" "$repo/bin/fm-turnend-guard.sh"
+  out=$(GUARD_PLUGIN="$guard_plugin" WORKTREE="$repo" FM_HOME="$home" node 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+
+const guardMod = await import(pathToFileURL(process.env.GUARD_PLUGIN).href);
+let prompts = 0;
+const client = {
+  session: {
+    promptAsync: async () => {
+      prompts += 1;
+    },
+  },
+};
+const guardHooks = await guardMod.FmPrimaryTurnendGuard({
+  client,
+  directory: process.env.WORKTREE,
+  worktree: process.env.WORKTREE,
+});
+// Two turns: the first proves the refusing guard does not take the host down,
+// the second proves supervision still runs afterwards rather than the host
+// limping on with a dead turn-end boundary.
+await guardHooks.event({ event: { type: "session.idle", properties: { sessionID: "session-one" } } });
+await guardHooks.event({ event: { type: "session.idle", properties: { sessionID: "session-two" } } });
+if (prompts !== 0) {
+  console.error(`a guard that never signalled a blind turn must not prompt: ${prompts}`);
+  process.exit(1);
+}
+process.stdout.write("both turns ended");
+EOF
+)
+  status=$?
+  [ "$status" = 0 ] || fail "OpenCode turn-end guard must survive a guard that exits before draining stdin: exit $status: $out"
+  [ "$out" = "both turns ended" ] \
+    || fail "OpenCode turn-end guard host did not finish both turns: $out"
+  pass "OpenCode turn-end guard survives a guard that exits before draining stdin"
+}
+
 test_opencode_healthy_arm_output_does_not_suppress_guard() {
   local arm_plugin guard_plugin repo home log guard_log out status
   arm_plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
@@ -2734,3 +2789,4 @@ test_opencode_established_empty_close_honors_retry_limit
 test_opencode_actionable_close_rechecks_session_lock
 test_opencode_watch_arm_coordinates_with_turnend_guard
 test_opencode_healthy_arm_output_does_not_suppress_guard
+test_opencode_turnend_guard_survives_a_guard_that_never_drains_stdin
