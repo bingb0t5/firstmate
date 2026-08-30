@@ -1519,31 +1519,103 @@ assert_contains "$ambiguous_poll" "blocked: migration-blocked ambiguous" \
 assert_no_curl "blocked migration called Telegram from a guessed offset"
 ack_result "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$ambiguous_poll" >/dev/null \
   || fail "the first blocked-migration notice could not be acknowledged"
-ambiguous_repeat_status=0
-ambiguous_repeat=$(poll_once "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$FIXTURES/one-text.json") \
-  || ambiguous_repeat_status=$?
-[ "$ambiguous_repeat_status" -eq 0 ] \
-  || fail "an acknowledged blocked migration fell into the runner's silent nonzero path"
-assert_contains "$ambiguous_repeat" "blocked: local-state fingerprint=" \
-  "an acknowledged blocked migration stopped producing an actionable result"
-ambiguous_again=$(poll_once "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$FIXTURES/one-text.json")
-assert_equal "$ambiguous_again" "$ambiguous_repeat" \
-  "the blocked-migration fingerprint is not stable across polls"
-write_result "$ambiguous_repeat"
-assert_equal \
-  "$(FM_HOME="$H_AMBIGUOUS" FM_TELEGRAM_ENV_FILE="$AMBIGUOUS_ENV" "$ADAPTER" classify "$RESULT_FILE")" \
-  blocked "a recurring blocked migration did not classify as blocked"
-assert_equal \
-  "$(FM_HOME="$H_AMBIGUOUS" FM_TELEGRAM_ENV_FILE="$AMBIGUOUS_ENV" "$ADAPTER" ack "$RESULT_FILE")" \
-  "unacknowledgeable: local-state" \
-  "a recurring blocked migration could be acknowledged away"
-ambiguous_persist=$(poll_once "$H_AMBIGUOUS" "$AMBIGUOUS_ENV" "$FIXTURES/one-text.json")
-assert_equal "$ambiguous_persist" "$ambiguous_repeat" \
-  "a blocked migration went silent after an acknowledgement attempt"
-assert_no_curl "a recurring blocked migration called Telegram from a guessed offset"
+ambiguous_poll_file="$TMP_ROOT/ambiguous-parked.out"
+clear_curl_calls
+FM_TELEGRAM_POLL_TIMEOUT=1 FM_HOME="$H_AMBIGUOUS" \
+  FM_TELEGRAM_ENV_FILE="$AMBIGUOUS_ENV" "$ADAPTER" poll >"$ambiguous_poll_file" 2>&1 &
+ambiguous_pid=$!
+sleep 3
+kill -0 "$ambiguous_pid" 2>/dev/null || fail "an acknowledged blocked migration did not park its poll"
+[ ! -s "$ambiguous_poll_file" ] || fail "a parked blocked migration emitted a repeated result"
+assert_no_curl "a parked blocked migration called Telegram from a guessed offset"
+kill "$ambiguous_pid" 2>/dev/null || true
+wait "$ambiguous_pid" 2>/dev/null || true
 assert_equal "$(db_query "$H_AMBIGUOUS" "SELECT committed_offset FROM meta")" 0 \
-  "a recurring blocked migration guessed an offset"
-pass "ambiguous migration preserves evidence, guesses nothing, and stays unacknowledgeably blocked"
+  "a parked blocked migration guessed an offset"
+pass "ambiguous migration preserves evidence, guesses nothing, and parks silently after acknowledgement"
+
+# --- operator-acknowledged migration resolution -----------------------------
+H_RESOLVE="$TMP_ROOT/migrate-resolve"
+RESOLVE_ENV="$TMP_ROOT/migrate-resolve.env"
+new_home "$H_RESOLVE"
+write_env_file "$RESOLVE_ENV" "$TOKEN"
+printf '0\n' > "$H_RESOLVE/state/.telegram-offset"
+mkdir -p "$H_RESOLVE/state/telegram-inbox"
+for resolution_id in 3101 3102 3103 3104; do
+  printf '{"update_id":%s,"date":1,"chat_id":555,"text":"historical"}\n' "$resolution_id" \
+    > "$H_RESOLVE/state/telegram-inbox/$resolution_id.json"
+done
+resolution_migrate=0
+FM_HOME="$H_RESOLVE" FM_TELEGRAM_ENV_FILE="$RESOLVE_ENV" "$ADAPTER" migrate >/dev/null 2>&1 \
+  || resolution_migrate=$?
+[ "$resolution_migrate" -ne 0 ] || fail "resolution fixture did not create a blocked migration"
+resolution_doctor=$(FM_HOME="$H_RESOLVE" "$ADAPTER" doctor)
+resolution_fingerprint=$(printf '%s\n' "$resolution_doctor" | sed -n 's/^migration_fingerprint=//p')
+resolution_manifest=$(printf '%s\n' "$resolution_doctor" | sed -n 's/^migration_resolution_manifest_sha256=//p')
+assert_contains "$resolution_doctor" "migration_resolution=available" \
+  "doctor did not expose non-secret resolution evidence"
+assert_equal "$(printf '%s\n' "$resolution_doctor" | grep -c '^migration_resolution_blocker\.')" 4 \
+  "doctor did not derive all four resolution blockers"
+resolution_args=()
+while IFS= read -r resolution_line; do
+  resolution_path=$(printf '%s' "$resolution_line" | cut -d= -f2 | cut -d' ' -f1)
+  resolution_digest=$(printf '%s' "$resolution_line" | sed -n 's/.* sha256=\([^ ]*\).*/\1/p')
+  resolution_args+=(--acknowledge-delivered "$resolution_path=sha256:$resolution_digest")
+done < <(printf '%s\n' "$resolution_doctor" | grep '^migration_resolution_blocker\.')
+wrong_resolution_status=0
+FM_HOME="$H_RESOLVE" "$ADAPTER" resolve-migration \
+  --blocked-fingerprint "$resolution_fingerprint" \
+  --archive-manifest-sha256 "$resolution_manifest" \
+  --acknowledge-delivered "telegram-inbox/3101.json=sha256:$(printf '0%.0s' {1..64})" \
+  "${resolution_args[@]:2}" >/dev/null 2>&1 || wrong_resolution_status=$?
+[ "$wrong_resolution_status" -ne 0 ] || fail "a mismatched acknowledgement was accepted"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT migration_status FROM meta")" blocked \
+  "a refused resolution mutated migration status"
+resolution_archive_rel=$(db_query "$H_RESOLVE" "SELECT migration_archive FROM meta")
+resolution_archive="$H_RESOLVE/state/$resolution_archive_rel"
+resolution_manifest_before=$(sha256sum "$resolution_archive/manifest.json" | cut -d' ' -f1)
+resolution_out=$(FM_HOME="$H_RESOLVE" "$ADAPTER" resolve-migration \
+  --blocked-fingerprint "$resolution_fingerprint" \
+  --archive-manifest-sha256 "$resolution_manifest" "${resolution_args[@]}")
+assert_contains "$resolution_out" "resolved: migration fingerprint=" \
+  "the complete resolution did not commit"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT migration_status FROM meta")" complete \
+  "resolution did not complete migration"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT committed_offset FROM meta")" 0 \
+  "resolution advanced offset from an acknowledged update id"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT count(*) FROM migration_resolution_payloads")" 4 \
+  "resolution did not persist every acknowledgement"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT count(*) FROM messages WHERE payload IS NULL")" 4 \
+  "resolution did not create one tombstone per unique update"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT count(*) FROM notices WHERE acknowledged_at IS NULL")" 0 \
+  "resolution left the migration notice pending"
+assert_equal "$(sha256sum "$resolution_archive/manifest.json" | cut -d' ' -f1)" "$resolution_manifest_before" \
+  "resolution changed the sealed archive manifest"
+resolution_after=$(FM_HOME="$H_RESOLVE" "$ADAPTER" doctor)
+assert_contains "$resolution_after" "migration_resolution=operator-acknowledged-delivery" \
+  "doctor did not prove the committed resolution"
+assert_contains "$resolution_after" "migration_resolution_payload_count=4" \
+  "doctor did not report all committed proof rows"
+resolution_retry=$(FM_HOME="$H_RESOLVE" "$ADAPTER" resolve-migration \
+  --blocked-fingerprint "$resolution_fingerprint" \
+  --archive-manifest-sha256 "$resolution_manifest" "${resolution_args[@]}")
+assert_contains "$resolution_retry" "already-resolved:" \
+  "an exact resolution retry was not idempotent"
+changed_resolution_status=0
+FM_HOME="$H_RESOLVE" "$ADAPTER" resolve-migration \
+  --blocked-fingerprint "$resolution_fingerprint" \
+  --archive-manifest-sha256 "$resolution_manifest" \
+  --acknowledge-delivered "telegram-inbox/3101.json=sha256:$(printf 'f%.0s' {1..64})" \
+  "${resolution_args[@]:2}" >/dev/null 2>&1 || changed_resolution_status=$?
+[ "$changed_resolution_status" -ne 0 ] || fail "a changed resolution retry was accepted"
+fixture resolution-replay \
+  '{"ok":true,"result":[{"update_id":3101,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"historical"}}]}'
+clear_curl_calls
+resolution_replay=$(poll_once "$H_RESOLVE" "$RESOLVE_ENV" "$FIXTURES/resolution-replay.json") || true
+[ -z "$resolution_replay" ] || fail "an acknowledged historical replay produced a message result"
+assert_equal "$(db_query "$H_RESOLVE" "SELECT count(*) FROM notices WHERE kind = 'message'")" 0 \
+  "an acknowledged historical replay created a message notice"
+pass "resolution proves exact archived payloads, commits tombstones atomically, and retries idempotently"
 
 H_CAUSE="$TMP_ROOT/migrate-blocked-cause"
 CAUSE_ENV="$TMP_ROOT/migrate-blocked-cause.env"

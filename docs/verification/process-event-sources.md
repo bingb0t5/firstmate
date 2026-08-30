@@ -10,6 +10,8 @@ Generic keyed-answer feed verified on 2026-08-16 on the same platform, against t
 Cross-origin keyed-answer feed verified on 2026-08-19 through the real runner and Lavish adapter interface.
 Telegram adapter behavior verified on 2026-08-25 through the real adapter and generic runner interfaces.
 The transactional Telegram crash matrix was verified the same day on Linux 6.8.0-138-generic with Python 3.12.3 and SQLite 3.45.1.
+Blocked Telegram migration resolution, archive-bound proof, tombstone replay, and the parked unresolved poll were verified on 2026-08-30 on the same Linux and Python versions through `bash tests/fm-procevent-telegram.test.sh`.
+The focused suite reported `ok - resolution proves exact archived payloads, commits tombstones atomically, and retries idempotently` and `ok - ambiguous migration preserves evidence, guesses nothing, and parks silently after acknowledgement`, followed by `all fm-procevent-telegram tests passed`.
 
 ## Telegram identifier and durability evidence
 

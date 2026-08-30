@@ -9,6 +9,9 @@
 #   fm-procevent-telegram.sh messages <result-file>
 #   fm-procevent-telegram.sh ack <result-file>
 #   fm-procevent-telegram.sh doctor
+#   fm-procevent-telegram.sh resolve-migration --blocked-fingerprint <16-hex> \
+#     --archive-manifest-sha256 <64-hex> \
+#     --acknowledge-delivered '<state-relative-path>=sha256:<64-hex>' ...
 #   fm-procevent-telegram.sh export-legacy-offset
 #   fm-procevent-telegram.sh terminal <result-file>
 #   fm-procevent-telegram.sh retire
@@ -65,7 +68,11 @@
 # A crash after the external action but before ack can repeat the action.
 #
 # doctor validates the database and reports its non-secret state, integrity,
-# migration, and durability settings.
+# migration, resolution evidence, and durability settings.
+# resolve-migration is the one guarded exit from a blocked migration.
+# It requires the exact doctor fingerprint, manifest digest, and complete
+# path-plus-payload-digest set, and records operator-acknowledged delivery
+# without reading credentials, contacting Telegram, or changing registration.
 # export-legacy-offset is the explicit rollback preparation path.
 # It writes the current committed offset back to state/.telegram-offset only
 # when that cannot move the old format backward.
@@ -127,6 +134,15 @@
 # in the same transaction as its accepted batch.
 # Credential restoration clears only the credential episode before polling.
 # Neither arm nor retire clears any episode.
+# An acknowledged blocked migration closes its database before sleeping for
+# FM_TELEGRAM_POLL_TIMEOUT and rechecks until the complete resolution appears;
+# it emits no local-state result while parked and never reads credentials or
+# contacts Telegram on that path.
+# resolve-migration requires --blocked-fingerprint, --archive-manifest-sha256,
+# and one or more repeated --acknowledge-delivered path=sha256:digest options.
+# The paths and digests must exactly match the sorted blocker records from
+# doctor, and a committed repeat returns already-resolved without changing
+# registration or delivering historical payloads.
 #
 # DURABILITY.
 # The database uses SQLite rollback journaling, synchronous=FULL, fullfsync=ON,
@@ -164,6 +180,9 @@
 # FM_TELEGRAM_POLL_TIMEOUT defaults to 25 seconds and is capped at 50.
 # FM_TELEGRAM_CURL_MAX_TIME defaults to the poll timeout plus 15 seconds and
 # must be greater than the Telegram timeout.
+# A parked blocked poll validates only the timeout before releasing its
+# database connection, and validates the remaining poll settings after
+# resolution becomes visible.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -256,6 +275,11 @@ cmd_doctor() {
   run_engine doctor
 }
 
+cmd_resolve_migration() {
+  [ "$#" -gt 0 ] || usage
+  run_engine resolve-migration "$@"
+}
+
 cmd_export_legacy_offset() {
   [ "$#" -eq 0 ] || usage
   run_engine export-legacy-offset
@@ -299,6 +323,7 @@ case "${1-}" in
   messages)             shift; cmd_messages "$@" ;;
   migrate)              shift; cmd_migrate "$@" ;;
   poll)                 shift; cmd_poll "$@" ;;
+  resolve-migration)    shift; cmd_resolve_migration "$@" ;;
   retire)               shift; cmd_retire "$@" ;;
   source-id)            shift; cmd_source_id "$@" ;;
   terminal)             shift; cmd_terminal "$@" ;;
