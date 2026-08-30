@@ -20,6 +20,8 @@ ok - resolution proves exact archived payloads, commits tombstones atomically, a
 ok - a crash at any resolution boundary leaves the store valid and reruns to one complete resolution
 ok - doctor still reports the committed resolution when preserved legacy copies drift
 ok - a parked blocked poll resumes normal polling exactly once after the resolution commits
+ok - a coherent legacy payload beside an identity-gap blocker is acknowledged, never delivered
+ok - a stale receipt for an already-handled update is non-blocking and needs no acknowledgement
 ...
 all fm-procevent-telegram tests passed
 ```

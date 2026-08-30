@@ -2078,8 +2078,8 @@ def resolution_payload(path: Path) -> int:
         raise UserError("legacy payload has no usable text")
     if type(data.get("date")) is not int or type(data.get("chat_id")) is not int:
         raise UserError("legacy payload has unsupported identity or date ambiguity")
-    if "from_id" in data:
-        raise UserError("legacy payload is not the supported sender-identity gap")
+    if "from_id" in data and type(data["from_id"]) is not int:
+        raise UserError("legacy payload has malformed sender identity")
     return update_id
 
 
@@ -2146,6 +2146,17 @@ def resolution_evidence(state: Path, conn: sqlite3.Connection) -> ResolutionEvid
     archive, manifest_digest, _ = resolution_archive(state, row[5])
     archive_state = archive / "state"
     payloads = resolution_payloads(archive_state)
+    handled = read_legacy_payload_directory(
+        archive_state / "telegram-inbox" / "handled", allow_temps=False, require_payload=False
+    )
+    if any(
+        item.update_id in handled and item.path.startswith("telegram-inbox/")
+        for item in payloads
+    ):
+        raise UserError("legacy payload is both live and handled")
+    payloads = [item for item in payloads if item.update_id not in handled]
+    if not payloads:
+        raise UserError("no resolvable legacy payload blockers are present")
     for payload in payloads:
         source = state / payload.path
         try:
@@ -2158,17 +2169,12 @@ def resolution_evidence(state: Path, conn: sqlite3.Connection) -> ResolutionEvid
             raise UserError("preserved legacy source is unavailable: %s" % exc)
     offset = parse_legacy_offset(archive_state)
     pending = parse_legacy_pending(archive_state)
+    ids = {item.update_id for item in payloads}
     if pending is not None:
         count, target = pending
-        if target < offset or len({item.update_id for item in payloads}) != count:
+        if target < offset or len(ids) != count:
             raise UserError("legacy pending target cannot be mapped to exact blockers")
         offset = target
-    handled = read_legacy_payload_directory(
-        archive_state / "telegram-inbox" / "handled", allow_temps=False, require_payload=False
-    )
-    ids = {item.update_id for item in payloads}
-    if ids.intersection(handled):
-        raise UserError("legacy payload is both live and handled")
     plan = MigrationPlan(
         offset=offset,
         handled_messages=[handled[key] for key in sorted(handled)]
@@ -2753,10 +2759,10 @@ def command_resolve_migration(
                     fingerprint,
                     manifest_digest,
                     ack_at,
-                    len(evidence.payloads),
+                    len(current_evidence.payloads),
                 ),
             )
-            for item in evidence.payloads:
+            for item in current_evidence.payloads:
                 conn.execute(
                     "INSERT INTO migration_resolution_payloads "
                     "(path, update_id, sha256, size) VALUES (?, ?, ?, ?)",
@@ -2773,9 +2779,9 @@ def command_resolve_migration(
                     "UPDATE notices SET acknowledged_at = ? WHERE id = ?",
                     (ack_at, notice[0]),
                 )
-            for message in evidence.plan.handled_messages:
+            for message in current_evidence.plan.handled_messages:
                 handled_at = ack_at if message.update_id in {
-                    item.update_id for item in evidence.payloads
+                    item.update_id for item in current_evidence.payloads
                 } else now_epoch()
                 conn.execute(
                     "INSERT INTO messages (update_id, payload, notice_id, handled_at) "
@@ -2783,7 +2789,7 @@ def command_resolve_migration(
                     (message.update_id, handled_at),
                 )
             failpoint("after_resolution_tombstone")
-            for condition in evidence.plan.api_conditions:
+            for condition in current_evidence.plan.api_conditions:
                 detail = condition.split("-", 1)[1]
                 conn.execute(
                     "INSERT INTO conditions (kind, detail, notice_id, started_at) "
@@ -2794,7 +2800,7 @@ def command_resolve_migration(
             conn.execute(
                 "UPDATE meta SET migration_status = 'complete', committed_offset = ? "
                 "WHERE singleton = 1",
-                (evidence.plan.offset,),
+                (current_evidence.plan.offset,),
             )
             failpoint("after_resolution_meta")
             validate_store(conn)
@@ -2804,7 +2810,12 @@ def command_resolve_migration(
             print(
                 "resolved: migration fingerprint=%s acknowledged-delivered=%d "
                 "offset=%d archive=%s"
-                % (fingerprint, len(evidence.payloads), evidence.plan.offset, meta[2])
+                % (
+                    fingerprint,
+                    len(current_evidence.payloads),
+                    current_evidence.plan.offset,
+                    meta[2],
+                )
             )
             return 0
         except Exception:
