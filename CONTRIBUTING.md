@@ -16,6 +16,7 @@ GitHub Actions and Dependabot are exempt so their automation keeps working, but 
 A second check (`pr-communication`) enforces the pull request communication structure shared with the Lalo repos.
 Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) verbatim for the required CEO overview, validation, module-boundary decision, and decision-needed sections.
 Legacy `Intent`, `Risk Assessment`, and `Testing` headings do not satisfy the communication check.
+The two checks read the same body and are satisfied together: the communication check ignores no-mistakes' own `## Pipeline` section, so never drop that section to satisfy it.
 The assessment rules are vendored from `lalo-admin`; the local pin always guards that copy against unreviewed changes, and the companion `pr-communication-sot` check compares it with that remote source of truth using only `PR_COMMUNICATION_SOT_TOKEN`.
 The remote comparison fails closed when the credential is missing or rejected, and only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.
 
@@ -35,6 +36,8 @@ The remote comparison fails closed when the credential is missing or rejected, a
    Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
 7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
    Before staging, replace any legacy `Intent`, `What Changed`, `Risk Assessment`, or `Testing` description with every completed section from [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
+   Replace only those narrative sections.
+   Keep no-mistakes' `## Pipeline` section verbatim, including the `Updates from [git push no-mistakes]` signature line and the `<!-- no-mistakes-pipeline-attestation:v1 ... -->` comment, because `Require no-mistakes` reads both from the body and fails when a rewrite deletes them.
    Repeat that check before every branch synchronization and after later description edits.
 
 See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/start-here/quick-start/) for the full first-run walkthrough.
