@@ -350,9 +350,9 @@ jobs:
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
     runs-on: macos-latest
-    # The retained 14 x 180 KB ARG_MAX fixture took 13m13s in the full stock
-    # Bash 3.2 compatibility suite on the measured host, so 20 minutes leaves
-    # a bounded margin for macOS runner variance rather than accepting cancellation.
+    # The full stock Bash 3.2 compatibility suite, retaining the 14 x 180 KB
+    # ARG_MAX fixture, took 12m53s on the measured host, so 20 minutes leaves a
+    # bounded margin for macOS runner variance rather than accepting cancellation.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
