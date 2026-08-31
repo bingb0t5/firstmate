@@ -5,6 +5,10 @@
 # `fm-fleet-snapshot.v1`.
 # The command is read-only: it does not acquire the session lock, drain wakes,
 # arm watchers, mutate backlog state, or write reports.
+# Its only writes are one private per-run scratch directory under TMPDIR
+# (default /tmp), removed on exit, and an unwritable TMPDIR fails the run loudly.
+# HUP, INT, and TERM remove that directory and re-raise the signal, so a
+# signalled run dies by that signal instead of printing a partial fleet.
 #
 # Top-level fields:
 #   schema: stable schema id.
@@ -183,6 +187,8 @@ FM_SNAPSHOT_PARENT_ACTIVITY_TIMEOUT, with truncation disclosed in the result.
 The registered secondmate table uses FM_SNAPSHOT_REGISTRY_LINES,
 FM_SNAPSHOT_REGISTRY_BYTES, FM_SNAPSHOT_REGISTRY_RECORDS, and
 FM_SNAPSHOT_REGISTRY_TIMEOUT, with unavailability and truncation disclosed.
+Both modes need a writable TMPDIR (default /tmp) for one private scratch
+directory, removed on exit and on HUP, INT, or TERM.
 EOF
 }
 
@@ -196,6 +202,16 @@ esac
 
 command -v jq >/dev/null 2>&1 || { echo "fm-fleet-snapshot: jq not found" >&2; exit 1; }
 
+# Every payload that grows with the fleet, a status log, or a home summary
+# reaches jq through a file in this directory (--rawfile / --slurpfile) instead
+# of argv: the combined argument and environment block is bounded by the
+# kernel's ARG_MAX, and one oversized --argjson secondmate-current payload was
+# enough to make the whole snapshot exit 1 with no JSON at all.
+# Files are private (mktemp -d is 0700) because these payloads carry status-log
+# and home-summary prose, and the write helpers below fail the run rather than
+# hand jq a truncated or empty document.
+# The traps are installed before mktemp -d so no signal window can leak the
+# directory that does not yet have a remover.
 SNAPSHOT_TMPDIR=''
 cleanup_snapshot_tmpdir() {
   [ -n "$SNAPSHOT_TMPDIR" ] && rm -rf "$SNAPSHOT_TMPDIR"
