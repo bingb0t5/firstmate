@@ -189,7 +189,7 @@ EOF
       and (.secondmate_landed.records | length) == 14
       and ([.secondmate_landed.records[].home_id] | length) == 14
       and ([.secondmate_current.records[].parent_event.activity_scan.records[].summary]
-           | all(length > 100000))
+           | length == 14 and all(length > 100000))
       and ([.tasks[] | select(.kind == "secondmate") | .hints.open_decisions[]
             | select(.verb == "needs-decision") | .summary]
            | length == 14 and all(length > 100000))

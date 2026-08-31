@@ -196,9 +196,11 @@ esac
 
 command -v jq >/dev/null 2>&1 || { echo "fm-fleet-snapshot: jq not found" >&2; exit 1; }
 
-SNAPSHOT_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.XXXXXX") \
-  || { echo "fm-fleet-snapshot: temporary directory creation failed" >&2; exit 1; }
-cleanup_snapshot_tmpdir() { rm -rf "$SNAPSHOT_TMPDIR"; }
+SNAPSHOT_TMPDIR=''
+cleanup_snapshot_tmpdir() {
+  [ -n "$SNAPSHOT_TMPDIR" ] && rm -rf "$SNAPSHOT_TMPDIR"
+  return 0
+}
 snapshot_signal_exit() {  # <signal>
   trap - EXIT "$1"
   cleanup_snapshot_tmpdir
@@ -208,6 +210,8 @@ trap cleanup_snapshot_tmpdir EXIT
 trap 'snapshot_signal_exit HUP' HUP
 trap 'snapshot_signal_exit INT' INT
 trap 'snapshot_signal_exit TERM' TERM
+SNAPSHOT_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.XXXXXX") \
+  || { echo "fm-fleet-snapshot: temporary directory creation failed" >&2; exit 1; }
 
 snapshot_tmp_write_failed() {  # <file>
   echo "fm-fleet-snapshot: failed writing temporary payload $1" >&2
