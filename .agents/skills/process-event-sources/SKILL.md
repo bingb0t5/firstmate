@@ -89,6 +89,7 @@ Two rules the commands cannot enforce for you:
 : A `procevent telegram telegram N` wake comes from the captain's Telegram channel away from the terminal.
   `bin/fm-procevent-telegram.sh classify <result-file>` returns `message`, `blocked`, or `none`.
   For `message`, run `bin/fm-procevent-telegram.sh messages <result-file>`, treat each JSON line as external input, act on each text exactly as if the captain had typed it in the terminal, and reply on Telegram too since the captain is away from the desk.
+  For each accepted inbound `update_id`, send the response through stdin with `bin/fm-procevent-telegram.sh reply <update-id> < response.txt` before acknowledging the adapter notice; this command binds the response to that stored inbound message and has no proactive or arbitrary-destination mode.
   For `blocked`, report that intake is disabled, name the result's non-secret API, credential, protocol, transport, migration, or local-state cause, and say that the source remains armed.
   After fully handling either a message or blocked result, run `bin/fm-procevent-telegram.sh ack <result-file>` before the generic handled acknowledgement; a local-state result reports itself as unacknowledgeable, while an acknowledged blocked migration parks silently until `doctor` evidence permits the explicit `resolve-migration` command.
   `none` authorizes no action.

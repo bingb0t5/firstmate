@@ -9,6 +9,7 @@
 #   fm-procevent-telegram.sh messages <result-file>
 #   fm-procevent-telegram.sh ack <result-file>
 #   fm-procevent-telegram.sh doctor
+#   fm-procevent-telegram.sh reply <accepted-inbound-update-id> < reply.txt
 #   fm-procevent-telegram.sh resolve-migration --blocked-fingerprint <16-hex> \
 #     --archive-manifest-sha256 <64-hex> \
 #     --acknowledge-delivered '<state-relative-path>=sha256:<64-hex>' ...
@@ -66,6 +67,17 @@
 # After acting on every payload, the handler runs ack on that exact result and
 # then acknowledges the generic source sequence.
 # A crash after the external action but before ack can repeat the action.
+# reply accepts text only on stdin and takes only the accepted inbound update id.
+# It binds the request to that stored message's strict chat, sender, and
+# message identity, and never accepts a caller-supplied destination.
+# A durable reservation precedes the send; only a validated response bound to
+# that inbound message commits sent. Transport errors, timeouts, malformed
+# responses, and uncertain crashes surface delivery-unknown and refuse retry.
+# A definite Telegram refusal commits definitely-failed and is not retried.
+# Older stored inbound messages without message_id are retained for intake but
+# reply refuses them because they cannot prove an in-conversation target.
+# One inbound update can have at most one reply, including across restarts and
+# concurrent attempts.
 #
 # doctor validates the database and reports its non-secret state, integrity,
 # migration, resolution evidence, and durability settings.
@@ -275,6 +287,13 @@ cmd_doctor() {
   run_engine doctor
 }
 
+cmd_reply() {
+  [ "$#" -eq 1 ] || usage
+  engine_available \
+    || die "Telegram state engine is unavailable; python3 and an unmodified $ENGINE are required"
+  run_engine reply "$1"
+}
+
 cmd_resolve_migration() {
   [ "$#" -gt 0 ] || usage
   run_engine resolve-migration "$@"
@@ -323,6 +342,7 @@ case "${1-}" in
   messages)             shift; cmd_messages "$@" ;;
   migrate)              shift; cmd_migrate "$@" ;;
   poll)                 shift; cmd_poll "$@" ;;
+  reply)                shift; cmd_reply "$@" ;;
   resolve-migration)    shift; cmd_resolve_migration "$@" ;;
   retire)               shift; cmd_retire "$@" ;;
   source-id)            shift; cmd_source_id "$@" ;;

@@ -11,6 +11,7 @@ Cross-origin keyed-answer feed verified on 2026-08-19 through the real runner an
 Telegram adapter behavior verified on 2026-08-25 through the real adapter and generic runner interfaces.
 The transactional Telegram crash matrix was verified the same day on Linux 6.8.0-138-generic with Python 3.12.3 and SQLite 3.45.1.
 Blocked Telegram migration resolution, archive-bound proof, tombstone replay, the resolution crash boundaries, and the parked unresolved poll were verified on 2026-08-30 on the same Linux and Python versions through `bash tests/fm-procevent-telegram.test.sh`.
+Telegram outbound reply binding, idempotence, definite-failure and delivery-unknown states, stdin-only body handling, crash recovery, doctor reporting, and legacy refusal were verified on 2026-08-31 on the same Linux and Python versions through `bash tests/fm-procevent-telegram.test.sh`.
 The focused suite reported:
 
 ```text
@@ -171,6 +172,7 @@ Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose c
 | Telegram response framing | a body carrying trailer-like bytes is framed only by curl's exact final status suffix, and an absent, partial, interrupted, or oversized response is one bounded transport failure that commits no batch and leaves no response state on disk |
 | Telegram identity and credential secrecy | only the configured sender in the configured chat becomes a message, unauthorized and non-text updates advance transactionally without a wake, missing or replaced credentials announce one actionable block without a network call, and the bot token appears in neither argv, database state, captured results, nor message payloads |
 | Telegram API and transport episodes | `terminal` rejects every result, 401 and 409 remain independent across malformed responses and lifecycle commands, only a fully validated success clears them, and transient transport failures become one `transport-blocked` notice on the third consecutive failure rather than retrying silently forever |
+| Telegram outbound reply safety | the Telegram suite sends only to the configured chat and accepted inbound message, rejects missing or legacy message identity and arbitrary destinations, stores one durable reply transaction per inbound update, reports sent, definitely failed, reserved, and delivery-unknown states, and refuses uncertain retries after transport or crash boundaries |
 | silent failure handling | a nonzero exit with no output publishes nothing and leaves the source registered for retry |
 | inertness | a home with no registered source generates no state, starts no process, and does not need supervision |
 
