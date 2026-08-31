@@ -165,12 +165,12 @@ phase_handoff() {
   fi
   cat > "$HOME_DIR/data/backlog.md" <<'EOF'
 ## In flight
-- [ ] live-task - active work (repo: alpha, since 2026-06-20)
+- [ ] live-task - active work (repo: alpha, since 2026-06-20) (priority: 2)
 
 ## Queued
-- [ ] feat-x - add feature x (repo: alpha)
-- [ ] feat-y - add feature y (repo: beta) blocked-by: feat-x - waits
-- [ ] bug-z - fix bug z (repo: gamma)
+- [ ] feat-x - add feature x (repo: alpha) (priority: 2)
+- [ ] feat-y - add feature y (repo: beta) (priority: 2) blocked-by: feat-x - waits
+- [ ] bug-z - fix bug z (repo: gamma) (priority: 2)
 
 ## Done
 - [x] old-task - shipped thing - local main (merged 2026-06-19)
@@ -187,8 +187,8 @@ EOF
   assert_grep 'bug-z' "$HOME_DIR/data/backlog.md" "out-of-scope bug-z was wrongly removed"
   assert_grep 'live-task' "$HOME_DIR/data/backlog.md" "in-flight item was wrongly removed"
 
-  assert_grep '- [ ] feat-x - add feature x (repo: alpha)' "$SUB/data/backlog.md" "feat-x did not arrive verbatim"
-  assert_grep '- [ ] feat-y - add feature y (repo: beta) blocked-by: feat-x - waits' "$SUB/data/backlog.md" "feat-y line not preserved verbatim"
+  assert_grep '- [ ] feat-x - add feature x (repo: alpha) (priority: 2)' "$SUB/data/backlog.md" "feat-x did not arrive verbatim"
+  assert_grep '- [ ] feat-y - add feature y (repo: beta) (priority: 2) blocked-by: feat-x - waits' "$SUB/data/backlog.md" "feat-y line not preserved verbatim"
   awk '/^## Queued/{q=1;next} /^## /{q=0} q && /feat-x/{found=1} END{exit found?0:1}' "$SUB/data/backlog.md" \
     || fail "feat-x did not land under the Queued section"
 
@@ -198,7 +198,7 @@ EOF
     FM_FAKE_TMUX_CAPTURE="$PANE" \
     "$ROOT/bin/fm-backlog-handoff.sh" design feat-x feat-y >/dev/null 2>&1 \
     || fail "idempotent re-run failed"
-  [ "$(grep -cF -- '- [ ] feat-x - add feature x (repo: alpha)' "$SUB/data/backlog.md")" -eq 1 ] \
+  [ "$(grep -cF -- '- [ ] feat-x - add feature x (repo: alpha) (priority: 2)' "$SUB/data/backlog.md")" -eq 1 ] \
     || fail "idempotent re-run duplicated feat-x in the subhome backlog"
   [ "$before" = "$(cat "$HOME_DIR/data/backlog.md")" ] || fail "idempotent re-run mutated the main backlog"
   pass "handoff: in-scope items move verbatim, out-of-scope stays, idempotent"

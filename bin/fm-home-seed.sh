@@ -55,6 +55,16 @@ usage() {
   echo "       fm-home-seed.sh validate" >&2
 }
 
+case "${1:-}" in
+  validate) ;;
+  *)
+    if [ -f "$FM_HOME/$SUB_HOME_MARKER" ]; then
+      echo "error: a secondmate home cannot seed another secondmate; only the primary home may create a domain mate" >&2
+      exit 1
+    fi
+    ;;
+esac
+
 validate_registry_home_text() {
   local home=$1
   case "$home" in

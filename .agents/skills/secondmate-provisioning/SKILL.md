@@ -143,6 +143,7 @@ These config values remain defaults and rules only; they must not harden `fm-spa
 For already-live secondmates, use `bin/fm-config-push.sh` to push a mid-session inherited local-material change without running the tracked-file fast-forward.
 It uses the same live-home discovery and propagation helper as bootstrap, reports each item as `pushed`, `unchanged`, `skipped`, or `error`, and follows the config-reread contract above for changed or pending generations.
 `bin/fm-home-seed.sh` refuses to copy a missing or placeholder charter.
+A home marked `.fm-secondmate-home` is already a secondmate home and mechanically refuses both seeding another secondmate and fresh `bin/fm-spawn.sh --secondmate`; only the primary home may create a peer domain mate.
 
 Direct seed without a preexisting brief requires `FM_SECONDMATE_CHARTER`.
 Run `bin/fm-home-seed.sh validate` when checking registry integrity; its header owns the complete validation and refusal mechanics.
@@ -200,6 +201,9 @@ It refuses a selected item with a single-space or tab-indented continuation rath
 It accepts in-scope `## Queued` entries only and refuses `## In flight` and historical `## Done` entries.
 Done records stay with their home for pruning or archiving.
 It is idempotent; an item already in the secondmate backlog is skipped.
+Every newly routed queued worker item must carry an explicit `tasks-axi` priority from 0 through 4; `bin/fm-backlog-handoff.sh` refuses a missing or invalid priority before moving anything or preparing a receiver wake.
+The receiving home owns the claim: run `bin/fm-pull.sh ready` after startup, child completion, and ordinary backlog reevaluation, then use `bin/fm-pull.sh start` for the first eligible row only.
+`bin/fm-pull.sh` and fresh ordinary `bin/fm-spawn.sh` calls share the fixed local attention limit of four; paused, captain-held, parked, and blocked rows do not consume a slot, while validating, working, unknown, failed-but-uncleaned, and unknown launch reservations do.
 After a successful move it warns for any moved key that still owes a public relay reply bound to `main/<key>`, because that binding no longer names the home owning the work; rebind the commitment to `secondmate:<id>` through the `fmx-respond` promised-final procedure, which owns those commands.
 That same rule governs routing generally: a Relay-linked request whose work goes to a secondmate cannot use the home-local mention link at all and needs a promised-final commitment bound to that secondmate's home.
 It refuses any destination that is not a genuine seeded firstmate home with safe operational directories and a matching `.fm-secondmate-home` marker, so a move can never land in a project.

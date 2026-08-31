@@ -3,6 +3,8 @@
 #
 # Output contract: `--json` prints one object with schema
 # `fm-fleet-snapshot.v1`.
+# `--local-json` prints the same local-home facts without registered-secondmate
+# aggregation or network work; pull and spawn use this bounded mode.
 # The command is read-only: it does not acquire the session lock, drain wakes,
 # arm watchers, mutate backlog state, or write reports.
 #
@@ -42,6 +44,11 @@
 #     endpoint.exists is the cheap backend endpoint-presence read.
 #     endpoint.agent_alive is populated for secondmates only, where it is useful
 #     return-channel supervision data; other tasks use "not_checked".
+#   attention: {limit,count,remaining,valid,workers[],reservations[],reported[]} -
+#     fail-closed local worker inventory and the fixed four-worker accounting
+#     consumed by pull and fresh ordinary spawn transactions.
+#   pull: {eligible[],ineligible[],rows[]} - local backlog rows with mechanical
+#     eligibility reasons, ordered by priority, since date, and id.
 #   scout_reports[]: present data/<id>/report.md pointers.
 #   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
 #     main-home current-inventory checks shared with secondmate_home_summary_json
@@ -149,6 +156,9 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 # shellcheck source=bin/fm-classify-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-ff-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-ff-lib.sh"  # validate_secondmate_home: shared seeded-home boundary checks
@@ -159,11 +169,14 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 usage() {
   cat <<'EOF'
 usage: fm-fleet-snapshot.sh --json
+       fm-fleet-snapshot.sh --local-json
        fm-fleet-snapshot.sh --secondmate-home-summary
 
 Print a read-only structured snapshot of the firstmate fleet.
 JSON is the stable machine-readable output contract.
 
+--local-json emits the local backlog, worker, attention, and pull facts without
+registered-secondmate aggregation or network work.
 --secondmate-home-summary emits the bounded structured summary used after a
 validated registered-home handoff. It is local-only, skips nested secondmate
 aggregation, and marks inventory contradictions or unavailable child state invalid.
@@ -189,6 +202,7 @@ EOF
 OUTPUT_MODE=json
 case "${1:---json}" in
   --json) ;;
+  --local-json) OUTPUT_MODE=local ;;
   --secondmate-home-summary) OUTPUT_MODE=secondmate-home-summary ;;
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
@@ -324,6 +338,8 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
         end;
     def local_note($rest):
       cap(($rest | strip_trailing_metadata); ".*(?:^|[[:space:]]+-[[:space:]]+|[[:space:]])(?<v>local main)$");
+    def compatibility_marker($text):
+      ($text // "") | test("NOT[[:space:]]+AUTHORI[ZS]ED|DECLINED|DO[[:space:]]+NOT[[:space:]]+CHASE|CAPTAIN[[:space:]]+RULED|SUPERSEDED|NOT[[:space:]-]+REQUIRED|DEFERRED"; "i");
     def completion($rest):
       (metadata_word($rest; "merged")) as $merged
       | (metadata_word($rest; "reported")) as $reported
@@ -417,8 +433,8 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
                and .hold_reason != null and (.unresolved_blocker_ids | length) == 0
                and (.hold_until == null or .hold_until <= $today))
           | .deferred_marker =
-              ((((.hold_reason // "") + " " + (.body_excerpt // ""))
-                | test("SUPERSEDED|NOT REQUIRED|NOT-REQUIRED|DEFERRED"; "i")))
+              compatibility_marker((.title // "") + " " + (.hold_reason // "") + " " + (.body_excerpt // "") + " " + (.raw // ""))
+          | .authorization_marker = .deferred_marker
         else . end)
     | del(.section,.order)
   ' < "$backlog"
@@ -431,8 +447,7 @@ task_json_lines() {
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
   local open_decisions_tsv open_decisions_json
 
-  for meta in "$STATE"/*.meta; do
-    [ -e "$meta" ] || continue
+  for meta in ${META_PATHS[@]+"${META_PATHS[@]}"}; do
     id=$(basename "$meta" .meta)
     kind=$(meta_value "$meta" kind)
     [ -n "$kind" ] || kind=ship
@@ -467,7 +482,12 @@ task_json_lines() {
       pr_source=absent
     fi
 
-    current_json=$(crew_state_json "$id")
+    if [ "$OUTPUT_MODE" = local ] && [ -n "$remote_host" ]; then
+      current_json=$(jq -n --arg observed_at "$SNAPSHOT_NOW" \
+        '{state:"unknown",source:"remote-endpoint",detail:"remote state skipped in local snapshot",raw:"",observed_at:$observed_at,freshness:"local-only"}')
+    else
+      current_json=$(crew_state_json "$id")
+    fi
     event_json=$(status_event_json "$status_log")
     last_event_raw=$(printf '%s' "$event_json" | jq -r '.last_event.raw // ""')
     current_state=$(printf '%s' "$current_json" | jq -r '.state // ""')
@@ -506,7 +526,12 @@ task_json_lines() {
 
     endpoint_exists=null
     agent_alive=not_checked
-    if [ -n "$remote_host" ]; then
+    if [ "$OUTPUT_MODE" = local ]; then
+      # Pull and spawn are local transactions; local mode must never ask a
+      # registered remote home for endpoint state or otherwise do network work.
+      endpoint_exists=null
+      agent_alive=unknown
+    elif [ -n "$remote_host" ]; then
       if remote_state=$(fm_run_timed "$FM_SNAPSHOT_SECONDMATE_TIMEOUT" \
         "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh state "$id" < /dev/null 2>/dev/null); then
         remote_rc=0
@@ -625,6 +650,72 @@ task_json_lines() {
           end)
       }'
   done | jq -s 'sort_by(.id)'
+}
+
+attention_json() {  # <backlog-json> <tasks-json> <inventory-valid>
+  jq -n --argjson backlog "$1" --argjson tasks "$2" --argjson inventory_valid "$3" '
+    def attention_class($task):
+      ($task.current_state.state // "unknown") as $state
+      | ($task.current_state.source // "none") as $source
+      | if $state == "working" and $source == "run-step" then "validating"
+        elif $state == "working" then "working"
+        elif $state == "unknown" then "unknown"
+        elif $state == "failed" then "failed_uncleaned"
+        elif $state == "parked" and ($task.hints.pending_decision == true) then "captain_held"
+        elif $state == "paused" then "paused"
+        elif $state == "parked" then "parked"
+        elif $state == "blocked" then "blocked"
+        elif $state == "done" then "done"
+        else "unknown" end;
+    ([ $tasks[]
+       | select(.kind == "ship" or .kind == "scout")
+       | {id,kind,state:(.current_state.state // "unknown"),source:(.current_state.source // "none"),class:attention_class(.)}
+       | .counts = (.class == "validating" or .class == "working" or .class == "unknown" or .class == "failed_uncleaned") ]) as $task_rows
+    | ([ $backlog.records[]?
+       | select(.structured == true and .state == "in_flight" and (.kind == "ship" or .kind == "scout"))
+       | select(.id as $id | ($tasks | map(.id) | index($id) | not))
+       | {id,kind,state:"in_flight",source:"backlog",class:"unknown_reservation",counts:true} ]) as $reservations
+    | ($task_rows + $reservations) as $all
+    | ([ $all[] | select(.counts == true) ]) as $workers
+    | {limit:4,count:($workers | length),remaining:(4 - ($workers | length)),valid:$inventory_valid,
+       workers:$workers,reservations:$reservations,
+       reported:([ $all[] | select(.counts != true) ])}
+  '
+}
+
+pull_json() {  # <backlog-json>
+  jq -n --argjson backlog "$1" '
+    def priority_number:
+      if (.priority | type) == "string" then (.priority | tonumber?)
+      elif (.priority | type) == "number" then .priority
+      else null end;
+    def worker_kind: (.kind == "ship" or .kind == "scout");
+    def reason:
+      if .state != "queued" then "not_queued"
+      elif (.structured != true) then "unstructured"
+      elif (worker_kind | not) then "kind_not_worker"
+      elif ((.unresolved_blocker_ids // []) | length) > 0 then "blocked"
+      elif (.hold_kind != null or .hold_reason != null) then "held"
+      elif (.authorization_marker == true) then "migration_required"
+      elif (.priority == null or .priority == "") then "missing_priority"
+      elif (priority_number == null) then "invalid_priority"
+      elif ((priority_number < 0) or (priority_number > 4) or (priority_number != (priority_number | floor))) then "invalid_priority"
+      else null end;
+    def row:
+      . as $row
+      | (reason) as $reason
+      | (priority_number) as $priority_number
+      | {id:$row.id,title:($row.title // ""),kind:($row.kind // null),repo:($row.repo // null),
+         priority:($priority_number),since:($row.since // null),state:$row.state,
+         pull_eligible:($reason == null),pull_reason:$reason,
+         next_action:(if $reason == null then "spawn" else null end)};
+    [ $backlog.records[]? | row ] as $rows
+    | ($rows | map(select(.pull_eligible == true))
+       | sort_by([(.priority // 99),(.since // "9999-99-99"),.id])) as $eligible
+    | ($rows | map(select(.pull_eligible != true))
+       | sort_by([(.priority // 99),(.since // "9999-99-99"),.id])) as $ineligible
+    | {eligible:$eligible,ineligible:$ineligible,rows:($eligible + $ineligible)}
+  '
 }
 
 # Main-home current-inventory validity: same orphan / unstructured-current checks
@@ -1374,11 +1465,53 @@ scout_report_lines() {
 }
 
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
-TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
+INVENTORY_VALID=true
+META_PATHS=()
+if [ ! -d "$STATE" ] || [ ! -r "$STATE" ] || [ ! -x "$STATE" ]; then
+  INVENTORY_VALID=false
+else
+  shopt -s nullglob dotglob
+  META_PATHS=("$STATE"/*.meta)
+  shopt -u nullglob dotglob
+  for meta in ${META_PATHS[@]+"${META_PATHS[@]}"}; do
+    id=$(basename "$meta" .meta)
+    if [ -L "$meta" ] || [ ! -f "$meta" ] || [ ! -r "$meta" ] ||
+       ! fm_task_id_creation_valid "$id"; then
+      INVENTORY_VALID=false
+      break
+    fi
+  done
+fi
+if [ "$INVENTORY_VALID" = true ]; then
+  TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
+else
+  TASKS_JSON='[]'
+fi
 
 if [ "$OUTPUT_MODE" = secondmate-home-summary ]; then
   secondmate_home_summary_json "$BACKLOG_JSON" "$TASKS_JSON" \
     || { echo "fm-fleet-snapshot: secondmate home summary failed" >&2; exit 1; }
+  exit 0
+fi
+
+ATTENTION_JSON=$(attention_json "$BACKLOG_JSON" "$TASKS_JSON" "$INVENTORY_VALID") \
+  || { echo "fm-fleet-snapshot: local attention summary failed" >&2; exit 1; }
+PULL_JSON=$(pull_json "$BACKLOG_JSON") \
+  || { echo "fm-fleet-snapshot: pull summary failed" >&2; exit 1; }
+if [ "$OUTPUT_MODE" = local ]; then
+  jq -n \
+    --arg generated "$SNAPSHOT_NOW" \
+    --arg fm_home "$FM_HOME" \
+    --arg state "$STATE" \
+    --arg data "$DATA" \
+    --argjson backlog "$BACKLOG_JSON" \
+    --argjson tasks "$TASKS_JSON" \
+    --argjson attention "$ATTENTION_JSON" \
+    --argjson pull "$PULL_JSON" \
+    '{schema:"fm-fleet-snapshot.v1",local:true,generated:$generated,fm_home:$fm_home,
+      roots:{state:$state,data:$data},backlog:$backlog,
+      tasks:($tasks | map(. as $task | . + {backlog:([$backlog.records[]? | select(.structured == true and .id == $task.id)][0] // null)})),
+      attention:$attention,pull:$pull}'
   exit 0
 fi
 
@@ -1401,6 +1534,8 @@ jq -n \
   --argjson backlog "$BACKLOG_JSON" \
   --argjson tasks "$TASKS_JSON" \
   --argjson main_inventory "$MAIN_INVENTORY_JSON" \
+  --argjson attention "$ATTENTION_JSON" \
+  --argjson pull "$PULL_JSON" \
   --argjson scout_reports "$SCOUT_REPORTS_JSON" \
   --argjson secondmate_current "$SECONDMATE_CURRENT_JSON" \
   --argjson secondmate_landed "$SECONDMATE_LANDED_JSON" \
@@ -1415,6 +1550,8 @@ jq -n \
      backlog:$backlog,
      tasks:($tasks | map(. + {backlog:backlog_by_id(.id)})),
      main_inventory:$main_inventory,
+     attention:$attention,
+     pull:$pull,
      scout_reports:($scout_reports | map(. + {kind:report_kind(.id)})),
      secondmate_current:$secondmate_current,
      secondmate_landed:$secondmate_landed,

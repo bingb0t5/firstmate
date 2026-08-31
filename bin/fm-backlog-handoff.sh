@@ -20,11 +20,14 @@
 #     (.fm-secondmate-home marker, AGENTS.md + bin/), never a project clone, the
 #     active home, or the firstmate repo;
 #   - moving only `## Queued` items, refusing `## In flight` and historical
-#     `## Done` records, which must stay with their home for pruning or
-#     archiving;
+#     `## Done` records even on an idempotent retry, which must stay with their
+#     home for pruning or archiving;
+#   - resolving the dependency-closed move set and requiring every queued row
+#     in it to carry an explicit priority from 0 through 4 before mutation or
+#     receiver notification;
 #   - the multi-key classification and idempotent per-key reporting: a key
-#     already present in the secondmate backlog is reported and skipped, and if
-#     any key matches neither backlog nothing is moved;
+#     already present under the secondmate backlog's Queued section is reported
+#     and skipped, and if any key matches neither backlog nothing is moved;
 #   - warning, after a successful move, when a moved key still owes a public
 #     relay reply bound to main/<key>, or when this home has an open public loop
 #     with nothing owed, because routing work out does not close that loop. The
@@ -82,7 +85,7 @@ MAIN_BACKLOG="$DATA/backlog.md"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 
-RECEIVER_WAKE_MESSAGE='New routed work is in your backlog. Run bin/fm-session-start.sh now, then act on the routed task.'
+RECEIVER_WAKE_MESSAGE='New routed work is in your backlog. Run bin/fm-session-start.sh now, then run bin/fm-pull.sh ready and claim the first eligible local task.'
 
 ACTIVE_HANDOFF_LOCK=
 ACTIVE_REGISTRY_LOCK=
@@ -610,8 +613,62 @@ remove_interrupted_source_duplicates() { # <outbox> <keys...>
   done
 }
 
+validate_handoff_priorities() { # <backlog-path> <queued-key>...
+  local backlog=$1 key priority
+  shift
+  [ "$#" -gt 0 ] || return 0
+  for key in "$@"; do
+    priority=$(awk -v key="$key" '
+      /^- \[[ x]\] / {
+        line=$0; id=$0
+        sub(/^- \[[ x]\] +/, "", id); sub(/[ \t].*/, "", id)
+        if (id == key) {
+          if (match(line, /\(priority: [0-4]\)/)) print substr(line, RSTART + 11, 1)
+          exit
+        }
+      }
+    ' "$backlog")
+    case "$priority" in
+      0|1|2|3|4) ;;
+      *)
+        echo "error: refusing to hand off $key: structured priority is missing or invalid; assign priority 0..4 before routing" >&2
+        return 1
+        ;;
+    esac
+  done
+}
+
+resolve_handoff_move_closure() { # <queued-key>...
+  local snapshot config projects
+  [ "$#" -gt 0 ] || return 0
+  config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+  projects=${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}
+  snapshot=$(FM_ROOT_OVERRIDE="$FM_ROOT" FM_HOME="$FM_HOME" \
+    FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+    FM_CONFIG_OVERRIDE="$config" FM_PROJECTS_OVERRIDE="$projects" \
+    "$SCRIPT_DIR/fm-fleet-snapshot.sh" --local-json 2>/dev/null) || {
+    echo "error: local backlog dependencies could not be resolved; refusing handoff" >&2
+    return 1
+  }
+  printf '%s' "$snapshot" | jq -r --args '
+    ($ARGS.positional) as $requested
+    | (.backlog.records | map(select(.structured == true and .state == "queued"))) as $rows
+    | (reduce $rows[] as $row ({};
+        .[$row.id] = (((.[$row.id] // []) + ($row.unresolved_blocker_ids // [])) | unique)
+        | reduce ($row.unresolved_blocker_ids[]?) as $blocker (.;
+            .[$blocker] = (((.[$blocker] // []) + [$row.id]) | unique)))) as $adjacency
+    | def closure($pending; $seen):
+        if ($pending | length) == 0 then $seen
+        else ($pending[0]) as $id
+          | if ($seen | index($id)) != null then closure($pending[1:]; $seen)
+            else closure(($pending[1:] + ($adjacency[$id] // [])); ($seen + [$id])) end
+        end;
+      closure($requested; [])[]
+  ' "$@"
+}
+
 remote_handoff() { # <secondmate-id> <keys...>
-  local id=$1 outbox section main_section out_section key mv_out
+  local id=$1 outbox section main_section out_section key mv_out closure
   local -a requested to_move already missing in_flight done_items not_queued
   shift
   requested=("$@")
@@ -659,6 +716,12 @@ remote_handoff() { # <secondmate-id> <keys...>
     echo "       nothing new was staged." >&2
     return 1
   fi
+  if [ "${#to_move[@]}" -gt 0 ]; then
+    closure=$(resolve_handoff_move_closure "${to_move[@]}") || return 1
+    mapfile -t to_move <<< "$closure"
+  fi
+  validate_handoff_priorities "$MAIN_BACKLOG" "${to_move[@]}" || return 1
+  validate_handoff_priorities "$outbox" "${already[@]}" || return 1
   for key in "${to_move[@]}"; do
     while IFS= read -r line; do
       printf 'error: refusing to hand off %s: non-2-space continuation line: %s\n' "$key" "$line" >&2
@@ -688,7 +751,7 @@ remote_handoff() { # <secondmate-id> <keys...>
   # A hard local kill can land tasks-axi's target persist before its source
   # persist. The outbox is already authoritative in that state, so converge by
   # deleting only duplicates that tasks-axi itself confirms are dependency-safe.
-  remove_interrupted_source_duplicates "$outbox" "${requested[@]}" || return 1
+  remove_interrupted_source_duplicates "$outbox" "${to_move[@]}" || return 1
   remote_deliver_outbox "$id" "$outbox" || return 1
   echo "handed off ${#requested[@]} item(s) to remote secondmate $id: ${requested[*]}"
   [ "${#already[@]}" -eq 0 ] || echo "  already staged (recovered): ${already[*]}"
@@ -771,8 +834,13 @@ IN_FLIGHT=()
 DONE=()
 NOT_QUEUED=()
 for key in "$@"; do
-  if backlog_key_section "$SUB_BACKLOG" "$key" >/dev/null; then
-    ALREADY+=("$key")
+  if section=$(backlog_key_section "$SUB_BACKLOG" "$key"); then
+    case "$section" in
+      "## Queued") ALREADY+=("$key") ;;
+      "## In flight") IN_FLIGHT+=("$key") ;;
+      "## Done") DONE+=("$key") ;;
+      *) NOT_QUEUED+=("$key") ;;
+    esac
   elif section=$(backlog_key_section "$MAIN_BACKLOG" "$key"); then
     case "$section" in
       "## Queued") TO_MOVE+=("$key") ;;
@@ -806,6 +874,21 @@ if [ "$FAILED" -ne 0 ]; then
   echo "       nothing was moved." >&2
   exit 1
 fi
+if [ "${#TO_MOVE[@]}" -gt 0 ]; then
+  MOVE_CLOSURE=$(resolve_handoff_move_closure "${TO_MOVE[@]}") || {
+    echo "       nothing was moved." >&2
+    exit 1
+  }
+  mapfile -t TO_MOVE <<< "$MOVE_CLOSURE"
+fi
+validate_handoff_priorities "$MAIN_BACKLOG" "${TO_MOVE[@]}" || {
+  echo "       nothing was moved." >&2
+  exit 1
+}
+validate_handoff_priorities "$SUB_BACKLOG" "${ALREADY[@]}" || {
+  echo "       nothing was moved." >&2
+  exit 1
+}
 
 REQUESTED_BATCH=$(receiver_wake_batch_id "$@") || {
   echo "error: receiver wake batch identity could not be recorded; nothing was moved" >&2

@@ -248,6 +248,9 @@ Its scope field drives routing and its project list is non-exclusive provisionin
 Keep `local-only` work in the main home.
 
 A secondmate is idle by default and acts only on work routed by the main firstmate.
+The main firstmate files secondmate-owned queued work into that mate's backlog through `bin/fm-backlog-handoff.sh`; the receiving mate claims only its own first eligible row with `bin/fm-pull.sh`, never with raw `tasks-axi start` or a cross-home path.
+Each home has a fixed local attention limit of four for validating, working, unknown, failed-but-uncleaned, and unknown launch-reservation workers; fresh `bin/fm-spawn.sh` is the universal backstop, while paused, captain-held, parked, and blocked work is reported without consuming a slot.
+Scale by registering another primary-level domain mate or splitting a domain into non-overlapping scopes with separate homes and queues; a secondmate cannot seed or spawn another secondmate.
 It reconciles its own work under way after restart, then waits silently; an empty queue never authorizes a survey, audit, or self-directed improvement sweep.
 Do not reconstruct or supervise a secondmate's child tree from the main home.
 
@@ -307,6 +310,7 @@ Write the task-specific brief under section 11 before spawning.
 ### Dispatch and supervision handoff
 
 Spawn only through `bin/fm-spawn.sh` after the profile and backend checks in section 4.
+For a queued local worker, claim and start through `bin/fm-pull.sh start <id> <project-dir> <existing fm-spawn flags...>` so priority, eligibility, local attention, and the task-set reservation are checked before spawning; direct fresh ordinary spawns remain protected by the same four-worker backstop.
 The spawn must resolve a genuine isolated task worktree distinct from the primary checkout; a failed isolation assertion stops the task.
 After spawning, confirm the worker is processing the brief, handle any trust dialog through `harness-adapters`, and record ship or scout work as under way.
 A persistent secondmate is recorded in the secondmate registry and runtime state, never as a backlog work item.
@@ -496,7 +500,7 @@ Mention cost as a courtesy when unusually much work is running, but never block 
 
 `data/backlog.md` is the durable queue.
 It tracks work items only, never agents; persistent secondmates never appear as backlog items.
-Work routed to a secondmate is recorded in that secondmate home's own backlog, not the main backlog.
+Work routed to a secondmate is recorded durably in that secondmate home's own backlog, not the main backlog, and a missing or invalid priority refuses the handoff before receiver notification.
 A decision is simply a task held for the captain: `tasks-axi hold <id> --reason "<reason>" --kind captain`, with `--until <date>` when the captain defers it.
 When a main-side thread such as a pending captain decision or relay reminder is worth durable tracking, file it as its own work item and hold it the same way.
 Captain calls discovered by investigations or visual reviews follow `captain-hold-lifecycle`, which owns their completion gate and recorded-answer rules.

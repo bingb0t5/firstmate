@@ -456,7 +456,7 @@ test_backlog_tasks_axi_forms_and_overrides() {
 - [ ] parenthetical-title - Refresh sidebar (mobile) (repo: beta) (kind: ship)
 - [ ] blocked-reason - Blocked Reason (repo: beta) (kind: ship) blocked-by: queued-comma - waits on queued-comma
 - [ ] sample-decision-route - Choose sample route (repo: sample) (kind: captain) (since 2026-07-14) (hold: captain route choice pending) (hold-kind: captain)
-- [ ] dated-route - Deferred sample route (repo: sample) (kind: ship) (hold: captain sent this to later) (hold-kind: captain) (hold-until: 2026-09-01)
+- [ ] dated-route - Scheduled sample route (repo: sample) (kind: ship) (hold: captain sent this to later) (hold-kind: captain) (hold-until: 2026-09-01)
 - [ ] captain-gated-work - Captain-gated ship work (repo: sample) (kind: ship) (hold: captain go pending) (hold-kind: captain)
 - [ ] parked-prose - Parked captain call (repo: sample) (kind: ship) (hold: DEFERRED by captain) (hold-kind: captain)
 
@@ -522,7 +522,7 @@ EOF
   ' >/dev/null || fail "tasks-axi captain-hold metadata did not parse"
   printf '%s' "$out" | jq -e '
     .backlog.records[] | select(.id == "dated-route")
-    | .title == "Deferred sample route"
+    | .title == "Scheduled sample route"
       and .hold_until == "2026-09-01"
       and .captain_actionable == false
       and .deferred_marker == false

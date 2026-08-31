@@ -794,6 +794,19 @@ SECOND_ORDER_AFTER=$(printf '%s' "$ORDER_LIST" | jq -r '.result.workspaces[] | s
   || fail "concurrent primary workspace ordering stole focus"
 assert_no_ordering_lifecycle_calls_since "$PROJECTION_ORDER_START" "successful presentation ordering"
 pass "real Herdr lab: concurrent primary workers form one stable contiguous block without active workspace/tab drift"
+SHAPE_CLEANUP_AUDIT_START=$(focus_audit_line_count)
+teardown_task shape "$HOME_DIR" > "$TMP_ROOT/on-teardown.out" 2> "$TMP_ROOT/on-teardown.err" \
+  || fail "projected teardown failed: $(cat "$TMP_ROOT/on-teardown.err")"
+assert_focus_is "$CAPTAIN_FOCUS" "projected teardown"
+assert_cleanup_focus_preserved "$SHAPE_CLEANUP_AUDIT_START" "$PROJECTED_PANE" "$CAPTAIN_FOCUS"
+if lab workspace get "$PROJECTED_WSID" >/dev/null 2>&1; then
+  fail "closing the exact projected task pane did not remove its last-tab workspace"
+fi
+lab pane get "$SECOND_TWO_PANE" >/dev/null 2>&1 \
+  || fail "projected teardown affected the focused secondmate workspace"
+[ ! -e "$JOURNAL" ] || fail "confirmed projected teardown did not retire its presentation journal"
+pass "real Herdr lab: Treehouse commands and metadata shape are byte-identical except for endpoint IDs and spawn incarnation"
+pass "real Herdr lab: exact task-pane close removes the projected workspace with no unrestored wrong-focus interval"
 
 # Force only the raw move transport to fail after a safe projected create.
 # The spawn must remain successful in Herdr's default appended order, with its
@@ -829,6 +842,20 @@ FAIL_CLOSED_PANES=$(sed -n "$((FAIL_START + 1)),\$p" "$HERDR_CALL_LOG" | awk -F 
   || fail "move-failure spawn closed its exact task pane"
 assert_no_ordering_lifecycle_calls_since "$FAIL_START" "failed presentation ordering"
 pass "real Herdr lab: forced workspace.move failure leaves a successful worker in default order with a warning and no cleanup"
+
+teardown_task order-a "$HOME_DIR" > "$TMP_ROOT/order-a-teardown.out" 2> "$TMP_ROOT/order-a-teardown.err" &
+ORDER_A_TEARDOWN_PID=$!
+teardown_task order-b "$HOME_DIR" > "$TMP_ROOT/order-b-teardown.out" 2> "$TMP_ROOT/order-b-teardown.err" &
+ORDER_B_TEARDOWN_PID=$!
+if wait "$ORDER_A_TEARDOWN_PID"; then ORDER_A_TEARDOWN_STATUS=0; else ORDER_A_TEARDOWN_STATUS=$?; fi
+if wait "$ORDER_B_TEARDOWN_PID"; then ORDER_B_TEARDOWN_STATUS=0; else ORDER_B_TEARDOWN_STATUS=$?; fi
+finish_concurrent_teardown order-a "$ORDER_A_TEARDOWN_STATUS" "$TMP_ROOT/order-a-teardown.out" "$TMP_ROOT/order-a-teardown.err"
+finish_concurrent_teardown order-b "$ORDER_B_TEARDOWN_STATUS" "$TMP_ROOT/order-b-teardown.out" "$TMP_ROOT/order-b-teardown.err"
+assert_focus_is "$CAPTAIN_FOCUS" "concurrent projected teardowns"
+teardown_task order-fail "$HOME_DIR" > "$TMP_ROOT/order-fail-teardown.out" 2> "$TMP_ROOT/order-fail-teardown.err" \
+  || fail "projected ordering failure fixture teardown failed"
+assert_focus_is "$CAPTAIN_FOCUS" "failed-order projection teardown"
+pass "real Herdr lab: concurrent projected cleanup is serialized and leaves active workspace/tab unchanged"
 
 mkdir -p "$POST_CREATE_ABORT_CONTROL"
 ABORT_START=$(log_line_count)
@@ -876,34 +903,6 @@ done
 rm -rf "$POST_CREATE_ABORT_CONTROL"
 rm -f "$HOME_DIR/state/abort-a.herdr-presentation" "$HOME_DIR/state/abort-b.herdr-presentation"
 pass "real Herdr lab: concurrent post-create abort cleanup stays serialized with exact focus restoration"
-
-SHAPE_CLEANUP_AUDIT_START=$(focus_audit_line_count)
-teardown_task shape "$HOME_DIR" > "$TMP_ROOT/on-teardown.out" 2> "$TMP_ROOT/on-teardown.err" \
-  || fail "projected teardown failed: $(cat "$TMP_ROOT/on-teardown.err")"
-assert_focus_is "$CAPTAIN_FOCUS" "projected teardown"
-assert_cleanup_focus_preserved "$SHAPE_CLEANUP_AUDIT_START" "$PROJECTED_PANE" "$CAPTAIN_FOCUS"
-pass "real Herdr lab: Treehouse commands and metadata shape are byte-identical except for endpoint IDs and spawn incarnation"
-if lab workspace get "$PROJECTED_WSID" >/dev/null 2>&1; then
-  fail "closing the exact projected task pane did not remove its last-tab workspace"
-fi
-lab pane get "$SECOND_TWO_PANE" >/dev/null 2>&1 \
-  || fail "projected teardown affected the focused secondmate workspace"
-[ ! -e "$JOURNAL" ] || fail "confirmed projected teardown did not retire its presentation journal"
-pass "real Herdr lab: exact task-pane close removes the projected workspace with no unrestored wrong-focus interval"
-
-teardown_task order-a "$HOME_DIR" > "$TMP_ROOT/order-a-teardown.out" 2> "$TMP_ROOT/order-a-teardown.err" &
-ORDER_A_TEARDOWN_PID=$!
-teardown_task order-b "$HOME_DIR" > "$TMP_ROOT/order-b-teardown.out" 2> "$TMP_ROOT/order-b-teardown.err" &
-ORDER_B_TEARDOWN_PID=$!
-if wait "$ORDER_A_TEARDOWN_PID"; then ORDER_A_TEARDOWN_STATUS=0; else ORDER_A_TEARDOWN_STATUS=$?; fi
-if wait "$ORDER_B_TEARDOWN_PID"; then ORDER_B_TEARDOWN_STATUS=0; else ORDER_B_TEARDOWN_STATUS=$?; fi
-finish_concurrent_teardown order-a "$ORDER_A_TEARDOWN_STATUS" "$TMP_ROOT/order-a-teardown.out" "$TMP_ROOT/order-a-teardown.err"
-finish_concurrent_teardown order-b "$ORDER_B_TEARDOWN_STATUS" "$TMP_ROOT/order-b-teardown.out" "$TMP_ROOT/order-b-teardown.err"
-assert_focus_is "$CAPTAIN_FOCUS" "concurrent projected teardowns"
-teardown_task order-fail "$HOME_DIR" > "$TMP_ROOT/order-fail-teardown.out" 2> "$TMP_ROOT/order-fail-teardown.err" \
-  || fail "projected ordering failure fixture teardown failed"
-assert_focus_is "$CAPTAIN_FOCUS" "failed-order projection teardown"
-pass "real Herdr lab: concurrent projected cleanup is serialized and leaves active workspace/tab unchanged"
 
 # Repeat full two-worker create, order, and cleanup waves.
 # This exercises the focus guard after the original regression sequence and
@@ -1118,6 +1117,20 @@ case "$PCW_LABEL" in $'└ pcw · p:'*|firstmate) ;; *) fail "cross-home primary
 case "$ACW_LABEL" in $'└ acw · p:'*|2ndmate-alpha) ;; *) fail "cross-home A label wrong: $ACW_LABEL" ;; esac
 case "$BCW_LABEL" in $'└ bcw · p:'*|2ndmate-bravo) ;; *) fail "cross-home B label wrong: $BCW_LABEL" ;; esac
 pass "real Herdr lab: concurrent primary/A/B spawns preserve parent order and exact focus"
+for MULTI_ID in p1 p2 pcw; do
+  teardown_task "$MULTI_ID" "$HOME_DIR" > "$TMP_ROOT/$MULTI_ID-teardown.out" 2> "$TMP_ROOT/$MULTI_ID-teardown.err" \
+    || fail "multi-home primary $MULTI_ID teardown failed"
+done
+for MULTI_ID in a1 a2 acw; do
+  teardown_task "$MULTI_ID" "$SECOND_HOME_A" > "$TMP_ROOT/$MULTI_ID-teardown.out" 2> "$TMP_ROOT/$MULTI_ID-teardown.err" \
+    || fail "multi-home secondmate A $MULTI_ID teardown failed"
+done
+for MULTI_ID in b1 b2 bcw; do
+  teardown_task "$MULTI_ID" "$SECOND_HOME_B" > "$TMP_ROOT/$MULTI_ID-teardown.out" 2> "$TMP_ROOT/$MULTI_ID-teardown.err" \
+    || fail "multi-home secondmate B $MULTI_ID teardown failed"
+done
+assert_focus_is "$CAPTAIN_FOCUS" "multi-home fixture teardown"
+pass "real Herdr lab: multi-home exact-pane teardowns restore captain focus without workspace close authority"
 
 # Hold the shared session lock from a different home and force flat fallback.
 CROSS_LOCK_READY="$TMP_ROOT/cross-lock-ready"
@@ -1345,12 +1358,9 @@ lab tab get "$FLAT_TAB_ID" >/dev/null 2>&1 \
   || fail "correction removed the seeded flat secondmate child tab"
 pass "real Herdr lab: legacy projection labels and flat secondmate tabs are left unmigrated"
 
-# Teardown multi-home projected tasks by exact pane only.
+# Teardown the remaining projected tasks by exact pane only.
 for META_HOME_PAIR in \
-  "p1:$HOME_DIR" "p2:$HOME_DIR" "pcw:$HOME_DIR" "post-legacy:$HOME_DIR" \
-  "a1:$SECOND_HOME_A" "a2:$SECOND_HOME_A" "acw:$SECOND_HOME_A" \
-  "alpha:$HOME_DIR" \
-  "b1:$SECOND_HOME_B" "b2:$SECOND_HOME_B" "bcw:$SECOND_HOME_B"
+  "post-legacy:$HOME_DIR" "alpha:$HOME_DIR"
 do
   TASK_ID=${META_HOME_PAIR%%:*}
   TASK_HOME=${META_HOME_PAIR#*:}
@@ -1358,7 +1368,7 @@ do
     || fail "multi-home teardown of $TASK_ID failed: $(cat "$TMP_ROOT/td-$TASK_ID.err")"
 done
 assert_focus_is "$CAPTAIN_FOCUS" "multi-home teardown"
-pass "real Herdr lab: multi-home exact-pane teardowns restore captain focus without workspace close authority"
+pass "real Herdr lab: remaining exact-pane teardowns restore captain focus without workspace close authority"
 
 # Missing, renamed, and duplicate tokens are read-only recovery diagnostics.
 # The duplicate case allows flat fallback only when every matching pane is

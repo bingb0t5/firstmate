@@ -72,7 +72,7 @@ worktree=$sub
 EOF
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] wake-item - routed to a live receiver (repo: alpha)
+- [ ] wake-item - routed to a live receiver (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -110,6 +110,65 @@ EOF
   pass "a routed handoff wakes once and a successful rerun stays idempotent"
 }
 
+test_already_present_missing_priority_refuses_without_wake() {
+  local home="$TMP_ROOT/already-priority-main" sub="$TMP_ROOT/already-priority-sub" fakebin out rc=0
+  setup_homes "$home" "$sub"
+  mkdir -p "$sub/data"
+  printf '## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  printf '## Queued\n- [ ] legacy-item - migrated without priority (repo: alpha)\n\n## Done\n' > "$sub/data/backlog.md"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/already-priority-fake")
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/already-priority-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design legacy-item 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "already-routed item without priority was accepted"
+  assert_contains "$out" 'structured priority is missing or invalid' "priority migration refusal was not explicit"
+  assert_absent "$TMP_ROOT/already-priority-tmux.log" "invalid already-routed item notified the receiver"
+  pass "already-routed items require structured priority before reconciliation"
+}
+
+test_already_done_refuses_without_wake() {
+  local home="$TMP_ROOT/already-done-main" sub="$TMP_ROOT/already-done-sub" fakebin out rc=0
+  setup_homes "$home" "$sub"
+  mkdir -p "$sub/data"
+  printf '## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  printf '## Queued\n\n## Done\n- [x] completed-item - historical work (repo: alpha) (priority: 2)\n' > "$sub/data/backlog.md"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/already-done-fake")
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/already-done-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design completed-item 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "already-completed destination item was accepted as a queued retry"
+  assert_contains "$out" 'refusing to hand off Done' "completed destination refusal was not explicit"
+  assert_absent "$TMP_ROOT/already-done-tmux.log" "completed destination item notified the receiver"
+  assert_absent "$home/state/design.inbox" "completed destination item created receiver inbox work"
+  pass "completed destination items cannot become handoff retries"
+}
+
+test_dependency_closure_requires_priority_without_mutation() {
+  local home="$TMP_ROOT/closure-priority-main" sub="$TMP_ROOT/closure-priority-sub" fakebin out rc=0
+  setup_homes "$home" "$sub"
+  mkdir -p "$sub/data"
+  cat > "$home/data/backlog.md" <<'EOF'
+## Queued
+- [ ] closure-blocker - missing migration priority (repo: alpha) (kind: ship)
+- [ ] closure-dependent - routed work blocked-by: closure-blocker (repo: alpha) (kind: ship) (priority: 1)
+
+## Done
+EOF
+  printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
+  cp "$home/data/backlog.md" "$home/backlog.before"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/closure-priority-fake")
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/closure-priority-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design closure-dependent 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "dependency closure with an unprioritized blocker was handed off"
+  assert_contains "$out" 'refusing to hand off closure-blocker' "closure priority refusal did not name the blocker"
+  cmp -s "$home/backlog.before" "$home/data/backlog.md" || fail "closure priority refusal mutated the source backlog"
+  assert_no_grep 'closure-' "$sub/data/backlog.md" "closure priority refusal mutated the destination backlog"
+  assert_absent "$TMP_ROOT/closure-priority-tmux.log" "closure priority refusal notified the receiver"
+  assert_absent "$home/state/design.inbox" "closure priority refusal created receiver inbox work"
+  pass "dependency closure priorities are validated before local mutation or notification"
+}
+
 test_failed_wake_retries_when_the_item_is_already_present() {
   local home="$TMP_ROOT/retry-wake-main" sub="$TMP_ROOT/retry-wake-sub" out corr rc=0
   setup_homes "$home" "$sub"
@@ -117,7 +176,7 @@ test_failed_wake_retries_when_the_item_is_already_present() {
   mkdir -p "$sub/data"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] retry-item - wake must be retried (repo: alpha)
+- [ ] retry-item - wake must be retried (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -157,7 +216,7 @@ test_known_receiver_failure_remains_retryable_after_grace() {
   mkdir -p "$sub/data" "$rejectbin"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] known-fail - retain delivery across a failed doorbell (repo: alpha)
+- [ ] known-fail - retain delivery across a failed doorbell (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -203,7 +262,7 @@ test_known_failure_restores_retry_after_reconciliation_race() {
   mkdir -p "$sub/data" "$blockbin"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] reconcile-race - retry after concurrent reconciliation (repo: alpha)
+- [ ] reconcile-race - retry after concurrent reconciliation (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -267,7 +326,7 @@ test_move_crash_keeps_wake_pending_for_recovery() {
   mkdir -p "$sub/data" "$fakebin"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] crash-item - survive the post-move crash (repo: alpha)
+- [ ] crash-item - survive the post-move crash (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -302,7 +361,7 @@ SH
   prepared_state=$(cat "$home/state/.backlog-handoff-design.wake-pending")
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] unrelated-move - still waiting in the main backlog (repo: alpha)
+- [ ] unrelated-move - still waiting in the main backlog (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -341,7 +400,7 @@ test_pre_move_crash_does_not_wake_until_move_lands() {
   mkdir -p "$sub/data" "$fakebin"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] pre-move-crash - wake only after durable move (repo: alpha)
+- [ ] pre-move-crash - wake only after durable move (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -376,7 +435,7 @@ SH
 
   cat > "$sub/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] unrelated-ready - already durable from another handoff (repo: alpha)
+- [ ] unrelated-ready - already durable from another handoff (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -412,7 +471,7 @@ test_delivery_confirmation_crash_does_not_resend() {
   mkdir -p "$sub/data" "$fakebin"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] confirm-crash - preserve confirmed delivery (repo: alpha)
+- [ ] confirm-crash - preserve confirmed delivery (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -455,7 +514,7 @@ SH
   # delivery proof for this new durable move.
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] after-crash - requires its own receiver wake (repo: alpha)
+- [ ] after-crash - requires its own receiver wake (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -488,7 +547,7 @@ test_unresolved_delivery_attempt_refuses_immediate_resend() {
   mkdir -p "$sub/data" "$fakebin"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] attempt-crash - do not resend an unresolved delivery (repo: alpha)
+- [ ] attempt-crash - do not resend an unresolved delivery (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -539,7 +598,7 @@ test_concurrent_local_handoffs_serialize_move_and_wake() {
   printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] concurrent-a - first routed item (repo: alpha)
+- [ ] concurrent-a - first routed item (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -576,7 +635,7 @@ SH
   done
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] concurrent-b - second routed item (repo: alpha)
+- [ ] concurrent-b - second routed item (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -613,7 +672,7 @@ test_local_teardown_waits_for_handoff_wake() {
   printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] teardown-race - routed while teardown starts (repo: alpha)
+- [ ] teardown-race - routed while teardown starts (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -670,7 +729,7 @@ test_local_teardown_preserves_wake_when_home_removal_fails() {
   setup_homes "$home" "$sub"
   printf 'project=%s\n' "$ROOT" >> "$home/state/design.meta"
   mkdir -p "$sub/data" "$rm_bin"
-  printf '## Queued\n- [ ] still-routed - preserve its wake (repo: alpha)\n\n## Done\n' > "$sub/data/backlog.md"
+  printf '## Queued\n- [ ] still-routed - preserve its wake (repo: alpha) (priority: 2)\n\n## Done\n' > "$sub/data/backlog.md"
   corr=$(FM_HOME="$home" bash -c '
     . "$1"
     fm_pending_reply_create "$2" "$2/state" design "New routed work is in your backlog."
@@ -799,8 +858,8 @@ test_handoff_warns_when_a_moved_item_still_owes_a_public_reply() {
   setup_homes "$home" "$sub"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] promised-item - fix the sign-in redirect (repo: alpha)
-- [ ] plain-item - unrelated queued work (repo: alpha)
+- [ ] promised-item - fix the sign-in redirect (repo: alpha) (priority: 2)
+- [ ] plain-item - unrelated queued work (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -833,7 +892,7 @@ test_handoff_is_silent_about_public_commitments_without_the_relay() {
   setup_homes "$home" "$sub"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] quiet-item - ordinary queued work (repo: alpha)
+- [ ] quiet-item - ordinary queued work (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -855,14 +914,14 @@ test_body_moves_when_followed_by_another_item() {
 
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] keep-a - stays first (repo: alpha)
+- [ ] keep-a - stays first (repo: alpha) (priority: 2)
   keep-a body line
-- [ ] body-item - has a body (repo: alpha)
+- [ ] body-item - has a body (repo: alpha) (priority: 2)
   Spec detail one.
   ## Intent
   Move the full block.
   trailing body line
-- [ ] keep-b - stays after (repo: beta)
+- [ ] keep-b - stays after (repo: beta) (priority: 2)
   keep-b body stays
 
 ## Done
@@ -896,7 +955,7 @@ EOF
   local keep_a_block
   keep_a_block=$(extract_item_block "$home/data/backlog.md" keep-a)
   assert_block_equals "keep-a block must not absorb orphaned body-item lines" \
-    $'- [ ] keep-a - stays first (repo: alpha)\n  keep-a body line' \
+    $'- [ ] keep-a - stays first (repo: alpha) (priority: 2)\n  keep-a body line' \
     "$keep_a_block"
 
   pass "body followed by another item moves intact with no source orphans"
@@ -909,7 +968,7 @@ test_body_moves_when_followed_by_section_heading() {
 
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] section-tail - body ends at section (repo: alpha)
+- [ ] section-tail - body ends at section (repo: alpha) (priority: 2)
   last queued body
   ## Intent
   still body until column-0 section
@@ -948,7 +1007,7 @@ test_body_moves_when_last_lines_of_file() {
   # included, into the destination the handoff seeds.
   {
     printf '%s\n' '## Queued'
-    printf '%s\n' '- [ ] eof-item - ends the file (repo: alpha)'
+    printf '%s\n' '- [ ] eof-item - ends the file (repo: alpha) (priority: 2)'
     printf '%s\n' '  eof body line one'
     printf '%s\n' '  ## Intent'
     printf '%s' '  eof body line two'
@@ -960,7 +1019,7 @@ test_body_moves_when_last_lines_of_file() {
     printf '%s\n' '## In flight'
     printf '%s\n' ''
     printf '%s\n' '## Queued'
-    printf '%s\n' '- [ ] eof-item - ends the file (repo: alpha)'
+    printf '%s\n' '- [ ] eof-item - ends the file (repo: alpha) (priority: 2)'
     printf '%s\n' '  eof body line one'
     printf '%s\n' '  ## Intent'
     printf '%s\n' '  eof body line two'
@@ -997,7 +1056,7 @@ test_eof_body_before_seeded_destination_section_keeps_boundary() {
 
   {
     printf '%s\n' '## Queued'
-    printf '%s\n' '- [ ] seeded-eof-item - ends the file (repo: alpha)'
+    printf '%s\n' '- [ ] seeded-eof-item - ends the file (repo: alpha) (priority: 2)'
     printf '%s\n' '  seeded eof body one'
     printf '%s' '  seeded eof body two'
   } > "$home/data/backlog.md"
@@ -1009,7 +1068,7 @@ test_eof_body_before_seeded_destination_section_keeps_boundary() {
     printf '%s\n' '## In flight'
     printf '%s\n' ''
     printf '%s\n' '## Queued'
-    printf '%s\n' '- [ ] seeded-eof-item - ends the file (repo: alpha)'
+    printf '%s\n' '- [ ] seeded-eof-item - ends the file (repo: alpha) (priority: 2)'
     printf '%s\n' '  seeded eof body one'
     printf '%s\n' '  seeded eof body two'
     printf '%s\n' ''
@@ -1032,15 +1091,15 @@ test_untouched_eof_line_preserves_terminator() {
 
   {
     printf '%s\n' '## Queued'
-    printf '%s\n' '- [ ] move-item - remove this block (repo: alpha)'
+    printf '%s\n' '- [ ] move-item - remove this block (repo: alpha) (priority: 2)'
     printf '%s\n' '  move body'
-    printf '%s\n' '- [ ] keep-item - retain this block (repo: beta)'
+    printf '%s\n' '- [ ] keep-item - retain this block (repo: beta) (priority: 2)'
     printf '%s' '  keep body without a final newline'
   } > "$home/data/backlog.md"
   local expected_source="$TMP_ROOT/untouched-eof-expected.md"
   {
     printf '%s\n' '## Queued'
-    printf '%s\n' '- [ ] keep-item - retain this block (repo: beta)'
+    printf '%s\n' '- [ ] keep-item - retain this block (repo: beta) (priority: 2)'
     printf '%s' '  keep body without a final newline'
   } > "$expected_source"
 
@@ -1060,9 +1119,9 @@ test_body_handoff_is_idempotent() {
 
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] neighbor - untouched (repo: alpha)
+- [ ] neighbor - untouched (repo: alpha) (priority: 2)
   neighbor body
-- [ ] idem-item - multi-line for re-run (repo: alpha)
+- [ ] idem-item - multi-line for re-run (repo: alpha) (priority: 2)
   ## Intent
   Idempotent body must not duplicate.
   final note
@@ -1088,7 +1147,7 @@ EOF
     || fail "idempotent re-run mutated the secondmate backlog"
 
   local count
-  count=$(grep -cF -- '- [ ] idem-item - multi-line for re-run (repo: alpha)' "$sub/data/backlog.md")
+  count=$(grep -cF -- '- [ ] idem-item - multi-line for re-run (repo: alpha) (priority: 2)' "$sub/data/backlog.md")
   [ "$count" -eq 1 ] || fail "idempotent re-run duplicated the item header (count=$count)"
   count=$(grep -cF -- 'Idempotent body must not duplicate.' "$sub/data/backlog.md")
   [ "$count" -eq 1 ] || fail "idempotent re-run duplicated a body line (count=$count)"
@@ -1108,17 +1167,17 @@ test_noncanonical_indented_continuations_refuse_without_changes() {
 
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] malformed-body - must not orphan continuations (repo: alpha)
+- [ ] malformed-body - must not orphan continuations (repo: alpha) (priority: 2)
  one-space continuation
 EOF
   printf '\ttab continuation\n' >> "$home/data/backlog.md"
   cat >> "$home/data/backlog.md" <<'EOF'
-- [ ] untouched-item - remains in the main backlog (repo: beta)
+- [ ] untouched-item - remains in the main backlog (repo: beta) (priority: 2)
   canonical body
 EOF
   cat > "$sub/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] resident-item - remains in the secondmate backlog (repo: alpha)
+- [ ] resident-item - remains in the secondmate backlog (repo: alpha) (priority: 2)
   resident body
 EOF
 
@@ -1151,14 +1210,14 @@ test_indented_heading_is_not_section_boundary() {
 
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] ha-codex-fast-default-4e - harness default work (repo: firstmate)
+- [ ] ha-codex-fast-default-4e - harness default work (repo: firstmate) (priority: 2)
   Context for the secondmate.
   ## Intent
   Deliver the full spec, not the title alone.
   ## Acceptance
   - body survives handoff
   - ## headings inside body stay body
-- [ ] next-item - after the trap (repo: firstmate)
+- [ ] next-item - after the trap (repo: firstmate) (priority: 2)
 EOF
 
   local expected_block
@@ -1200,9 +1259,9 @@ test_multi_paragraph_body_with_internal_blanks_moves_whole() {
 
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] before-multi - stays put (repo: alpha)
+- [ ] before-multi - stays put (repo: alpha) (priority: 2)
   before body
-- [ ] multi-para - multi-paragraph body (repo: alpha)
+- [ ] multi-para - multi-paragraph body (repo: alpha) (priority: 2)
   First paragraph line.
 
   Second paragraph after a blank.
@@ -1210,7 +1269,7 @@ test_multi_paragraph_body_with_internal_blanks_moves_whole() {
 
   Indented heading then blank then more.
   final line
-- [ ] after-multi - subsequent item (repo: alpha)
+- [ ] after-multi - subsequent item (repo: alpha) (priority: 2)
   after body
 
 ## Done
@@ -1283,7 +1342,7 @@ test_registry_home_with_pre_home_parentheses() {
 
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] paren-item - should hand off (repo: alpha)
+- [ ] paren-item - should hand off (repo: alpha) (priority: 2)
   body line
 
 ## Done
@@ -1314,7 +1373,7 @@ test_registry_home_missing_field_fails_cleanly() {
 
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] orphan-item - never moves (repo: alpha)
+- [ ] orphan-item - never moves (repo: alpha) (priority: 2)
 
 ## Done
 EOF
@@ -1333,6 +1392,9 @@ EOF
 }
 
 test_handoff_wakes_live_local_receiver
+test_already_present_missing_priority_refuses_without_wake
+test_already_done_refuses_without_wake
+test_dependency_closure_requires_priority_without_mutation
 test_failed_wake_retries_when_the_item_is_already_present
 test_known_receiver_failure_remains_retryable_after_grace
 test_known_failure_restores_retry_after_reconciliation_race
