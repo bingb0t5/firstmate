@@ -1,0 +1,2 @@
+snapshot_count=18
+bearings_count=43

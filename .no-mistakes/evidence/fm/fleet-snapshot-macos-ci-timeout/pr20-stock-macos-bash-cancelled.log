@@ -1,0 +1,186 @@
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	﻿2026-08-31T06:46:52.5646370Z Current runner version: '2.336.0'
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5673120Z ##[group]Runner Image Provisioner
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5673880Z Hosted Compute Agent
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5674280Z Version: 20260707.563
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5674750Z Commit: 02667638d2b423fbc733a8e32a88b44996a3ba6e
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5675260Z Build Date: 2026-07-07T19:33:50Z
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5675710Z Worker ID: {8a645c2a-8407-449d-b171-fcea60a392ab}
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5676170Z Azure Region: westus
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5676560Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5677990Z ##[group]Operating System
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5678550Z macOS
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5678900Z 26.5.2
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5679230Z 25F84
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5679640Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5680010Z ##[group]Runner Image
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5680400Z Image: macos-26-arm64
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5680780Z Version: 20260728.0273.1
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5681750Z Included Software: https://github.com/actions/runner-images/blob/macos-26-arm64/20260728.0273/images/macos/macos-26-arm64-Readme.md
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5683090Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-26-arm64%2F20260728.0273
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5683760Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5684590Z ##[group]GITHUB_TOKEN Permissions
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5686840Z Contents: read
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5687200Z Metadata: read
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5687660Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5689330Z Secret source: Actions
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.5691630Z Prepare workflow directory
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.6074260Z Prepare all required actions
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:52.6140290Z Getting action download info
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.0042740Z Download action repository 'actions/checkout@v6' (SHA:d23441a48e516b6c34aea4fa41551a30e30af803)
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.5311250Z Complete job name: Stock macOS Bash snapshot compatibility
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6018030Z ##[group]Run actions/checkout@v6
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6019010Z with:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6019430Z   repository: bingb0t5/firstmate
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6022430Z   token: ***
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6022870Z   ssh-strict: true
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6023640Z   ssh-user: git
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6023970Z   persist-credentials: true
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6024320Z   clean: true
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6024710Z   sparse-checkout-cone-mode: true
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6025130Z   fetch-depth: 1
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6025450Z   fetch-tags: false
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6025780Z   show-progress: true
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6026110Z   lfs: false
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6026420Z   submodules: false
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6026760Z   set-safe-directory: true
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6027130Z   allow-unsafe-pr-checkout: false
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:53.6027890Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.1722970Z Syncing repository: bingb0t5/firstmate
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.1724790Z ##[group]Getting Git version info
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.1725510Z Working directory is '/Users/runner/work/firstmate/firstmate'
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.1726370Z [command]/opt/homebrew/bin/git version
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2430050Z git version 2.55.0
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2445240Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2457000Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/222e4336-7b2c-45b9-8bba-9d2a12e12b72/.gitconfig'
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2467910Z Temporarily overriding HOME='/Users/runner/work/_temp/222e4336-7b2c-45b9-8bba-9d2a12e12b72' before making global git config changes
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2469270Z Adding repository directory to the temporary git global config as a safe directory
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2473260Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/firstmate/firstmate
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2634520Z Deleting the contents of '/Users/runner/work/firstmate/firstmate'
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2638630Z ##[group]Determining repository object format
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2643680Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2652930Z ##[group]Initializing the repository
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.2685450Z [command]/opt/homebrew/bin/git init /Users/runner/work/firstmate/firstmate
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3052890Z hint: Using 'master' as the name for the initial branch. This default branch name
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3057930Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3060850Z hint: to use in all of your new repositories, which will suppress this warning,
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3062690Z hint: call:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3063930Z hint:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3065470Z hint: 	git config --global init.defaultBranch <name>
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3067160Z hint:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3068960Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3071440Z hint: 'development'. The just-created branch can be renamed via this command:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3073570Z hint:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3074660Z hint: 	git branch -m <name>
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3076240Z hint:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3077910Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3080570Z Initialized empty Git repository in /Users/runner/work/firstmate/firstmate/.git/
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3085240Z [command]/opt/homebrew/bin/git remote add origin https://github.com/bingb0t5/firstmate
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3168010Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3169250Z ##[group]Disabling automatic garbage collection
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3173550Z [command]/opt/homebrew/bin/git config --local gc.auto 0
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3263920Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3266700Z ##[group]Setting up auth
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3268300Z Removing SSH command configuration
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3270740Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.3356370Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.4730680Z Removing HTTP extra header
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.4732890Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.4839320Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.6662810Z Removing includeIf entries pointing to credentials config files
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.6766570Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.6931980Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.8018420Z [command]/opt/homebrew/bin/git config --file /Users/runner/work/_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.8127350Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/Users/runner/work/firstmate/firstmate/.git.path /Users/runner/work/_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.8211550Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/Users/runner/work/firstmate/firstmate/.git/worktrees/*.path /Users/runner/work/_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.8299710Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.8373370Z [command]/opt/homebrew/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.8463070Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.8465650Z ##[group]Fetching the repository
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:54.8468920Z [command]/opt/homebrew/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +8d9dbc562cb64dc6aba614b96fcb6dd528458f3c:refs/remotes/pull/20/merge
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.1904510Z From https://github.com/bingb0t5/firstmate
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.1922800Z  * [new ref]         8d9dbc562cb64dc6aba614b96fcb6dd528458f3c -> pull/20/merge
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.1929880Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.1931640Z ##[group]Determining the checkout info
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.1933280Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.1934110Z [command]/opt/homebrew/bin/git sparse-checkout disable
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.2057900Z [command]/opt/homebrew/bin/git config --local --unset-all extensions.worktreeConfig
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.2148480Z ##[group]Checking out the ref
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.2150270Z [command]/opt/homebrew/bin/git checkout --progress --force refs/remotes/pull/20/merge
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3148020Z HEAD is now at 8d9dbc5 Merge 75f70488e5b05dbe08ffb9e8c0856632b8bf1dda into 3364cda6260fd63ae1267294eae0519baea3f46a
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3171780Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3325220Z [command]/opt/homebrew/bin/git log -1 --format=%H
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3429460Z 8d9dbc562cb64dc6aba614b96fcb6dd528458f3c
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3819390Z ##[group]Run set -eu
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3820490Z ^[[36;1mset -eu^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3821240Z ^[[36;1mcase "$BASH_VERSION" in^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3822130Z ^[[36;1m  3.2.57*) ;;^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3823820Z ^[[36;1m  *) echo "::error::expected stock macOS Bash 3.2.57, got $BASH_VERSION"; exit 1 ;;^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3825100Z ^[[36;1mesac^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3825770Z ^[[36;1m/bin/bash --version | head -1^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3826840Z ^[[36;1mcommand -v jq >/dev/null || { echo "::error::jq is required"; exit 1; }^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3827990Z ^[[36;1m^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3828870Z ^[[36;1mshell_inventory="$RUNNER_TEMP/fm-shell-inventory"^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3830100Z ^[[36;1mbin/fm-lint.sh --list-files > "$shell_inventory"^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3831490Z ^[[36;1mparse_fail=0^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3832240Z ^[[36;1mwhile IFS= read -r f; do^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3833780Z ^[[36;1m  /bin/bash -n "$f" || { echo "::error::stock macOS Bash 3.2 failed to parse $f"; parse_fail=1; }^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3835140Z ^[[36;1mdone < "$shell_inventory"^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3836470Z ^[[36;1m[ "$parse_fail" -eq 0 ] || { echo "::error::stock macOS Bash 3.2 parse sweep failed"; exit 1; }^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3837840Z ^[[36;1m^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3838850Z ^[[36;1msnapshot_output=$(/bin/bash tests/fm-fleet-snapshot-view.test.sh)^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3839990Z ^[[36;1mprintf '%s\n' "$snapshot_output"^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3842490Z ^[[36;1msnapshot_count=$(printf '%s\n' "$snapshot_output" | grep -c '^ok - ')^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3843820Z ^[[36;1m[ "$snapshot_count" -eq 15 ] || {^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3845060Z ^[[36;1m  echo "::error::expected 15 snapshot/fleet-view tests, got $snapshot_count"^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3846260Z ^[[36;1m  exit 1^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3847630Z ^[[36;1m}^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3848310Z ^[[36;1m^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3849200Z ^[[36;1mbearings_output=$(/bin/bash tests/fm-bearings-snapshot.test.sh)^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3850420Z ^[[36;1mprintf '%s\n' "$bearings_output"^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3851980Z ^[[36;1mbearings_count=$(printf '%s\n' "$bearings_output" | grep -c '^ok - ')^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3853170Z ^[[36;1m[ "$bearings_count" -eq 43 ] || {^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3854220Z ^[[36;1m  echo "::error::expected 43 Bearings tests, got $bearings_count"^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3855310Z ^[[36;1m  exit 1^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3855910Z ^[[36;1m}^[[0m
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3863230Z shell: /bin/bash {0}
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3864040Z env:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3864880Z   PATH: /bin:/usr/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.3866020Z ##[endgroup]
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:46:56.4326930Z GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:56.7898730Z ##[error]The operation was canceled.
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:56.8051250Z Post job cleanup.
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.1964170Z [command]/opt/homebrew/bin/git version
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.2212900Z git version 2.55.0
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.2245620Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/81f68fe5-fc47-4432-941b-ba21be40456a/.gitconfig'
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.2255060Z Temporarily overriding HOME='/Users/runner/work/_temp/81f68fe5-fc47-4432-941b-ba21be40456a' before making global git config changes
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.2256060Z Adding repository directory to the temporary git global config as a safe directory
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.2258300Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/firstmate/firstmate
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.2598720Z Removing SSH command configuration
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.2763880Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.5285920Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.5849060Z Removing HTTP extra header
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.5849670Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.5905880Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.7822990Z Removing includeIf entries pointing to credentials config files
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.7980190Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8187100Z includeif.gitdir:/Users/runner/work/firstmate/firstmate/.git.path
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8192130Z includeif.gitdir:/Users/runner/work/firstmate/firstmate/.git/worktrees/*.path
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8349650Z includeif.gitdir:/github/workspace/.git.path
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8470920Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8479990Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/Users/runner/work/firstmate/firstmate/.git.path
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8480860Z /Users/runner/work/_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8483480Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/Users/runner/work/firstmate/firstmate/.git.path /Users/runner/work/_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8485400Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/Users/runner/work/firstmate/firstmate/.git/worktrees/*.path
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8486180Z /Users/runner/work/_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8504220Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/Users/runner/work/firstmate/firstmate/.git/worktrees/*.path /Users/runner/work/_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8507320Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8508080Z /github/runner_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8510650Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8552280Z [command]/opt/homebrew/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8553380Z /github/runner_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8599450Z [command]/opt/homebrew/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8621650Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8693050Z Removing credentials config '/Users/runner/work/_temp/git-credentials-0190a78d-ece4-4e44-b6ad-80e401c9a00f.config'
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:57.8825270Z Cleaning up orphan processes
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:58.3019660Z Terminate orphan process: pid (12655) (bash)
+Stock macOS Bash snapshot compatibility	UNKNOWN STEP	2026-08-31T06:56:59.6616220Z Terminate orphan process: pid (2615) (bash)

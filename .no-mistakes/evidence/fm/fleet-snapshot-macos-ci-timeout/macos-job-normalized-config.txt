@@ -1,0 +1,4 @@
+job=Stock macOS Bash snapshot compatibility
+timeout_minutes=20
+shell=/bin/bash {0}
+path=/bin:/usr/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
