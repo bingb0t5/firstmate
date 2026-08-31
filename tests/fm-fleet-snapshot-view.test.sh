@@ -176,8 +176,12 @@ EOF
     } > "$home/state/$id.status"
   done
   fakebin=$(make_fakebin "$home")
+  # Stock macOS Bash 3.2 needs more than the production two-second bound to
+  # parse this retained 180 KB synthetic window; this test budget preserves
+  # the full activity assertion instead of accepting a timed-out fallback.
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" \
     FM_SNAPSHOT_PARENT_ACTIVITY_BYTES=200000 \
+    FM_SNAPSHOT_PARENT_ACTIVITY_TIMEOUT=60 \
     FM_SNAPSHOT_SECONDMATE_TIMEOUT=20 \
     "$SNAPSHOT" --json)
   payload_bytes=$(printf '%s' "$out" | wc -c | tr -d ' ')
