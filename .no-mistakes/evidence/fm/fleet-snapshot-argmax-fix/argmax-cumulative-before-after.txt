@@ -1,0 +1,21 @@
+### Scenario A - cumulative argv (the reported outage): 40 registered secondmates, 40 KB status payload each
+=== BEFORE fix - base 3364cda: /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1B21YXVT6NENBPS7V8M56CS/bin/tmp-base-fleet-snapshot.sh --json (40 registered secondmates, 40000B per status payload, host ARG_MAX=2097152) ===
+exit status: 1
+stdout bytes: 0
+stderr (unique lines with counts):
+        1   fm-fleet-snapshot.sh line 635: /usr/bin/jq: Argument list too long
+        1 fm-fleet-snapshot: main inventory summary failed
+stdout is valid JSON: no
+stdout head: 
+
+=== AFTER fix - 87774e3: /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1B21YXVT6NENBPS7V8M56CS/bin/fm-fleet-snapshot.sh --json (40 registered secondmates, 40000B per status payload, host ARG_MAX=2097152) ===
+exit status: 0
+stdout bytes: 12192146
+stderr: (empty)
+stdout is valid JSON: yes
+schema: fm-fleet-snapshot.v1
+secondmate_current.records: 20 (shown 20/40)
+secondmate_landed.records: 20
+largest open-decision summary bytes: 40000
+largest activity-scan summary bytes: 40000
+

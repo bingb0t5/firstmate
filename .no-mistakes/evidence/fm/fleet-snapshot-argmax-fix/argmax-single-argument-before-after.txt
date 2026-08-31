@@ -1,0 +1,22 @@
+=== BEFORE fix - base 3364cda: /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1B21YXVT6NENBPS7V8M56CS/bin/tmp-base-fleet-snapshot.sh --json (14 registered secondmates, host ARG_MAX=2097152) ===
+exit status: 0
+stdout bytes: 47913
+stderr (unique lines with counts):
+       14   fm-fleet-snapshot.sh line 258: /usr/bin/jq: Argument list too long
+       14   fm-fleet-snapshot.sh line 555: /usr/bin/jq: Argument list too long
+stdout is valid JSON: yes
+schema: fm-fleet-snapshot.v1
+secondmate_current.records: 14 (shown 14/14)
+secondmate_landed.records: 14
+largest open-decision summary bytes: 0
+largest activity-scan summary bytes: 0
+=== AFTER fix - 87774e3: /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1B21YXVT6NENBPS7V8M56CS/bin/fm-fleet-snapshot.sh --json (14 registered secondmates, host ARG_MAX=2097152) ===
+exit status: 0
+stdout bytes: 27816635
+stderr: (empty)
+stdout is valid JSON: yes
+schema: fm-fleet-snapshot.v1
+secondmate_current.records: 14 (shown 14/14)
+secondmate_landed.records: 14
+largest open-decision summary bytes: 180000
+largest activity-scan summary bytes: 180000

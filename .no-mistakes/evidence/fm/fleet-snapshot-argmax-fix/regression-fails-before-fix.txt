@@ -1,0 +1,17 @@
+### Regression proof: the new tests fail against the pre-fix implementations and pass against HEAD
+
+--- bin/fm-fleet-snapshot.sh reverted to base 3364cda (pre ARG_MAX fix) ---
+not ok - synthetic fleet payload should exceed the relevant argv threshold, got 47807 bytes
+test file exit: 
+
+--- bin/fm-fleet-snapshot.sh reverted to 7504159 (ARG_MAX fix, pre signal-handling fix) ---
+ok - large secondmate landed projection survives file-based transport beyond ARG_MAX
+not ok - SIGTERM must terminate the snapshot by re-raising the signal (143), got exit 1
+
+--- bin/fm-fleet-snapshot.sh at HEAD 87774e3 ---
+ok - large secondmate landed projection survives file-based transport beyond ARG_MAX
+ok - SIGTERM terminates the snapshot instead of emitting a partial fleet
+ok - structured-home failure keeps its specific diagnostic
+ok - empty fleet snapshot and view use explicit absence markers
+ok - fixture snapshot covers task rows, backlog rows, pointers, and stable ordering
+ok - main_inventory discloses orphan/unstructured and clears when inventory is consistent

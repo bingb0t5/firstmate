@@ -1,0 +1,9 @@
+pre-fix  (/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1B21YXVT6NENBPS7V8M56CS/bin/tmp-base-fleet-snapshot.sh):  exit=0 bytes=20528
+post-fix (/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1B21YXVT6NENBPS7V8M56CS/bin/fm-fleet-snapshot.sh): exit=0 bytes=20528
+RESULT: post-fix snapshot is byte-identical to pre-fix on the small fixture fleet (timestamps normalized)
+key ordering check (raw, unsorted top-level keys):
+  pre-fix : schema,generated,fm_home,roots,backlog,tasks,main_inventory,scout_reports,secondmate_current,secondmate_landed,secondmate_guidance
+  post-fix: schema,generated,fm_home,roots,backlog,tasks,main_inventory,scout_reports,secondmate_current,secondmate_landed,secondmate_guidance
+task row order:
+  pre-fix : cmux-task,scout-task,secondmate-task,ship-task
+  post-fix: cmux-task,scout-task,secondmate-task,ship-task

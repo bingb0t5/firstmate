@@ -1,0 +1,54 @@
+### Captain's end-user surface: bin/fm-fleet-view.sh on a 40-secondmate parent home (40 KB status payload each)
+
+=== BEFORE fix - base 3364cda: fm-fleet-view.sh (captain's rendered fleet board, 40 registered secondmates) ===
+exit status: 1
+stderr: /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1B21YXVT6NENBPS7V8M56CS/bin/fm-fleet-snapshot.sh: line 635: /usr/bin/jq: Argument list too long
+fm-fleet-snapshot: main inventory summary failed
+--- rendered board (first 40 lines, long payload text truncated to 100 cols) ---
+--- (total rendered lines: 0) ---
+
+=== AFTER fix - 87774e3: fm-fleet-view.sh (captain's rendered fleet board, 40 registered secondmates) ===
+exit status: 0
+stderr: 
+--- rendered board (first 40 lines, long payload text truncated to 100 cols) ---
+# Fleet View
+
+Schema: fm-fleet-snapshot.v1
+Home: /tmp/fm-fleet-snapshot.OGfYMO/argmax-AFTER fix - 87774e3
+
+## Under Way
+| ID | Current | Kind | Repo/Project | Backend | Endpoint | Artifact | Path | Watch / return channel
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| large-secondmate-01 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-02 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-03 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-04 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-05 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-06 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-07 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-08 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-09 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-10 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-11 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-12 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-13 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-14 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-15 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-16 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-17 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-18 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-19 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-20 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-21 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-22 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-23 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-24 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-25 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-26 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-27 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-28 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-29 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-30 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-31 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+| large-secondmate-32 | unknown / none | secondmate | /tmp/fm-fleet-snapshot.OGfYMO/large-secondmate
+--- (total rendered lines: 57) ---
