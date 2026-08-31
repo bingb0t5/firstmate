@@ -1,0 +1,18 @@
+ok - missing remote credential fails closed after verifying the local pin
+ok - vendored pr-communication unit suite passes
+ok - CLI passes a compliant description that keeps the no-mistakes Pipeline section
+ok - CLI fails a non-compliant PR description
+ok - CLI rejects a description that keeps only the legacy narrative headings
+ok - CLI rejects untouched module-boundary template guidance
+ok - CLI passes a compliant PR description
+ok - tracked PR body artifacts satisfy the executable communication gate
+ok - transient remote failures use the local pin
+ok - required remote failures fail closed
+ok - 401, 403, and 404 remote failures fail closed
+ok - invalid token header fails closed
+ok - tampered entrypoint fails closed
+ok - candidate pin cannot authorize a tampered assessor
+ok - remote SoT authorizes a synchronized assessor update
+real 1.45
+user 1.18
+sys 0.47

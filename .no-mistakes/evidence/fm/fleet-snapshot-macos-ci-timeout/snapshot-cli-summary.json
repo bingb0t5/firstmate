@@ -1,0 +1,10 @@
+{
+  "schema": "fm-fleet-snapshot.v1",
+  "payload_bytes": 27815956,
+  "host_arg_max": 2097152,
+  "exceeds_host_arg_max": true,
+  "secondmate_current_records": 14,
+  "secondmate_landed_records": 14,
+  "activity_summaries_over_100k": 14,
+  "open_decision_summaries_over_100k": 14
+}
