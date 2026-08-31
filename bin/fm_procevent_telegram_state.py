@@ -30,11 +30,13 @@ import urllib.parse
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import IO, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 SCHEMA_VERSION = 1
 MAX_REPLY_BYTES = 65536
+# The Bot API accepts 1-4096 characters in the sendMessage text field.
+MAX_REPLY_CHARS = 4096
 MAX_SEND_TIME = 300
 REPLY_STATES = {"reserved", "sent", "failed", "unknown"}
 # The Bot API declares Update identifiers as positive Integers and says an
@@ -147,6 +149,15 @@ class Credentials:
     token: str
     captain_chat_id: int
     captain_user_id: int
+
+
+@dataclass(frozen=True)
+class SendRequest:
+    body_file: IO[bytes]
+    max_time: int
+
+    def close(self) -> None:
+        self.body_file.close()
 
 
 @dataclass(frozen=True)
@@ -428,14 +439,9 @@ def reply_schema() -> Tuple[str, ...]:
 
 
 def ensure_reply_schema(conn: sqlite3.Connection) -> None:
-    table = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'replies'"
-    ).fetchone()
-    if table is not None:
-        return
     conn.execute(
         """
-        CREATE TABLE replies (
+        CREATE TABLE IF NOT EXISTS replies (
             update_id INTEGER PRIMARY KEY REFERENCES messages(update_id) ON DELETE RESTRICT,
             body_sha256 TEXT NOT NULL,
             state TEXT NOT NULL CHECK (state IN ('reserved', 'sent', 'failed', 'unknown')),
@@ -1302,11 +1308,9 @@ def canonical_message(
     date = raw_message.get("date")
     if date is not None and type(date) is not int:
         raise ProtocolError("message date is not integer shaped")
-    message_id = raw_message.get("message_id")
-    if message_id is not None and not valid_update_id(message_id):
-        raise ProtocolError("message_id is outside the supported positive range")
     if chat_id != credentials.captain_chat_id or sender_id != credentials.captain_user_id:
         return None
+    message_id = raw_message.get("message_id")
     update_id = update["update_id"]
     payload_data = {
         "update_id": update_id,
@@ -1315,7 +1319,7 @@ def canonical_message(
         "from_id": sender_id,
         "text": text,
     }
-    if message_id is not None:
+    if valid_update_id(message_id):
         payload_data["message_id"] = message_id
     payload = json.dumps(
         payload_data,
@@ -1556,12 +1560,15 @@ def read_reply_body() -> Tuple[bytes, str]:
         raise UserError("reply text from stdin is not valid UTF-8")
     if not text:
         raise UserError("reply text from stdin must not be empty")
+    if len(text) > MAX_REPLY_CHARS:
+        raise UserError(
+            "reply text exceeds the Telegram limit of %d characters" % MAX_REPLY_CHARS
+        )
     return body, text
 
 
-def run_send_curl(
-    credentials: Credentials, chat_id: int, message_id: int, text: str
-) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
+def stage_send_request(chat_id: int, message_id: int, text: str) -> SendRequest:
+    max_time = send_max_time()
     encoded = urllib.parse.urlencode(
         {
             "chat_id": str(chat_id),
@@ -1576,69 +1583,76 @@ def run_send_curl(
         body_file.write(encoded)
         body_file.flush()
         body_file.seek(0)
-        body_fd = body_file.fileno()
-        config = (
-            'url = "https://api.telegram.org/bot%s/sendMessage"\n'
-            "request = POST\n"
-            % credentials.token
-        ).encode("utf-8")
-        max_time = send_max_time()
+    except Exception:
+        body_file.close()
+        raise
+    return SendRequest(body_file, max_time)
+
+
+def run_send_curl(
+    credentials: Credentials, request: SendRequest
+) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
+    body_fd = request.body_file.fileno()
+    max_time = request.max_time
+    config = (
+        'url = "https://api.telegram.org/bot%s/sendMessage"\n'
+        "request = POST\n"
+        % credentials.token
+    ).encode("utf-8")
+    try:
+        process = subprocess.Popen(
+            [
+                "curl",
+                "-s",
+                "-w",
+                "\\n%{http_code}",
+                "--max-time",
+                str(max_time),
+                "-K",
+                "-",
+                "--data-binary",
+                "@/dev/fd/%d" % body_fd,
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            pass_fds=(body_fd,),
+        )
+    except OSError:
+        return None, None, "transport"
+    deadline = time.monotonic() + max_time + 5
+    try:
         try:
-            process = subprocess.Popen(
-                [
-                    "curl",
-                    "-s",
-                    "-w",
-                    "\\n%%{http_code}",
-                    "--max-time",
-                    str(max_time),
-                    "-K",
-                    "-",
-                    "--data-binary",
-                    "@/dev/fd/%d" % body_fd,
-                ],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                pass_fds=(body_fd,),
-            )
+            process.stdin.write(config)
+            process.stdin.close()
         except OSError:
             return None, None, "transport"
-        deadline = time.monotonic() + max_time + 5
+        captured, tail, total, overflow, timed_out = read_bounded_stream(
+            process.stdout, MAX_RESPONSE_BYTES + STATUS_TRAILER_BYTES, deadline
+        )
+        if timed_out:
+            return None, None, "transport"
         try:
-            try:
-                process.stdin.write(config)
-                process.stdin.close()
-            except OSError:
-                return None, None, "transport"
-            captured, tail, total, overflow, timed_out = read_bounded_stream(
-                process.stdout, MAX_RESPONSE_BYTES + STATUS_TRAILER_BYTES, deadline
-            )
-            if timed_out:
-                return None, None, "transport"
-            try:
-                returncode = process.wait(timeout=max(0.0, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                return None, None, "transport"
-            if returncode != 0:
-                return None, None, "transport"
-            if total < STATUS_TRAILER_BYTES or STATUS_TRAILER_RE.fullmatch(tail) is None:
-                return None, None, "transport"
-            status = int(tail[1:])
-            if overflow or total - STATUS_TRAILER_BYTES > MAX_RESPONSE_BYTES:
-                return status, None, "response-too-large"
-            return status, captured[: total - STATUS_TRAILER_BYTES], None
-        finally:
-            if process.poll() is None:
-                process.kill()
-            for handle in (process.stdin, process.stdout):
-                try:
-                    handle.close()
-                except OSError:
-                    pass
-            process.wait()
+            returncode = process.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            return None, None, "transport"
+        if returncode != 0:
+            return None, None, "transport"
+        if total < STATUS_TRAILER_BYTES or STATUS_TRAILER_RE.fullmatch(tail) is None:
+            return None, None, "transport"
+        status = int(tail[1:])
+        if overflow or total - STATUS_TRAILER_BYTES > MAX_RESPONSE_BYTES:
+            return status, None, "response-too-large"
+        return status, captured[: total - STATUS_TRAILER_BYTES], None
     finally:
-        body_file.close()
+        if process.poll() is None:
+            process.kill()
+        for handle in (process.stdin, process.stdout):
+            try:
+                handle.close()
+            except OSError:
+                pass
+        process.wait()
 
 
 def parse_send_success(body: bytes, chat_id: int, message_id: int) -> int:
@@ -1773,6 +1787,22 @@ def finish_reply(
         raise
 
 
+def release_reply(conn: sqlite3.Connection, update_id: int) -> None:
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        changed = conn.execute(
+            "DELETE FROM replies WHERE update_id = ? AND state = 'unknown' "
+            "AND network_started = 1",
+            (update_id,),
+        ).rowcount
+        if changed != 1:
+            raise LocalStateError("reply-reservation", repr(update_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def command_reply(state: Path, credential_path: Path, update_id_text: str) -> int:
     update_id = validate_positive_int(update_id_text, "accepted inbound update id", MAX_UPDATE_ID)
     body, text = read_reply_body()
@@ -1806,15 +1836,22 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
             print("already-sent: update_id=%d" % update_id)
             return 0
         failpoint("after_reply_reserve")
-        mark_reply_network_started(conn, update_id)
-        failpoint("before_reply_network")
-        http_code, response, transport_error = run_send_curl(
-            credentials, credentials.captain_chat_id, inbound_message_id, text
-        )
+        request = stage_send_request(credentials.captain_chat_id, inbound_message_id, text)
+        try:
+            mark_reply_network_started(conn, update_id)
+            failpoint("before_reply_network")
+            http_code, response, transport_error = run_send_curl(credentials, request)
+        finally:
+            request.close()
         credentials = Credentials("", credentials.captain_chat_id, credentials.captain_user_id)
         if transport_error is not None or http_code is None:
             finish_reply(conn, update_id, "unknown", failure_detail="delivery-unknown")
             raise UserError("delivery is unknown; automatic retry is refused")
+        if http_code == 429:
+            release_reply(conn, update_id)
+            raise UserError(
+                "Telegram rate-limited the reply; it was not sent and can be attempted again"
+            )
         if 400 <= http_code < 500:
             finish_reply(conn, update_id, "failed", failure_detail="http-%d" % http_code)
             raise UserError("Telegram definitely refused the reply (http-%d)" % http_code)
