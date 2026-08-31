@@ -1703,6 +1703,10 @@ def reply_record(
     ).fetchone()
 
 
+def replaceable_reservation(row: Tuple[object, ...]) -> bool:
+    return row[1] == "reserved" and not row[4]
+
+
 def reserve_reply(
     conn: sqlite3.Connection, update_id: int, body_sha256: str
 ) -> str:
@@ -1710,7 +1714,7 @@ def reserve_reply(
     try:
         row = reply_record(conn, update_id)
         if row is not None:
-            if row[0] != body_sha256:
+            if row[0] != body_sha256 and not replaceable_reservation(row):
                 raise UserError("an accepted inbound event already has a different reply")
             if row[1] == "sent":
                 conn.commit()
@@ -1719,6 +1723,12 @@ def reserve_reply(
                 raise UserError("the reply has a definite Telegram failure and will not be retried")
             if row[1] == "unknown" or row[4]:
                 raise UserError("delivery is unknown; automatic retry is refused")
+            if row[0] != body_sha256:
+                conn.execute(
+                    "UPDATE replies SET body_sha256 = ?, updated_at = ? WHERE update_id = ? "
+                    "AND state = 'reserved' AND network_started = 0",
+                    (body_sha256, now_epoch(), update_id),
+                )
             conn.commit()
             return "reserved"
         now = now_epoch()
@@ -1828,7 +1838,11 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
         ):
             raise UserError("accepted inbound event lacks strict reply identity evidence")
         existing = reply_record(conn, update_id)
-        if existing is not None and existing[0] != body_sha256:
+        if (
+            existing is not None
+            and existing[0] != body_sha256
+            and not replaceable_reservation(existing)
+        ):
             raise UserError("an accepted inbound event already has a different reply")
         failpoint("before_reply_reserve")
         reservation = reserve_reply(conn, update_id, body_sha256)

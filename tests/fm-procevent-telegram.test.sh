@@ -2536,6 +2536,57 @@ reserved_retry=$(printf 'reserved then retry\n' | reply_once "$H_REPLY_RESERVED"
 assert_contains "$reserved_retry" "sent: update_id=1101" \
   "resumed reservation did not commit a validated send"
 
+H_REPLY_REGENERATED="$TMP_ROOT/reply-regenerated"
+REPLY_REGENERATED_ENV="$TMP_ROOT/reply-regenerated.env"
+REGENERATED_REQUEST="$TMP_ROOT/reply-regenerated.request"
+arm_home "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV"
+poll_once "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+regenerated_crash_status=0
+printf 'first answer\n' | FM_TELEGRAM_FAILPOINT=after_reply_reserve reply_once \
+  "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV" "$FIXTURES/reply-success.json" >/dev/null 2>&1 \
+  || regenerated_crash_status=$?
+[ "$regenerated_crash_status" -ne 0 ] || fail "reserve crash failpoint reported success"
+assert_equal "$(db_query "$H_REPLY_REGENERATED" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "reserved|0" \
+  "the crash did not leave a reservation that proves it never reached the network"
+regenerated_status=0
+regenerated_out=$(printf 'second answer\n' | CURL_STUB_SEND_CAPTURE="$REGENERATED_REQUEST" reply_once \
+  "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV" "$FIXTURES/reply-success.json" 2>&1) \
+  || regenerated_status=$?
+[ "$regenerated_status" -eq 0 ] || fail "a regenerated body could not replace a pre-network reservation"
+assert_contains "$regenerated_out" "sent: update_id=1101" \
+  "the regenerated reply was not committed as sent"
+assert_grep 'text=second+answer%0A' "$REGENERATED_REQUEST" \
+  "the regenerated body was not the text actually sent"
+sent_conflict_status=0
+sent_conflict=$(printf 'third answer\n' | reply_once "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || sent_conflict_status=$?
+[ "$sent_conflict_status" -ne 0 ] || fail "a sent reply accepted a different body"
+assert_contains "$sent_conflict" "already has a different reply" \
+  "a sent reply did not keep its body binding"
+
+H_REPLY_STARTED="$TMP_ROOT/reply-network-started"
+REPLY_STARTED_ENV="$TMP_ROOT/reply-network-started.env"
+arm_home "$H_REPLY_STARTED" "$REPLY_STARTED_ENV"
+poll_once "$H_REPLY_STARTED" "$REPLY_STARTED_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+started_crash_status=0
+printf 'first answer\n' | FM_TELEGRAM_FAILPOINT=before_reply_network reply_once \
+  "$H_REPLY_STARTED" "$REPLY_STARTED_ENV" "$FIXTURES/reply-success.json" >/dev/null 2>&1 \
+  || started_crash_status=$?
+[ "$started_crash_status" -ne 0 ] || fail "network-start crash failpoint reported success"
+assert_equal "$(db_query "$H_REPLY_STARTED" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "unknown|1" \
+  "the crash after network start was not durably delivery-unknown"
+clear_curl_calls
+started_conflict_status=0
+started_conflict=$(printf 'second answer\n' | reply_once "$H_REPLY_STARTED" "$REPLY_STARTED_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || started_conflict_status=$?
+[ "$started_conflict_status" -ne 0 ] || fail "a possibly delivered reply accepted a different body"
+assert_contains "$started_conflict" "already has a different reply" \
+  "a possibly delivered reply did not keep its body binding"
+assert_no_curl "a possibly delivered reply was sent again with a different body"
+pass "only a reservation that proves it never reached the network accepts a regenerated body"
+
 H_REPLY_CONCURRENT="$TMP_ROOT/reply-concurrent"
 REPLY_CONCURRENT_ENV="$TMP_ROOT/reply-concurrent.env"
 arm_home "$H_REPLY_CONCURRENT" "$REPLY_CONCURRENT_ENV"

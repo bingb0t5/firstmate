@@ -77,7 +77,9 @@
 # Older stored inbound messages without message_id are retained for intake but
 # reply refuses them because they cannot prove an in-conversation target.
 # One inbound update can have at most one reply, including across restarts and
-# concurrent attempts.
+# concurrent attempts. A reservation that durably proves it never reached the
+# network accepts a regenerated body from a later explicit reply; once a send
+# may have happened, the reserved body is binding.
 #
 # doctor validates the database and reports its non-secret state, integrity,
 # migration, resolution evidence, and durability settings.
