@@ -163,6 +163,11 @@ function runGuard(): Promise<{ code: number; stderr: string }> {
     });
     child.on("error", () => resolveResult({ code: 0, stderr: "" }));
     child.on("close", (code) => resolveResult({ code: code ?? 0, stderr }));
+    // Same unhandled-EPIPE hazard the OpenCode guard plugin carries: a guard
+    // that exits before reading the payload closes the read end first, and an
+    // unlistened stdin write failure would take the whole Pi host down instead
+    // of ending one turn. The close handler above already owns the outcome.
+    child.stdin.on("error", () => {});
     child.stdin.end('{"stop_hook_active":false}');
   });
 }

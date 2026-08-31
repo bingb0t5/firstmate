@@ -80,6 +80,10 @@ DATABASE_JOURNAL_SUFFIX = "-journal"
 STATUS_TRAILER_BYTES = 4
 STATUS_TRAILER_RE = re.compile(rb"\n[0-9]{3}")
 ARCHIVE_ENTRY_TYPES = ("file", "directory", "symlink", "other")
+RESOLUTION_DIGEST_RE = re.compile(r"[0-9a-f]{64}")
+ACKNOWLEDGEMENT_PATH_RE = re.compile(
+    r"^(?:telegram-inbox|\.telegram-delivery-receipts)/[1-9][0-9]*\.json$"
+)
 NOTICE_TOKEN_RE = re.compile(
     r"^(?P<state>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
     r"[0-9a-f]{4}-[0-9a-f]{12}):(?P<notice>[1-9][0-9]*)$"
@@ -167,6 +171,22 @@ class MigrationPlan:
     handled_messages: List[PlannedMessage]
     pending_messages: List[PlannedMessage]
     api_conditions: List[str]
+
+
+@dataclass(frozen=True)
+class ResolutionPayload:
+    path: str
+    update_id: int
+    sha256: str
+    size: int
+
+
+@dataclass
+class ResolutionEvidence:
+    fingerprint: str
+    archive_manifest_sha256: str
+    payloads: List[ResolutionPayload]
+    plan: MigrationPlan
 
 
 def now_epoch() -> int:
@@ -387,6 +407,119 @@ def required_schema() -> Dict[str, Tuple[str, ...]]:
     }
 
 
+def resolution_extension_tables(conn: sqlite3.Connection) -> Tuple[bool, bool]:
+    names = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
+            "('migration_resolution', 'migration_resolution_payloads')"
+        )
+    }
+    return "migration_resolution" in names, "migration_resolution_payloads" in names
+
+
+def validate_resolution_extension(
+    conn: sqlite3.Connection, migration_status: str
+) -> Optional[Tuple[str, str, int, int]]:
+    has_resolution, has_payloads = resolution_extension_tables(conn)
+    if has_resolution != has_payloads:
+        raise LocalStateError("resolution-tables", "resolution proof tables are incomplete")
+    if not has_resolution:
+        return None
+    if migration_status != "complete":
+        raise LocalStateError("resolution-status", "resolution proof is not complete")
+    meta = conn.execute(
+        "SELECT migration_archive, migration_fingerprint FROM meta WHERE singleton = 1"
+    ).fetchone()
+    if (
+        meta is None
+        or not isinstance(meta[0], str)
+        or not isinstance(meta[1], str)
+        or not re.fullmatch(r"[0-9a-f]{16}", meta[1])
+    ):
+        raise LocalStateError("resolution-binding", "resolution proof has no migration binding")
+    expected_resolution = (
+        "singleton",
+        "kind",
+        "blocked_fingerprint",
+        "archive_manifest_sha256",
+        "acknowledged_at",
+        "payload_count",
+    )
+    expected_payloads = (
+        "path",
+        "update_id",
+        "sha256",
+        "size",
+        "resolution",
+    )
+    for table, expected in (
+        ("migration_resolution", expected_resolution),
+        ("migration_resolution_payloads", expected_payloads),
+    ):
+        rows = conn.execute("PRAGMA table_info(%s)" % table).fetchall()
+        columns = tuple(row[1] for row in rows)
+        if columns != expected:
+            raise LocalStateError("resolution-columns", "%s:%r" % (table, columns))
+    resolutions = conn.execute(
+        "SELECT singleton, kind, blocked_fingerprint, archive_manifest_sha256, "
+        "acknowledged_at, payload_count FROM migration_resolution"
+    ).fetchall()
+    if len(resolutions) != 1:
+        raise LocalStateError("resolution-row", "expected one resolution row")
+    singleton, kind, fingerprint, manifest_digest, acknowledged_at, payload_count = resolutions[0]
+    if singleton != 1 or kind != "operator-acknowledged-delivery":
+        raise LocalStateError("resolution-kind", repr(kind))
+    if not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{16}", fingerprint):
+        raise LocalStateError("resolution-fingerprint", repr(fingerprint))
+    if fingerprint != meta[1]:
+        raise LocalStateError("resolution-fingerprint", "proof does not match migration")
+    if not isinstance(manifest_digest, str) or not RESOLUTION_DIGEST_RE.fullmatch(manifest_digest):
+        raise LocalStateError("resolution-manifest", repr(manifest_digest))
+    if type(acknowledged_at) is not int or acknowledged_at < 0:
+        raise LocalStateError("resolution-time", repr(acknowledged_at))
+    if type(payload_count) is not int or payload_count <= 0:
+        raise LocalStateError("resolution-count", repr(payload_count))
+    if conn.execute(
+        "SELECT COUNT(*) FROM notices "
+        "WHERE kind = 'migration-blocked' AND acknowledged_at IS NULL"
+    ).fetchone()[0] != 0:
+        raise LocalStateError(
+            "resolution-notices", "resolved proof has a pending migration notice"
+        )
+    payloads = conn.execute(
+        "SELECT path, update_id, sha256, size, resolution "
+        "FROM migration_resolution_payloads ORDER BY path"
+    ).fetchall()
+    if len(payloads) != payload_count:
+        raise LocalStateError("resolution-count", "payload count does not match rows")
+    update_digests: Dict[int, str] = {}
+    for path, update_id, digest, size, resolution in payloads:
+        if not isinstance(path, str) or ACKNOWLEDGEMENT_PATH_RE.fullmatch(path) is None:
+            raise LocalStateError("resolution-path", repr(path))
+        if int(Path(path).stem) != update_id:
+            raise LocalStateError("resolution-update-id", repr(path))
+        if not valid_update_id(update_id):
+            raise LocalStateError("resolution-update-id", repr(update_id))
+        if not isinstance(digest, str) or not RESOLUTION_DIGEST_RE.fullmatch(digest):
+            raise LocalStateError("resolution-digest", repr(path))
+        previous_digest = update_digests.get(update_id)
+        if previous_digest is not None and previous_digest != digest:
+            raise LocalStateError("resolution-conflict", repr(update_id))
+        update_digests[update_id] = digest
+        if type(size) is not int or size < 0 or resolution != 1:
+            raise LocalStateError("resolution-payload", repr(path))
+        tombstone = conn.execute(
+            "SELECT payload, notice_id, handled_at FROM messages WHERE update_id = ?",
+            (update_id,),
+        ).fetchone()
+        if tombstone is None or tombstone[0] is not None or tombstone[1] is not None:
+            raise LocalStateError("resolution-tombstone", repr(path))
+        if type(tombstone[2]) is not int or tombstone[2] < 0:
+            raise LocalStateError("resolution-tombstone", repr(path))
+    return fingerprint, manifest_digest, acknowledged_at, payload_count
+
+
 def validate_store(conn: sqlite3.Connection) -> None:
     quick = conn.execute("PRAGMA quick_check").fetchall()
     if quick != [("ok",)]:
@@ -443,6 +576,7 @@ def validate_store(conn: sqlite3.Connection) -> None:
         raise LocalStateError("migration-fingerprint", repr(migration_fingerprint))
     if migration_cause is not None and not MIGRATION_CAUSE_RE.fullmatch(migration_cause):
         raise LocalStateError("migration-cause", repr(migration_cause)[:80])
+    validate_resolution_extension(conn, migration_status)
     pending = conn.execute(
         "SELECT COUNT(*) FROM notices WHERE acknowledged_at IS NULL"
     ).fetchone()[0]
@@ -904,12 +1038,16 @@ def read_credentials(path: Path) -> Credentials:
     return Credentials(token, int(chat_text), int(user_text))
 
 
-def poll_configuration() -> Tuple[int, int, int]:
-    timeout = validate_positive_int(
+def poll_timeout() -> int:
+    return validate_positive_int(
         os.environ.get("FM_TELEGRAM_POLL_TIMEOUT", "25"),
         "FM_TELEGRAM_POLL_TIMEOUT",
         50,
     )
+
+
+def poll_configuration() -> Tuple[int, int, int]:
+    timeout = poll_timeout()
     curl_max = validate_positive_int(
         os.environ.get("FM_TELEGRAM_CURL_MAX_TIME", str(timeout + 15)),
         "FM_TELEGRAM_CURL_MAX_TIME",
@@ -1208,19 +1346,32 @@ def announce(conn: sqlite3.Connection, notice_id: Optional[int]) -> int:
 
 
 def command_poll(state: Path, credential_path: Path) -> int:
-    conn = connect_existing(state)
+    conn: Optional[sqlite3.Connection] = connect_existing(state)
     try:
         pending = pending_notice(conn)
-        if pending is not None:
-            return emit_notice(conn, pending)
-        pending = ensure_unannounced_condition_notice(conn)
         if pending is not None:
             return emit_notice(conn, pending)
         migration_status, migration_fingerprint = conn.execute(
             "SELECT migration_status, migration_fingerprint FROM meta WHERE singleton = 1"
         ).fetchone()
         if migration_status == "blocked":
-            raise LocalStateError("migration-blocked", migration_fingerprint or "ambiguous")
+            timeout = poll_timeout()
+            conn.close()
+            conn = None
+            while True:
+                time.sleep(timeout)
+                conn = connect_existing(state)
+                migration_status, migration_fingerprint = conn.execute(
+                    "SELECT migration_status, migration_fingerprint "
+                    "FROM meta WHERE singleton = 1"
+                ).fetchone()
+                if migration_status != "blocked":
+                    break
+                conn.close()
+                conn = None
+        pending = ensure_unannounced_condition_notice(conn)
+        if pending is not None:
+            return emit_notice(conn, pending)
         try:
             credentials = read_credentials(credential_path)
         except CredentialError:
@@ -1261,7 +1412,8 @@ def command_poll(state: Path, credential_path: Path) -> int:
             return announce(conn, raise_condition(conn, "protocol", "invalid-response"))
         return announce(conn, commit_batch(conn, plan))
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def read_result_file(path: Path) -> str:
@@ -1820,6 +1972,219 @@ def verify_staged_archive(
                 )
 
 
+def validate_archive_relative_path(path: object) -> str:
+    if not isinstance(path, str) or not path or path.startswith("/") or "\\" in path:
+        raise UserError("the Telegram migration archive contains an unsafe path")
+    parts = path.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        raise UserError("the Telegram migration archive contains a path-escaping entry")
+    return path
+
+
+def resolution_archive(state: Path, relative_archive: object) -> Tuple[Path, str, List[Dict[str, object]]]:
+    if not isinstance(relative_archive, str) or not re.fullmatch(
+        r"telegram-migration-archive/[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}",
+        relative_archive,
+    ):
+        raise UserError("migration archive binding is unsafe")
+    archive_parent = state / ARCHIVE_PARENT_NAME
+    archive = state / relative_archive
+    manifest = archive / "manifest.json"
+    copied = archive / "state"
+    ensure_existing_directory(archive_parent, 0o500)
+    try:
+        parent_entries = sorted(item.name for item in archive_parent.iterdir())
+    except OSError as exc:
+        raise UserError("migration archive parent is unreadable: %s" % exc)
+    if parent_entries != [archive.name]:
+        raise UserError("migration archive parent contains an unexpected archive")
+    ensure_existing_directory(archive, 0o500)
+    try:
+        archive_entries = sorted(item.name for item in archive.iterdir())
+    except OSError as exc:
+        raise UserError("migration archive is unreadable: %s" % exc)
+    if archive_entries != ["manifest.json", "state"]:
+        raise UserError("migration archive contains an unexpected artifact")
+    try:
+        manifest_info = manifest.lstat()
+        copied_info = copied.lstat()
+    except OSError as exc:
+        raise UserError("migration archive is missing a sealed artifact: %s" % exc)
+    if (
+        stat.S_ISLNK(manifest_info.st_mode)
+        or not stat.S_ISREG(manifest_info.st_mode)
+        or stat.S_IMODE(manifest_info.st_mode) != 0o400
+    ):
+        raise UserError("migration archive manifest is not a sealed regular file")
+    if (
+        stat.S_ISLNK(copied_info.st_mode)
+        or not stat.S_ISDIR(copied_info.st_mode)
+        or stat.S_IMODE(copied_info.st_mode) != 0o500
+    ):
+        raise UserError("migration archive state tree is not sealed")
+    try:
+        raw_manifest = manifest.read_bytes()
+    except OSError as exc:
+        raise UserError("migration archive manifest is unreadable: %s" % exc)
+    declared = decode_archive_manifest(manifest)
+    for entry in declared:
+        validate_archive_relative_path(entry.get("path"))
+        mode = entry.get("mode")
+        if type(mode) is not int or mode < 0 or mode > 0o7777:
+            raise UserError("migration archive manifest has an invalid mode")
+        if entry.get("type") == "file":
+            digest = entry.get("sha256")
+            size = entry.get("size")
+            if not isinstance(digest, str) or RESOLUTION_DIGEST_RE.fullmatch(digest) is None:
+                raise UserError("migration archive manifest has an invalid file digest")
+            if type(size) is not int or size < 0:
+                raise UserError("migration archive manifest has an invalid file size")
+        if entry.get("type") == "symlink" and (
+            not isinstance(entry.get("target"), str)
+            or entry.get("target", "").startswith("/")
+        ):
+            raise UserError("migration archive manifest has an unsafe symlink")
+    observed = archive_manifest_entries(copied)
+    declared_shape = [dict(entry, mode=0) for entry in declared]
+    observed_shape = [dict(entry, mode=0) for entry in observed]
+    if declared_shape != observed_shape:
+        raise UserError(
+            "migration archive does not match its manifest at %s"
+            % first_entry_difference(declared_shape, observed_shape)
+        )
+    for entry in observed:
+        path = copied / str(entry["path"])
+        if entry["type"] == "file" and stat.S_IMODE(path.lstat().st_mode) != 0o400:
+            raise UserError("migration archive file is not sealed: %s" % entry["path"])
+        if entry["type"] == "directory" and stat.S_IMODE(path.lstat().st_mode) != 0o500:
+            raise UserError("migration archive directory is not sealed: %s" % entry["path"])
+    return archive, hashlib.sha256(raw_manifest).hexdigest(), declared
+
+
+def resolution_payload(path: Path) -> int:
+    try:
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise ValueError("payload is not a regular file")
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise UserError("legacy payload is not resolvable: %s" % exc)
+    if not isinstance(data, dict) or not valid_update_id(data.get("update_id")):
+        raise UserError("legacy payload has an invalid update id")
+    update_id = int(data["update_id"])
+    if path.name != "%d.json" % update_id:
+        raise UserError("legacy payload filename disagrees with its update id")
+    if not isinstance(data.get("text"), str) or not data["text"]:
+        raise UserError("legacy payload has no usable text")
+    if type(data.get("date")) is not int or type(data.get("chat_id")) is not int:
+        raise UserError("legacy payload has unsupported identity or date ambiguity")
+    if "from_id" in data and type(data["from_id"]) is not int:
+        raise UserError("legacy payload has malformed sender identity")
+    return update_id
+
+
+def resolution_payloads(archive_state: Path) -> List[ResolutionPayload]:
+    found: List[ResolutionPayload] = []
+    for relative_dir in ("telegram-inbox", ".telegram-delivery-receipts"):
+        directory = archive_state / relative_dir
+        if not directory.exists() and not directory.is_symlink():
+            continue
+        info = directory.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise UserError("legacy payload directory is not a regular directory")
+        for entry in sorted(directory.iterdir()):
+            if relative_dir == "telegram-inbox" and entry.name == "handled":
+                continue
+            if relative_dir == ".telegram-delivery-receipts" and entry.name.startswith("tmp."):
+                info = entry.lstat()
+                if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                    raise UserError("legacy temporary receipt is not a regular file")
+                continue
+            if not entry.name.endswith(".json"):
+                raise UserError("legacy payload directory has an unknown entry")
+            update_id = resolution_payload(entry)
+            found.append(
+                ResolutionPayload(
+                    "%s/%s" % (relative_dir, entry.name),
+                    update_id,
+                    hash_regular_file(entry),
+                    entry.stat().st_size,
+                )
+            )
+    if not found:
+        raise UserError("no resolvable legacy payload blockers are present")
+    by_update: Dict[int, str] = {}
+    for payload in found:
+        previous = by_update.get(payload.update_id)
+        if previous is not None and previous != payload.sha256:
+            raise UserError("legacy payload copies conflict for one update")
+        by_update[payload.update_id] = payload.sha256
+    return sorted(found, key=lambda item: item.path)
+
+
+def resolution_evidence(state: Path, conn: sqlite3.Connection) -> ResolutionEvidence:
+    row = conn.execute(
+        "SELECT migration_status, committed_offset, last_success, consecutive_failures, "
+        "first_failure, migration_archive, migration_fingerprint, migration_cause "
+        "FROM meta WHERE singleton = 1"
+    ).fetchone()
+    if row is None or row[0] != "blocked":
+        raise UserError("there is no blocked migration to resolve")
+    if row[1] != 0 or row[2] is not None or row[3] != 0 or row[4] is not None:
+        raise UserError("blocked migration has unexpected live state")
+    if not row[5] or not row[6] or not row[7]:
+        raise UserError("blocked migration has incomplete historical binding")
+    if conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] != 0:
+        raise UserError("blocked migration already contains messages")
+    if conn.execute("SELECT COUNT(*) FROM conditions").fetchone()[0] != 0:
+        raise UserError("blocked migration already contains conditions")
+    notices = conn.execute(
+        "SELECT id, kind, acknowledged_at FROM notices ORDER BY id"
+    ).fetchall()
+    if len(notices) != 1 or notices[0][1] != "migration-blocked":
+        raise UserError("blocked migration notices do not match one migration episode")
+    archive, manifest_digest, _ = resolution_archive(state, row[5])
+    archive_state = archive / "state"
+    payloads = resolution_payloads(archive_state)
+    handled = read_legacy_payload_directory(
+        archive_state / "telegram-inbox" / "handled", allow_temps=False, require_payload=False
+    )
+    if any(
+        item.update_id in handled and item.path.startswith("telegram-inbox/")
+        for item in payloads
+    ):
+        raise UserError("legacy payload is both live and handled")
+    payloads = [item for item in payloads if item.update_id not in handled]
+    if not payloads:
+        raise UserError("no resolvable legacy payload blockers are present")
+    for payload in payloads:
+        source = state / payload.path
+        try:
+            source_info = source.lstat()
+            if stat.S_ISLNK(source_info.st_mode) or not stat.S_ISREG(source_info.st_mode):
+                raise UserError("preserved legacy source is not a regular file: %s" % payload.path)
+            if source_info.st_size != payload.size or hash_regular_file(source) != payload.sha256:
+                raise UserError("preserved legacy source changed: %s" % payload.path)
+        except OSError as exc:
+            raise UserError("preserved legacy source is unavailable: %s" % exc)
+    offset = parse_legacy_offset(archive_state)
+    pending = parse_legacy_pending(archive_state)
+    ids = {item.update_id for item in payloads}
+    if pending is not None:
+        count, target = pending
+        if target < offset or len(ids) != count:
+            raise UserError("legacy pending target cannot be mapped to exact blockers")
+        offset = target
+    plan = MigrationPlan(
+        offset=offset,
+        handled_messages=[handled[key] for key in sorted(handled)]
+        + [PlannedMessage(update_id, None) for update_id in sorted(ids)],
+        pending_messages=[],
+        api_conditions=parse_legacy_blocks(archive_state),
+    )
+    return ResolutionEvidence(row[6], manifest_digest, payloads, plan)
+
+
 def stage_migration_archive(state: Path, staging: Path, paths: Sequence[Path]) -> None:
     staging.mkdir(mode=0o700)
     copied = staging / "state"
@@ -2244,6 +2609,247 @@ def command_migrate(state: Path) -> int:
     return 0
 
 
+def parse_resolution_acknowledgements(values: Optional[Sequence[str]]) -> List[ResolutionPayload]:
+    if not values:
+        raise UserError("resolve-migration needs at least one --acknowledge-delivered")
+    parsed: List[ResolutionPayload] = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, str) or value.count("=") != 1:
+            raise UserError("acknowledgement must be path=sha256:digest")
+        path, digest_value = value.split("=", 1)
+        if ACKNOWLEDGEMENT_PATH_RE.fullmatch(path) is None:
+            raise UserError("acknowledgement path is outside the allowed legacy payload paths")
+        if not digest_value.startswith("sha256:"):
+            raise UserError("acknowledgement must use sha256:digest")
+        digest = digest_value[7:]
+        if RESOLUTION_DIGEST_RE.fullmatch(digest) is None:
+            raise UserError("acknowledgement digest must be 64 lower-case hex characters")
+        if path in seen:
+            raise UserError("acknowledgement paths must not be duplicated")
+        seen.add(path)
+        parsed.append(ResolutionPayload(path, 0, digest, 0))
+    return sorted(parsed, key=lambda item: item.path)
+
+
+def match_resolution_intent(
+    evidence: ResolutionEvidence,
+    supplied: Sequence[ResolutionPayload],
+    fingerprint: Optional[str],
+    manifest_digest: Optional[str],
+) -> None:
+    if fingerprint is None or re.fullmatch(r"[0-9a-f]{16}", fingerprint) is None:
+        raise UserError("--blocked-fingerprint must be 16 lower-case hex characters")
+    if manifest_digest is None or RESOLUTION_DIGEST_RE.fullmatch(manifest_digest) is None:
+        raise UserError("--archive-manifest-sha256 must be 64 lower-case hex characters")
+    if fingerprint != evidence.fingerprint:
+        raise UserError("blocked migration fingerprint does not match")
+    if manifest_digest != evidence.archive_manifest_sha256:
+        raise UserError("migration archive manifest digest does not match")
+    expected = [(item.path, item.sha256) for item in evidence.payloads]
+    actual = [(item.path, item.sha256) for item in supplied]
+    if actual != expected:
+        raise UserError("acknowledgements must exactly match every derived blocker")
+
+
+def resolution_rows(conn: sqlite3.Connection) -> List[ResolutionPayload]:
+    return [
+        ResolutionPayload(path, int(update_id), sha256, int(size))
+        for path, update_id, sha256, size in conn.execute(
+            "SELECT path, update_id, sha256, size FROM migration_resolution_payloads ORDER BY path"
+        )
+    ]
+
+
+def command_resolve_migration(
+    state: Path,
+    fingerprint: Optional[str],
+    manifest_digest: Optional[str],
+    acknowledgement_values: Optional[Sequence[str]],
+) -> int:
+    supplied = parse_resolution_acknowledgements(acknowledgement_values)
+    conn = connect_existing(state)
+    try:
+        meta = conn.execute(
+            "SELECT migration_status, committed_offset, migration_archive, "
+            "migration_fingerprint FROM meta WHERE singleton = 1"
+        ).fetchone()
+        if meta is None:
+            raise UserError("Telegram state has no singleton metadata")
+        has_resolution, has_payloads = resolution_extension_tables(conn)
+        if has_resolution != has_payloads:
+            raise UserError("resolution proof tables are incomplete")
+        if meta[0] == "complete" and has_resolution:
+            stored = validate_resolution_extension(conn, meta[0])
+            if stored is None:
+                raise UserError("resolution proof is unavailable")
+            stored_fingerprint, stored_manifest, _, _ = stored
+            if fingerprint != stored_fingerprint or manifest_digest != stored_manifest:
+                raise UserError("changed resolution intent refuses an already resolved migration")
+            stored_rows = resolution_rows(conn)
+            if [(item.path, item.sha256) for item in supplied] != [
+                (item.path, item.sha256) for item in stored_rows
+            ]:
+                raise UserError("changed resolution intent refuses an already resolved migration")
+            verify_resolved_evidence(state, meta[2], stored_manifest, stored_rows)
+            print(
+                "already-resolved: migration fingerprint=%s acknowledged-delivered=%d "
+                "offset=%d archive=%s"
+                % (stored_fingerprint, len(stored_rows), meta[1], meta[2])
+            )
+            return 0
+        if meta[0] != "blocked":
+            raise UserError("there is no blocked migration to resolve")
+        if fingerprint != meta[3]:
+            raise UserError("blocked migration fingerprint does not match")
+        evidence = resolution_evidence(state, conn)
+        match_resolution_intent(evidence, supplied, fingerprint, manifest_digest)
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            current = conn.execute(
+                "SELECT migration_status, committed_offset, migration_archive, "
+                "migration_fingerprint, migration_cause FROM meta WHERE singleton = 1"
+            ).fetchone()
+            if (
+                current is None
+                or current[0] != "blocked"
+                or current[1] != 0
+                or current[2] != meta[2]
+                or current[3] != meta[3]
+            ):
+                raise UserError("blocked migration changed during resolution")
+            current_evidence = resolution_evidence(state, conn)
+            match_resolution_intent(
+                current_evidence, supplied, fingerprint, manifest_digest
+            )
+            ack_at = now_epoch()
+            conn.execute(
+                """
+                CREATE TABLE migration_resolution (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    kind TEXT NOT NULL CHECK (kind = 'operator-acknowledged-delivery'),
+                    blocked_fingerprint TEXT NOT NULL,
+                    archive_manifest_sha256 TEXT NOT NULL,
+                    acknowledged_at INTEGER NOT NULL CHECK (acknowledged_at >= 0),
+                    payload_count INTEGER NOT NULL CHECK (payload_count > 0)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE migration_resolution_payloads (
+                    path TEXT PRIMARY KEY,
+                    update_id INTEGER NOT NULL
+                        CHECK (update_id >= 1 AND update_id <= 2147483647),
+                    sha256 TEXT NOT NULL,
+                    size INTEGER NOT NULL CHECK (size >= 0),
+                    resolution INTEGER NOT NULL DEFAULT 1
+                        REFERENCES migration_resolution(singleton) ON DELETE RESTRICT,
+                    CHECK (resolution = 1)
+                )
+                """
+            )
+            failpoint("after_resolution_ddl")
+            conn.execute(
+                "INSERT INTO migration_resolution "
+                "(singleton, kind, blocked_fingerprint, archive_manifest_sha256, "
+                "acknowledged_at, payload_count) VALUES (1, ?, ?, ?, ?, ?)",
+                (
+                    "operator-acknowledged-delivery",
+                    fingerprint,
+                    manifest_digest,
+                    ack_at,
+                    len(current_evidence.payloads),
+                ),
+            )
+            for item in current_evidence.payloads:
+                conn.execute(
+                    "INSERT INTO migration_resolution_payloads "
+                    "(path, update_id, sha256, size) VALUES (?, ?, ?, ?)",
+                    (item.path, item.update_id, item.sha256, item.size),
+                )
+            failpoint("after_resolution_ack")
+            notice = conn.execute(
+                "SELECT id, acknowledged_at FROM notices WHERE kind = 'migration-blocked'"
+            ).fetchone()
+            if notice is None:
+                raise UserError("migration notice is missing")
+            if notice[1] is None:
+                conn.execute(
+                    "UPDATE notices SET acknowledged_at = ? WHERE id = ?",
+                    (ack_at, notice[0]),
+                )
+            for message in current_evidence.plan.handled_messages:
+                handled_at = ack_at if message.update_id in {
+                    item.update_id for item in current_evidence.payloads
+                } else now_epoch()
+                conn.execute(
+                    "INSERT INTO messages (update_id, payload, notice_id, handled_at) "
+                    "VALUES (?, NULL, NULL, ?)",
+                    (message.update_id, handled_at),
+                )
+            failpoint("after_resolution_tombstone")
+            for condition in current_evidence.plan.api_conditions:
+                detail = condition.split("-", 1)[1]
+                conn.execute(
+                    "INSERT INTO conditions (kind, detail, notice_id, started_at) "
+                    "VALUES (?, ?, NULL, ?)",
+                    (condition, detail, ack_at),
+                )
+            failpoint("after_resolution_plan")
+            conn.execute(
+                "UPDATE meta SET migration_status = 'complete', committed_offset = ? "
+                "WHERE singleton = 1",
+                (current_evidence.plan.offset,),
+            )
+            failpoint("after_resolution_meta")
+            validate_store(conn)
+            failpoint("before_resolution_commit")
+            conn.commit()
+            failpoint("after_resolution_commit")
+            print(
+                "resolved: migration fingerprint=%s acknowledged-delivered=%d "
+                "offset=%d archive=%s"
+                % (
+                    fingerprint,
+                    len(current_evidence.payloads),
+                    current_evidence.plan.offset,
+                    meta[2],
+                )
+            )
+            return 0
+        except Exception:
+            conn.rollback()
+            raise
+    finally:
+        conn.close()
+
+
+def verify_resolved_evidence(
+    state: Path,
+    archive_relative: str,
+    manifest_digest: str,
+    rows: Sequence[ResolutionPayload],
+) -> None:
+    archive, actual_digest, _ = resolution_archive(state, archive_relative)
+    if actual_digest != manifest_digest:
+        raise UserError("resolved migration archive manifest changed")
+    for item in rows:
+        source = state / item.path
+        archived = archive / "state" / item.path
+        if (
+            source.is_symlink()
+            or not source.is_file()
+            or archived.is_symlink()
+            or not archived.is_file()
+            or source.stat().st_size != item.size
+            or hash_regular_file(source) != item.sha256
+            or archived.stat().st_size != item.size
+            or hash_regular_file(archived) != item.sha256
+        ):
+            raise UserError("resolved legacy payload evidence changed")
+
+
 def command_doctor(state: Path) -> int:
     try:
         conn = connect_existing(state)
@@ -2270,6 +2876,51 @@ def command_doctor(state: Path) -> int:
         print("migration_archive=%s" % (meta[6] if meta[6] else "none"))
         print("migration_fingerprint=%s" % (meta[7] if meta[7] else "none"))
         print("migration_cause=%s" % (meta[8] if meta[8] else "none"))
+        if meta[5] == "blocked":
+            try:
+                evidence = resolution_evidence(state, conn)
+                print("migration_resolution=available")
+                print(
+                    "migration_resolution_manifest_sha256=%s"
+                    % evidence.archive_manifest_sha256
+                )
+                print(
+                    "migration_resolution_blocker_count=%d" % len(evidence.payloads)
+                )
+                for number, item in enumerate(evidence.payloads, 1):
+                    print(
+                        "migration_resolution_blocker.%d=%s update_id=%d sha256=%s size=%d"
+                        % (number, item.path, item.update_id, item.sha256, item.size)
+                    )
+            except Exception as exc:
+                print("migration_resolution=unavailable")
+                print(
+                    "migration_resolution_detail=%s"
+                    % migration_cause_text(state, exc)
+                )
+        elif meta[5] == "complete":
+            extension = validate_resolution_extension(conn, meta[5])
+            if extension is not None:
+                fingerprint, digest, resolved_at, count = extension
+                rows = resolution_rows(conn)
+                print("migration_resolution=operator-acknowledged-delivery")
+                print("migration_resolution_at=%d" % resolved_at)
+                print("migration_resolution_payload_count=%d" % count)
+                print("migration_resolution_manifest_sha256=%s" % digest)
+                for number, item in enumerate(rows, 1):
+                    print(
+                        "migration_resolution_ack.%d=%s update_id=%d sha256=%s size=%d"
+                        % (number, item.path, item.update_id, item.sha256, item.size)
+                    )
+                try:
+                    verify_resolved_evidence(state, meta[6], digest, rows)
+                    print("migration_resolution_evidence=verified")
+                except Exception as exc:
+                    print("migration_resolution_evidence=unavailable")
+                    print(
+                        "migration_resolution_detail=%s"
+                        % migration_cause_text(state, exc)
+                    )
         print(
             "pending_notices=%d"
             % conn.execute(
@@ -2346,9 +2997,13 @@ def build_parser() -> argparse.ArgumentParser:
             "messages",
             "migrate",
             "poll",
+            "resolve-migration",
         ),
     )
     parser.add_argument("argument", nargs="?")
+    parser.add_argument("--blocked-fingerprint")
+    parser.add_argument("--archive-manifest-sha256")
+    parser.add_argument("--acknowledge-delivered", action="append")
     return parser
 
 
@@ -2371,6 +3026,13 @@ def dispatch(arguments: argparse.Namespace) -> int:
         return command_doctor(state)
     if command == "export-legacy-offset":
         return command_export_legacy_offset(state)
+    if command == "resolve-migration":
+        return command_resolve_migration(
+            state,
+            arguments.blocked_fingerprint,
+            arguments.archive_manifest_sha256,
+            arguments.acknowledge_delivered,
+        )
     if command in ("classify", "messages", "ack"):
         if not arguments.argument:
             raise UserError("%s needs a result file" % command)
@@ -2395,7 +3057,15 @@ def main(argv: Sequence[str]) -> int:
         return 1
     except Exception as exc:
         command = None
-        for candidate in ("poll", "classify", "messages", "ack", "arm-state", "doctor"):
+        for candidate in (
+            "poll",
+            "classify",
+            "messages",
+            "ack",
+            "arm-state",
+            "doctor",
+            "resolve-migration",
+        ):
             if candidate in argv:
                 command = candidate
                 break

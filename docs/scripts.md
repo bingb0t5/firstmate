@@ -69,7 +69,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-pending-reply-lib.sh` | Parent-owned secondmate pending-reply expectations, recovery, and keyed escalation lifecycle |
 | `fm-secondmate-report.sh` | Optional helper to append a correlated parent status or document-pointer report       |
 | `fm-procevent-remote-reply.sh` | Relay the remote-secondmate status stream through non-destructive process-event deltas |
-| `fm-procevent-telegram.sh` | Own the captain's permanent Telegram channel through one transactional state store, stable notices, and a single offline migration |
+| `fm-procevent-telegram.sh` | Own the captain's permanent Telegram channel through one transactional state store, stable notices, guarded blocked-migration resolution, and a single offline migration |
 | `fm_procevent_telegram_state.py` | The Telegram adapter's sole reader and writer of live channel state, driven only through that adapter |
 | `fm-procevent-when.sh`   | Fire a trust-bound deterministic action at most once when its registered condition holds, then wake with the outcome |
 | `fm-gate-refuse-lib.sh`  | Shared no-mistakes gate-context refusal for fleet lifecycle entrypoints               |

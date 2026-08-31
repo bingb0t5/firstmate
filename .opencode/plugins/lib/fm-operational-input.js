@@ -32,6 +32,11 @@ export function encodeFirstmateOperationalInput(root, kind, content) {
       }
       reject(new Error(stderr.trim() || `operational-input encoder exited ${code ?? "unknown"}`));
     });
+    // An encoder that refuses before reading stdin closes the read end first,
+    // so this write can fail with EPIPE. Unlistened that is an unhandled
+    // 'error' event on the socket, which kills the host process rather than
+    // rejecting this one encode; the close handler above already owns both.
+    child.stdin.on("error", () => {});
     child.stdin.end(content);
   });
 }

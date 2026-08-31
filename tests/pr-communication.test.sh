@@ -52,6 +52,33 @@ This is a quick change.
 EOF
 }
 
+pipeline_section() {
+  cat <<'EOF'
+
+## Pipeline
+
+Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)
+
+<!-- no-mistakes-pipeline-attestation:v1 {"head_sha":"0000000000000000000000000000000000000000","steps":[{"step":"review","status":"completed"},{"step":"test","status":"completed"},{"step":"document","status":"completed"}]} -->
+EOF
+}
+
+test_cli_accepts_description_that_keeps_the_pipeline_section() {
+  local out rc
+  set +e
+  out=$(
+    PR_TITLE='Show members the status of their requests' \
+      PR_BODY="$(complete_body; pipeline_section)" \
+      node --experimental-strip-types "$CHECK" 2>&1
+  )
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "complete description carrying the no-mistakes Pipeline section"
+  assert_contains "$out" "PR communication is complete." \
+    "the no-mistakes Pipeline section made a compliant description fail"
+  pass "CLI passes a compliant description that keeps the no-mistakes Pipeline section"
+}
+
 test_missing_remote_token_fails_closed() {
   local out rc
   set +e
@@ -271,6 +298,7 @@ test_cli_accepts_complete_description() {
 
 test_missing_remote_token_fails_closed
 test_vendored_unit_suite
+test_cli_accepts_description_that_keeps_the_pipeline_section
 test_cli_rejects_incomplete_description
 test_cli_rejects_untouched_module_boundary_template
 test_cli_accepts_complete_description

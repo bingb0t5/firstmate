@@ -10,6 +10,23 @@ Generic keyed-answer feed verified on 2026-08-16 on the same platform, against t
 Cross-origin keyed-answer feed verified on 2026-08-19 through the real runner and Lavish adapter interface.
 Telegram adapter behavior verified on 2026-08-25 through the real adapter and generic runner interfaces.
 The transactional Telegram crash matrix was verified the same day on Linux 6.8.0-138-generic with Python 3.12.3 and SQLite 3.45.1.
+Blocked Telegram migration resolution, archive-bound proof, tombstone replay, the resolution crash boundaries, and the parked unresolved poll were verified on 2026-08-30 on the same Linux and Python versions through `bash tests/fm-procevent-telegram.test.sh`.
+The focused suite reported:
+
+```text
+ok - ambiguous migration preserves evidence, guesses nothing, and parks silently after acknowledgement
+ok - a resolved channel keeps delivering and acknowledging ordinary captain traffic
+ok - resolution proves exact archived payloads, commits tombstones atomically, and retries idempotently
+ok - a crash at any resolution boundary leaves the store valid and reruns to one complete resolution
+ok - doctor still reports the committed resolution when preserved legacy copies drift
+ok - a parked blocked poll resumes normal polling exactly once after the resolution commits
+ok - a coherent legacy payload beside an identity-gap blocker is acknowledged, never delivered
+ok - a stale receipt for an already-handled update is non-blocking and needs no acknowledgement
+...
+all fm-procevent-telegram tests passed
+```
+
+The crash-boundary case reruns `resolve-migration` after an injected exit at each of its seven transaction boundaries and proves the store stays valid, exposes no partial proof tables, tombstones, or notice acknowledgement before commit, and converges to exactly one complete resolution.
 
 ## Telegram identifier and durability evidence
 
@@ -150,6 +167,7 @@ Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose c
 | Telegram state corruption and migration | missing, malformed, wrong-version, impossible, wrong-type, symlinked, or wrong-mode state makes no network call and reaches the real runner as a stable `blocked` result; migration refuses a live legacy producer, archives every old artifact read-only without deleting it, imports coherent state exactly, and leaves ambiguous state visibly blocked without guessing an offset |
 | Telegram cutover crash and leftover recovery | the same suite proves a crash on either side of archive publication or sealing, an interrupt during database construction, and a failure after database publication each rerun to exactly one archive and one database with no unmanaged payload copy left behind; the cutover's meta, messages, notices, and offset commit as one transaction whose rollback journal is reaped even when orphaned by an uncatchable termination; and unmarked, symlinked, misnamed, or world-readable leftovers each refuse at their own check instead of being swept by name |
 | Telegram legacy import fidelity | an already-handled legacy row migrates as an update-id dedup tombstone that suppresses a later replay without delivering it again, a malformed identifier can never become a tombstone, and a row still awaiting delivery blocks the cutover unless it carries coherent text, chat and sender identity, and an exact integer date |
+| Telegram blocked-migration resolution | a blocked cutover parks silently after its notice is acknowledged and resumes normal polling exactly once the complete resolution is visible; `resolve-migration` proves every blocker against the sealed archive and the preserved legacy bytes, refuses a mismatched digest or an acknowledgement for a non-blocking payload without mutating the store, records acknowledged delivery and handled tombstones in one transaction that leaves the sealed archive byte-identical, repeats idempotently while a changed retry refuses, and converges to exactly one complete resolution after a crash at any of its transaction boundaries |
 | Telegram response framing | a body carrying trailer-like bytes is framed only by curl's exact final status suffix, and an absent, partial, interrupted, or oversized response is one bounded transport failure that commits no batch and leaves no response state on disk |
 | Telegram identity and credential secrecy | only the configured sender in the configured chat becomes a message, unauthorized and non-text updates advance transactionally without a wake, missing or replaced credentials announce one actionable block without a network call, and the bot token appears in neither argv, database state, captured results, nor message payloads |
 | Telegram API and transport episodes | `terminal` rejects every result, 401 and 409 remain independent across malformed responses and lifecycle commands, only a fully validated success clears them, and transient transport failures become one `transport-blocked` notice on the third consecutive failure rather than retrying silently forever |
