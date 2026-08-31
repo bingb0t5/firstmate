@@ -163,7 +163,13 @@ EOF
       "projects=alpha"
     # Build the large status payload through a file pipeline, not a shell or
     # jq argument, so this test stresses the production transport boundary.
+    # A still-open keyed decision carries an unbounded note of its own, so the
+    # stream keeps one ahead of the terminating working line to drive the
+    # open-decision transport at the same size.
     {
+      printf 'needs-decision [key=gate]: '
+      dd if=/dev/zero bs=180000 count=1 2>/dev/null | tr '\0' d
+      printf '\n'
       printf 'working [key=phase]: '
       dd if=/dev/zero bs=180000 count=1 2>/dev/null | tr '\0' x
       printf '\n'
@@ -184,6 +190,12 @@ EOF
       and ([.secondmate_landed.records[].home_id] | length) == 14
       and ([.secondmate_current.records[].parent_event.activity_scan.records[].summary]
            | all(length > 100000))
+      and ([.tasks[] | select(.kind == "secondmate") | .hints.open_decisions[]
+            | select(.verb == "needs-decision") | .summary]
+           | length == 14 and all(length > 100000))
+      and ([.secondmate_current.records[].parent_event.open_decisions[]
+            | select(.verb == "needs-decision") | .summary]
+           | length == 14 and all(length > 100000))
   ' >/dev/null || fail "large secondmate landed projection did not complete with valid JSON: $out"
   pass "large secondmate landed projection survives file-based transport beyond ARG_MAX"
 }
