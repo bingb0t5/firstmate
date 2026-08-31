@@ -52,6 +52,26 @@ This is a quick change.
 EOF
 }
 
+pipeline_generated_body() {
+  cat <<'EOF'
+## Intent
+
+Keep the fleet snapshot working once the fleet outgrows the argument size limit.
+
+## What Changed
+
+- The snapshot hands large payloads to its helper through files instead of one long command line.
+
+## Risk Assessment
+
+Low: the transport changes, the produced document does not.
+
+## Testing
+
+The reproduction, the counterfactual, and the focused regressions all pass.
+EOF
+}
+
 pipeline_section() {
   cat <<'EOF'
 
@@ -133,6 +153,26 @@ test_cli_rejects_incomplete_description() {
   assert_contains "$out" "Validation: Checks passed" \
     "incomplete description did not require Validation: Checks passed"
   pass "CLI fails a non-compliant PR description"
+}
+
+test_cli_rejects_pipeline_generated_description() {
+  local out rc
+  set +e
+  out=$(
+    PR_TITLE='Keep the fleet board loading for larger fleets' \
+      PR_BODY="$(pipeline_generated_body; pipeline_section)" \
+      node --experimental-strip-types "$CHECK" 2>&1
+  )
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "legacy Intent/What Changed/Risk Assessment/Testing description"
+  assert_contains "$out" "CEO overview: What is changing" \
+    "legacy headings did not require the CEO overview"
+  assert_contains "$out" "Validation: Evidence and limitations" \
+    "legacy headings did not require the Validation fields"
+  assert_contains "$out" "Module-boundary decision" \
+    "legacy headings did not require Module-boundary decision"
+  pass "CLI rejects a description that keeps only the legacy narrative headings"
 }
 
 test_cli_rejects_untouched_module_boundary_template() {
@@ -300,6 +340,7 @@ test_missing_remote_token_fails_closed
 test_vendored_unit_suite
 test_cli_accepts_description_that_keeps_the_pipeline_section
 test_cli_rejects_incomplete_description
+test_cli_rejects_pipeline_generated_description
 test_cli_rejects_untouched_module_boundary_template
 test_cli_accepts_complete_description
 test_transient_remote_failure_uses_local_pin

@@ -132,6 +132,164 @@ EOF
     "mode=ship"
 }
 
+test_large_secondmate_landed_projection_uses_file_transport() {
+  local home fakebin out id child payload_bytes
+  home=$(make_home large-secondmates)
+  : > "$home/data/secondmates.md"
+  for id in $(seq -w 1 14); do
+    id="large-secondmate-$id"
+    child="$TMP_ROOT/$id"
+    mkdir -p "$child/state" "$child/data" "$child/projects" "$child/config" "$child/bin"
+    printf '%s\n' "$id" > "$child/.fm-secondmate-home"
+    : > "$child/AGENTS.md"
+    cat > "$child/data/backlog.md" <<EOF
+## In flight
+
+## Queued
+
+## Done
+- [x] landed-$id - Landed work (kind: ship) (done 2026-08-01)
+EOF
+    printf -- '- %s - Registered secondmate (home:%s; scope: alpha; projects: alpha; added 2026-08-01)\n' \
+      "$id" "$child" >> "$home/data/secondmates.md"
+    fm_write_meta "$home/state/$id.meta" \
+      "window=firstmate:fm-$id" \
+      "project=$child" \
+      "harness=codex" \
+      "backend=tmux" \
+      "kind=secondmate" \
+      "mode=secondmate" \
+      "home=$child" \
+      "projects=alpha"
+    # Build the large status payload through a file pipeline, not a shell or
+    # jq argument, so this test stresses the production transport boundary.
+    # A still-open keyed decision carries an unbounded note of its own, so the
+    # stream keeps one ahead of the terminating working line to drive the
+    # open-decision transport at the same size.
+    {
+      printf 'needs-decision [key=gate]: '
+      dd if=/dev/zero bs=180000 count=1 2>/dev/null | tr '\0' d
+      printf '\n'
+      printf 'working [key=phase]: '
+      dd if=/dev/zero bs=180000 count=1 2>/dev/null | tr '\0' x
+      printf '\n'
+    } > "$home/state/$id.status"
+  done
+  fakebin=$(make_fakebin "$home")
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" \
+    FM_SNAPSHOT_PARENT_ACTIVITY_BYTES=200000 \
+    FM_SNAPSHOT_SECONDMATE_TIMEOUT=20 \
+    "$SNAPSHOT" --json)
+  payload_bytes=$(printf '%s' "$out" | wc -c | tr -d ' ')
+  [ "$payload_bytes" -gt 2097152 ] \
+    || fail "synthetic fleet payload should exceed the relevant argv threshold, got $payload_bytes bytes"
+  printf '%s' "$out" | jq -e '
+    .schema == "fm-fleet-snapshot.v1"
+      and (.secondmate_current.records | length) == 14
+      and (.secondmate_landed.records | length) == 14
+      and ([.secondmate_landed.records[].home_id] | length) == 14
+      and ([.secondmate_current.records[].parent_event.activity_scan.records[].summary]
+           | length == 14 and all(length > 100000))
+      and ([.tasks[] | select(.kind == "secondmate") | .hints.open_decisions[]
+            | select(.verb == "needs-decision") | .summary]
+           | length == 14 and all(length > 100000))
+      and ([.secondmate_current.records[].parent_event.open_decisions[]
+            | select(.verb == "needs-decision") | .summary]
+           | length == 14 and all(length > 100000))
+  ' >/dev/null || fail "large secondmate landed projection did not complete with valid JSON: $out"
+  pass "large secondmate landed projection survives file-based transport beyond ARG_MAX"
+}
+
+test_secondmate_failure_diagnostic_is_specific() {
+  local home fakebin child out
+  home=$(make_home diagnostic)
+  child="$TMP_ROOT/diagnostic-secondmate"
+  mkdir -p "$child/state" "$child/data" "$child/projects" "$child/config" "$child/bin"
+  printf 'diagnostic-secondmate\n' > "$child/.fm-secondmate-home"
+  : > "$child/AGENTS.md"
+  printf -- '- diagnostic-secondmate - Registered secondmate (home:%s; scope: alpha; projects: alpha; added 2026-08-01)\n' \
+    "$child" > "$home/data/secondmates.md"
+  fm_write_meta "$home/state/diagnostic-secondmate.meta" \
+    "window=firstmate:fm-diagnostic-secondmate" \
+    "project=$child" \
+    "harness=codex" \
+    "backend=tmux" \
+    "kind=secondmate" \
+    "mode=secondmate" \
+    "home=$child" \
+    "projects=alpha"
+  fakebin=$(make_fakebin "$home")
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e --arg home "$child" '
+    (.secondmate_current.records | any(.[];
+      .id == "diagnostic-secondmate"
+      and .current.reason == "structured home state invalid: missing structured backlog"
+      and .provenance.selected == "unknown"))
+    and (.secondmate_landed.unreadable | any(. == $home))
+  ' >/dev/null || fail "specific structured-home failure diagnostic was lost: $out"
+  pass "structured-home failure keeps its specific diagnostic"
+}
+
+snapshot_scratch_dirs() {  # <tmpdir> -> scratch dirs the snapshot owns, one per line
+  local dir
+  for dir in "$1"/fm-fleet-snapshot.*; do
+    [ -d "$dir" ] && printf '%s\n' "$dir"
+  done
+  return 0
+}
+
+test_signal_terminates_instead_of_emitting_partial_fleet() {
+  local home fakebin tmpdir out_file pid rc n id waited
+  home=$(make_home signal)
+  printf '## In flight\n' > "$home/data/backlog.md"
+  for n in $(seq -w 1 20); do
+    id="signal-task-$n"
+    fm_write_meta "$home/state/$id.meta" \
+      "window=firstmate:fm-$id" \
+      "project=$home/projects" \
+      "harness=codex" \
+      "backend=tmux" \
+      "kind=ship" \
+      "mode=ship"
+    printf 'working [key=phase]: %s in progress\n' "$id" > "$home/state/$id.status"
+    printf -- '- [ ] %s - Task %s (repo: alpha) (kind: ship) (since 2026-07-07)\n' \
+      "$id" "$id" >> "$home/data/backlog.md"
+  done
+  printf '\n## Queued\n\n## Done\n' >> "$home/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  # A private TMPDIR makes the snapshot's own scratch directory the only
+  # fm-fleet-snapshot.* entry here, so cleanup is observable without racing a
+  # concurrent real run on the same host.
+  tmpdir="$home/signal-tmp"
+  mkdir -p "$tmpdir"
+  out_file="$home/signal-stdout.json"
+
+  PATH="$fakebin:$PATH" FM_HOME="$home" TMPDIR="$tmpdir" \
+    "$SNAPSHOT" --json > "$out_file" 2>/dev/null &
+  pid=$!
+  waited=0
+  while [ -z "$(snapshot_scratch_dirs "$tmpdir")" ]; do
+    waited=$((waited + 1))
+    if [ "$waited" -ge 400 ]; then
+      kill -TERM "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      fail "snapshot never created its scratch directory"
+    fi
+    sleep 0.05
+  done
+  kill -TERM "$pid" 2>/dev/null
+  wait "$pid"
+  rc=$?
+
+  [ "$rc" -eq 143 ] \
+    || fail "SIGTERM must terminate the snapshot by re-raising the signal (143), got exit $rc"
+  [ ! -s "$out_file" ] \
+    || fail "a signalled snapshot must emit no fleet document, got: $(head -c 200 "$out_file")"
+  [ -z "$(snapshot_scratch_dirs "$tmpdir")" ] \
+    || fail "a signalled snapshot must remove its scratch directory"
+  pass "SIGTERM terminates the snapshot instead of emitting a partial fleet"
+}
+
 test_empty_fleet_json() {
   local home out view
   home=$(make_home empty)
@@ -799,6 +957,9 @@ test_parked_scout_decision_stays_pending() {
   pass "a scout still parked at a decision stays pending (terminal clear does not over-fire)"
 }
 
+test_large_secondmate_landed_projection_uses_file_transport
+test_signal_terminates_instead_of_emitting_partial_fleet
+test_secondmate_failure_diagnostic_is_specific
 test_empty_fleet_json
 test_fixture_snapshot_json
 test_main_inventory_orphan_and_unstructured_disclosure
