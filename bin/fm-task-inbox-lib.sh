@@ -124,11 +124,10 @@ fm_task_inbox_lock_acquire() {  # <lock-path>
   case "$wait" in ''|*[!0-9]*) wait=$FM_TASK_INBOX_LOCK_WAIT_DEFAULT ;; esac
   probe=$(mktemp "${lock%/*}/.lock-probe.XXXXXX") || return 1
   rm -f "$probe" || return 1
-  if [ ! -e "$lock" ] && [ ! -L "$lock" ]; then
-    fm_lock_try_create "$lock" && return 0
-    [ -e "$lock" ] || [ -L "$lock" ] || return 1
-  fi
   deadline=$(( $(date +%s) + wait ))
+  # A competing writer can win creation and release again before this process
+  # rechecks the path. Always enter the bounded acquisition loop so that
+  # absent-at-recheck interleaving retries instead of becoming a false failure.
   while ! fm_lock_try_acquire "$lock"; do
     [ "$(date +%s)" -lt "$deadline" ] || return 1
     sleep 0.1
