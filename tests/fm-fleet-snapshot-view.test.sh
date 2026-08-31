@@ -133,7 +133,7 @@ EOF
 }
 
 test_large_secondmate_landed_projection_uses_file_transport() {
-  local home fakebin out id child payload_bytes
+  local home fakebin out_file id child payload_bytes
   home=$(make_home large-secondmates)
   : > "$home/data/secondmates.md"
   for id in $(seq -w 1 14); do
@@ -176,18 +176,23 @@ EOF
     } > "$home/state/$id.status"
   done
   fakebin=$(make_fakebin "$home")
+  out_file="$home/fleet-snapshot.json"
   # Stock macOS Bash 3.2 needs more than the production two-second bound to
   # parse this retained 180 KB synthetic window; this test budget preserves
   # the full activity assertion instead of accepting a timed-out fallback.
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" \
+  # Keep the multi-megabyte result out of a Bash variable: the public command
+  # is a JSON stream, and file transport avoids Bash 3.2's pathological cost
+  # when capturing and repeatedly expanding that stream in the test harness.
+  PATH="$fakebin:$PATH" FM_HOME="$home" \
     FM_SNAPSHOT_PARENT_ACTIVITY_BYTES=200000 \
     FM_SNAPSHOT_PARENT_ACTIVITY_TIMEOUT=60 \
     FM_SNAPSHOT_SECONDMATE_TIMEOUT=20 \
-    "$SNAPSHOT" --json)
-  payload_bytes=$(printf '%s' "$out" | wc -c | tr -d ' ')
+    "$SNAPSHOT" --json > "$out_file" \
+    || fail "large secondmate landed projection failed to emit JSON"
+  payload_bytes=$(wc -c < "$out_file" | tr -d ' ')
   [ "$payload_bytes" -gt 2097152 ] \
     || fail "synthetic fleet payload should exceed the relevant argv threshold, got $payload_bytes bytes"
-  printf '%s' "$out" | jq -e '
+  jq -e '
     .schema == "fm-fleet-snapshot.v1"
       and (.secondmate_current.records | length) == 14
       and (.secondmate_landed.records | length) == 14
@@ -200,7 +205,8 @@ EOF
       and ([.secondmate_current.records[].parent_event.open_decisions[]
             | select(.verb == "needs-decision") | .summary]
            | length == 14 and all(length > 100000))
-  ' >/dev/null || fail "large secondmate landed projection did not complete with valid JSON: $out"
+  ' "$out_file" >/dev/null \
+    || fail "large secondmate landed projection did not complete with valid JSON"
   pass "large secondmate landed projection survives file-based transport beyond ARG_MAX"
 }
 
