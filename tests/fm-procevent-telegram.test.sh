@@ -2587,6 +2587,52 @@ assert_contains "$started_conflict" "already has a different reply" \
 assert_no_curl "a possibly delivered reply was sent again with a different body"
 pass "only a reservation that proves it never reached the network accepts a regenerated body"
 
+H_REPLY_RACE="$TMP_ROOT/reply-body-race"
+REPLY_RACE_ENV="$TMP_ROOT/reply-body-race.env"
+RACE_MARKER="$TMP_ROOT/reply-body-race.marker"
+RACE_RELEASE="$TMP_ROOT/reply-body-race.release"
+RACE_OUT="$TMP_ROOT/reply-body-race.out"
+RACE_BODY_A="$TMP_ROOT/reply-body-race.a"
+RACE_BODY_B="$TMP_ROOT/reply-body-race.b"
+RACE_REQUEST="$TMP_ROOT/reply-body-race.request"
+printf 'answer alpha\n' > "$RACE_BODY_A"
+printf 'answer beta\n' > "$RACE_BODY_B"
+arm_home "$H_REPLY_RACE" "$REPLY_RACE_ENV"
+poll_once "$H_REPLY_RACE" "$REPLY_RACE_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+CURL_STUB_SEND_BODY="$FIXTURES/reply-success.json" \
+  FM_TELEGRAM_FAILPOINT=reply-after-reserve \
+  FM_TELEGRAM_FAILPOINT_MARKER="$RACE_MARKER" \
+  FM_TELEGRAM_FAILPOINT_RELEASE="$RACE_RELEASE" \
+  FM_HOME="$H_REPLY_RACE" FM_TELEGRAM_ENV_FILE="$REPLY_RACE_ENV" \
+  "$ADAPTER" reply 1101 < "$RACE_BODY_A" > "$RACE_OUT" 2>&1 &
+race_pid=$!
+for _ in $(seq 1 500); do
+  [ -e "$RACE_MARKER" ] && break
+  sleep 0.01
+done
+assert_present "$RACE_MARKER" "the reply race never reached the post-reservation boundary"
+race_replace_status=0
+CURL_STUB_SEND_BODY="$FIXTURES/reply-success.json" FM_TELEGRAM_FAILPOINT=after_reply_reserve \
+  FM_HOME="$H_REPLY_RACE" FM_TELEGRAM_ENV_FILE="$REPLY_RACE_ENV" \
+  "$ADAPTER" reply 1101 < "$RACE_BODY_B" >/dev/null 2>&1 || race_replace_status=$?
+[ "$race_replace_status" -ne 0 ] || fail "the replacing reply reported success"
+: > "$RACE_RELEASE"
+race_status=0
+wait "$race_pid" || race_status=$?
+[ "$race_status" -ne 0 ] || fail "a reply whose reserved body was replaced still reported success"
+assert_contains "$(cat "$RACE_OUT")" "reservation changed before sending" \
+  "a stale reply body did not fail closed at the send claim"
+assert_no_curl "a reply sent a body the durable reservation no longer held"
+assert_equal "$(db_query "$H_REPLY_RACE" "SELECT state, network_started FROM replies WHERE update_id=1101")" \
+  "reserved|0" "a refused stale send still consumed the reservation"
+race_final=$(CURL_STUB_SEND_CAPTURE="$RACE_REQUEST" reply_once "$H_REPLY_RACE" "$REPLY_RACE_ENV" \
+  "$FIXTURES/reply-success.json" < "$RACE_BODY_B")
+assert_contains "$race_final" "sent: update_id=1101" "the surviving reserved body could not be sent"
+assert_grep 'text=answer+beta%0A' "$RACE_REQUEST" \
+  "the delivered text was not the body the reservation recorded"
+pass "a reservation whose body was replaced cannot send the body it no longer holds"
+
 H_REPLY_CONCURRENT="$TMP_ROOT/reply-concurrent"
 REPLY_CONCURRENT_ENV="$TMP_ROOT/reply-concurrent.env"
 arm_home "$H_REPLY_CONCURRENT" "$REPLY_CONCURRENT_ENV"

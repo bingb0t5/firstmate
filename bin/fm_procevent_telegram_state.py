@@ -1748,14 +1748,17 @@ def reserve_reply(
         raise
 
 
-def mark_reply_network_started(conn: sqlite3.Connection, update_id: int) -> None:
+def mark_reply_network_started(
+    conn: sqlite3.Connection, update_id: int, body_sha256: str
+) -> None:
     conn.execute("BEGIN IMMEDIATE")
     try:
         changed = conn.execute(
             "UPDATE replies SET state = 'unknown', network_started = 1, "
             "updated_at = ?, failure_detail = 'delivery-unknown' "
-            "WHERE update_id = ? AND state = 'reserved' AND network_started = 0",
-            (now_epoch(), update_id),
+            "WHERE update_id = ? AND state = 'reserved' AND network_started = 0 "
+            "AND body_sha256 = ?",
+            (now_epoch(), update_id, body_sha256),
         ).rowcount
         if changed != 1:
             raise UserError("the reply reservation changed before sending")
@@ -1850,9 +1853,10 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
             print("already-sent: update_id=%d" % update_id)
             return 0
         failpoint("after_reply_reserve")
+        synchronization_failpoint("reply-after-reserve")
         request = stage_send_request(credentials.captain_chat_id, inbound_message_id, text)
         try:
-            mark_reply_network_started(conn, update_id)
+            mark_reply_network_started(conn, update_id, body_sha256)
             failpoint("before_reply_network")
             http_code, response, transport_error = run_send_curl(credentials, request)
         finally:
