@@ -215,6 +215,10 @@ test_secondmate_failure_diagnostic_is_specific() {
   home=$(make_home diagnostic)
   child="$TMP_ROOT/diagnostic-secondmate"
   mkdir -p "$child/state" "$child/data" "$child/projects" "$child/config" "$child/bin"
+  # macOS exposes temporary directories through both /var and /private/var.
+  # Compare the snapshot with the fixture's physical path so both spellings
+  # refer to the same registered secondmate home on every supported platform.
+  child=$(cd "$child" && pwd -P)
   printf 'diagnostic-secondmate\n' > "$child/.fm-secondmate-home"
   : > "$child/AGENTS.md"
   printf -- '- diagnostic-secondmate - Registered secondmate (home:%s; scope: alpha; projects: alpha; added 2026-08-01)\n' \
