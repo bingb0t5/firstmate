@@ -230,6 +230,66 @@ test_secondmate_failure_diagnostic_is_specific() {
   pass "structured-home failure keeps its specific diagnostic"
 }
 
+snapshot_scratch_dirs() {  # <tmpdir> -> scratch dirs the snapshot owns, one per line
+  local dir
+  for dir in "$1"/fm-fleet-snapshot.*; do
+    [ -d "$dir" ] && printf '%s\n' "$dir"
+  done
+  return 0
+}
+
+test_signal_terminates_instead_of_emitting_partial_fleet() {
+  local home fakebin tmpdir out_file pid rc n id waited
+  home=$(make_home signal)
+  printf '## In flight\n' > "$home/data/backlog.md"
+  for n in $(seq -w 1 20); do
+    id="signal-task-$n"
+    fm_write_meta "$home/state/$id.meta" \
+      "window=firstmate:fm-$id" \
+      "project=$home/projects" \
+      "harness=codex" \
+      "backend=tmux" \
+      "kind=ship" \
+      "mode=ship"
+    printf 'working [key=phase]: %s in progress\n' "$id" > "$home/state/$id.status"
+    printf -- '- [ ] %s - Task %s (repo: alpha) (kind: ship) (since 2026-07-07)\n' \
+      "$id" "$id" >> "$home/data/backlog.md"
+  done
+  printf '\n## Queued\n\n## Done\n' >> "$home/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  # A private TMPDIR makes the snapshot's own scratch directory the only
+  # fm-fleet-snapshot.* entry here, so cleanup is observable without racing a
+  # concurrent real run on the same host.
+  tmpdir="$home/signal-tmp"
+  mkdir -p "$tmpdir"
+  out_file="$home/signal-stdout.json"
+
+  PATH="$fakebin:$PATH" FM_HOME="$home" TMPDIR="$tmpdir" \
+    "$SNAPSHOT" --json > "$out_file" 2>/dev/null &
+  pid=$!
+  waited=0
+  while [ -z "$(snapshot_scratch_dirs "$tmpdir")" ]; do
+    waited=$((waited + 1))
+    if [ "$waited" -ge 400 ]; then
+      kill -TERM "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      fail "snapshot never created its scratch directory"
+    fi
+    sleep 0.05
+  done
+  kill -TERM "$pid" 2>/dev/null
+  wait "$pid"
+  rc=$?
+
+  [ "$rc" -eq 143 ] \
+    || fail "SIGTERM must terminate the snapshot by re-raising the signal (143), got exit $rc"
+  [ ! -s "$out_file" ] \
+    || fail "a signalled snapshot must emit no fleet document, got: $(head -c 200 "$out_file")"
+  [ -z "$(snapshot_scratch_dirs "$tmpdir")" ] \
+    || fail "a signalled snapshot must remove its scratch directory"
+  pass "SIGTERM terminates the snapshot instead of emitting a partial fleet"
+}
+
 test_empty_fleet_json() {
   local home out view
   home=$(make_home empty)
@@ -898,6 +958,7 @@ test_parked_scout_decision_stays_pending() {
 }
 
 test_large_secondmate_landed_projection_uses_file_transport
+test_signal_terminates_instead_of_emitting_partial_fleet
 test_secondmate_failure_diagnostic_is_specific
 test_empty_fleet_json
 test_fixture_snapshot_json
