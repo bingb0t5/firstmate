@@ -2371,8 +2371,12 @@ assert_contains "$repeat_reply" "already-sent: update_id=1101" \
 assert_no_curl "a sent reply was sent again"
 assert_present "$H_REPLY/state/procevent/telegram.source" \
   "reply handling retired the Telegram source"
-assert_contains "$(FM_HOME="$H_REPLY" "$ADAPTER" doctor)" \
-  "reply.1101=sent telegram_message_id=8801" "doctor omitted sent reply state"
+reply_doctor=$(FM_HOME="$H_REPLY" "$ADAPTER" doctor)
+assert_contains "$reply_doctor" "reply_count=1" "doctor omitted the reply total"
+assert_contains "$reply_doctor" "reply_sent=1" "doctor did not count the sent reply"
+assert_contains "$reply_doctor" "reply_attention_omitted=0" \
+  "doctor did not report an empty attention set"
+case "$reply_doctor" in *"reply.1101="*) fail "doctor enumerated a sent reply row" ;; esac
 pass "a reply is bound to the configured chat and accepted message, and repeats do not resend"
 
 H_REPLY_OLD="$TMP_ROOT/reply-old"
@@ -2724,6 +2728,85 @@ limited_retry=$(printf 'throttled reply\n' | reply_once "$H_REPLY_LIMITED" "$REP
 assert_contains "$limited_retry" "sent: update_id=1101" \
   "an explicit attempt after a rate limit could not deliver the reply"
 pass "a Telegram rate limit is never sent, is nonzero, and permits one later explicit attempt"
+
+for reply_bot_status in 401 404; do
+  bot_home="$TMP_ROOT/reply-bot-$reply_bot_status"
+  bot_env="$TMP_ROOT/reply-bot-$reply_bot_status.env"
+  arm_home "$bot_home" "$bot_env"
+  poll_once "$bot_home" "$bot_env" "$FIXTURES/replyable-text.json" >/dev/null
+  bot_status_code=0
+  bot_out=$(printf 'stale credentials\n' | CURL_STUB_HTTP="$reply_bot_status" reply_once \
+    "$bot_home" "$bot_env" /dev/null "$reply_bot_status" 2>&1) || bot_status_code=$?
+  [ "$bot_status_code" -ne 0 ] || fail "http-$reply_bot_status reply reported success"
+  assert_contains "$bot_out" "credentials or endpoint" \
+    "http-$reply_bot_status refusal was not actionable"
+  assert_equal "$(db_query "$bot_home" "SELECT count(*) FROM replies")" 0 \
+    "http-$reply_bot_status left the reply permanently unanswerable"
+  bot_retry=$(printf 'corrected credentials\n' | reply_once "$bot_home" "$bot_env" \
+    "$FIXTURES/reply-success.json")
+  assert_contains "$bot_retry" "sent: update_id=1101" \
+    "an explicit attempt after http-$reply_bot_status could not deliver the reply"
+done
+pass "a refusal about the bot rather than the message stays recoverable after correction"
+
+H_REPLY_BULK="$TMP_ROOT/reply-bulk"
+REPLY_BULK_ENV="$TMP_ROOT/reply-bulk.env"
+python3 - "$FIXTURES/reply-bulk.json" "$CAPTAIN_CHAT_ID" "$CAPTAIN_USER_ID" <<'BULK'
+import json
+import sys
+
+path, chat_id, user_id = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+updates = [
+    {
+        "update_id": 1400 + n,
+        "message": {
+            "message_id": 771,
+            "date": 1700000000 + n,
+            "chat": {"id": chat_id},
+            "from": {"id": user_id},
+            "text": "bulk message %d" % n,
+        },
+    }
+    for n in range(1, 15)
+]
+with open(path, "w") as handle:
+    handle.write(json.dumps({"ok": True, "result": updates}))
+BULK
+arm_home "$H_REPLY_BULK" "$REPLY_BULK_ENV"
+poll_once "$H_REPLY_BULK" "$REPLY_BULK_ENV" "$FIXTURES/reply-bulk.json" >/dev/null
+for bulk_number in $(seq 1 14); do
+  bulk_update=$((1400 + bulk_number))
+  if [ "$bulk_number" -le 3 ]; then
+    printf 'bulk answer %s\n' "$bulk_number" | CURL_STUB_SEND_BODY="$FIXTURES/reply-success.json" \
+      FM_HOME="$H_REPLY_BULK" FM_TELEGRAM_ENV_FILE="$REPLY_BULK_ENV" \
+      "$ADAPTER" reply "$bulk_update" >/dev/null 2>&1 \
+      || fail "bulk reply $bulk_update did not send"
+  else
+    printf 'bulk answer %s\n' "$bulk_number" | CURL_STUB_EXIT=7 \
+      FM_HOME="$H_REPLY_BULK" FM_TELEGRAM_ENV_FILE="$REPLY_BULK_ENV" \
+      "$ADAPTER" reply "$bulk_update" >/dev/null 2>&1 \
+      && fail "bulk reply $bulk_update reported success after a transport failure"
+  fi
+done
+bulk_doctor=$(FM_HOME="$H_REPLY_BULK" "$ADAPTER" doctor)
+assert_contains "$bulk_doctor" "reply_count=14" "doctor lost the reply total"
+assert_contains "$bulk_doctor" "reply_sent=3" "doctor miscounted sent replies"
+assert_contains "$bulk_doctor" "reply_delivery_unknown=11" \
+  "doctor miscounted delivery-unknown replies"
+assert_contains "$bulk_doctor" "reply_reserved=0" "doctor miscounted reserved replies"
+assert_contains "$bulk_doctor" "reply_definitely_failed=0" \
+  "doctor miscounted definitely-failed replies"
+assert_equal "$(printf '%s\n' "$bulk_doctor" | grep -c '^reply\.')" 10 \
+  "doctor did not bound its per-reply enumeration"
+assert_contains "$bulk_doctor" "reply_attention_omitted=1" \
+  "doctor did not report how many attention rows it omitted"
+assert_contains "$bulk_doctor" "reply.1414=delivery-unknown detail=delivery-unknown" \
+  "doctor omitted the newest reply needing attention"
+case "$bulk_doctor" in
+  *"reply.1404="*) fail "doctor listed an older reply beyond its bound" ;;
+  *"=sent"*) fail "doctor enumerated a sent reply row" ;;
+esac
+pass "doctor reports bounded reply totals and only the newest rows still needing attention"
 
 H_FOREIGN_ID="$TMP_ROOT/foreign-message-id"
 FOREIGN_ID_ENV="$TMP_ROOT/foreign-message-id.env"

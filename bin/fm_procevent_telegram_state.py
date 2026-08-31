@@ -38,6 +38,14 @@ MAX_REPLY_BYTES = 65536
 # The Bot API accepts 1-4096 characters in the sendMessage text field.
 MAX_REPLY_CHARS = 4096
 MAX_SEND_TIME = 300
+DOCTOR_REPLY_ATTENTION_LIMIT = 10
+REPLY_LABEL_COUNTS_SQL = (
+    "SELECT CASE"
+    " WHEN state = 'sent' THEN 'sent'"
+    " WHEN state = 'failed' THEN 'definitely-failed'"
+    " WHEN state = 'unknown' OR network_started = 1 THEN 'delivery-unknown'"
+    " ELSE 'reserved' END AS label, COUNT(*) FROM replies GROUP BY label"
+)
 REPLY_STATES = {"reserved", "sent", "failed", "unknown"}
 # The Bot API declares Update identifiers as positive Integers and says an
 # unspecified Integer field is safe in a signed 32-bit value, so the ceiling is
@@ -1703,6 +1711,16 @@ def reply_record(
     ).fetchone()
 
 
+def reply_label(state: str, network_started: int) -> str:
+    if state == "sent":
+        return "sent"
+    if state == "failed":
+        return "definitely-failed"
+    if state == "unknown" or network_started:
+        return "delivery-unknown"
+    return "reserved"
+
+
 def replaceable_reservation(row: Tuple[object, ...]) -> bool:
     return row[1] == "reserved" and not row[4]
 
@@ -1869,6 +1887,13 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
             release_reply(conn, update_id)
             raise UserError(
                 "Telegram rate-limited the reply; it was not sent and can be attempted again"
+            )
+        if http_code in (401, 404):
+            release_reply(conn, update_id)
+            raise UserError(
+                "Telegram refused the bot credentials or endpoint (http-%d); the reply was "
+                "not sent and can be attempted again after the configuration is corrected"
+                % http_code
             )
         if 400 <= http_code < 500:
             finish_reply(conn, update_id, "failed", failure_detail="http-%d" % http_code)
@@ -3401,24 +3426,29 @@ def command_doctor(state: Path) -> int:
                         "migration_resolution_detail=%s"
                         % migration_cause_text(state, exc)
                     )
-        replies = conn.execute(
-            "SELECT update_id, state, network_started, telegram_message_id, failure_detail "
-            "FROM replies ORDER BY update_id"
+        totals = {"sent": 0, "reserved": 0, "definitely-failed": 0, "delivery-unknown": 0}
+        for label, count in conn.execute(REPLY_LABEL_COUNTS_SQL):
+            totals[label] = count
+        print("reply_count=%d" % sum(totals.values()))
+        print("reply_sent=%d" % totals["sent"])
+        print("reply_reserved=%d" % totals["reserved"])
+        print("reply_definitely_failed=%d" % totals["definitely-failed"])
+        print("reply_delivery_unknown=%d" % totals["delivery-unknown"])
+        attention = conn.execute(
+            "SELECT update_id, state, network_started, failure_detail FROM replies "
+            "WHERE state != 'sent' ORDER BY updated_at DESC, update_id DESC LIMIT ?",
+            (DOCTOR_REPLY_ATTENTION_LIMIT,),
         ).fetchall()
-        print("reply_count=%d" % len(replies))
-        for update_id, reply_state, network_started, sent_id, failure in replies:
-            if reply_state == "sent":
-                print(
-                    "reply.%d=sent telegram_message_id=%d" % (update_id, sent_id)
-                )
-            elif reply_state == "failed":
-                print(
-                    "reply.%d=definitely-failed detail=%s" % (update_id, failure)
-                )
-            elif reply_state == "unknown" or network_started:
-                print("reply.%d=delivery-unknown" % update_id)
+        for update_id, reply_state, network_started, failure in attention:
+            label = reply_label(reply_state, network_started)
+            if failure is None:
+                print("reply.%d=%s" % (update_id, label))
             else:
-                print("reply.%d=reserved" % update_id)
+                print("reply.%d=%s detail=%s" % (update_id, label, failure))
+        print(
+            "reply_attention_omitted=%d"
+            % (sum(totals.values()) - totals["sent"] - len(attention))
+        )
         print(
             "pending_notices=%d"
             % conn.execute(
