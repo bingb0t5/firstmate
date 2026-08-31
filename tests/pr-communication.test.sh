@@ -14,6 +14,7 @@ CHECK="$ROOT/scripts/check-pr-communication.ts"
 UNIT="$ROOT/scripts/check-pr-communication.test.ts"
 FETCH_FIXTURE="$ROOT/tests/fixtures/pr-communication-fetch.mjs"
 TEMPLATE="$ROOT/.github/PULL_REQUEST_TEMPLATE.md"
+TRACKED_BODY_DIR="$ROOT/.github/pr-bodies"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "skip: node is required to run the PR communication gate"
@@ -336,6 +337,27 @@ test_cli_accepts_complete_description() {
   pass "CLI passes a compliant PR description"
 }
 
+test_tracked_pr_bodies_are_accepted() {
+  local body_file found=0 out rc
+  for body_file in "$TRACKED_BODY_DIR"/*.md; do
+    [ -e "$body_file" ] || continue
+    found=1
+    set +e
+    out=$(
+      PR_TITLE='Validate a tracked pull request description' \
+        PR_BODY="$(cat "$body_file")" \
+        node --experimental-strip-types "$CHECK" 2>&1
+    )
+    rc=$?
+    set -e
+    expect_code 0 "$rc" "tracked PR body ${body_file#"$ROOT"/}"
+    assert_contains "$out" "PR communication is complete." \
+      "tracked PR body ${body_file#"$ROOT"/} did not satisfy the executable gate"
+  done
+  expect_code 1 "$found" "at least one tracked PR body fixture"
+  pass "tracked PR body artifacts satisfy the executable communication gate"
+}
+
 test_missing_remote_token_fails_closed
 test_vendored_unit_suite
 test_cli_accepts_description_that_keeps_the_pipeline_section
@@ -343,6 +365,7 @@ test_cli_rejects_incomplete_description
 test_cli_rejects_pipeline_generated_description
 test_cli_rejects_untouched_module_boundary_template
 test_cli_accepts_complete_description
+test_tracked_pr_bodies_are_accepted
 test_transient_remote_failure_uses_local_pin
 test_required_remote_failure_fails_closed
 test_auth_remote_failure_fails_closed
