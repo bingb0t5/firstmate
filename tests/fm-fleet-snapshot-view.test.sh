@@ -9,6 +9,8 @@ set -u
 SNAPSHOT="$ROOT/bin/fm-fleet-snapshot.sh"
 VIEW="$ROOT/bin/fm-fleet-view.sh"
 TMP_ROOT=$(fm_test_tmproot fm-fleet-snapshot)
+# macOS exposes temporary directories through both /var and /private/var, so fixture records use the physical path.
+TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 
