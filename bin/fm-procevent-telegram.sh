@@ -88,8 +88,8 @@
 #
 # doctor validates the database and reports its non-secret state, integrity,
 # migration, resolution evidence, and durability settings. It reports reply
-# totals per state and lists only a bounded newest set of reply rows that
-# still need attention, with an explicit omitted count.
+# totals per state, every reply still owed, and a bounded newest set of terminal
+# reply rows, with an explicit omitted-terminal count.
 # resolve-migration is the one guarded exit from a blocked migration.
 # It requires the exact doctor fingerprint, manifest digest, and complete
 # path-plus-payload-digest set, and records operator-acknowledged delivery

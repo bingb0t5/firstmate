@@ -39,7 +39,7 @@ MAX_REPLY_BYTES = 65536
 # them as UTF-16 code units, the same unit it uses for entity offsets.
 MAX_REPLY_CHARS = 4096
 MAX_SEND_TIME = 300
-DOCTOR_REPLY_ATTENTION_LIMIT = 10
+DOCTOR_REPLY_TERMINAL_LIMIT = 10
 REPLY_LABEL_COUNTS_SQL = (
     "SELECT CASE"
     " WHEN state = 'sent' THEN 'sent'"
@@ -50,6 +50,10 @@ REPLY_LABEL_COUNTS_SQL = (
 REPLY_STATES = {"reserved", "sent", "failed", "unknown"}
 DELIVERY_UNKNOWN_GUIDANCE = (
     "delivery is unknown; automatic retry is refused; inspect durable reply state with: doctor"
+)
+DEFINITE_FAILURE_GUIDANCE = (
+    "Telegram definitely refused the reply; automatic retry is refused; "
+    "inspect durable reply state with: doctor"
 )
 REPLY_STATE_UNAVAILABLE_GUIDANCE = (
     "Telegram reply state is unavailable; inspect with: doctor before deciding whether "
@@ -137,6 +141,10 @@ LEGACY_TEMP_PATTERNS = (
 
 class UserError(Exception):
     """An explicit operator action or valid external configuration is needed."""
+
+
+class ReplyStateError(UserError):
+    pass
 
 
 class LocalStateError(Exception):
@@ -1719,19 +1727,62 @@ def replaceable_reservation(row: Tuple[object, ...]) -> bool:
     return row[1] == "reserved" and not row[4]
 
 
-def classify_reply_attempt(
-    row: Optional[Tuple[object, ...]], body_sha256: str
-) -> str:
+def classify_reply_state(row: Optional[Tuple[object, ...]]) -> str:
     if row is None:
         return "new"
     label = reply_label(row[1], row[4])
+    if label == "definitely-failed":
+        raise UserError(DEFINITE_FAILURE_GUIDANCE)
     if label == "delivery-unknown":
         raise UserError(DELIVERY_UNKNOWN_GUIDANCE)
-    if row[0] != body_sha256 and not replaceable_reservation(row):
-        raise UserError("an accepted inbound event already has a different reply")
-    if label == "definitely-failed":
-        raise UserError("the reply has a definite Telegram failure and will not be retried")
     return label
+
+
+def classify_reply_attempt(
+    row: Optional[Tuple[object, ...]], body_sha256: str
+) -> str:
+    label = classify_reply_state(row)
+    if row is not None and row[0] != body_sha256 and not replaceable_reservation(row):
+        raise UserError("an accepted inbound event already has a different reply")
+    return label
+
+
+def reconcile_reply_error(
+    conn: sqlite3.Connection,
+    update_id: int,
+    error: Exception,
+    delivery_may_have_happened: bool,
+) -> str:
+    try:
+        row = reply_record(conn, update_id)
+    except Exception as state_error:
+        if delivery_may_have_happened:
+            raise UserError(DELIVERY_UNKNOWN_GUIDANCE) from state_error
+        raise UserError(REPLY_STATE_UNAVAILABLE_GUIDANCE) from state_error
+    if row is None:
+        if delivery_may_have_happened:
+            raise UserError(DELIVERY_UNKNOWN_GUIDANCE) from error
+        if isinstance(error, UserError):
+            raise error
+        raise UserError(REPLY_STATE_UNAVAILABLE_GUIDANCE) from error
+    label = reply_label(row[1], row[4])
+    if label == "sent":
+        return label
+    if label == "delivery-unknown":
+        raise UserError(DELIVERY_UNKNOWN_GUIDANCE) from error
+    if label == "definitely-failed":
+        raise UserError(DEFINITE_FAILURE_GUIDANCE) from error
+    if isinstance(error, ReplyStateError):
+        raise error
+    if isinstance(error, UserError):
+        raise ReplyStateError(
+            "%s; the reply is still owed - inspect durable reply state with: doctor, "
+            "correct the issue, then retry with: reply %d" % (error, update_id)
+        ) from error
+    raise UserError(
+        "the reply was not sent and is still owed - inspect durable reply state with: "
+        "doctor, correct the local issue, then retry with: reply %d" % update_id
+    ) from error
 
 
 def reserve_reply(
@@ -1783,7 +1834,7 @@ def mark_reply_network_started(
             (now_epoch(), update_id, body_sha256),
         ).rowcount
         if changed != 1:
-            raise UserError("the reply reservation changed before sending")
+            raise LocalStateError("reply-reservation-changed", repr(update_id))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1842,18 +1893,18 @@ def retain_reply_intent(conn: sqlite3.Connection, update_id: int) -> None:
 
 def command_reply(state: Path, credential_path: Path, update_id_text: str) -> int:
     update_id = validate_positive_int(update_id_text, "accepted inbound update id", MAX_UPDATE_ID)
-    body, text = read_reply_body()
-    body_sha256 = hashlib.sha256(body).hexdigest()
     try:
         conn = connect_existing(state)
     except Exception as exc:
         raise UserError(REPLY_STATE_UNAVAILABLE_GUIDANCE) from exc
     network_outcome_unresolved = False
     try:
-        disposition = classify_reply_attempt(reply_record(conn, update_id), body_sha256)
+        disposition = classify_reply_state(reply_record(conn, update_id))
         if disposition == "sent":
             print("already-sent: update_id=%d" % update_id)
             return 0
+        body, text = read_reply_body()
+        body_sha256 = hashlib.sha256(body).hexdigest()
         try:
             credentials = read_credentials(credential_path)
         except CredentialError:
@@ -1861,6 +1912,7 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
                 "Telegram reply credentials are unavailable or invalid; repair the configured "
                 "credential file, then retry with: reply %d" % update_id
             )
+        raising_failpoint("before_reply_inbound_lookup")
         inbound = conn.execute(
             "SELECT payload FROM messages WHERE update_id = ?", (update_id,)
         ).fetchone()
@@ -1888,7 +1940,7 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
         try:
             request = stage_send_request(credentials.captain_chat_id, inbound_message_id, text)
         except Exception as exc:
-            raise UserError(
+            raise ReplyStateError(
                 "Telegram reply preparation failed before sending; the reply is still owed - "
                 "inspect with: doctor, correct the local issue, then retry with: reply %d"
                 % update_id
@@ -1908,14 +1960,14 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
         if http_code == 429:
             retain_reply_intent(conn, update_id)
             network_outcome_unresolved = False
-            raise UserError(
+            raise ReplyStateError(
                 "Telegram rate-limited the reply; it was not sent and is still owed - "
                 "send it explicitly again with: reply %d" % update_id
             )
         if http_code in (401, 404):
             retain_reply_intent(conn, update_id)
             network_outcome_unresolved = False
-            raise UserError(
+            raise ReplyStateError(
                 "Telegram refused the bot credentials or endpoint (http-%d); the reply was "
                 "not sent and is still owed - send it explicitly again with: reply %d "
                 "once the configuration is corrected" % (http_code, update_id)
@@ -1954,9 +2006,13 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
         print("sent: update_id=%d telegram_message_id=%d" % (update_id, sent_message_id))
         return 0
     except Exception as exc:
-        if network_outcome_unresolved:
-            raise UserError(DELIVERY_UNKNOWN_GUIDANCE) from exc
-        raise
+        disposition = reconcile_reply_error(
+            conn, update_id, exc, network_outcome_unresolved
+        )
+        if disposition == "sent":
+            print("already-sent: update_id=%d" % update_id)
+            return 0
+        raise LocalStateError("reply-reconciliation", repr(disposition))
     finally:
         conn.close()
 
@@ -3475,20 +3531,31 @@ def command_doctor(state: Path) -> int:
         print("reply_reserved=%d" % totals["reserved"])
         print("reply_definitely_failed=%d" % totals["definitely-failed"])
         print("reply_delivery_unknown=%d" % totals["delivery-unknown"])
-        attention = conn.execute(
+        reserved = conn.execute(
             "SELECT update_id, state, network_started, failure_detail FROM replies "
-            "WHERE state != 'sent' ORDER BY updated_at DESC, update_id DESC LIMIT ?",
-            (DOCTOR_REPLY_ATTENTION_LIMIT,),
+            "WHERE state = 'reserved' AND network_started = 0 "
+            "ORDER BY updated_at DESC, update_id DESC"
+        )
+        terminal = conn.execute(
+            "SELECT update_id, state, network_started, failure_detail FROM replies "
+            "WHERE state != 'sent' AND NOT (state = 'reserved' AND network_started = 0) "
+            "ORDER BY updated_at DESC, update_id DESC LIMIT ?",
+            (DOCTOR_REPLY_TERMINAL_LIMIT,),
         ).fetchall()
-        for update_id, reply_state, network_started, failure in attention:
-            label = reply_label(reply_state, network_started)
-            if failure is None:
-                print("reply.%d=%s" % (update_id, label))
-            else:
-                print("reply.%d=%s detail=%s" % (update_id, label, failure))
+        for rows in (reserved, terminal):
+            for update_id, reply_state, network_started, failure in rows:
+                label = reply_label(reply_state, network_started)
+                if failure is None:
+                    print("reply.%d=%s" % (update_id, label))
+                else:
+                    print("reply.%d=%s detail=%s" % (update_id, label, failure))
         print(
             "reply_attention_omitted=%d"
-            % (sum(totals.values()) - totals["sent"] - len(attention))
+            % (
+                totals["definitely-failed"]
+                + totals["delivery-unknown"]
+                - len(terminal)
+            )
         )
         print(
             "pending_notices=%d"

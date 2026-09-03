@@ -2484,6 +2484,54 @@ for reply_state_case in missing-db corrupt-header database-mode; do
 done
 pass "reply state failures require doctor inspection before any retry decision"
 
+H_REPLY_LOOKUP_FAILURE="$TMP_ROOT/reply-lookup-failure"
+REPLY_LOOKUP_FAILURE_ENV="$TMP_ROOT/reply-lookup-failure.env"
+arm_home "$H_REPLY_LOOKUP_FAILURE" "$REPLY_LOOKUP_FAILURE_ENV"
+poll_once "$H_REPLY_LOOKUP_FAILURE" "$REPLY_LOOKUP_FAILURE_ENV" \
+  "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+lookup_failure_status=0
+lookup_failure_out=$(printf 'lookup failure reply\n' | \
+  FM_TELEGRAM_FAILPOINT=before_reply_inbound_lookup \
+  reply_once "$H_REPLY_LOOKUP_FAILURE" "$REPLY_LOOKUP_FAILURE_ENV" \
+    "$FIXTURES/reply-success.json" 2>&1) || lookup_failure_status=$?
+[ "$lookup_failure_status" -ne 0 ] || fail "an inbound lookup failure reported success"
+assert_contains "$lookup_failure_out" "Telegram reply state is unavailable" \
+  "an inbound lookup failure produced no state guidance"
+assert_contains "$lookup_failure_out" "doctor" \
+  "an inbound lookup failure did not direct the operator to doctor"
+case "$lookup_failure_out" in
+  *"lookup failure reply"*) fail "an inbound lookup failure echoed the reply text" ;;
+esac
+assert_no_curl "an inbound lookup failure reached Telegram"
+
+H_REPLY_RESERVED_FAILURE="$TMP_ROOT/reply-reserved-failure"
+REPLY_RESERVED_FAILURE_ENV="$TMP_ROOT/reply-reserved-failure.env"
+arm_home "$H_REPLY_RESERVED_FAILURE" "$REPLY_RESERVED_FAILURE_ENV"
+poll_once "$H_REPLY_RESERVED_FAILURE" "$REPLY_RESERVED_FAILURE_ENV" \
+  "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+reserved_failure_status=0
+reserved_failure_out=$(printf 'reserved failure reply\n' | \
+  FM_TELEGRAM_FAILPOINT=reply-after-reserve \
+  reply_once "$H_REPLY_RESERVED_FAILURE" "$REPLY_RESERVED_FAILURE_ENV" \
+    "$FIXTURES/reply-success.json" 2>&1) || reserved_failure_status=$?
+[ "$reserved_failure_status" -ne 0 ] || fail "a post-reservation local failure reported success"
+assert_contains "$reserved_failure_out" "still owed" \
+  "a post-reservation local failure hid its safe retry state"
+assert_contains "$reserved_failure_out" "reply 1101" \
+  "a post-reservation local failure omitted the explicit retry command"
+assert_contains "$reserved_failure_out" "doctor" \
+  "a post-reservation local failure did not direct the operator to doctor"
+case "$reserved_failure_out" in
+  *"reserved failure reply"*) fail "a post-reservation failure echoed the reply text" ;;
+esac
+assert_equal "$(db_query "$H_REPLY_RESERVED_FAILURE" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "reserved|0" \
+  "a post-reservation local failure changed the safe retry state"
+assert_no_curl "a post-reservation local failure reached Telegram"
+pass "local reply failures are reconciled against durable state"
+
 H_LEGACY_REDELIVERY="$TMP_ROOT/legacy-redelivery"
 LEGACY_REDELIVERY_ENV="$TMP_ROOT/legacy-redelivery.env"
 seed_receipts_only_home "$H_LEGACY_REDELIVERY" "$LEGACY_REDELIVERY_ENV"
@@ -2595,6 +2643,16 @@ assert_equal "$(db_query "$H_REPLY_FAIL" "SELECT state FROM replies WHERE update
   "definite refusal was not durably failed"
 assert_contains "$(FM_HOME="$H_REPLY_FAIL" "$ADAPTER" doctor)" \
   "reply.1101=definitely-failed detail=http-400" "doctor did not report definite failure"
+clear_curl_calls
+failed_empty_status=0
+failed_empty_out=$(reply_once "$H_REPLY_FAIL" "$REPLY_FAIL_ENV" \
+  "$FIXTURES/reply-success.json" </dev/null 2>&1) || failed_empty_status=$?
+[ "$failed_empty_status" -ne 0 ] || fail "an empty body made a definitely-failed reply retryable"
+assert_contains "$failed_empty_out" "definitely refused" \
+  "an empty body hid the durable definitely-failed state"
+assert_contains "$failed_empty_out" "automatic retry is refused" \
+  "an empty body hid the definite failure no-retry requirement"
+assert_no_curl "an empty body retried a definitely-failed reply"
 
 H_REPLY_UNKNOWN="$TMP_ROOT/reply-unknown"
 REPLY_UNKNOWN_ENV="$TMP_ROOT/reply-unknown.env"
@@ -2613,6 +2671,25 @@ retry_out=$(printf 'uncertain transport\n' | reply_once "$H_REPLY_UNKNOWN" "$REP
 [ "$retry_status" -ne 0 ] || fail "delivery-unknown reply was automatically retried"
 assert_contains "$retry_out" "automatic retry is refused" \
   "delivery-unknown refusal did not prevent duplicate delivery"
+for unknown_body_case in empty oversized; do
+  clear_curl_calls
+  unknown_body_status=0
+  if [ "$unknown_body_case" = empty ]; then
+    unknown_body_out=$(reply_once "$H_REPLY_UNKNOWN" "$REPLY_UNKNOWN_ENV" \
+      "$FIXTURES/reply-success.json" </dev/null 2>&1) || unknown_body_status=$?
+  else
+    unknown_body_out=$(python3 -c 'print("x" * 4097, end="")' | \
+      reply_once "$H_REPLY_UNKNOWN" "$REPLY_UNKNOWN_ENV" \
+        "$FIXTURES/reply-success.json" 2>&1) || unknown_body_status=$?
+  fi
+  [ "$unknown_body_status" -ne 0 ] \
+    || fail "$unknown_body_case body made delivery-unknown look retryable"
+  assert_contains "$unknown_body_out" "delivery is unknown" \
+    "$unknown_body_case body hid the durable delivery-unknown state"
+  assert_contains "$unknown_body_out" "automatic retry is refused" \
+    "$unknown_body_case body hid the no-retry requirement"
+  assert_no_curl "$unknown_body_case body retried a delivery-unknown reply"
+done
 rm -f "$REPLY_UNKNOWN_ENV"
 clear_curl_calls
 unknown_credential_status=0
@@ -2738,7 +2815,7 @@ for reply_bad_response in reply-malformed reply-api-failure; do
     assert_contains "$bad_out" "definitely refused" "API refusal was not identified"
     expected_bad_state=failed
   else
-    assert_contains "$bad_out" "did not prove delivery" "malformed success was not unknown"
+    assert_contains "$bad_out" "delivery is unknown" "malformed success was not unknown"
     expected_bad_state=unknown
   fi
   assert_equal "$(db_query "$bad_home" "SELECT state FROM replies WHERE update_id=1101")" \
@@ -2799,12 +2876,12 @@ assert_contains "$regenerated_out" "sent: update_id=1101" \
   "the regenerated reply was not committed as sent"
 assert_grep 'text=second+answer%0A' "$REGENERATED_REQUEST" \
   "the regenerated body was not the text actually sent"
-sent_conflict_status=0
-sent_conflict=$(printf 'third answer\n' | reply_once "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV" \
-  "$FIXTURES/reply-success.json" 2>&1) || sent_conflict_status=$?
-[ "$sent_conflict_status" -ne 0 ] || fail "a sent reply accepted a different body"
-assert_contains "$sent_conflict" "already has a different reply" \
-  "a sent reply did not keep its body binding"
+clear_curl_calls
+sent_repeat=$(printf 'third answer\n' | reply_once "$H_REPLY_REGENERATED" \
+  "$REPLY_REGENERATED_ENV" "$FIXTURES/reply-success.json")
+assert_contains "$sent_repeat" "already-sent: update_id=1101" \
+  "new stdin hid the durable sent state"
+assert_no_curl "new stdin resent an already-sent reply"
 
 H_REPLY_STARTED="$TMP_ROOT/reply-network-started"
 REPLY_STARTED_ENV="$TMP_ROOT/reply-network-started.env"
@@ -2839,7 +2916,6 @@ RACE_RELEASE="$TMP_ROOT/reply-body-race.release"
 RACE_OUT="$TMP_ROOT/reply-body-race.out"
 RACE_BODY_A="$TMP_ROOT/reply-body-race.a"
 RACE_BODY_B="$TMP_ROOT/reply-body-race.b"
-RACE_REQUEST="$TMP_ROOT/reply-body-race.request"
 printf 'answer alpha\n' > "$RACE_BODY_A"
 printf 'answer beta\n' > "$RACE_BODY_B"
 arm_home "$H_REPLY_RACE" "$REPLY_RACE_ENV"
@@ -2858,25 +2934,27 @@ for _ in $(seq 1 500); do
 done
 assert_present "$RACE_MARKER" "the reply race never reached the post-reservation boundary"
 race_replace_status=0
-CURL_STUB_SEND_BODY="$FIXTURES/reply-success.json" FM_TELEGRAM_FAILPOINT=after_reply_reserve \
+CURL_STUB_SEND_BODY="$FIXTURES/reply-success.json" FM_TELEGRAM_FAILPOINT=before_reply_network \
   FM_HOME="$H_REPLY_RACE" FM_TELEGRAM_ENV_FILE="$REPLY_RACE_ENV" \
   "$ADAPTER" reply 1101 < "$RACE_BODY_B" >/dev/null 2>&1 || race_replace_status=$?
 [ "$race_replace_status" -ne 0 ] || fail "the replacing reply reported success"
+assert_equal "$(db_query "$H_REPLY_RACE" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "unknown|1" \
+  "the replacing reply did not persist its send claim"
 : > "$RACE_RELEASE"
 race_status=0
 wait "$race_pid" || race_status=$?
 [ "$race_status" -ne 0 ] || fail "a reply whose reserved body was replaced still reported success"
-assert_contains "$(cat "$RACE_OUT")" "reservation changed before sending" \
-  "a stale reply body did not fail closed at the send claim"
+assert_contains "$(cat "$RACE_OUT")" "delivery is unknown" \
+  "a concurrent send claim did not surface durable delivery-unknown"
+assert_contains "$(cat "$RACE_OUT")" "automatic retry is refused" \
+  "a concurrent send claim left the stale reply looking retryable"
+assert_contains "$(cat "$RACE_OUT")" "doctor" \
+  "a concurrent send claim omitted the state inspection action"
 assert_no_curl "a reply sent a body the durable reservation no longer held"
 assert_equal "$(db_query "$H_REPLY_RACE" "SELECT state, network_started FROM replies WHERE update_id=1101")" \
-  "reserved|0" "a refused stale send still consumed the reservation"
-race_final=$(CURL_STUB_SEND_CAPTURE="$RACE_REQUEST" reply_once "$H_REPLY_RACE" "$REPLY_RACE_ENV" \
-  "$FIXTURES/reply-success.json" < "$RACE_BODY_B")
-assert_contains "$race_final" "sent: update_id=1101" "the surviving reserved body could not be sent"
-assert_grep 'text=answer+beta%0A' "$RACE_REQUEST" \
-  "the delivered text was not the body the reservation recorded"
-pass "a reservation whose body was replaced cannot send the body it no longer holds"
+  "unknown|1" "a concurrent send claim lost its delivery-unknown state"
+pass "a concurrent send claim overrides stale in-memory reply state"
 
 H_REPLY_CONCURRENT="$TMP_ROOT/reply-concurrent"
 REPLY_CONCURRENT_ENV="$TMP_ROOT/reply-concurrent.env"
@@ -2907,7 +2985,7 @@ for malformed_response in reply-wrong-chat reply-wrong-message reply-wrong-text 
   shape_out=$(printf 'shape check\n' | reply_once "$shape_home" "$shape_env" \
     "$FIXTURES/$malformed_response.json" 2>&1) || shape_status=$?
   [ "$shape_status" -ne 0 ] || fail "$malformed_response reported success"
-  assert_contains "$shape_out" "did not prove delivery" \
+  assert_contains "$shape_out" "delivery is unknown" \
     "$malformed_response was not rejected as unbound"
   assert_equal "$(db_query "$shape_home" "SELECT state FROM replies WHERE update_id=1101")" unknown \
     "$malformed_response did not persist delivery-unknown"
@@ -3105,6 +3183,11 @@ for bulk_number in $(seq 1 14); do
       FM_HOME="$H_REPLY_BULK" FM_TELEGRAM_ENV_FILE="$REPLY_BULK_ENV" \
       "$ADAPTER" reply "$bulk_update" >/dev/null 2>&1 \
       || fail "bulk reply $bulk_update did not send"
+  elif [ "$bulk_number" -eq 4 ]; then
+    printf 'bulk answer %s\n' "$bulk_number" | FM_TELEGRAM_FAILPOINT=after_reply_reserve \
+      FM_HOME="$H_REPLY_BULK" FM_TELEGRAM_ENV_FILE="$REPLY_BULK_ENV" \
+      "$ADAPTER" reply "$bulk_update" >/dev/null 2>&1 \
+      && fail "bulk reply $bulk_update crossed its reserve crash boundary"
   else
     printf 'bulk answer %s\n' "$bulk_number" | CURL_STUB_EXIT=7 \
       FM_HOME="$H_REPLY_BULK" FM_TELEGRAM_ENV_FILE="$REPLY_BULK_ENV" \
@@ -3112,25 +3195,28 @@ for bulk_number in $(seq 1 14); do
       && fail "bulk reply $bulk_update reported success after a transport failure"
   fi
 done
+db_exec "$H_REPLY_BULK" \
+  "UPDATE replies SET reserved_at = reserved_at - 90000, updated_at = updated_at - 90000 WHERE update_id = 1404;"
 bulk_doctor=$(FM_HOME="$H_REPLY_BULK" "$ADAPTER" doctor)
 assert_contains "$bulk_doctor" "reply_count=14" "doctor lost the reply total"
 assert_contains "$bulk_doctor" "reply_sent=3" "doctor miscounted sent replies"
-assert_contains "$bulk_doctor" "reply_delivery_unknown=11" \
+assert_contains "$bulk_doctor" "reply_delivery_unknown=10" \
   "doctor miscounted delivery-unknown replies"
-assert_contains "$bulk_doctor" "reply_reserved=0" "doctor miscounted reserved replies"
+assert_contains "$bulk_doctor" "reply_reserved=1" "doctor miscounted reserved replies"
 assert_contains "$bulk_doctor" "reply_definitely_failed=0" \
   "doctor miscounted definitely-failed replies"
-assert_equal "$(printf '%s\n' "$bulk_doctor" | grep -c '^reply\.')" 10 \
-  "doctor did not bound its per-reply enumeration"
-assert_contains "$bulk_doctor" "reply_attention_omitted=1" \
-  "doctor did not report how many attention rows it omitted"
+assert_equal "$(printf '%s\n' "$bulk_doctor" | grep -c '^reply\.')" 11 \
+  "doctor did not list every owed reply plus bounded terminal rows"
+assert_contains "$bulk_doctor" "reply_attention_omitted=0" \
+  "doctor omitted a terminal row inside its bound"
 assert_contains "$bulk_doctor" "reply.1414=delivery-unknown detail=delivery-unknown" \
   "doctor omitted the newest reply needing attention"
+assert_contains "$bulk_doctor" "reply.1404=reserved" \
+  "doctor hid an old owed reply behind newer terminal rows"
 case "$bulk_doctor" in
-  *"reply.1404="*) fail "doctor listed an older reply beyond its bound" ;;
   *"=sent"*) fail "doctor enumerated a sent reply row" ;;
 esac
-pass "doctor reports bounded reply totals and only the newest rows still needing attention"
+pass "doctor lists every owed reply while bounding terminal attention rows"
 
 H_FOREIGN_ID="$TMP_ROOT/foreign-message-id"
 FOREIGN_ID_ENV="$TMP_ROOT/foreign-message-id.env"
