@@ -2446,6 +2446,44 @@ for reply_credential_case in missing bad-mode incomplete; do
 done
 pass "reply credential failures provide sanitized repair and retry guidance"
 
+for reply_state_case in missing-db corrupt-header database-mode; do
+  reply_state_home="$TMP_ROOT/reply-state-$reply_state_case"
+  reply_state_env="$TMP_ROOT/reply-state-$reply_state_case.env"
+  arm_home "$reply_state_home" "$reply_state_env"
+  poll_once "$reply_state_home" "$reply_state_env" "$FIXTURES/replyable-text.json" >/dev/null
+  case "$reply_state_case" in
+    missing-db)
+      rm -f "$reply_state_home/state/telegram/channel.db"
+      ;;
+    corrupt-header)
+      printf 'not a sqlite database\n' > "$reply_state_home/state/telegram/channel.db"
+      chmod 600 "$reply_state_home/state/telegram/channel.db"
+      ;;
+    database-mode)
+      chmod 644 "$reply_state_home/state/telegram/channel.db"
+      ;;
+  esac
+  clear_curl_calls
+  reply_state_status=0
+  reply_state_out=$(printf 'private state reply\n' | \
+    FM_HOME="$reply_state_home" FM_TELEGRAM_ENV_FILE="$reply_state_env" \
+    "$ADAPTER" reply 1101 2>&1) || reply_state_status=$?
+  [ "$reply_state_status" -ne 0 ] || fail "reply accepted $reply_state_case local state"
+  assert_contains "$reply_state_out" "Telegram reply state is unavailable" \
+    "$reply_state_case did not identify unavailable reply state"
+  assert_contains "$reply_state_out" "doctor" \
+    "$reply_state_case did not direct the operator to inspect durable state"
+  assert_contains "$reply_state_out" "before deciding whether retry is safe" \
+    "$reply_state_case invited a retry before durable-state inspection"
+  case "$reply_state_out" in
+    *"local Telegram state failure"*|*"private state reply"*|*"$TOKEN"*)
+      fail "$reply_state_case reply failure produced opaque or private output"
+      ;;
+  esac
+  assert_no_curl "$reply_state_case local state allowed a Telegram request"
+done
+pass "reply state failures require doctor inspection before any retry decision"
+
 H_LEGACY_REDELIVERY="$TMP_ROOT/legacy-redelivery"
 LEGACY_REDELIVERY_ENV="$TMP_ROOT/legacy-redelivery.env"
 seed_receipts_only_home "$H_LEGACY_REDELIVERY" "$LEGACY_REDELIVERY_ENV"
@@ -2785,8 +2823,12 @@ started_conflict_status=0
 started_conflict=$(printf 'second answer\n' | reply_once "$H_REPLY_STARTED" "$REPLY_STARTED_ENV" \
   "$FIXTURES/reply-success.json" 2>&1) || started_conflict_status=$?
 [ "$started_conflict_status" -ne 0 ] || fail "a possibly delivered reply accepted a different body"
-assert_contains "$started_conflict" "already has a different reply" \
-  "a possibly delivered reply did not keep its body binding"
+assert_contains "$started_conflict" "delivery is unknown" \
+  "a different body hid the durable delivery-unknown state"
+assert_contains "$started_conflict" "automatic retry is refused" \
+  "a different body made delivery-unknown look retryable"
+assert_contains "$started_conflict" "doctor" \
+  "a different body hid the delivery-unknown recovery action"
 assert_no_curl "a possibly delivered reply was sent again with a different body"
 pass "only a reservation that proves it never reached the network accepts a regenerated body"
 
@@ -2937,6 +2979,12 @@ config_status=0
 config_out=$(printf 'config typo\n' | FM_TELEGRAM_SEND_MAX_TIME=abc reply_once \
   "$H_REPLY_CONFIG" "$REPLY_CONFIG_ENV" "$FIXTURES/reply-success.json" 2>&1) || config_status=$?
 [ "$config_status" -ne 0 ] || fail "an invalid send timeout reported success"
+assert_contains "$config_out" "still owed" \
+  "an invalid send timeout did not preserve the reply obligation"
+assert_contains "$config_out" "reply 1101" \
+  "an invalid send timeout did not name the safe explicit retry"
+assert_contains "$config_out" "doctor" \
+  "an invalid send timeout did not provide state-inspection guidance"
 assert_no_curl "an invalid send timeout still reached the network"
 assert_equal "$(db_query "$H_REPLY_CONFIG" "SELECT state FROM replies WHERE update_id=1101")" reserved \
   "a purely local failure before the network was recorded as delivery-unknown"
@@ -2970,32 +3018,37 @@ assert_contains "$limited_retry" "sent: update_id=1101" \
   "an explicit attempt after a rate limit could not deliver the reply"
 pass "a Telegram rate limit is never sent, is nonzero, and permits one later explicit attempt"
 
-H_REPLY_EXPIRY="$TMP_ROOT/reply-owed-expiry"
-REPLY_EXPIRY_ENV="$TMP_ROOT/reply-owed-expiry.env"
-arm_home "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV"
-expiry_notice=$(poll_once "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" "$FIXTURES/replyable-text.json")
-expiry_status=0
-printf 'throttled reply\n' | CURL_STUB_HTTP=429 reply_once "$H_REPLY_EXPIRY" \
-  "$REPLY_EXPIRY_ENV" /dev/null 429 >/dev/null 2>&1 || expiry_status=$?
-[ "$expiry_status" -ne 0 ] || fail "the rate-limited reply reported success"
-assert_equal "$(db_query "$H_REPLY_EXPIRY" "SELECT count(*) FROM replies")" 1 \
+H_REPLY_RETENTION="$TMP_ROOT/reply-owed-retention"
+REPLY_RETENTION_ENV="$TMP_ROOT/reply-owed-retention.env"
+arm_home "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV"
+retention_notice=$(poll_once "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV" \
+  "$FIXTURES/replyable-text.json")
+retention_status=0
+printf 'throttled reply\n' | CURL_STUB_HTTP=429 reply_once "$H_REPLY_RETENTION" \
+  "$REPLY_RETENTION_ENV" /dev/null 429 >/dev/null 2>&1 || retention_status=$?
+[ "$retention_status" -ne 0 ] || fail "the rate-limited reply reported success"
+assert_equal "$(db_query "$H_REPLY_RETENTION" "SELECT count(*) FROM replies")" 1 \
   "the rate-limited reply was not retained as owed"
-ack_result "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" "$expiry_notice" >/dev/null
-poll_once "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" "$FIXTURES/empty.json" >/dev/null
-assert_equal "$(db_query "$H_REPLY_EXPIRY" "SELECT count(*) FROM replies")" 1 \
+ack_result "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV" "$retention_notice" >/dev/null
+poll_once "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV" "$FIXTURES/empty.json" >/dev/null
+assert_equal "$(db_query "$H_REPLY_RETENTION" "SELECT count(*) FROM replies")" 1 \
   "a poll dropped a reply that is still worth sending"
-db_exec "$H_REPLY_EXPIRY" \
+db_exec "$H_REPLY_RETENTION" \
   "UPDATE replies SET reserved_at = reserved_at - 90000, updated_at = updated_at - 90000;"
-poll_once "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" "$FIXTURES/empty.json" >/dev/null
-assert_equal "$(db_query "$H_REPLY_EXPIRY" "SELECT count(*) FROM replies")" 0 \
-  "a reply owed past the retention bound was still tracked"
-assert_contains "$(FM_HOME="$H_REPLY_EXPIRY" "$ADAPTER" doctor)" "reply_count=0" \
-  "doctor still reported an expired reply intent"
-expiry_send=$(printf 'late but explicit\n' | reply_once "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" \
+poll_once "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV" "$FIXTURES/empty.json" >/dev/null
+assert_equal "$(db_query "$H_REPLY_RETENTION" "SELECT count(*) FROM replies")" 1 \
+  "a poll abandoned an old reply that is still owed"
+retention_doctor=$(FM_HOME="$H_REPLY_RETENTION" "$ADAPTER" doctor)
+assert_contains "$retention_doctor" "reply_reserved=1" \
+  "doctor lost an old reply that is still owed"
+assert_contains "$retention_doctor" "reply.1101=reserved" \
+  "doctor stopped reporting the old reply obligation"
+retention_send=$(printf 'late but explicit\n' | reply_once "$H_REPLY_RETENTION" \
+  "$REPLY_RETENTION_ENV" \
   "$FIXTURES/reply-success.json")
-assert_contains "$expiry_send" "sent: update_id=1101" \
-  "an expired intent blocked a later explicit reply"
-pass "a reply still owed is retained across polls and expires on the retention bound"
+assert_contains "$retention_send" "sent: update_id=1101" \
+  "an old owed reply blocked a later explicit correction"
+pass "a reply still owed remains durable across polls and age"
 
 for reply_bot_status in 401 404; do
   bot_home="$TMP_ROOT/reply-bot-$reply_bot_status"

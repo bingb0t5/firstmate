@@ -38,9 +38,6 @@ MAX_REPLY_BYTES = 65536
 # The Bot API accepts 1-4096 characters in the sendMessage text field and counts
 # them as UTF-16 code units, the same unit it uses for entity offsets.
 MAX_REPLY_CHARS = 4096
-# Telegram keeps an undelivered update for about a day, so a reply still owed
-# past that window is no longer an in-conversation answer worth tracking.
-RETAINED_REPLY_INTENT_SECONDS = 86400
 MAX_SEND_TIME = 300
 DOCTOR_REPLY_ATTENTION_LIMIT = 10
 REPLY_LABEL_COUNTS_SQL = (
@@ -53,6 +50,10 @@ REPLY_LABEL_COUNTS_SQL = (
 REPLY_STATES = {"reserved", "sent", "failed", "unknown"}
 DELIVERY_UNKNOWN_GUIDANCE = (
     "delivery is unknown; automatic retry is refused; inspect durable reply state with: doctor"
+)
+REPLY_STATE_UNAVAILABLE_GUIDANCE = (
+    "Telegram reply state is unavailable; inspect with: doctor before deciding whether "
+    "retry is safe"
 )
 # The Bot API declares Update identifiers as positive Integers and says an
 # unspecified Integer field is safe in a signed 32-bit value, so the ceiling is
@@ -1407,14 +1408,6 @@ def reset_success_conditions(conn: sqlite3.Connection) -> None:
     )
 
 
-def expire_reply_intents(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        "DELETE FROM replies WHERE state = 'reserved' AND network_started = 0 "
-        "AND reserved_at < ?",
-        (now_epoch() - RETAINED_REPLY_INTENT_SECONDS,),
-    )
-
-
 def payload_conflicts(stored: str, planned: str) -> bool:
     try:
         stored_data = json.loads(stored)
@@ -1476,7 +1469,6 @@ def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
             )
             failpoint("after_offset")
         reset_success_conditions(conn)
-        expire_reply_intents(conn)
         failpoint("before_commit")
         conn.commit()
         failpoint("after_commit")
@@ -1732,13 +1724,13 @@ def classify_reply_attempt(
 ) -> str:
     if row is None:
         return "new"
-    if row[0] != body_sha256 and not replaceable_reservation(row):
-        raise UserError("an accepted inbound event already has a different reply")
     label = reply_label(row[1], row[4])
-    if label == "definitely-failed":
-        raise UserError("the reply has a definite Telegram failure and will not be retried")
     if label == "delivery-unknown":
         raise UserError(DELIVERY_UNKNOWN_GUIDANCE)
+    if row[0] != body_sha256 and not replaceable_reservation(row):
+        raise UserError("an accepted inbound event already has a different reply")
+    if label == "definitely-failed":
+        raise UserError("the reply has a definite Telegram failure and will not be retried")
     return label
 
 
@@ -1852,7 +1844,10 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
     update_id = validate_positive_int(update_id_text, "accepted inbound update id", MAX_UPDATE_ID)
     body, text = read_reply_body()
     body_sha256 = hashlib.sha256(body).hexdigest()
-    conn = connect_existing(state)
+    try:
+        conn = connect_existing(state)
+    except Exception as exc:
+        raise UserError(REPLY_STATE_UNAVAILABLE_GUIDANCE) from exc
     network_outcome_unresolved = False
     try:
         disposition = classify_reply_attempt(reply_record(conn, update_id), body_sha256)
@@ -1890,7 +1885,14 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
             return 0
         failpoint("after_reply_reserve")
         synchronization_failpoint("reply-after-reserve")
-        request = stage_send_request(credentials.captain_chat_id, inbound_message_id, text)
+        try:
+            request = stage_send_request(credentials.captain_chat_id, inbound_message_id, text)
+        except Exception as exc:
+            raise UserError(
+                "Telegram reply preparation failed before sending; the reply is still owed - "
+                "inspect with: doctor, correct the local issue, then retry with: reply %d"
+                % update_id
+            ) from exc
         try:
             mark_reply_network_started(conn, update_id, body_sha256)
             network_outcome_unresolved = True

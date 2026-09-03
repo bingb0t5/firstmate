@@ -74,12 +74,11 @@
 # that inbound message commits sent. Transport errors, timeouts, malformed
 # responses, and uncertain crashes surface delivery-unknown and refuse retry.
 # A definite Telegram refusal about the message commits definitely-failed and
-# is not retried. A refusal about the bot rather than the message - a rate
-# limit, rejected credentials, or a rejected endpoint - proves nothing was
-# delivered, so it returns the record to a pre-network reservation that keeps
-# the reply owed, names the exact update id to send again, and is still never
-# retried automatically. A reply still owed a day after it was reserved is
-# dropped by the next poll.
+# is not retried. An outcome that proves Telegram did not deliver - including
+# a local preparation failure, rate limit, rejected credentials, or rejected
+# endpoint - leaves a pre-network reservation that keeps the reply owed, names
+# the exact update id to send again, and is still never retried automatically.
+# Polling never expires an owed reply by age.
 # Older stored inbound messages without message_id are retained for intake but
 # reply refuses them because they cannot prove an in-conversation target.
 # One inbound update can have at most one reply, including across restarts and
