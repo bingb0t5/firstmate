@@ -626,10 +626,13 @@ def validate_resolution_extension(
     return fingerprint, manifest_digest, acknowledged_at, payload_count
 
 
-def validate_store(conn: sqlite3.Connection) -> None:
+def verify_integrity(conn: sqlite3.Connection) -> None:
     quick = conn.execute("PRAGMA quick_check").fetchall()
     if quick != [("ok",)]:
         raise LocalStateError("integrity-check", repr(quick[:4]))
+
+
+def validate_store(conn: sqlite3.Connection) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()
     if version is None or version[0] != SCHEMA_VERSION:
         raise LocalStateError("schema-version", repr(version))
@@ -773,6 +776,7 @@ def connect_existing(state: Path) -> sqlite3.Connection:
         uri = "file:%s?mode=rw" % urllib.parse.quote(database.as_posix(), safe="")
         conn = sqlite3.connect(uri, uri=True, isolation_level=None, timeout=5)
         configure_connection(conn)
+        verify_integrity(conn)
         ensure_reply_schema(conn)
         validate_store(conn)
         return conn
@@ -906,6 +910,7 @@ def create_store(
         failpoint("during_database_build")
         conn.commit()
         failpoint("after_database_commit")
+        verify_integrity(conn)
         validate_store(conn)
         conn.close()
         conn = None
@@ -1590,7 +1595,7 @@ def read_reply_body() -> Tuple[bytes, str]:
         text = body.decode("utf-8")
     except UnicodeDecodeError:
         raise UserError("reply text from stdin is not valid UTF-8")
-    if not text:
+    if not text.strip():
         raise UserError("reply text from stdin must not be empty")
     if len(text.encode("utf-16-le")) // 2 > MAX_REPLY_CHARS:
         raise UserError(
@@ -1834,13 +1839,6 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
             or not valid_update_id(inbound_message_id)
         ):
             raise UserError("accepted inbound event lacks strict reply identity evidence")
-        existing = reply_record(conn, update_id)
-        if (
-            existing is not None
-            and existing[0] != body_sha256
-            and not replaceable_reservation(existing)
-        ):
-            raise UserError("an accepted inbound event already has a different reply")
         failpoint("before_reply_reserve")
         reservation = reserve_reply(conn, update_id, body_sha256)
         if reservation == "sent":
@@ -3285,6 +3283,7 @@ def command_resolve_migration(
                 (current_evidence.plan.offset,),
             )
             failpoint("after_resolution_meta")
+            verify_integrity(conn)
             validate_store(conn)
             failpoint("before_resolution_commit")
             conn.commit()

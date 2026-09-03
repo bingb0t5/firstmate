@@ -2691,6 +2691,24 @@ limit_out=$(python3 -c 'print("y" * 4096, end="")' | reply_once "$H_REPLY_LONG" 
   "$FIXTURES/reply-success.json")
 assert_contains "$limit_out" "sent: update_id=1101" "a reply at the Telegram limit was refused"
 
+H_REPLY_BLANK="$TMP_ROOT/reply-blank"
+REPLY_BLANK_ENV="$TMP_ROOT/reply-blank.env"
+arm_home "$H_REPLY_BLANK" "$REPLY_BLANK_ENV"
+poll_once "$H_REPLY_BLANK" "$REPLY_BLANK_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+blank_status=0
+blank_out=$(printf ' \t\n' | reply_once "$H_REPLY_BLANK" "$REPLY_BLANK_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || blank_status=$?
+[ "$blank_status" -ne 0 ] || fail "a whitespace-only reply reported success"
+assert_contains "$blank_out" "must not be empty" "the whitespace-only refusal was not actionable"
+assert_no_curl "a whitespace-only reply reached the network"
+assert_equal "$(db_query "$H_REPLY_BLANK" "SELECT count(*) FROM replies")" 0 \
+  "a whitespace-only reply created a reservation"
+blank_corrected=$(printf 'corrected answer\n' | reply_once "$H_REPLY_BLANK" "$REPLY_BLANK_ENV" \
+  "$FIXTURES/reply-success.json")
+assert_contains "$blank_corrected" "sent: update_id=1101" \
+  "a whitespace-only body left the reply permanently unanswerable"
+
 H_REPLY_ASTRAL="$TMP_ROOT/reply-astral"
 REPLY_ASTRAL_ENV="$TMP_ROOT/reply-astral.env"
 arm_home "$H_REPLY_ASTRAL" "$REPLY_ASTRAL_ENV"
