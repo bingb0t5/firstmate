@@ -1243,6 +1243,7 @@ def run_curl_request(
         process = subprocess.Popen(
             [
                 "curl",
+                "-q",
                 "-s",
                 "-w",
                 "\\n%{http_code}",
@@ -1658,7 +1659,9 @@ def run_send_curl(
     )
 
 
-def parse_send_success(body: bytes, chat_id: int, message_id: int) -> int:
+def parse_send_success(
+    body: bytes, chat_id: int, message_id: int, expected_text: str
+) -> int:
     try:
         response = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
@@ -1686,6 +1689,7 @@ def parse_send_success(body: bytes, chat_id: int, message_id: int) -> int:
         or not isinstance(reply_to, dict)
         or not valid_update_id(reply_to.get("message_id"))
         or reply_to.get("message_id") != message_id
+        or result.get("text") != expected_text
     ):
         raise ProtocolError("send response is not bound to the accepted Telegram message")
     return sent_id
@@ -1893,7 +1897,10 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
             raise UserError("delivery is unknown; automatic retry is refused")
         try:
             sent_message_id = parse_send_success(
-                response, credentials.captain_chat_id, inbound_message_id
+                response,
+                credentials.captain_chat_id,
+                inbound_message_id,
+                text.strip(),
             )
         except ApiRefusal as exc:
             detail = safe_reply_failure(str(exc))

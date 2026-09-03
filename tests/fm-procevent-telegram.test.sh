@@ -27,6 +27,7 @@ cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
 set -u
 config=$(cat)
+first_argument=${1:-}
 if [ -n "${CURL_STUB_CALL_LOG:-}" ]; then
   printf '%s\n' "$config" >> "$CURL_STUB_CALL_LOG"
 fi
@@ -35,6 +36,7 @@ if [ -n "${CURL_STUB_CAPTURE:-}" ]; then
 fi
 send_request=0
 send_data_fd=
+send_body=
 write_format=
 previous_argument=
 for argument in "$@"; do
@@ -42,7 +44,11 @@ for argument in "$@"; do
   [ "$previous_argument" = "-w" ] && write_format=$argument
   [ "$argument" = "--data-binary" ] && send_request=1
   previous_argument=$argument
- done
+done
+
+if [ "$send_request" -eq 1 ] && [ -n "$send_data_fd" ]; then
+  send_body=$(cat "${send_data_fd#@}")
+fi
 
 # Render curl's --write-out format the way curl does, so a caller that escapes
 # the http_code directive incorrectly gets the literal text curl would emit.
@@ -59,14 +65,40 @@ emit_write_out() {
   done
   printf '%s' "$rendered"
 }
-if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_CAPTURE:-}" ] && [ -n "$send_data_fd" ]; then
-  cat "${send_data_fd#@}" > "$CURL_STUB_SEND_CAPTURE"
+if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_CAPTURE:-}" ]; then
+  printf '%s' "$send_body" > "$CURL_STUB_SEND_CAPTURE"
+fi
+if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_ATTEMPTS:-}" ]; then
+  printf 'send\n' >> "$CURL_STUB_SEND_ATTEMPTS"
+  if [ -n "${CURL_STUB_AMBIENT_TRACE:-}" ] && [ "$first_argument" != "-q" ]; then
+    printf '%s' "$send_body" > "$CURL_STUB_AMBIENT_TRACE"
+    printf 'send\n' >> "$CURL_STUB_SEND_ATTEMPTS"
+  fi
 fi
 if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SLEEP:-}" ]; then
   sleep "$CURL_STUB_SLEEP"
   [ -n "${CURL_STUB_TIMEOUT:-}" ] && exit 28
 fi
-if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_BODY:-}" ]; then
+if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_ECHO_TEXT:-}" ]; then
+  printf '%s' "$send_body" | python3 -c '
+import json
+import sys
+import urllib.parse
+
+request = urllib.parse.parse_qs(sys.stdin.read(), strict_parsing=True)
+reply_parameters = json.loads(request["reply_parameters"][0])
+response = {
+    "ok": True,
+    "result": {
+        "message_id": 8801,
+        "chat": {"id": int(request["chat_id"][0])},
+        "reply_to_message": {"message_id": reply_parameters["message_id"]},
+        "text": request["text"][0].strip(),
+    },
+}
+json.dump(response, sys.stdout, separators=(",", ":"))
+'
+elif [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_BODY:-}" ]; then
   cat "$CURL_STUB_SEND_BODY"
 elif [ -n "${CURL_STUB_BULK_BYTES:-}" ]; then
   head -c "$CURL_STUB_BULK_BYTES" /dev/zero | tr '\0' 'x'
@@ -104,9 +136,13 @@ fixture replyable-text \
 fixture reply-success \
   '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":771},"text":"reply"}}'
 fixture reply-wrong-chat \
-  '{"ok":true,"result":{"message_id":8801,"chat":{"id":556},"reply_to_message":{"message_id":771},"text":"reply"}}'
+  '{"ok":true,"result":{"message_id":8801,"chat":{"id":556},"reply_to_message":{"message_id":771},"text":"shape check"}}'
 fixture reply-wrong-message \
-  '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":772},"text":"reply"}}'
+  '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":772},"text":"shape check"}}'
+fixture reply-wrong-text \
+  '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":771},"text":"different reply"}}'
+fixture reply-missing-text \
+  '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":771}}}'
 fixture reply-malformed '{"ok":true,"result":{"message_id":8801}}'
 fixture legacy-redelivery \
   '{"ok":true,"result":[{"update_id":3302,"message":{"message_id":4402,"date":5,"chat":{"id":555},"from":{"id":909},"text":"legacy receipt"}}]}'
@@ -2346,7 +2382,9 @@ pass "the real runner captures a stable notice whose payload and two acknowledge
 # --- bound outbound reply transaction ---------------------------------------
 reply_once() {
   local home=$1 env_file=$2 response=$3 http=${4:-200}
-  CURL_STUB_SEND_BODY="$response" CURL_STUB_HTTP="$http" \
+  local echo_text=
+  [ "$response" = "$FIXTURES/reply-success.json" ] && echo_text=1
+  CURL_STUB_SEND_BODY="$response" CURL_STUB_SEND_ECHO_TEXT="$echo_text" CURL_STUB_HTTP="$http" \
     FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" \
     "$ADAPTER" reply 1101
 }
@@ -2430,6 +2468,20 @@ assert_contains "$reply_doctor" "reply_attention_omitted=0" \
   "doctor did not report an empty attention set"
 case "$reply_doctor" in *"reply.1101="*) fail "doctor enumerated a sent reply row" ;; esac
 pass "a reply is bound to the configured chat and accepted message, and repeats do not resend"
+
+H_REPLY_CURLRC="$TMP_ROOT/reply-curlrc"
+REPLY_CURLRC_ENV="$TMP_ROOT/reply-curlrc.env"
+REPLY_CURLRC_TRACE="$TMP_ROOT/reply-curlrc.trace"
+REPLY_CURLRC_ATTEMPTS="$TMP_ROOT/reply-curlrc.attempts"
+arm_home "$H_REPLY_CURLRC" "$REPLY_CURLRC_ENV"
+poll_once "$H_REPLY_CURLRC" "$REPLY_CURLRC_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+printf 'private answer\n' | CURL_STUB_AMBIENT_TRACE="$REPLY_CURLRC_TRACE" \
+  CURL_STUB_SEND_ATTEMPTS="$REPLY_CURLRC_ATTEMPTS" reply_once \
+  "$H_REPLY_CURLRC" "$REPLY_CURLRC_ENV" "$FIXTURES/reply-success.json" >/dev/null
+assert_absent "$REPLY_CURLRC_TRACE" "ambient curl configuration captured the reply body"
+assert_equal "$(wc -l < "$REPLY_CURLRC_ATTEMPTS" | tr -d ' ')" 1 \
+  "ambient curl configuration repeated the reply request"
+pass "reply delivery disables ambient curl configuration before processing options"
 
 H_REPLY_OLD="$TMP_ROOT/reply-old"
 REPLY_OLD_ENV="$TMP_ROOT/reply-old.env"
@@ -2709,7 +2761,7 @@ assert_equal "$(db_query "$H_REPLY_CONCURRENT" "SELECT state FROM replies WHERE 
   "concurrent attempts did not converge to sent"
 pass "concurrent attempts serialize to one durable Telegram reply"
 
-for malformed_response in reply-wrong-chat reply-wrong-message; do
+for malformed_response in reply-wrong-chat reply-wrong-message reply-wrong-text reply-missing-text; do
   shape_home="$TMP_ROOT/$malformed_response-shape"
   shape_env="$TMP_ROOT/$malformed_response-shape.env"
   arm_home "$shape_home" "$shape_env"
@@ -2723,7 +2775,7 @@ for malformed_response in reply-wrong-chat reply-wrong-message; do
   assert_equal "$(db_query "$shape_home" "SELECT state FROM replies WHERE update_id=1101")" unknown \
     "$malformed_response did not persist delivery-unknown"
 done
-pass "a response for another chat or inbound message is not accepted as delivery proof"
+pass "a response with mismatched destination, target, or text is not accepted as delivery proof"
 
 H_REPLY_LONG="$TMP_ROOT/reply-long"
 REPLY_LONG_ENV="$TMP_ROOT/reply-long.env"
@@ -2901,7 +2953,7 @@ poll_once "$H_REPLY_BULK" "$REPLY_BULK_ENV" "$FIXTURES/reply-bulk.json" >/dev/nu
 for bulk_number in $(seq 1 14); do
   bulk_update=$((1400 + bulk_number))
   if [ "$bulk_number" -le 3 ]; then
-    printf 'bulk answer %s\n' "$bulk_number" | CURL_STUB_SEND_BODY="$FIXTURES/reply-success.json" \
+    printf 'bulk answer %s\n' "$bulk_number" | CURL_STUB_SEND_ECHO_TEXT=1 \
       FM_HOME="$H_REPLY_BULK" FM_TELEGRAM_ENV_FILE="$REPLY_BULK_ENV" \
       "$ADAPTER" reply "$bulk_update" >/dev/null 2>&1 \
       || fail "bulk reply $bulk_update did not send"
