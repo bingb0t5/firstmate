@@ -1,0 +1,28 @@
+ok - a response body carrying trailer-like bytes is framed by its exact status suffix
+ok - doctor still reports the committed resolution when preserved legacy copies drift
+ok - reply credential failures provide sanitized repair and retry guidance
+ok - reply state failures require doctor inspection before any retry decision
+ok - a reply is bound to the configured chat and accepted message, and repeats do not resend
+ok - reply delivery disables ambient curl configuration before processing options
+ok - older inbound records and arbitrary destinations are refused without a network call
+ok - definite refusal and uncertain transport outcomes remain non-sent and non-retryable
+ok - a crash after the API response cannot falsely become sent or authorize a duplicate
+ok - reply commit failures surface durable unknown state and refuse retry
+ok - reply crashes before reservation, before network, and after commit preserve honest restart behavior
+ok - malformed successes become unknown while explicit Telegram refusals become definitely failed
+ok - a send timeout is nonzero, durable, and never reported as sent
+ok - only a reservation that proves it never reached the network accepts a regenerated body
+ok - a concurrent send claim overrides stale in-memory reply state
+ok - concurrent attempts serialize to one durable Telegram reply
+ok - a response with mismatched destination, target, or text is not accepted as delivery proof
+ok - reply text is bounded by the Telegram character limit before any reservation or send
+ok - local send configuration failures stay recoverable instead of destroying the reply
+ok - a Telegram rate limit is never sent, is nonzero, and permits one later explicit attempt
+ok - a reply still owed remains durable across polls and age
+ok - a refusal about the bot rather than the message stays recoverable after correction
+ok - doctor lists every owed reply while bounding terminal attention rows
+ok - an unusable message_id outside the captain conversation never poisons a batch
+ok - a captain message with an unusable message_id stays readable but refuses a reply
+all fm-procevent-telegram tests passed
+bash tests/fm-procevent-telegram.test.sh  59.54s user 23.04s system 88% cpu 1:32.93 total
+EXIT=0

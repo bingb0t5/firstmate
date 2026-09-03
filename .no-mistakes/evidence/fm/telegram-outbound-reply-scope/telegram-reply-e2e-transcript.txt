@@ -1,0 +1,157 @@
+
+=== 1. Captain arms the Telegram source on his home, then texts Firstmate from his phone ===
++------------- Captain's phone - Telegram chat 555 --------------+
+|              Firstmate, how many berths are free in the yard?  |
+|                                            - Captain, msg 771  |
++----------------------------------------------------------------+
+
+=== 2. Firstmate wakes, polls the source, and reads the accepted inbound event ===
+$ fm-procevent-telegram.sh poll
+message: 1 notice=68dea61e-966d-4a8f-a2cb-142c8cd93633:1
+$ FM_HOME=main 'bin/fm-procevent-telegram.sh' classify 'result.1'
+message
+$ FM_HOME=main 'bin/fm-procevent-telegram.sh' messages 'result.1'
+{"chat_id":555,"date":1756900000,"from_id":909,"message_id":771,"text":"Firstmate, how many berths are free in the yard?","update_id":5001}
+
+=== 3. Firstmate answers that exact inbound update; reply text arrives only on stdin ===
+$ fm-procevent-telegram.sh reply 5001 < response.txt
+sent: update_id=5001 telegram_message_id=8801
+[exit 0]
+
+=== 4. What the captain sees on his phone: an in-conversation reply to his own message ===
++------------- Captain's phone - Telegram chat 555 --------------+
+|              Firstmate, how many berths are free in the yard?  |
+|                                            - Captain, msg 771  |
++----------------------------------------------------------------+
+|  re: "Firstmate, how many berths are free in t"                |
+|  Three berths are free: B2, B7 and B11.                        |
+|  - Firstmate, msg 8801                                         |
++----------------------------------------------------------------+
+
+=== 5. The request Firstmate actually made (destination derived from stored inbound evidence) ===
+  https://api.telegram.org/bot<BOT-TOKEN>/getUpdates?offset=0&timeout=25
+  https://api.telegram.org/bot<BOT-TOKEN>/sendMessage
+[
+  {
+    "message_id": 8801,
+    "from": "Firstmate (bot)",
+    "chat_id": 555,
+    "reply_to_message_id": 771,
+    "text": "Three berths are free: B2, B7 and B11."
+  }
+]
+
+=== 6. Repeating the same reply is idempotent and makes no second Telegram call ===
+$ fm-procevent-telegram.sh reply 5001 < response.txt
+already-sent: update_id=5001
+[exit 0]
+Different text, same update:
+already-sent: update_id=5001
+[exit 0]
+Telegram API calls before=2 after=2 (no duplicate message on the captain phone)
+
+=== 7. No proactive or arbitrary-destination send exists ===
+$ printf 'ping\n' | FM_HOME=main 'bin/fm-procevent-telegram.sh' reply --chat-id 999 5001 2>&1 | head -6
+Telegram adapter for the generic process-to-event runner.
+
+Usage:
+  fm-procevent-telegram.sh arm
+  fm-procevent-telegram.sh migrate
+  fm-procevent-telegram.sh source-id
+$ printf 'ping\n' | FM_HOME=main 'bin/fm-procevent-telegram.sh' send 999
+error: unknown command: send
+[exit 1]
+$ printf 'ping\n' | FM_HOME=main 'bin/fm-procevent-telegram.sh' reply 9999
+error: accepted inbound event is unknown
+[exit 1]
+
+=== 7b. An inbound record that cannot prove Telegram message identity is refused loudly ===
+$ FM_HOME=legacy 'bin/fm-procevent-telegram.sh' messages result.legacy
+{"chat_id":555,"date":1756900100,"from_id":909,"text":"sent by an older adapter build","update_id":5003}
+The message is still readable, but a reply to it is refused:
+$ printf 'answer\n' | FM_HOME=legacy 'bin/fm-procevent-telegram.sh' reply 5003
+error: accepted inbound event lacks strict reply identity evidence
+[exit 1]
+$ FM_HOME=legacy 'bin/fm-procevent-telegram.sh' doctor | grep -E '^reply_count'
+reply_count=0
+
+=== 8. doctor reports honest reply state; the source stays armed and nonterminal ===
+$ FM_HOME=main 'bin/fm-procevent-telegram.sh' doctor | grep -E '^(armed|retired|reply_|state=|messages=)'
+reply_count=1
+reply_sent=1
+reply_reserved=0
+reply_definitely_failed=0
+reply_delivery_unknown=0
+reply_attention_omitted=0
+$ ls main/state/procevent/telegram.source >/dev/null && echo 'Telegram source still registered (channel never retires itself)'
+Telegram source still registered (channel never retires itself)
+
+=== 9. Secrecy: the bot token and reply text stay out of state, results and output ===
+bot token found in home state files: none
+result file contents: message: 1 notice=68dea61e-966d-4a8f-a2cb-142c8cd93633:1
+reply text stored in database: False
+
+=== 10. Transport failure: delivery-unknown, retry refused, never reported as sent ===
+$ printf 'Yes, stowed at 16:00.\n' | FAKE_TG_FAULT=transport FM_HOME=unknown 'bin/fm-procevent-telegram.sh' reply 5002
+error: delivery is unknown; automatic retry is refused; inspect durable reply state with: doctor
+[exit 1]
+$ printf 'Yes, stowed at 16:00.\n' | FM_HOME=unknown 'bin/fm-procevent-telegram.sh' reply 5002
+error: delivery is unknown; automatic retry is refused; inspect durable reply state with: doctor
+[exit 1]
+$ FM_HOME=unknown 'bin/fm-procevent-telegram.sh' doctor | grep -E '^reply'
+reply_count=1
+reply_sent=0
+reply_reserved=0
+reply_definitely_failed=0
+reply_delivery_unknown=1
+reply.5002=delivery-unknown detail=delivery-unknown
+reply_attention_omitted=0
+
+=== 11. Rate limit (HTTP 429): not sent, still owed, names the exact command to re-issue ===
+$ printf 'Yes, stowed at 16:00.\n' | FAKE_TG_FAULT=429 FM_HOME=ratelimited 'bin/fm-procevent-telegram.sh' reply 5002
+error: Telegram rate-limited the reply; it was not sent and is still owed - send it explicitly again with: reply 5002
+[exit 1]
+$ FM_HOME=ratelimited 'bin/fm-procevent-telegram.sh' doctor | grep -E '^reply'
+reply_count=1
+reply_sent=0
+reply_reserved=1
+reply_definitely_failed=0
+reply_delivery_unknown=0
+reply.5002=reserved
+reply_attention_omitted=0
+Operator corrects the condition and re-issues that one command:
+$ printf 'Yes, stowed at 16:00.\n' | FM_HOME=ratelimited 'bin/fm-procevent-telegram.sh' reply 5002
+sent: update_id=5002 telegram_message_id=8802
+
+=== 12. Definite refusal (HTTP 400): durably failed, never retried ===
+$ printf 'Yes, stowed at 16:00.\n' | FAKE_TG_FAULT=400 FM_HOME=definite 'bin/fm-procevent-telegram.sh' reply 5002
+error: Telegram definitely refused the reply; automatic retry is refused; inspect durable reply state with: doctor
+[exit 1]
+$ printf 'Yes, stowed at 16:00.\n' | FM_HOME=definite 'bin/fm-procevent-telegram.sh' reply 5002
+error: Telegram definitely refused the reply; automatic retry is refused; inspect durable reply state with: doctor
+[exit 1]
+$ FM_HOME=definite 'bin/fm-procevent-telegram.sh' doctor | grep -E '^reply'
+reply_count=1
+reply_sent=0
+reply_reserved=0
+reply_definitely_failed=1
+reply_delivery_unknown=0
+reply.5002=definitely-failed detail=http-400
+reply_attention_omitted=0
+
+=== 13. Final state of the captain's phone conversation across the whole run ===
++------------- Captain's phone - Telegram chat 555 --------------+
+|              Firstmate, how many berths are free in the yard?  |
+|                                            - Captain, msg 771  |
++----------------------------------------------------------------+
+|                                         Are the sails stowed?  |
+|                                            - Captain, msg 772  |
++----------------------------------------------------------------+
+|  re: "Firstmate, how many berths are free in t"                |
+|  Three berths are free: B2, B7 and B11.                        |
+|  - Firstmate, msg 8801                                         |
++----------------------------------------------------------------+
+|  re: "Are the sails stowed?"                                   |
+|  Yes, stowed at 16:00.                                         |
+|  - Firstmate, msg 8802                                         |
++----------------------------------------------------------------+
