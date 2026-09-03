@@ -1228,14 +1228,12 @@ def read_bounded_stream(
         chunks.append(chunk)
 
 
-def run_curl(
-    state: Path, credentials: Credentials, offset: int, timeout: int, curl_max: int
+def run_curl_request(
+    config: bytes,
+    extra_argv: Sequence[str],
+    max_time: int,
+    pass_fds: Tuple[int, ...] = (),
 ) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
-    ensure_telegram_directory(state, create=False)
-    config = (
-        'url = "https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=%d"\n'
-        % (credentials.token, offset, timeout)
-    )
     try:
         process = subprocess.Popen(
             [
@@ -1244,20 +1242,22 @@ def run_curl(
                 "-w",
                 "\\n%{http_code}",
                 "--max-time",
-                str(curl_max),
+                str(max_time),
                 "-K",
                 "-",
-            ],
+            ]
+            + list(extra_argv),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            pass_fds=pass_fds,
         )
     except OSError:
         return None, None, "transport"
-    deadline = time.monotonic() + curl_max + 5
+    deadline = time.monotonic() + max_time + 5
     try:
         try:
-            process.stdin.write(config.encode("utf-8"))
+            process.stdin.write(config)
             process.stdin.close()
         except OSError:
             return None, None, "transport"
@@ -1287,6 +1287,17 @@ def run_curl(
             except OSError:
                 pass
         process.wait()
+
+
+def run_curl(
+    state: Path, credentials: Credentials, offset: int, timeout: int, curl_max: int
+) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
+    ensure_telegram_directory(state, create=False)
+    config = (
+        'url = "https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=%d"\n'
+        % (credentials.token, offset, timeout)
+    ).encode("utf-8")
+    return run_curl_request(config, (), curl_max)
 
 
 def canonical_message(
@@ -1614,66 +1625,17 @@ def run_send_curl(
     credentials: Credentials, request: SendRequest
 ) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
     body_fd = request.body_file.fileno()
-    max_time = request.max_time
     config = (
         'url = "https://api.telegram.org/bot%s/sendMessage"\n'
         "request = POST\n"
         % credentials.token
     ).encode("utf-8")
-    try:
-        process = subprocess.Popen(
-            [
-                "curl",
-                "-s",
-                "-w",
-                "\\n%{http_code}",
-                "--max-time",
-                str(max_time),
-                "-K",
-                "-",
-                "--data-binary",
-                "@/dev/fd/%d" % body_fd,
-            ],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            pass_fds=(body_fd,),
-        )
-    except OSError:
-        return None, None, "transport"
-    deadline = time.monotonic() + max_time + 5
-    try:
-        try:
-            process.stdin.write(config)
-            process.stdin.close()
-        except OSError:
-            return None, None, "transport"
-        captured, tail, total, overflow, timed_out = read_bounded_stream(
-            process.stdout, MAX_RESPONSE_BYTES + STATUS_TRAILER_BYTES, deadline
-        )
-        if timed_out:
-            return None, None, "transport"
-        try:
-            returncode = process.wait(timeout=max(0.0, deadline - time.monotonic()))
-        except subprocess.TimeoutExpired:
-            return None, None, "transport"
-        if returncode != 0:
-            return None, None, "transport"
-        if total < STATUS_TRAILER_BYTES or STATUS_TRAILER_RE.fullmatch(tail) is None:
-            return None, None, "transport"
-        status = int(tail[1:])
-        if overflow or total - STATUS_TRAILER_BYTES > MAX_RESPONSE_BYTES:
-            return status, None, "response-too-large"
-        return status, captured[: total - STATUS_TRAILER_BYTES], None
-    finally:
-        if process.poll() is None:
-            process.kill()
-        for handle in (process.stdin, process.stdout):
-            try:
-                handle.close()
-            except OSError:
-                pass
-        process.wait()
+    return run_curl_request(
+        config,
+        ("--data-binary", "@/dev/fd/%d" % body_fd),
+        request.max_time,
+        (body_fd,),
+    )
 
 
 def parse_send_success(body: bytes, chat_id: int, message_id: int) -> int:
