@@ -108,6 +108,10 @@ fixture reply-wrong-chat \
 fixture reply-wrong-message \
   '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":772},"text":"reply"}}'
 fixture reply-malformed '{"ok":true,"result":{"message_id":8801}}'
+fixture legacy-redelivery \
+  '{"ok":true,"result":[{"update_id":3302,"message":{"message_id":4402,"date":5,"chat":{"id":555},"from":{"id":909},"text":"legacy receipt"}}]}'
+fixture legacy-redelivery-changed \
+  '{"ok":true,"result":[{"update_id":3302,"message":{"message_id":4402,"date":5,"chat":{"id":555},"from":{"id":909},"text":"rewritten by someone else"}}]}'
 fixture foreign-unusable-message-id \
   '{"ok":true,"result":[{"update_id":1201,"message":{"message_id":0,"date":1,"chat":{"id":777},"from":{"id":888},"text":"another chat"}},{"update_id":1202,"message":{"message_id":772,"date":2,"chat":{"id":555},"from":{"id":909},"text":"captain in the same batch"}}]}'
 fixture captain-unusable-message-id \
@@ -2346,6 +2350,54 @@ reply_once() {
     FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" \
     "$ADAPTER" reply 1101
 }
+
+seed_receipts_only_home() {
+  local home=$1 env_file=$2
+  new_home "$home"
+  write_env_file "$env_file" "$TOKEN"
+  printf '3000\n' > "$home/state/.telegram-offset"
+  mkdir -p "$home/state/telegram-inbox/handled"
+  mkdir -p "$home/state/.telegram-delivery-receipts"
+  printf '{"update_id":3302,"date":5,"chat_id":555,"from_id":909,"text":"legacy receipt"}\n' \
+    > "$home/state/.telegram-delivery-receipts/3302.json"
+  FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate >/dev/null
+  local announced
+  announced=$(poll_once "$home" "$env_file" "$FIXTURES/empty.json")
+  assert_contains "$announced" "message: 1" "the migrated receipt did not announce"
+  ack_result "$home" "$env_file" "$announced" >/dev/null
+}
+
+H_LEGACY_REDELIVERY="$TMP_ROOT/legacy-redelivery"
+LEGACY_REDELIVERY_ENV="$TMP_ROOT/legacy-redelivery.env"
+seed_receipts_only_home "$H_LEGACY_REDELIVERY" "$LEGACY_REDELIVERY_ENV"
+assert_equal "$(db_query "$H_LEGACY_REDELIVERY" "SELECT committed_offset FROM meta")" 3000 \
+  "a receipts-only migration advanced the offset past the imported update"
+redelivery_out=$(poll_once "$H_LEGACY_REDELIVERY" "$LEGACY_REDELIVERY_ENV" \
+  "$FIXTURES/legacy-redelivery.json" 2>&1) || true
+assert_equal "$redelivery_out" "" \
+  "redelivering a migrated legacy update did not pass silently"
+assert_equal "$(db_query "$H_LEGACY_REDELIVERY" "SELECT committed_offset FROM meta")" 3303 \
+  "the redelivered legacy update did not let the offset advance"
+assert_equal "$(db_query "$H_LEGACY_REDELIVERY" "SELECT count(*) FROM messages")" 1 \
+  "the redelivered legacy update was stored twice"
+redelivery_reply_status=0
+redelivery_reply=$(printf 'no identity\n' | FM_HOME="$H_LEGACY_REDELIVERY" \
+  FM_TELEGRAM_ENV_FILE="$LEGACY_REDELIVERY_ENV" "$ADAPTER" reply 3302 2>&1) \
+  || redelivery_reply_status=$?
+[ "$redelivery_reply_status" -ne 0 ] || fail "a legacy record silently gained reply identity"
+assert_contains "$redelivery_reply" "lacks strict reply identity evidence" \
+  "the legacy record's reply refusal changed"
+
+H_LEGACY_CONFLICT="$TMP_ROOT/legacy-conflict"
+LEGACY_CONFLICT_ENV="$TMP_ROOT/legacy-conflict.env"
+seed_receipts_only_home "$H_LEGACY_CONFLICT" "$LEGACY_CONFLICT_ENV"
+conflict_out=$(poll_once "$H_LEGACY_CONFLICT" "$LEGACY_CONFLICT_ENV" \
+  "$FIXTURES/legacy-redelivery-changed.json" 2>&1)
+assert_contains "$conflict_out" "blocked: local-state fingerprint=" \
+  "redelivered content that actually changed was not refused"
+assert_equal "$(db_query "$H_LEGACY_CONFLICT" "SELECT committed_offset FROM meta")" 3000 \
+  "a conflicting redelivery advanced the committed offset"
+pass "a migrated legacy record tolerates its own redelivery but still refuses changed content"
 
 H_REPLY="$TMP_ROOT/reply"
 REPLY_ENV="$TMP_ROOT/reply.env"

@@ -1411,6 +1411,21 @@ def expire_reply_intents(conn: sqlite3.Connection) -> None:
     )
 
 
+def payload_conflicts(stored: str, planned: str) -> bool:
+    try:
+        stored_data = json.loads(stored)
+        planned_data = json.loads(planned)
+    except ValueError:
+        return True
+    if not isinstance(stored_data, dict) or not isinstance(planned_data, dict):
+        return True
+    if "message_id" not in stored_data:
+        planned_data = {
+            key: value for key, value in planned_data.items() if key != "message_id"
+        }
+    return stored_data != planned_data
+
+
 def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
     failpoint("after_validate")
     conn.execute("BEGIN IMMEDIATE")
@@ -1437,7 +1452,7 @@ def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
                 new_messages.append(message)
             elif existing[0] is None:
                 continue
-            elif existing[0] != message.payload:
+            elif payload_conflicts(existing[0], message.payload):
                 raise LocalStateError("message-conflict", repr(message.update_id))
         notice_id = None
         if new_messages:
