@@ -1838,7 +1838,13 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
     update_id = validate_positive_int(update_id_text, "accepted inbound update id", MAX_UPDATE_ID)
     body, text = read_reply_body()
     body_sha256 = hashlib.sha256(body).hexdigest()
-    credentials = read_credentials(credential_path)
+    try:
+        credentials = read_credentials(credential_path)
+    except CredentialError:
+        raise UserError(
+            "Telegram reply credentials are unavailable or invalid; repair the configured "
+            "credential file, then retry with: reply %d" % update_id
+        )
     conn = connect_existing(state)
     try:
         inbound = conn.execute(

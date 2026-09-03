@@ -2405,6 +2405,47 @@ seed_receipts_only_home() {
   ack_result "$home" "$env_file" "$announced" >/dev/null
 }
 
+for reply_credential_case in missing bad-mode incomplete; do
+  credential_home="$TMP_ROOT/reply-credential-$reply_credential_case"
+  credential_env="$TMP_ROOT/reply-credential-$reply_credential_case.env"
+  arm_home "$credential_home" "$credential_env"
+  poll_once "$credential_home" "$credential_env" "$FIXTURES/replyable-text.json" >/dev/null
+  case "$reply_credential_case" in
+    missing)
+      rm -f "$credential_env"
+      ;;
+    bad-mode)
+      chmod 644 "$credential_env"
+      ;;
+    incomplete)
+      printf 'TELEGRAM_BOT_TOKEN=%s\nTELEGRAM_CAPTAIN_CHAT_ID=555\n' "$TOKEN" > "$credential_env"
+      chmod 600 "$credential_env"
+      ;;
+  esac
+  clear_curl_calls
+  credential_reply_status=0
+  credential_reply_out=$(printf 'private credential reply\n' | \
+    FM_HOME="$credential_home" FM_TELEGRAM_ENV_FILE="$credential_env" \
+    "$ADAPTER" reply 1101 2>&1) || credential_reply_status=$?
+  [ "$credential_reply_status" -ne 0 ] \
+    || fail "reply accepted $reply_credential_case credentials"
+  assert_contains "$credential_reply_out" \
+    "repair the configured credential file, then retry with: reply 1101" \
+    "$reply_credential_case credential refusal did not provide a repair and retry action"
+  case "$credential_reply_out" in
+    *"local Telegram state failure"*)
+      fail "$reply_credential_case credential refusal looked like an internal state failure"
+      ;;
+    *"private credential reply"*|*"$TOKEN"*)
+      fail "$reply_credential_case credential refusal leaked private input"
+      ;;
+  esac
+  assert_no_curl "$reply_credential_case credentials allowed a Telegram request"
+  assert_equal "$(db_query "$credential_home" "SELECT count(*) FROM replies")" 0 \
+    "$reply_credential_case credentials created a reply reservation"
+done
+pass "reply credential failures provide sanitized repair and retry guidance"
+
 H_LEGACY_REDELIVERY="$TMP_ROOT/legacy-redelivery"
 LEGACY_REDELIVERY_ENV="$TMP_ROOT/legacy-redelivery.env"
 seed_receipts_only_home "$H_LEGACY_REDELIVERY" "$LEGACY_REDELIVERY_ENV"
