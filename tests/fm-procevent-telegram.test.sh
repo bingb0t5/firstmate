@@ -2575,6 +2575,23 @@ retry_out=$(printf 'uncertain transport\n' | reply_once "$H_REPLY_UNKNOWN" "$REP
 [ "$retry_status" -ne 0 ] || fail "delivery-unknown reply was automatically retried"
 assert_contains "$retry_out" "automatic retry is refused" \
   "delivery-unknown refusal did not prevent duplicate delivery"
+rm -f "$REPLY_UNKNOWN_ENV"
+clear_curl_calls
+unknown_credential_status=0
+unknown_credential_out=$(printf 'uncertain transport\n' | reply_once "$H_REPLY_UNKNOWN" \
+  "$REPLY_UNKNOWN_ENV" "$FIXTURES/reply-success.json" 2>&1) || unknown_credential_status=$?
+[ "$unknown_credential_status" -ne 0 ] \
+  || fail "delivery-unknown reply with unavailable credentials reported success"
+assert_contains "$unknown_credential_out" "delivery is unknown" \
+  "unavailable credentials hid the durable delivery-unknown state"
+assert_contains "$unknown_credential_out" "doctor" \
+  "delivery-unknown credential refusal did not point to doctor"
+case "$unknown_credential_out" in
+  *"repair the configured credential file"*)
+    fail "delivery-unknown reply invited an unsafe retry after credential repair"
+    ;;
+esac
+assert_no_curl "delivery-unknown reply with unavailable credentials reached Telegram"
 pass "definite refusal and uncertain transport outcomes remain non-sent and non-retryable"
 
 H_REPLY_CRASH="$TMP_ROOT/reply-crash"
@@ -2594,6 +2611,43 @@ crash_retry=$(printf 'crash boundary\n' | reply_once "$H_REPLY_CRASH" "$REPLY_CR
 assert_contains "$crash_retry" "automatic retry is refused" \
   "response crash retry refusal was not actionable"
 pass "a crash after the API response cannot falsely become sent or authorize a duplicate"
+
+H_REPLY_FINISH_FAILURE="$TMP_ROOT/reply-finish-failure"
+REPLY_FINISH_FAILURE_ENV="$TMP_ROOT/reply-finish-failure.env"
+arm_home "$H_REPLY_FINISH_FAILURE" "$REPLY_FINISH_FAILURE_ENV"
+poll_once "$H_REPLY_FINISH_FAILURE" "$REPLY_FINISH_FAILURE_ENV" \
+  "$FIXTURES/replyable-text.json" >/dev/null
+finish_failure_status=0
+finish_failure_out=$(printf 'uncommitted success\n' | \
+  FM_TELEGRAM_FAILPOINT=before_reply_finish_commit reply_once \
+  "$H_REPLY_FINISH_FAILURE" "$REPLY_FINISH_FAILURE_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || finish_failure_status=$?
+[ "$finish_failure_status" -ne 0 ] || fail "an uncommitted send success reported sent"
+assert_contains "$finish_failure_out" "delivery is unknown" \
+  "an uncommitted send success did not report delivery-unknown"
+assert_contains "$finish_failure_out" "automatic retry is refused" \
+  "an uncommitted send success permitted an unsafe retry"
+assert_contains "$finish_failure_out" "doctor" \
+  "an uncommitted send success did not point to doctor"
+case "$finish_failure_out" in
+  *"local Telegram state failure"*|*"uncommitted success"*)
+    fail "an uncommitted send success produced opaque or private output"
+    ;;
+esac
+assert_equal "$(db_query "$H_REPLY_FINISH_FAILURE" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "unknown|1" \
+  "a failed sent-state commit did not retain delivery-unknown"
+clear_curl_calls
+finish_failure_retry_status=0
+finish_failure_retry=$(printf 'uncommitted success\n' | reply_once \
+  "$H_REPLY_FINISH_FAILURE" "$REPLY_FINISH_FAILURE_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || finish_failure_retry_status=$?
+[ "$finish_failure_retry_status" -ne 0 ] \
+  || fail "an uncommitted send success allowed a duplicate retry"
+assert_contains "$finish_failure_retry" "automatic retry is refused" \
+  "the failed sent-state commit was not durably non-retryable"
+assert_no_curl "a failed sent-state commit reached Telegram again"
+pass "reply commit failures surface durable unknown state and refuse retry"
 
 for reply_boundary in before-reserve before-network after-commit; do
   boundary_home="$TMP_ROOT/reply-$reply_boundary"

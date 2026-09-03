@@ -51,6 +51,9 @@ REPLY_LABEL_COUNTS_SQL = (
     " ELSE 'reserved' END AS label, COUNT(*) FROM replies GROUP BY label"
 )
 REPLY_STATES = {"reserved", "sent", "failed", "unknown"}
+DELIVERY_UNKNOWN_GUIDANCE = (
+    "delivery is unknown; automatic retry is refused; inspect durable reply state with: doctor"
+)
 # The Bot API declares Update identifiers as positive Integers and says an
 # unspecified Integer field is safe in a signed 32-bit value, so the ceiling is
 # that published contract rather than any local arithmetic width.
@@ -1724,22 +1727,32 @@ def replaceable_reservation(row: Tuple[object, ...]) -> bool:
     return row[1] == "reserved" and not row[4]
 
 
+def classify_reply_attempt(
+    row: Optional[Tuple[object, ...]], body_sha256: str
+) -> str:
+    if row is None:
+        return "new"
+    if row[0] != body_sha256 and not replaceable_reservation(row):
+        raise UserError("an accepted inbound event already has a different reply")
+    label = reply_label(row[1], row[4])
+    if label == "definitely-failed":
+        raise UserError("the reply has a definite Telegram failure and will not be retried")
+    if label == "delivery-unknown":
+        raise UserError(DELIVERY_UNKNOWN_GUIDANCE)
+    return label
+
+
 def reserve_reply(
     conn: sqlite3.Connection, update_id: int, body_sha256: str
 ) -> str:
     conn.execute("BEGIN IMMEDIATE")
     try:
         row = reply_record(conn, update_id)
+        disposition = classify_reply_attempt(row, body_sha256)
         if row is not None:
-            if row[0] != body_sha256 and not replaceable_reservation(row):
-                raise UserError("an accepted inbound event already has a different reply")
-            if row[1] == "sent":
+            if disposition == "sent":
                 conn.commit()
                 return "sent"
-            if row[1] == "failed":
-                raise UserError("the reply has a definite Telegram failure and will not be retried")
-            if row[1] == "unknown" or row[4]:
-                raise UserError("delivery is unknown; automatic retry is refused")
             if row[0] != body_sha256:
                 conn.execute(
                     "UPDATE replies SET body_sha256 = ?, updated_at = ? WHERE update_id = ? "
@@ -1811,6 +1824,7 @@ def finish_reply(
                 "telegram_message_id = NULL, failure_detail = ? WHERE update_id = ?",
                 (state, now_epoch(), failure_detail or "delivery-unknown", update_id),
             )
+        raising_failpoint("before_reply_finish_commit")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1838,15 +1852,20 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
     update_id = validate_positive_int(update_id_text, "accepted inbound update id", MAX_UPDATE_ID)
     body, text = read_reply_body()
     body_sha256 = hashlib.sha256(body).hexdigest()
-    try:
-        credentials = read_credentials(credential_path)
-    except CredentialError:
-        raise UserError(
-            "Telegram reply credentials are unavailable or invalid; repair the configured "
-            "credential file, then retry with: reply %d" % update_id
-        )
     conn = connect_existing(state)
+    network_outcome_unresolved = False
     try:
+        disposition = classify_reply_attempt(reply_record(conn, update_id), body_sha256)
+        if disposition == "sent":
+            print("already-sent: update_id=%d" % update_id)
+            return 0
+        try:
+            credentials = read_credentials(credential_path)
+        except CredentialError:
+            raise UserError(
+                "Telegram reply credentials are unavailable or invalid; repair the configured "
+                "credential file, then retry with: reply %d" % update_id
+            )
         inbound = conn.execute(
             "SELECT payload FROM messages WHERE update_id = ?", (update_id,)
         ).fetchone()
@@ -1874,6 +1893,7 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
         request = stage_send_request(credentials.captain_chat_id, inbound_message_id, text)
         try:
             mark_reply_network_started(conn, update_id, body_sha256)
+            network_outcome_unresolved = True
             failpoint("before_reply_network")
             http_code, response, transport_error = run_send_curl(credentials, request)
         finally:
@@ -1881,15 +1901,18 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
         credentials = Credentials("", credentials.captain_chat_id, credentials.captain_user_id)
         if transport_error is not None or http_code is None:
             finish_reply(conn, update_id, "unknown", failure_detail="delivery-unknown")
-            raise UserError("delivery is unknown; automatic retry is refused")
+            network_outcome_unresolved = False
+            raise UserError(DELIVERY_UNKNOWN_GUIDANCE)
         if http_code == 429:
             retain_reply_intent(conn, update_id)
+            network_outcome_unresolved = False
             raise UserError(
                 "Telegram rate-limited the reply; it was not sent and is still owed - "
                 "send it explicitly again with: reply %d" % update_id
             )
         if http_code in (401, 404):
             retain_reply_intent(conn, update_id)
+            network_outcome_unresolved = False
             raise UserError(
                 "Telegram refused the bot credentials or endpoint (http-%d); the reply was "
                 "not sent and is still owed - send it explicitly again with: reply %d "
@@ -1897,10 +1920,12 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
             )
         if 400 <= http_code < 500:
             finish_reply(conn, update_id, "failed", failure_detail="http-%d" % http_code)
+            network_outcome_unresolved = False
             raise UserError("Telegram definitely refused the reply (http-%d)" % http_code)
         if http_code != 200 or response is None:
             finish_reply(conn, update_id, "unknown", failure_detail="delivery-unknown")
-            raise UserError("delivery is unknown; automatic retry is refused")
+            network_outcome_unresolved = False
+            raise UserError(DELIVERY_UNKNOWN_GUIDANCE)
         try:
             sent_message_id = parse_send_success(
                 response,
@@ -1911,15 +1936,25 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
         except ApiRefusal as exc:
             detail = safe_reply_failure(str(exc))
             finish_reply(conn, update_id, "failed", failure_detail=detail)
+            network_outcome_unresolved = False
             raise UserError("Telegram definitely refused the reply")
         except ProtocolError:
             finish_reply(conn, update_id, "unknown", failure_detail="unbound-response")
-            raise UserError("Telegram did not prove delivery to the accepted message")
+            network_outcome_unresolved = False
+            raise UserError(
+                "Telegram did not prove delivery to the accepted message; "
+                + DELIVERY_UNKNOWN_GUIDANCE
+            )
         failpoint("after_reply_response")
         finish_reply(conn, update_id, "sent", telegram_message_id=sent_message_id)
+        network_outcome_unresolved = False
         failpoint("after_reply_commit")
         print("sent: update_id=%d telegram_message_id=%d" % (update_id, sent_message_id))
         return 0
+    except Exception as exc:
+        if network_outcome_unresolved:
+            raise UserError(DELIVERY_UNKNOWN_GUIDANCE) from exc
+        raise
     finally:
         conn.close()
 
