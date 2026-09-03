@@ -1252,6 +1252,9 @@ def run_curl_request(
     pass_fds: Tuple[int, ...] = (),
 ) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
     try:
+        # -q must stay first: curl otherwise reads the user's default config
+        # file, whose url, retry, or trace settings could resend or record the
+        # captain's reply outside this bounded transaction.
         process = subprocess.Popen(
             [
                 "curl",
