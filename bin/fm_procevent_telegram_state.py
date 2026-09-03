@@ -35,8 +35,12 @@ from typing import IO, Dict, Iterable, List, Optional, Sequence, Tuple
 
 SCHEMA_VERSION = 1
 MAX_REPLY_BYTES = 65536
-# The Bot API accepts 1-4096 characters in the sendMessage text field.
+# The Bot API accepts 1-4096 characters in the sendMessage text field and counts
+# them as UTF-16 code units, the same unit it uses for entity offsets.
 MAX_REPLY_CHARS = 4096
+# Telegram keeps an undelivered update for about a day, so a reply still owed
+# past that window is no longer an in-conversation answer worth tracking.
+RETAINED_REPLY_INTENT_SECONDS = 86400
 MAX_SEND_TIME = 300
 DOCTOR_REPLY_ATTENTION_LIMIT = 10
 REPLY_LABEL_COUNTS_SQL = (
@@ -1383,6 +1387,14 @@ def reset_success_conditions(conn: sqlite3.Connection) -> None:
     )
 
 
+def expire_reply_intents(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "DELETE FROM replies WHERE state = 'reserved' AND network_started = 0 "
+        "AND reserved_at < ?",
+        (now_epoch() - RETAINED_REPLY_INTENT_SECONDS,),
+    )
+
+
 def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
     failpoint("after_validate")
     conn.execute("BEGIN IMMEDIATE")
@@ -1429,6 +1441,7 @@ def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
             )
             failpoint("after_offset")
         reset_success_conditions(conn)
+        expire_reply_intents(conn)
         failpoint("before_commit")
         conn.commit()
         failpoint("after_commit")
@@ -1568,7 +1581,7 @@ def read_reply_body() -> Tuple[bytes, str]:
         raise UserError("reply text from stdin is not valid UTF-8")
     if not text:
         raise UserError("reply text from stdin must not be empty")
-    if len(text) > MAX_REPLY_CHARS:
+    if len(text.encode("utf-16-le")) // 2 > MAX_REPLY_CHARS:
         raise UserError(
             "reply text exceeds the Telegram limit of %d characters" % MAX_REPLY_CHARS
         )
@@ -1818,13 +1831,14 @@ def finish_reply(
         raise
 
 
-def release_reply(conn: sqlite3.Connection, update_id: int) -> None:
+def retain_reply_intent(conn: sqlite3.Connection, update_id: int) -> None:
     conn.execute("BEGIN IMMEDIATE")
     try:
         changed = conn.execute(
-            "DELETE FROM replies WHERE update_id = ? AND state = 'unknown' "
-            "AND network_started = 1",
-            (update_id,),
+            "UPDATE replies SET state = 'reserved', network_started = 0, updated_at = ?, "
+            "telegram_message_id = NULL, failure_detail = NULL "
+            "WHERE update_id = ? AND state = 'unknown' AND network_started = 1",
+            (now_epoch(), update_id),
         ).rowcount
         if changed != 1:
             raise LocalStateError("reply-reservation", repr(update_id))
@@ -1884,16 +1898,17 @@ def command_reply(state: Path, credential_path: Path, update_id_text: str) -> in
             finish_reply(conn, update_id, "unknown", failure_detail="delivery-unknown")
             raise UserError("delivery is unknown; automatic retry is refused")
         if http_code == 429:
-            release_reply(conn, update_id)
+            retain_reply_intent(conn, update_id)
             raise UserError(
-                "Telegram rate-limited the reply; it was not sent and can be attempted again"
+                "Telegram rate-limited the reply; it was not sent and is still owed - "
+                "send it explicitly again with: reply %d" % update_id
             )
         if http_code in (401, 404):
-            release_reply(conn, update_id)
+            retain_reply_intent(conn, update_id)
             raise UserError(
                 "Telegram refused the bot credentials or endpoint (http-%d); the reply was "
-                "not sent and can be attempted again after the configuration is corrected"
-                % http_code
+                "not sent and is still owed - send it explicitly again with: reply %d "
+                "once the configuration is corrected" % (http_code, update_id)
             )
         if 400 <= http_code < 500:
             finish_reply(conn, update_id, "failed", failure_detail="http-%d" % http_code)

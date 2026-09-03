@@ -2690,6 +2690,25 @@ assert_equal "$(db_query "$H_REPLY_LONG" "SELECT count(*) FROM replies")" 0 \
 limit_out=$(python3 -c 'print("y" * 4096, end="")' | reply_once "$H_REPLY_LONG" "$REPLY_LONG_ENV" \
   "$FIXTURES/reply-success.json")
 assert_contains "$limit_out" "sent: update_id=1101" "a reply at the Telegram limit was refused"
+
+H_REPLY_ASTRAL="$TMP_ROOT/reply-astral"
+REPLY_ASTRAL_ENV="$TMP_ROOT/reply-astral.env"
+arm_home "$H_REPLY_ASTRAL" "$REPLY_ASTRAL_ENV"
+poll_once "$H_REPLY_ASTRAL" "$REPLY_ASTRAL_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+astral_status=0
+astral_out=$(python3 -c 'print("\U0001F600" * 2049, end="")' | reply_once "$H_REPLY_ASTRAL" \
+  "$REPLY_ASTRAL_ENV" "$FIXTURES/reply-success.json" 2>&1) || astral_status=$?
+[ "$astral_status" -ne 0 ] || fail "a reply over the limit in UTF-16 code units reported success"
+assert_contains "$astral_out" "exceeds the Telegram limit" \
+  "the UTF-16 over-limit refusal was not actionable"
+assert_no_curl "a reply over the UTF-16 limit reached the network"
+assert_equal "$(db_query "$H_REPLY_ASTRAL" "SELECT count(*) FROM replies")" 0 \
+  "a reply over the UTF-16 limit created a reservation"
+astral_limit=$(python3 -c 'print("\U0001F600" * 2048, end="")' | reply_once "$H_REPLY_ASTRAL" \
+  "$REPLY_ASTRAL_ENV" "$FIXTURES/reply-success.json")
+assert_contains "$astral_limit" "sent: update_id=1101" \
+  "a reply exactly at the UTF-16 limit was refused"
 pass "reply text is bounded by the Telegram character limit before any reservation or send"
 
 H_REPLY_CONFIG="$TMP_ROOT/reply-config"
@@ -2719,15 +2738,47 @@ limited_out=$(printf 'throttled reply\n' | CURL_STUB_HTTP=429 reply_once "$H_REP
   "$REPLY_LIMITED_ENV" /dev/null 429 2>&1) || limited_status=$?
 [ "$limited_status" -ne 0 ] || fail "a rate-limited reply reported success"
 assert_contains "$limited_out" "rate-limited" "rate-limit refusal was not actionable"
-assert_equal "$(db_query "$H_REPLY_LIMITED" "SELECT count(*) FROM replies")" 0 \
-  "a rate-limited reply stayed durably unrecoverable"
-assert_contains "$(FM_HOME="$H_REPLY_LIMITED" "$ADAPTER" doctor)" "reply_count=0" \
-  "doctor reported a reply that was never sent"
+assert_contains "$limited_out" "reply 1101" \
+  "the rate-limit refusal did not name the exact reply to send again"
+assert_equal "$(db_query "$H_REPLY_LIMITED" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "reserved|0" \
+  "a rate-limited reply did not stay owed as a pre-network reservation"
+limited_doctor=$(FM_HOME="$H_REPLY_LIMITED" "$ADAPTER" doctor)
+assert_contains "$limited_doctor" "reply_reserved=1" "doctor lost the reply still owed"
+assert_contains "$limited_doctor" "reply.1101=reserved" \
+  "doctor did not name the reply still owed"
 limited_retry=$(printf 'throttled reply\n' | reply_once "$H_REPLY_LIMITED" "$REPLY_LIMITED_ENV" \
   "$FIXTURES/reply-success.json")
 assert_contains "$limited_retry" "sent: update_id=1101" \
   "an explicit attempt after a rate limit could not deliver the reply"
 pass "a Telegram rate limit is never sent, is nonzero, and permits one later explicit attempt"
+
+H_REPLY_EXPIRY="$TMP_ROOT/reply-owed-expiry"
+REPLY_EXPIRY_ENV="$TMP_ROOT/reply-owed-expiry.env"
+arm_home "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV"
+expiry_notice=$(poll_once "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" "$FIXTURES/replyable-text.json")
+expiry_status=0
+printf 'throttled reply\n' | CURL_STUB_HTTP=429 reply_once "$H_REPLY_EXPIRY" \
+  "$REPLY_EXPIRY_ENV" /dev/null 429 >/dev/null 2>&1 || expiry_status=$?
+[ "$expiry_status" -ne 0 ] || fail "the rate-limited reply reported success"
+assert_equal "$(db_query "$H_REPLY_EXPIRY" "SELECT count(*) FROM replies")" 1 \
+  "the rate-limited reply was not retained as owed"
+ack_result "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" "$expiry_notice" >/dev/null
+poll_once "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" "$FIXTURES/empty.json" >/dev/null
+assert_equal "$(db_query "$H_REPLY_EXPIRY" "SELECT count(*) FROM replies")" 1 \
+  "a poll dropped a reply that is still worth sending"
+db_exec "$H_REPLY_EXPIRY" \
+  "UPDATE replies SET reserved_at = reserved_at - 90000, updated_at = updated_at - 90000;"
+poll_once "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" "$FIXTURES/empty.json" >/dev/null
+assert_equal "$(db_query "$H_REPLY_EXPIRY" "SELECT count(*) FROM replies")" 0 \
+  "a reply owed past the retention bound was still tracked"
+assert_contains "$(FM_HOME="$H_REPLY_EXPIRY" "$ADAPTER" doctor)" "reply_count=0" \
+  "doctor still reported an expired reply intent"
+expiry_send=$(printf 'late but explicit\n' | reply_once "$H_REPLY_EXPIRY" "$REPLY_EXPIRY_ENV" \
+  "$FIXTURES/reply-success.json")
+assert_contains "$expiry_send" "sent: update_id=1101" \
+  "an expired intent blocked a later explicit reply"
+pass "a reply still owed is retained across polls and expires on the retention bound"
 
 for reply_bot_status in 401 404; do
   bot_home="$TMP_ROOT/reply-bot-$reply_bot_status"
@@ -2740,7 +2791,10 @@ for reply_bot_status in 401 404; do
   [ "$bot_status_code" -ne 0 ] || fail "http-$reply_bot_status reply reported success"
   assert_contains "$bot_out" "credentials or endpoint" \
     "http-$reply_bot_status refusal was not actionable"
-  assert_equal "$(db_query "$bot_home" "SELECT count(*) FROM replies")" 0 \
+  assert_contains "$bot_out" "reply 1101" \
+    "the http-$reply_bot_status refusal did not name the exact reply to send again"
+  assert_equal "$(db_query "$bot_home" \
+    "SELECT state, network_started FROM replies WHERE update_id=1101")" "reserved|0" \
     "http-$reply_bot_status left the reply permanently unanswerable"
   bot_retry=$(printf 'corrected credentials\n' | reply_once "$bot_home" "$bot_env" \
     "$FIXTURES/reply-success.json")
