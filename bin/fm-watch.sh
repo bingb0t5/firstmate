@@ -193,8 +193,8 @@ STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provabl
 # turn-ended and resets the age. Set generously above any legitimate interval
 # between completed turns, including long tool calls, builds, or test runs.
 BUSY_TURN_MAX_SECS=${FM_BUSY_TURN_MAX_SECS:-3600}
-# A local secondmate's foreign queue is checked on every poll, but only after this
-# bounded age can it produce a parent notification.
+# A local secondmate's foreign queue is checked on every poll, but only its oldest
+# non-parked row can produce a parent notification after this bounded age.
 SECONDMATE_WAKE_STALL_SECS=${FM_SECONDMATE_WAKE_STALL_SECS:-60}
 # A crew that declared a pause is idling on a known external wait, so its stale
 # pane is absorbed rather than wedge-escalated.
@@ -1155,8 +1155,8 @@ while :; do
   fm_pending_reply_tick "$STATE" || true
 
   # A live secondmate endpoint does not prove that its own wake loop is alive.
-  # Observe the foreign queue before the rest of this cycle so an aged row wakes
-  # the parent without consuming or rewriting the receiving home's record.
+  # Observe the foreign queue before the rest of this cycle so an aged non-parked
+  # row wakes the parent without consuming or rewriting the receiving home's record.
   secondmate_wake_stall_tick || {
     echo "watcher: secondmate wake-loop observation failed" >&2
     exit 1
