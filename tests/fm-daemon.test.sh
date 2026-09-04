@@ -270,7 +270,7 @@ test_handle_wake_paused_signal_records_pause_marker() {
 }
 
 test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
-  local dir state fakebin win key watcher_key recheck fixed back liveness_log
+  local dir state fakebin win key watcher_key recheck fixed back liveness_log state_read_log
   dir=$(make_supercase away-settled-pause)
   state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-away-settled"
   make_fake_crew_state "$fakebin" >/dev/null
@@ -324,7 +324,7 @@ test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
   [ -e "$state/.subsuper-stale-$key" ] || fail "failed run did not return to away-mode wedge tracking"
 
   dir=$(make_supercase away-secondmate-pause)
-  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-away-mate"; liveness_log="$dir/liveness.log"
+  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-away-mate"; liveness_log="$dir/liveness.log"; state_read_log="$dir/state-read.log"
   make_fake_crew_state "$fakebin" >/dev/null
   mkdir -p "$dir/wt"
   fm_write_meta "$state/away-mate.meta" "window=$win" "worktree=$dir/wt" "kind=secondmate" "backend=tmux"
@@ -333,11 +333,14 @@ test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
   (
     # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
     fm_backend_agent_alive() { printf 'called\n' >> "$liveness_log"; printf 'dead'; }
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    crew_supervision_record() { printf 'called\n' >> "$state_read_log"; printf 'done|run-step'; }
     FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
       FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
   )
   [ -e "$state/.subsuper-paused-$key" ] || fail "away secondmate captain hold lost its bounded recheck"
+  [ ! -e "$state_read_log" ] || fail "away settlement policy read secondmate authoritative state"
   [ ! -e "$liveness_log" ] || fail "away settlement policy read secondmate endpoint liveness"
   pass "away settlement is done-or-parked-only, expiring, and secondmate-safe"
 }

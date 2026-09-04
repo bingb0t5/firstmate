@@ -537,13 +537,13 @@ supervise_declared_wait_class() {  # <window> <state> [force]
     return
   fi
   [ -n "$kind" ] || kind=ship
+  if [ "$kind" = secondmate ]; then
+    printf 'paused'
+    return
+  fi
   [ -n "$target" ] || target=$win
   record=$(FM_STATE_OVERRIDE="$state" crew_supervision_record "$task")
-  if [ "$kind" != secondmate ]; then
-    agent_alive=$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null) || agent_alive=unknown
-  else
-    agent_alive=unknown
-  fi
+  agent_alive=$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null) || agent_alive=unknown
   class=$(declared_wait_class "$kind" "$record" "$agent_alive")
   if [ "$class" = none ] && [ "${record%%|*}" = unknown ]; then
     class=unconfirmed
