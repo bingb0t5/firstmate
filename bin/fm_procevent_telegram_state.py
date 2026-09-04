@@ -243,6 +243,9 @@ def failpoint(name: str) -> None:
 def synchronization_failpoint(name: str) -> None:
     if os.environ.get("FM_TELEGRAM_FAILPOINT") != name:
         return
+    arm = os.environ.get("FM_TELEGRAM_FAILPOINT_ARM")
+    if arm and not os.path.exists(arm):
+        return
     marker = os.environ.get("FM_TELEGRAM_FAILPOINT_MARKER")
     release = os.environ.get("FM_TELEGRAM_FAILPOINT_RELEASE")
     if not marker or not release:
@@ -697,6 +700,8 @@ def validate_store(conn: sqlite3.Connection) -> None:
         raise LocalStateError("migration-fingerprint", repr(migration_fingerprint))
     if migration_cause is not None and not MIGRATION_CAUSE_RE.fullmatch(migration_cause):
         raise LocalStateError("migration-cause", repr(migration_cause)[:80])
+    if migration_status == "blocked":
+        synchronization_failpoint("validation-after-meta")
     validate_resolution_extension(conn, migration_status)
     pending = conn.execute(
         "SELECT COUNT(*) FROM notices WHERE acknowledged_at IS NULL"
@@ -788,9 +793,15 @@ def connect_existing(state: Path) -> sqlite3.Connection:
         uri = "file:%s?mode=rw" % urllib.parse.quote(database.as_posix(), safe="")
         conn = sqlite3.connect(uri, uri=True, isolation_level=None, timeout=5)
         configure_connection(conn)
-        verify_integrity(conn)
         ensure_reply_schema(conn)
-        validate_store(conn)
+        conn.execute("BEGIN")
+        try:
+            verify_integrity(conn)
+            validate_store(conn)
+        except Exception:
+            conn.rollback()
+            raise
+        conn.commit()
         return conn
     except LocalStateError:
         raise
@@ -3409,6 +3420,7 @@ def command_resolve_migration(
             failpoint("after_resolution_meta")
             verify_integrity(conn)
             validate_store(conn)
+            synchronization_failpoint("resolution-before-commit")
             failpoint("before_resolution_commit")
             conn.commit()
             failpoint("after_resolution_commit")
