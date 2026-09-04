@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Steer a task by durable record: write the message into the task's steering
 # inbox and ring a constant doorbell line into its terminal, best-effort.
-# Usage: fm-send.sh <target> [--resolve-key <key>]... <text...>
+# Usage: fm-send.sh <target> [--inbox-only] [--resolve-key <key>]... <text...>
 #   <target> may be an exact task id, a legacy fm-<id> task label resolved
 #   through this home's state/<id>.meta, or an explicit well-formed backend
 #   target. fm-send refuses unresolved guesses rather than falling back to a
@@ -162,9 +162,11 @@
 # delivered answer whose closing append fails exits nonzero with the exact
 # manual close command, leaving the decision open to re-surface (the safe
 # direction). A send without the flag never closes anything: a routine steer,
-# working:, or done: event still cannot clear a captain decision. The flag is
+# working:, or done: event still cannot clear a captain decision. The flags are
 # refused with --key, with an explicit backend target (no task ledger in this
-# home), and with an empty message.
+# home), and with an empty message. --inbox-only forces a task-selector text
+# steer onto the durable inbox plane even when its body starts with "/" or "$";
+# without it, the existing shape-based routing is unchanged.
 #
 # After a successful TYPED-plane submit fm-send pauses FM_SEND_SETTLE seconds
 # (default 1, 0 disables) before returning: submit confirmation only proves the
@@ -417,10 +419,11 @@ if [ -n "$TARGET_META" ]; then
   fi
 fi
 
-# Collect --resolve-key flags (answerer-closes; see the header contract). They
-# must precede --key or the message text; everything after the last flag is the
+# Collect text flags (answerer-closes; see the header contract). They must
+# precede --key or the message text; everything after the last flag is the
 # message exactly as before, so ordinary sends are byte-identical.
 RESOLVE_KEYS=
+INBOX_ONLY=0
 fm_send_add_resolve_key() {  # <key>
   local k=$1
   case "$k" in
@@ -439,6 +442,10 @@ fm_send_add_resolve_key() {  # <key>
 }
 while :; do
   case "${1:-}" in
+    --inbox-only)
+      INBOX_ONLY=1
+      shift
+      ;;
     --resolve-key)
       [ $# -ge 2 ] || { echo "error: --resolve-key requires a key" >&2; exit 1; }
       fm_send_add_resolve_key "$2" || exit 1
@@ -451,6 +458,19 @@ while :; do
     *) break ;;
   esac
 done
+
+if [ "$INBOX_ONLY" = 1 ] && [ -z "$TARGET_SELECTOR" ]; then
+  echo "error: --inbox-only needs a task selector resolved through this home's metadata; an explicit backend target has no durable steering inbox here" >&2
+  exit 1
+fi
+if [ "${1:-}" = "--key" ] && [ "$INBOX_ONLY" = 1 ]; then
+  echo "error: --inbox-only cannot accompany --key; it applies to text steers only" >&2
+  exit 1
+fi
+if [ "$INBOX_ONLY" = 1 ] && [ -z "$*" ]; then
+  echo "error: --inbox-only requires a nonempty text steer" >&2
+  exit 1
+fi
 
 if [ "$TARGET_BACKEND" != remote ]; then
   fm_backend_validate "$TARGET_BACKEND" || exit 1
@@ -675,10 +695,11 @@ else
       exit 1
     fi
   fi
-  # Data-plane selection (see the header): text addressed to a task selector
-  # resolved through this home's metadata rides the inbox plane, unless it is
-  # a LOCAL harness-native invocation that must reach the harness's own parser
-  # - a leading "/" (slash command), or a leading "$" to a codex target (skill
+  # Data-plane selection (see the header): --inbox-only pins text addressed to
+  # a task selector resolved through this home's metadata to the inbox plane.
+  # Without that flag, the existing shape-based carve-outs remain: a LOCAL
+  # harness-native invocation that must reach the harness's own parser - a
+  # leading "/" (slash command), or a leading "$" to a codex target (skill
   # invocation). A remote secondmate selector always rides the inbox: its
   # requests are marked, and a marked request reaches the harness as
   # marker-prefixed chat rather than a parser command anyway, so no remote
@@ -690,7 +711,9 @@ else
   # promise that a marked parser-native secondmate request executes as a parser
   # command: the pre-existing marker-first wire bytes are retained in stage 1.
   INBOX_PLANE=0
-  if [ -n "$TARGET_SELECTOR" ]; then
+  if [ "$INBOX_ONLY" = 1 ]; then
+    INBOX_PLANE=1
+  elif [ -n "$TARGET_SELECTOR" ]; then
     if [ "$TARGET_BACKEND" = remote ]; then
       INBOX_PLANE=1
     else

@@ -20,8 +20,10 @@
 #      body, and the pending-reply expectation is marked delivered at enqueue.
 #   8. Pending-reply bookkeeping failure after enqueue never reports a
 #      retryable send failure that could duplicate the durable instruction.
-#   9. An unwritable inbox is a real local failure: nonzero exit, nothing
-#      typed, and a just-created pending-reply expectation is discarded.
+#   9. An explicit --inbox-only flag routes slash- and dollar-prefixed task
+#      steers through the durable inbox instead of the typed plane.
+#   10. An unwritable inbox is a real local failure: nonzero exit, nothing
+#       typed, and a just-created pending-reply expectation is discarded.
 # Every case below that passes a literal `$...` message quotes it on purpose
 # (the point is sending an unexpanded `$` line), so SC2016 is disabled.
 # shellcheck disable=SC2016
@@ -221,6 +223,29 @@ test_explicit_target_stays_typed() {
   pass "fm-send planes: an explicit backend target keeps the typed plane"
 }
 
+test_inbox_only_overrides_shape_routing() {
+  local dir err rc body
+
+  dir=$(setup_case inbox-only-slash); err="$dir/send.err"
+  run_send "$dir" "$err" -- t1 --inbox-only "/no-mistakes"; rc=$?
+  expect_code 0 "$rc" "--inbox-only should route a slash-prefixed steer through the inbox"
+  body=$(record_body _ "$dir/home/state/t1.inbox/001.msg")
+  [ "$body" = "/no-mistakes" ] || fail "--inbox-only changed the slash body: $body"
+  case "$(cat "$dir/send.log")" in
+    *"/no-mistakes"*) fail "--inbox-only typed the slash-prefixed payload" ;;
+  esac
+
+  dir=$(setup_case inbox-only-dollar codex); err="$dir/send.err"
+  run_send "$dir" "$err" -- t1 --inbox-only '$no-mistakes'; rc=$?
+  expect_code 0 "$rc" "--inbox-only should route a dollar-prefixed steer through the inbox"
+  body=$(record_body _ "$dir/home/state/t1.inbox/001.msg")
+  [ "$body" = '$no-mistakes' ] || fail "--inbox-only changed the dollar body: $body"
+  case "$(cat "$dir/send.log")" in
+    *'$no-mistakes'*) fail "--inbox-only typed the dollar-prefixed payload" ;;
+  esac
+  pass "fm-send planes: --inbox-only pins slash and codex dollar steers to the durable inbox"
+}
+
 test_key_path_never_touches_inbox() {
   local dir err
   dir=$(setup_case keypath); err="$dir/send.err"
@@ -345,6 +370,7 @@ test_pending_composer_skips_ring_advisorily
 test_failed_ring_is_still_sent
 test_harness_invocations_stay_typed
 test_explicit_target_stays_typed
+test_inbox_only_overrides_shape_routing
 test_key_path_never_touches_inbox
 test_secondmate_marker_and_enqueue_delivery
 test_post_enqueue_bookkeeping_failure_is_not_retryable
