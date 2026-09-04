@@ -1,0 +1,7 @@
+ok - away settlement is done-or-parked-only, expiring, and secondmate-safe
+ok - away housekeeping absorbs migrated settled pauses without refreshing their cache
+ok - housekeeping reclassifies nonsettled declared waits only at the stale deadline
+ok - housekeeping re-surfaces a stale declared pause on the long cadence and resets its window
+ok - housekeeping re-surfaces a forgotten captain hold on the long cadence and resets its window
+ok - persistent stale escalates after threshold and clears its marker
+ok - housekeeping clears a paused marker whose pane became busy again, without escalating

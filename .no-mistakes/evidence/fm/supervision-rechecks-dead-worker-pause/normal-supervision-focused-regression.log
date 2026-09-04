@@ -1,0 +1,8 @@
+ok - shared declared-wait classification preserves authoritative state and settles only dead done or parked lanes
+ok - dead-agent completed and captain-held panes stay quiet while a live decision gate still surfaces once
+ok - changing hashes preserve failed, live, and unconfirmed declared-wait rechecks
+ok - a declared paused secondmate re-surfaces on the bounded normal-mode cadence
+ok - a captain-held secondmate re-surfaces on the bounded normal-mode cadence
+ok - provably-working non-terminal stale is absorbed on first sight, then wedge-escalated past the threshold
+ok - a busy worker whose pane hash changes every poll still escalates once its completed-turn age reaches the bound
+ok - a paused status overridden by authoritative working preserves its wedge timer and escalates
