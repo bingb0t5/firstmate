@@ -1210,7 +1210,7 @@ test_changed_hash_rearms_preserve_nonsettled_declared_waits() {
         set_mtime "$back" "$state/.paused-rechecked-$key"
         ;;
       unconfirmed)
-        command=sleep
+        command='sleep'
         verdict='state: paused · source: status-log · waiting on a genuine external dependency'
         ;;
     esac
