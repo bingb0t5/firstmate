@@ -1,0 +1,14 @@
+USER-VISIBLE CHECKPOINT TRANSCRIPT
+Scenario: busy secondmate with four 10-minute-old declared external-wait rechecks
+Foreign queue rows observed: 4
+Parent alerts across four checkpoints: <none>
+Parent durable wake rows across four checkpoints: 0
+Foreign queue after parent observation: unchanged (acdfd0bf0730baf74bcd390d40db05f9c27ae2ff54f319c99da8b1d817d12223)
+
+After adding a genuine wedge behind the parked rows:
+check: secondmate wake-loop stalled: mate=mate row=5 age=604s
+Foreign queue after wedge observation: unchanged (196d39da48ec1c4fa2dab1836f10e5bfb9f07342a202762b9996803e3461ebb1)
+
+After the mate handles the wedge, the captain-held decision remains eligible:
+check: secondmate wake-loop stalled: mate=mate row=6 age=606s
+Foreign queue after decision-gate observation: unchanged (4fa2dc464ad989d7ece27c129fdd5b39074029be2ff428b09d0c30655efa2404)

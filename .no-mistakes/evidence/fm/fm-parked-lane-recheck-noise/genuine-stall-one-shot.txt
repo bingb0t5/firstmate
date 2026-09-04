@@ -1,0 +1,1 @@
+ok - foreign secondmate queue stalls notify once, remain byte-stable, and stay quiet when empty or healthy

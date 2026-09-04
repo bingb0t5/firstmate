@@ -1,0 +1,1 @@
+ok - exited declared-pause and captain-held panes use bounded pause cadence while a live decision gate still surfaces once
