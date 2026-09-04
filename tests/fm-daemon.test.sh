@@ -303,6 +303,19 @@ test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
   [ ! -e "$state/.subsuper-paused-$key" ] || fail "away settlement retained a long-cadence pause marker"
   [ ! -s "$state/.subsuper-escalations" ] || fail "away settlement escalated a completed lane"
 
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$back" "$recheck"; fi
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: parked · source: run-step · captain gate frozen' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ "$(cat "$recheck" 2>/dev/null || true)" = settled ] || fail "away mode did not settle a dead parked lane"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "away settlement escalated a parked lane"
+
   fixed=$(( $(date +%s) - 30 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$fixed" '+%Y%m%d%H%M.%S')" "$recheck"
   else touch -m -d "@$fixed" "$recheck"; fi
@@ -353,7 +366,7 @@ test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
   [ -e "$state/.subsuper-paused-$key" ] || fail "away secondmate captain hold lost its bounded recheck"
   [ ! -e "$state_read_log" ] || fail "away settlement policy read secondmate authoritative state"
   [ ! -e "$liveness_log" ] || fail "away settlement policy read secondmate endpoint liveness"
-  pass "away settlement is completed-only, expiring, and secondmate-safe"
+  pass "away settlement is completed-or-parked, expiring, and secondmate-safe"
 }
 
 test_housekeeping_settles_migrated_dead_completed_pause() {
@@ -632,6 +645,35 @@ test_housekeeping_pause_marker_transitions_to_clear() {
   [ ! -e "$state/.subsuper-stale-$key" ] || fail "resume retained normal stale tracking"
   [ ! -s "$state/.subsuper-escalations" ] || fail "resuming from pause escalated immediately"
   pass "housekeeping clears tracking when a crew leaves pause"
+}
+
+test_housekeeping_migration_seeds_working_stale_once() {
+  local dir state fakebin task win pane marker state_read_log
+  dir=$(make_supercase migrate-working-declared-wait)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  task=migrate-working; win="sess:fm-$task"; pane="$dir/pane.txt"
+  marker="$state/.subsuper-stale-$(_stale_key "$task")"
+  state_read_log="$dir/state-read.log"
+  mkdir -p "$dir/wt"
+  fm_write_meta "$state/$task.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
+  printf 'paused: waiting while validation runs\n' > "$state/$task.status"
+  printf 'idle prompt $\n' > "$pane"
+
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    crew_supervision_record() { printf '%s\n' "$1" >> "$state_read_log"; printf 'working|run-step'; }
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    fm_backend_agent_alive() { printf 'dead'; }
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+      FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+      FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+  )
+  [ "$(wc -l < "$state_read_log" | tr -d ' ')" = 1 ] \
+    || fail "working declared wait was reclassified on every migration tick"
+  [ -e "$marker" ] || fail "working declared wait migration did not seed bounded stale tracking"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "working declared wait escalated before its stale deadline"
+  pass "migration classifies working declared waits once before bounded stale tracking"
 }
 
 test_housekeeping_working_declared_wait_rechecks_only_when_due() {
@@ -2182,6 +2224,7 @@ test_handle_wake_terminal_signal_clears_pause_tracking
 test_housekeeping_migrates_watcher_pause_marker
 test_housekeeping_migrates_watcher_unpaused_marker_to_clear
 test_housekeeping_seeds_pause_marker_from_status
+test_housekeeping_migration_seeds_working_stale_once
 test_housekeeping_working_declared_wait_rechecks_only_when_due
 test_housekeeping_failed_declared_wait_uses_pause_cadence
 test_housekeeping_persistent_stale_escalates

@@ -679,7 +679,7 @@ clear_pause_tracking() {  # <window-key>
 
 # Reconcile a declared pause or captain-held status with authoritative crew state.
 # A genuine external wait remains bounded, but a non-secondmate whose authoritative
-# state is done and whose agent is dead is settled silently because the completed
+# state is done or parked and whose agent is dead is settled silently because the
 # lane has no worker left to recheck. A live agent
 # returns `live` so its decision gate still gets the same bounded re-surface after
 # the first wake. A secondmate earns `paused` from its declaration alone because its

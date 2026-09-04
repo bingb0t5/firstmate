@@ -48,7 +48,7 @@
 #     paused: external wait or a verified captain-held transfer, per
 #     fm-classify-lib.sh's combined predicate - instead gets its own longer
 #     PAUSE_RESURFACE_SECS recheck, never a wedge escalation. A confidently dead
-#     completed ordinary lane settles under an expiring classification.
+#     completed or parked ordinary lane settles under an expiring classification.
 #     Crewmates are autonomous, so a delayed stale response does not stall a
 #     healthy crewmate's own progress.
 #     Buffered escalation delivery also has a max-defer alarm: if a digest stays
@@ -589,6 +589,11 @@ reconcile_pause_tracking() {  # <window> <state> <last-status-line> [force]
           escalate_add "$state" "declared wait state requires inspection: $win"
         fi
         return 0
+        ;;
+      working)
+        clear_pause_state_for_stale "$win" "$state"
+        stale_marker_record "$win" "$state"
+        return 1
         ;;
       *)
         clear_pause_state_for_stale "$win" "$state"

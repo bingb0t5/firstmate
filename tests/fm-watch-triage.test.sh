@@ -384,8 +384,8 @@ test_crew_absorb_class_classifier() {
     || fail "live completed lane lost its decision-gate classification"
   FM_FAKE_CREW_STATE='state: parked · source: run-step · captain gate'
   [ "$(crew_supervision_record a)" = 'parked|run-step' ] || fail "parked state was collapsed before declared-wait classification"
-  [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = none ] \
-    || fail "dead parked authority gate was silently settled"
+  [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = settled ] \
+    || fail "dead parked lane did not classify settled"
   [ "$(declared_wait_class secondmate "$(crew_supervision_record a)" unknown)" = paused ] \
     || fail "secondmate captain-held semantics were replaced by ordinary settlement"
   FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed'
@@ -397,7 +397,7 @@ test_crew_absorb_class_classifier() {
     || fail "ambiguous external wait did not retain fail-open classification"
   [ "$(crew_absorb_class "")" = none ] || fail "empty id not classed none"
   unset FM_FAKE_CREW_STATE
-  pass "shared declared-wait classification preserves authoritative state and settles only dead completed lanes"
+  pass "shared declared-wait classification preserves authoritative state and settles dead completed or parked lanes"
 }
 
 # The wedge detector's third liveness input: writes inside the crew's own recorded
@@ -1112,11 +1112,15 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 100 || { reap "$pid"; fail "parked authority gate was silently settled"; }
-  grep -F "stale: $window" "$state/.wake-queue" >/dev/null \
-    || fail "parked authority gate did not surface an actionable stale wake"
-  [ "$(cat "$state/.paused-rechecked-$key" 2>/dev/null || true)" != settled ] \
-    || fail "parked authority gate was marked settled"
+  wait_poll_cycle "$state" "$pid" || {
+    reap "$pid"
+    fail "dead-agent parked lane did not complete a settled poll cycle"
+  }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge parked-lane watcher cycle"
+  [ ! -s "$state/.wake-queue" ] || fail "dead-agent parked lane produced a stale wake"
+  [ "$(cat "$state/.paused-rechecked-$key" 2>/dev/null || true)" = settled ] \
+    || fail "dead-agent parked lane did not cache its settled classification"
 
   dir=$(make_case exited-captain-held-unknown); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
@@ -1210,7 +1214,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   bare=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
   [ "$wakes" -eq 0 ] || fail "acknowledged external-decision surface replayed $wakes wakes"
   [ "$bare" -eq 0 ] || fail "acknowledged external-decision bare stale remained queued"
-  pass "completed panes settle while parked, captain-held, and live gates stay actionable"
+  pass "completed and parked panes settle while captain-held and live gates stay actionable"
 }
 
 test_changed_hash_rearms_preserve_nonsettled_declared_waits() {

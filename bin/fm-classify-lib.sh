@@ -1199,7 +1199,7 @@ crew_supervision_record() {  # <id>
 
 # Classify a declared wait from the preserved current-state record, task kind,
 # and backend agent liveness. Only a confidently dead ordinary agent on a done
-# lane is settled. A secondmate keeps its declaration cadence without an
+# or parked lane is settled. A secondmate keeps its declaration cadence without an
 # endpoint-liveness read, while trusted work and a live ordinary agent retain
 # their existing working and decision-gate paths.
 declared_wait_class() {  # <kind> <state|source> <alive|dead|unknown>
@@ -1217,7 +1217,7 @@ declared_wait_class() {  # <kind> <state|source> <alive|dead|unknown>
     alive) printf 'live' ;;
     dead)
       case "$state" in
-        done) printf 'settled' ;;
+        done|parked) printf 'settled' ;;
         paused|unknown) printf 'paused' ;;
         *) printf 'none' ;;
       esac

@@ -6,11 +6,11 @@
 # and nothing when they silently resume, so `tail -1` of that log reports the
 # last EVENT, not the current STATE. After firstmate resolves a needs-decision
 # or blocked and the crew resumes (responds to the gate, the pipeline fixes, it
-# re-validates), the log's last line stays stale. This helper never infers the
-# current state from a tail of the log: it reads the authoritative source (a
+# re-validates), the log's last line stays stale. This helper does not treat that
+# latest event alone as current state: it reads the authoritative source (a
 # no-mistakes run-step attributed to this crew's branch and current code
 # identity, else the pane busy-signature) and reconciles the possibly-stale log
-# against it.
+# history against it.
 #
 # The determinism lives entirely here - only run-step / pane / log reads plus
 # fixed mapping logic, no heuristics and no LLM. Output is one stable, parseable,
@@ -48,11 +48,13 @@
 #      agree, and are reported as parked.
 #   4. No run for this crew (pre-validation, or kind=scout): fall back to the
 #      recorded backend's pane busy state, then the status log's last line only
-#      when its verb maps to a recognized run-state. Decision-only events such as
+#      when its verb maps to a recognized run-state, preserving a directly prior
+#      completion across a post-completion wait. Decision-only events such as
 #      `resolved` never become current state or detail.
-#   5. Missing meta or torn-down worktree: report unknown · none. If no run is
-#      attributed to this crew, a dead endpoint also reports unknown · none rather
-#      than trusting a stale status log.
+#   5. Missing meta or torn-down worktree: report unknown · none, except for a
+#      completed event immediately followed by a declared post-completion wait.
+#      If no run is attributed to this crew, a dead endpoint also reports unknown ·
+#      none rather than trusting a stale status log, with the same exception.
 #
 # Read-only and side-effect free. Always exits 0 on a successful read regardless
 # of state; exit 2 only on a usage error (no id).
@@ -111,28 +113,25 @@ HARNESS=$(meta_value harness)
 REMOTE_HOST=$(meta_value remote_host)
 [ -n "$KIND" ] || KIND=ship
 
-# A torn-down (or never-created) worktree has no current state to read. A
-# remote secondmate's recorded worktree is a path on ITS host, so the local
-# probe proves nothing for it - the remote arm below reads the true source.
-if [ -z "$REMOTE_HOST" ] && { [ -z "$WT" ] || [ ! -d "$WT" ]; }; then
-  emit unknown none "worktree gone (torn down?)"
-fi
-
 # --- status log ------------------------------------------------------------
 
-# Last non-empty status line, and its leading verb (the word before the colon).
-log_last_line() {
+# Last two non-empty status lines, and the current line's leading verb.
+log_last_two_lines() {
   [ -f "$LOG" ] || return 1
-  grep -v '^[[:space:]]*$' "$LOG" 2>/dev/null | tail -1
+  grep -v '^[[:space:]]*$' "$LOG" 2>/dev/null | tail -2
 }
 # Map a status-log verb onto a canonical state for the fallback path. `paused` is
 # the deliberate-external-wait verb (fm-classify-lib.sh's FM_CLASSIFY_PAUSED_VERB):
 # a crew with no active run and an idle pane that declared a known external wait
 # reports `paused` distinctly, so a supervisor reading this sees a declared pause
 # and its reason rather than a wedge-suspect idle.
-map_log_state() {  # <line>
+map_log_state() {  # <line> [previous-line]
   if status_is_paused "$1"; then
-    echo paused
+    if [ "$(status_line_verb "${2:-}")" = done ]; then
+      echo done
+    else
+      echo paused
+    fi
     return
   fi
   case "$(status_line_verb "$1")" in
@@ -145,8 +144,27 @@ map_log_state() {  # <line>
   esac
 }
 
-LOG_LINE=$(log_last_line || true)
+LOG_PREVIOUS_LINE=
+LOG_LINE=
+while IFS= read -r status_line; do
+  LOG_PREVIOUS_LINE=$LOG_LINE
+  LOG_LINE=$status_line
+done < <(log_last_two_lines || true)
 LOG_VERB=$(status_line_verb "$LOG_LINE")
+POST_COMPLETION_PAUSE=0
+if status_is_paused "$LOG_LINE" && [ "$(status_line_verb "$LOG_PREVIOUS_LINE")" = done ]; then
+  POST_COMPLETION_PAUSE=1
+fi
+
+# A torn-down (or never-created) worktree has no current state to read. A
+# remote secondmate's recorded worktree is a path on ITS host, so the local
+# probe proves nothing for it - the remote arm below reads the true source.
+if [ -z "$REMOTE_HOST" ] && { [ -z "$WT" ] || [ ! -d "$WT" ]; }; then
+  if [ "$POST_COMPLETION_PAUSE" = 1 ]; then
+    emit done status-log "$(status_line_note "$LOG_LINE")"
+  fi
+  emit unknown none "worktree gone (torn down?)"
+fi
 
 # --- remote secondmate: the true source is the remote endpoint ---------------
 # A remote mate's recorded worktree and backend target live on its own host, so
@@ -168,7 +186,7 @@ if [ -n "$REMOTE_HOST" ]; then
   case "$REMOTE_STATE" in
     alive)
       if [ -n "$LOG_VERB" ]; then
-        LOG_STATE=$(map_log_state "$LOG_LINE")
+        LOG_STATE=$(map_log_state "$LOG_LINE" "$LOG_PREVIOUS_LINE")
         if [ "$LOG_STATE" != unknown ]; then
           emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")${SEP}remote endpoint alive on $REMOTE_HOST"
         fi
@@ -598,7 +616,7 @@ if [ "$KIND" != secondmate ]; then
   case "${BUSY_VERDICT%% *}" in
     busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
     idle) ;;
-    *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
+    *) [ "$POST_COMPLETION_PAUSE" = 1 ] || emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
   esac
 fi
 
@@ -613,7 +631,7 @@ fi
 # the verb->state mapping (including the configurable paused verb), so reusing its
 # `unknown` verdict as the "not a state" test needs no second verb list here.
 if [ -n "$LOG_VERB" ]; then
-  LOG_STATE=$(map_log_state "$LOG_LINE")
+  LOG_STATE=$(map_log_state "$LOG_LINE" "$LOG_PREVIOUS_LINE")
   if [ "$LOG_STATE" != unknown ]; then
     emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")"
   fi
