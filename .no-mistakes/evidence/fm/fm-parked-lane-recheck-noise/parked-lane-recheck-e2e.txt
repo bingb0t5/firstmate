@@ -1,0 +1,23 @@
+BASELINE: four aged declared external-wait rechecks while the second mate is validating another lane
+checkpoint exit: 0
+parent-visible output: check: secondmate wake-loop stalled: mate=mate row=1 age=601s
+parent durable notifications:
+1788543108 | 1 | check | secondmate-wake-loop-mate-1788542507-1 | check: secondmate wake-loop stalled: mate=mate row=1 age=601s
+
+TARGET: same four aged declared external-wait rechecks
+checkpoint exit: 124
+parent-visible output: checkpoint: no actionable wake within 2s
+parent durable notification count: 0
+foreign queue unchanged: yes
+
+TARGET: a genuine wedge is queued behind the parked rows
+checkpoint exit: 0
+parent-visible output: check: secondmate wake-loop stalled: mate=mate row=5 age=600s
+foreign queue unchanged: yes
+
+TARGET: after the mate handles the wedge, a captain-held decision remains behind the parked rows
+checkpoint exit: 0
+parent-visible output: check: secondmate wake-loop stalled: mate=mate row=6 age=603s
+foreign queue unchanged: yes
+
+RESULT: parked external-wait rechecks are quiet; genuine wedges and captain-held decisions still reach the parent; every parent observation is read-only.
