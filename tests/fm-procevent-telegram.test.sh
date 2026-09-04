@@ -27,20 +27,87 @@ cat > "$FAKEBIN/curl" <<'SH'
 #!/usr/bin/env bash
 set -u
 config=$(cat)
+first_argument=${1:-}
 if [ -n "${CURL_STUB_CALL_LOG:-}" ]; then
   printf '%s\n' "$config" >> "$CURL_STUB_CALL_LOG"
 fi
 if [ -n "${CURL_STUB_CAPTURE:-}" ]; then
   printf '%s\n' "$config" > "$CURL_STUB_CAPTURE"
 fi
-if [ -n "${CURL_STUB_BULK_BYTES:-}" ]; then
+send_request=0
+send_data_fd=
+send_body=
+write_format=
+previous_argument=
+for argument in "$@"; do
+  [ "$previous_argument" = "--data-binary" ] && send_data_fd=$argument
+  [ "$previous_argument" = "-w" ] && write_format=$argument
+  [ "$argument" = "--data-binary" ] && send_request=1
+  previous_argument=$argument
+done
+
+if [ "$send_request" -eq 1 ] && [ -n "$send_data_fd" ]; then
+  send_body=$(cat "${send_data_fd#@}")
+fi
+
+# Render curl's --write-out format the way curl does, so a caller that escapes
+# the http_code directive incorrectly gets the literal text curl would emit.
+emit_write_out() {
+  local format=$1 code=$2 rendered=""
+  while [ -n "$format" ]; do
+    case "$format" in
+      '\n'*)            rendered="$rendered
+"; format=${format:2} ;;
+      '%%'*)            rendered="$rendered%"; format=${format:2} ;;
+      '%{http_code}'*)  rendered="$rendered$code"; format=${format:12} ;;
+      *)                rendered="$rendered${format:0:1}"; format=${format:1} ;;
+    esac
+  done
+  printf '%s' "$rendered"
+}
+if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_CAPTURE:-}" ]; then
+  printf '%s' "$send_body" > "$CURL_STUB_SEND_CAPTURE"
+fi
+if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_ATTEMPTS:-}" ]; then
+  printf 'send\n' >> "$CURL_STUB_SEND_ATTEMPTS"
+  if [ -n "${CURL_STUB_AMBIENT_TRACE:-}" ] && [ "$first_argument" != "-q" ]; then
+    printf '%s' "$send_body" > "$CURL_STUB_AMBIENT_TRACE"
+    printf 'send\n' >> "$CURL_STUB_SEND_ATTEMPTS"
+  fi
+fi
+if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SLEEP:-}" ]; then
+  sleep "$CURL_STUB_SLEEP"
+  [ -n "${CURL_STUB_TIMEOUT:-}" ] && exit 28
+fi
+if [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_ECHO_TEXT:-}" ]; then
+  printf '%s' "$send_body" | python3 -c '
+import json
+import sys
+import urllib.parse
+
+request = urllib.parse.parse_qs(sys.stdin.read(), strict_parsing=True)
+reply_parameters = json.loads(request["reply_parameters"][0])
+response = {
+    "ok": True,
+    "result": {
+        "message_id": 8801,
+        "chat": {"id": int(request["chat_id"][0])},
+        "reply_to_message": {"message_id": reply_parameters["message_id"]},
+        "text": request["text"][0].strip(),
+    },
+}
+json.dump(response, sys.stdout, separators=(",", ":"))
+'
+elif [ "$send_request" -eq 1 ] && [ -n "${CURL_STUB_SEND_BODY:-}" ]; then
+  cat "$CURL_STUB_SEND_BODY"
+elif [ -n "${CURL_STUB_BULK_BYTES:-}" ]; then
   head -c "$CURL_STUB_BULK_BYTES" /dev/zero | tr '\0' 'x'
 elif [ -n "${CURL_STUB_BODY:-}" ]; then
   cat "$CURL_STUB_BODY"
 fi
 case "${CURL_STUB_TRAILER:-full}" in
-  full)    printf '\n%s' "${CURL_STUB_HTTP:-200}" ;;
-  partial) printf '\n%s' "$(printf '%s' "${CURL_STUB_HTTP:-200}" | cut -c1-2)" ;;
+  full)    emit_write_out "$write_format" "${CURL_STUB_HTTP:-200}" ;;
+  partial) emit_write_out "$write_format" "$(printf '%s' "${CURL_STUB_HTTP:-200}" | cut -c1-2)" ;;
   absent)  ;;
 esac
 exit "${CURL_STUB_EXIT:-0}"
@@ -64,6 +131,28 @@ fixture() {
 
 fixture one-text \
   '{"ok":true,"result":[{"update_id":1001,"message":{"date":1700000000,"chat":{"id":555},"from":{"id":909},"text":"ahoy from the captain"}}]}'
+fixture replyable-text \
+  '{"ok":true,"result":[{"update_id":1101,"message":{"message_id":771,"date":1700000000,"chat":{"id":555},"from":{"id":909},"text":"reply to this"}}]}'
+fixture reply-success \
+  '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":771},"text":"reply"}}'
+fixture reply-wrong-chat \
+  '{"ok":true,"result":{"message_id":8801,"chat":{"id":556},"reply_to_message":{"message_id":771},"text":"shape check"}}'
+fixture reply-wrong-message \
+  '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":772},"text":"shape check"}}'
+fixture reply-wrong-text \
+  '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":771},"text":"different reply"}}'
+fixture reply-missing-text \
+  '{"ok":true,"result":{"message_id":8801,"chat":{"id":555},"reply_to_message":{"message_id":771}}}'
+fixture reply-malformed '{"ok":true,"result":{"message_id":8801}}'
+fixture legacy-redelivery \
+  '{"ok":true,"result":[{"update_id":3302,"message":{"message_id":4402,"date":5,"chat":{"id":555},"from":{"id":909},"text":"legacy receipt"}}]}'
+fixture legacy-redelivery-changed \
+  '{"ok":true,"result":[{"update_id":3302,"message":{"message_id":4402,"date":5,"chat":{"id":555},"from":{"id":909},"text":"rewritten by someone else"}}]}'
+fixture foreign-unusable-message-id \
+  '{"ok":true,"result":[{"update_id":1201,"message":{"message_id":0,"date":1,"chat":{"id":777},"from":{"id":888},"text":"another chat"}},{"update_id":1202,"message":{"message_id":772,"date":2,"chat":{"id":555},"from":{"id":909},"text":"captain in the same batch"}}]}'
+fixture captain-unusable-message-id \
+  '{"ok":true,"result":[{"update_id":1301,"message":{"message_id":0,"date":1,"chat":{"id":555},"from":{"id":909},"text":"captain without usable message identity"}}]}'
+fixture reply-api-failure '{"ok":false,"error_code":400,"description":"bad request"}'
 fixture next-text \
   '{"ok":true,"result":[{"update_id":1002,"message":{"date":1700000001,"chat":{"id":555},"from":{"id":909},"text":"second captain message"}}]}'
 fixture two-text \
@@ -2289,6 +2378,878 @@ assert_equal "$(FM_HOME="$H_E2E" "$ADAPTER" classify "$E2E_RESULT")" none \
   "fully handled runner capture remained actionable"
 FM_HOME="$H_E2E" "$ROOT/bin/fm-procevent.sh" retire telegram >/dev/null
 pass "the real runner captures a stable notice whose payload and two acknowledgements complete end to end"
+
+# --- bound outbound reply transaction ---------------------------------------
+reply_once() {
+  local home=$1 env_file=$2 response=$3 http=${4:-200}
+  local echo_text=
+  [ "$response" = "$FIXTURES/reply-success.json" ] && echo_text=1
+  CURL_STUB_SEND_BODY="$response" CURL_STUB_SEND_ECHO_TEXT="$echo_text" CURL_STUB_HTTP="$http" \
+    FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" \
+    "$ADAPTER" reply 1101
+}
+
+seed_receipts_only_home() {
+  local home=$1 env_file=$2
+  new_home "$home"
+  write_env_file "$env_file" "$TOKEN"
+  printf '3000\n' > "$home/state/.telegram-offset"
+  mkdir -p "$home/state/telegram-inbox/handled"
+  mkdir -p "$home/state/.telegram-delivery-receipts"
+  printf '{"update_id":3302,"date":5,"chat_id":555,"from_id":909,"text":"legacy receipt"}\n' \
+    > "$home/state/.telegram-delivery-receipts/3302.json"
+  FM_HOME="$home" FM_TELEGRAM_ENV_FILE="$env_file" "$ADAPTER" migrate >/dev/null
+  local announced
+  announced=$(poll_once "$home" "$env_file" "$FIXTURES/empty.json")
+  assert_contains "$announced" "message: 1" "the migrated receipt did not announce"
+  ack_result "$home" "$env_file" "$announced" >/dev/null
+}
+
+for reply_credential_case in missing bad-mode incomplete; do
+  credential_home="$TMP_ROOT/reply-credential-$reply_credential_case"
+  credential_env="$TMP_ROOT/reply-credential-$reply_credential_case.env"
+  arm_home "$credential_home" "$credential_env"
+  poll_once "$credential_home" "$credential_env" "$FIXTURES/replyable-text.json" >/dev/null
+  case "$reply_credential_case" in
+    missing)
+      rm -f "$credential_env"
+      ;;
+    bad-mode)
+      chmod 644 "$credential_env"
+      ;;
+    incomplete)
+      printf 'TELEGRAM_BOT_TOKEN=%s\nTELEGRAM_CAPTAIN_CHAT_ID=555\n' "$TOKEN" > "$credential_env"
+      chmod 600 "$credential_env"
+      ;;
+  esac
+  clear_curl_calls
+  credential_reply_status=0
+  credential_reply_out=$(printf 'private credential reply\n' | \
+    FM_HOME="$credential_home" FM_TELEGRAM_ENV_FILE="$credential_env" \
+    "$ADAPTER" reply 1101 2>&1) || credential_reply_status=$?
+  [ "$credential_reply_status" -ne 0 ] \
+    || fail "reply accepted $reply_credential_case credentials"
+  assert_contains "$credential_reply_out" \
+    "repair the configured credential file, then retry with: reply 1101" \
+    "$reply_credential_case credential refusal did not provide a repair and retry action"
+  case "$credential_reply_out" in
+    *"local Telegram state failure"*)
+      fail "$reply_credential_case credential refusal looked like an internal state failure"
+      ;;
+    *"private credential reply"*|*"$TOKEN"*)
+      fail "$reply_credential_case credential refusal leaked private input"
+      ;;
+  esac
+  assert_no_curl "$reply_credential_case credentials allowed a Telegram request"
+  assert_equal "$(db_query "$credential_home" "SELECT count(*) FROM replies")" 0 \
+    "$reply_credential_case credentials created a reply reservation"
+done
+pass "reply credential failures provide sanitized repair and retry guidance"
+
+for reply_state_case in missing-db corrupt-header database-mode; do
+  reply_state_home="$TMP_ROOT/reply-state-$reply_state_case"
+  reply_state_env="$TMP_ROOT/reply-state-$reply_state_case.env"
+  arm_home "$reply_state_home" "$reply_state_env"
+  poll_once "$reply_state_home" "$reply_state_env" "$FIXTURES/replyable-text.json" >/dev/null
+  case "$reply_state_case" in
+    missing-db)
+      rm -f "$reply_state_home/state/telegram/channel.db"
+      ;;
+    corrupt-header)
+      printf 'not a sqlite database\n' > "$reply_state_home/state/telegram/channel.db"
+      chmod 600 "$reply_state_home/state/telegram/channel.db"
+      ;;
+    database-mode)
+      chmod 644 "$reply_state_home/state/telegram/channel.db"
+      ;;
+  esac
+  clear_curl_calls
+  reply_state_status=0
+  reply_state_out=$(printf 'private state reply\n' | \
+    FM_HOME="$reply_state_home" FM_TELEGRAM_ENV_FILE="$reply_state_env" \
+    "$ADAPTER" reply 1101 2>&1) || reply_state_status=$?
+  [ "$reply_state_status" -ne 0 ] || fail "reply accepted $reply_state_case local state"
+  assert_contains "$reply_state_out" "Telegram reply state is unavailable" \
+    "$reply_state_case did not identify unavailable reply state"
+  assert_contains "$reply_state_out" "doctor" \
+    "$reply_state_case did not direct the operator to inspect durable state"
+  assert_contains "$reply_state_out" "before deciding whether retry is safe" \
+    "$reply_state_case invited a retry before durable-state inspection"
+  case "$reply_state_out" in
+    *"local Telegram state failure"*|*"private state reply"*|*"$TOKEN"*)
+      fail "$reply_state_case reply failure produced opaque or private output"
+      ;;
+  esac
+  assert_no_curl "$reply_state_case local state allowed a Telegram request"
+done
+pass "reply state failures require doctor inspection before any retry decision"
+
+H_REPLY_LOOKUP_FAILURE="$TMP_ROOT/reply-lookup-failure"
+REPLY_LOOKUP_FAILURE_ENV="$TMP_ROOT/reply-lookup-failure.env"
+arm_home "$H_REPLY_LOOKUP_FAILURE" "$REPLY_LOOKUP_FAILURE_ENV"
+poll_once "$H_REPLY_LOOKUP_FAILURE" "$REPLY_LOOKUP_FAILURE_ENV" \
+  "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+lookup_failure_status=0
+lookup_failure_out=$(printf 'lookup failure reply\n' | \
+  FM_TELEGRAM_FAILPOINT=before_reply_inbound_lookup \
+  reply_once "$H_REPLY_LOOKUP_FAILURE" "$REPLY_LOOKUP_FAILURE_ENV" \
+    "$FIXTURES/reply-success.json" 2>&1) || lookup_failure_status=$?
+[ "$lookup_failure_status" -ne 0 ] || fail "an inbound lookup failure reported success"
+assert_contains "$lookup_failure_out" "Telegram reply state is unavailable" \
+  "an inbound lookup failure produced no state guidance"
+assert_contains "$lookup_failure_out" "doctor" \
+  "an inbound lookup failure did not direct the operator to doctor"
+case "$lookup_failure_out" in
+  *"lookup failure reply"*) fail "an inbound lookup failure echoed the reply text" ;;
+esac
+assert_no_curl "an inbound lookup failure reached Telegram"
+
+H_REPLY_RESERVED_FAILURE="$TMP_ROOT/reply-reserved-failure"
+REPLY_RESERVED_FAILURE_ENV="$TMP_ROOT/reply-reserved-failure.env"
+arm_home "$H_REPLY_RESERVED_FAILURE" "$REPLY_RESERVED_FAILURE_ENV"
+poll_once "$H_REPLY_RESERVED_FAILURE" "$REPLY_RESERVED_FAILURE_ENV" \
+  "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+reserved_failure_status=0
+reserved_failure_out=$(printf 'reserved failure reply\n' | \
+  FM_TELEGRAM_FAILPOINT=reply-after-reserve \
+  reply_once "$H_REPLY_RESERVED_FAILURE" "$REPLY_RESERVED_FAILURE_ENV" \
+    "$FIXTURES/reply-success.json" 2>&1) || reserved_failure_status=$?
+[ "$reserved_failure_status" -ne 0 ] || fail "a post-reservation local failure reported success"
+assert_contains "$reserved_failure_out" "still owed" \
+  "a post-reservation local failure hid its safe retry state"
+assert_contains "$reserved_failure_out" "reply 1101" \
+  "a post-reservation local failure omitted the explicit retry command"
+assert_contains "$reserved_failure_out" "doctor" \
+  "a post-reservation local failure did not direct the operator to doctor"
+case "$reserved_failure_out" in
+  *"reserved failure reply"*) fail "a post-reservation failure echoed the reply text" ;;
+esac
+assert_equal "$(db_query "$H_REPLY_RESERVED_FAILURE" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "reserved|0" \
+  "a post-reservation local failure changed the safe retry state"
+assert_no_curl "a post-reservation local failure reached Telegram"
+pass "local reply failures are reconciled against durable state"
+
+H_LEGACY_REDELIVERY="$TMP_ROOT/legacy-redelivery"
+LEGACY_REDELIVERY_ENV="$TMP_ROOT/legacy-redelivery.env"
+seed_receipts_only_home "$H_LEGACY_REDELIVERY" "$LEGACY_REDELIVERY_ENV"
+assert_equal "$(db_query "$H_LEGACY_REDELIVERY" "SELECT committed_offset FROM meta")" 3000 \
+  "a receipts-only migration advanced the offset past the imported update"
+redelivery_out=$(poll_once "$H_LEGACY_REDELIVERY" "$LEGACY_REDELIVERY_ENV" \
+  "$FIXTURES/legacy-redelivery.json" 2>&1) || true
+assert_equal "$redelivery_out" "" \
+  "redelivering a migrated legacy update did not pass silently"
+assert_equal "$(db_query "$H_LEGACY_REDELIVERY" "SELECT committed_offset FROM meta")" 3303 \
+  "the redelivered legacy update did not let the offset advance"
+assert_equal "$(db_query "$H_LEGACY_REDELIVERY" "SELECT count(*) FROM messages")" 1 \
+  "the redelivered legacy update was stored twice"
+redelivery_reply_status=0
+redelivery_reply=$(printf 'no identity\n' | FM_HOME="$H_LEGACY_REDELIVERY" \
+  FM_TELEGRAM_ENV_FILE="$LEGACY_REDELIVERY_ENV" "$ADAPTER" reply 3302 2>&1) \
+  || redelivery_reply_status=$?
+[ "$redelivery_reply_status" -ne 0 ] || fail "a legacy record silently gained reply identity"
+assert_contains "$redelivery_reply" "lacks strict reply identity evidence" \
+  "the legacy record's reply refusal changed"
+
+H_LEGACY_CONFLICT="$TMP_ROOT/legacy-conflict"
+LEGACY_CONFLICT_ENV="$TMP_ROOT/legacy-conflict.env"
+seed_receipts_only_home "$H_LEGACY_CONFLICT" "$LEGACY_CONFLICT_ENV"
+conflict_out=$(poll_once "$H_LEGACY_CONFLICT" "$LEGACY_CONFLICT_ENV" \
+  "$FIXTURES/legacy-redelivery-changed.json" 2>&1)
+assert_contains "$conflict_out" "blocked: local-state fingerprint=" \
+  "redelivered content that actually changed was not refused"
+assert_equal "$(db_query "$H_LEGACY_CONFLICT" "SELECT committed_offset FROM meta")" 3000 \
+  "a conflicting redelivery advanced the committed offset"
+pass "a migrated legacy record tolerates its own redelivery but still refuses changed content"
+
+H_REPLY="$TMP_ROOT/reply"
+REPLY_ENV="$TMP_ROOT/reply.env"
+REPLY_REQUEST="$TMP_ROOT/reply.request"
+arm_home "$H_REPLY" "$REPLY_ENV"
+poll_once "$H_REPLY" "$REPLY_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+reply_out=$(printf 'captain reply\n' | CURL_STUB_SEND_CAPTURE="$REPLY_REQUEST" reply_once \
+  "$H_REPLY" "$REPLY_ENV" "$FIXTURES/reply-success.json")
+assert_contains "$reply_out" "sent: update_id=1101 telegram_message_id=8801" \
+  "a validated Telegram reply was not committed"
+assert_grep 'chat_id=555' "$REPLY_REQUEST" "reply did not target the configured captain chat"
+assert_grep 'reply_parameters=%7B%22message_id%22%3A771%7D' "$REPLY_REQUEST" \
+  "reply did not target the accepted inbound message"
+assert_grep 'text=captain+reply%0A' "$REPLY_REQUEST" "reply request was not sent through stdin-bound data"
+case "$reply_out" in *reply*) fail "reply output leaked reply text" ;; esac
+assert_equal "$(db_query "$H_REPLY" "SELECT state FROM replies WHERE update_id=1101")" sent \
+  "successful reply did not persist sent state"
+clear_curl_calls
+repeat_reply=$(printf 'captain reply\n' | reply_once "$H_REPLY" "$REPLY_ENV" "$FIXTURES/reply-success.json")
+assert_contains "$repeat_reply" "already-sent: update_id=1101" \
+  "a repeated inbound reply was not idempotent"
+assert_no_curl "a sent reply was sent again"
+assert_present "$H_REPLY/state/procevent/telegram.source" \
+  "reply handling retired the Telegram source"
+reply_doctor=$(FM_HOME="$H_REPLY" "$ADAPTER" doctor)
+assert_contains "$reply_doctor" "reply_count=1" "doctor omitted the reply total"
+assert_contains "$reply_doctor" "reply_sent=1" "doctor did not count the sent reply"
+assert_contains "$reply_doctor" "reply_attention_omitted=0" \
+  "doctor did not report an empty attention set"
+case "$reply_doctor" in *"reply.1101="*) fail "doctor enumerated a sent reply row" ;; esac
+pass "a reply is bound to the configured chat and accepted message, and repeats do not resend"
+
+H_REPLY_CURLRC="$TMP_ROOT/reply-curlrc"
+REPLY_CURLRC_ENV="$TMP_ROOT/reply-curlrc.env"
+REPLY_CURLRC_TRACE="$TMP_ROOT/reply-curlrc.trace"
+REPLY_CURLRC_ATTEMPTS="$TMP_ROOT/reply-curlrc.attempts"
+arm_home "$H_REPLY_CURLRC" "$REPLY_CURLRC_ENV"
+poll_once "$H_REPLY_CURLRC" "$REPLY_CURLRC_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+printf 'private answer\n' | CURL_STUB_AMBIENT_TRACE="$REPLY_CURLRC_TRACE" \
+  CURL_STUB_SEND_ATTEMPTS="$REPLY_CURLRC_ATTEMPTS" reply_once \
+  "$H_REPLY_CURLRC" "$REPLY_CURLRC_ENV" "$FIXTURES/reply-success.json" >/dev/null
+assert_absent "$REPLY_CURLRC_TRACE" "ambient curl configuration captured the reply body"
+assert_equal "$(wc -l < "$REPLY_CURLRC_ATTEMPTS" | tr -d ' ')" 1 \
+  "ambient curl configuration repeated the reply request"
+pass "reply delivery disables ambient curl configuration before processing options"
+
+H_REPLY_OLD="$TMP_ROOT/reply-old"
+REPLY_OLD_ENV="$TMP_ROOT/reply-old.env"
+arm_home "$H_REPLY_OLD" "$REPLY_OLD_ENV"
+poll_once "$H_REPLY_OLD" "$REPLY_OLD_ENV" "$FIXTURES/one-text.json" >/dev/null
+old_reply_status=0
+old_reply_out=$(printf 'not sent\n' | FM_HOME="$H_REPLY_OLD" FM_TELEGRAM_ENV_FILE="$REPLY_OLD_ENV" \
+  "$ADAPTER" reply 1001 2>&1) || old_reply_status=$?
+[ "$old_reply_status" -ne 0 ] || fail "reply accepted an inbound record without message identity"
+assert_contains "$old_reply_out" "lacks strict reply identity evidence" \
+  "missing message identity refusal was not actionable"
+assert_equal "$(db_query "$H_REPLY_OLD" "SELECT count(*) FROM replies")" 0 \
+  "missing message identity created a reply reservation"
+
+arbitrary_status=0
+arbitrary_out=$(printf 'bad destination\n' | FM_HOME="$H_REPLY" FM_TELEGRAM_ENV_FILE="$REPLY_ENV" \
+  "$ADAPTER" reply --chat-id 999 1101 2>&1) || arbitrary_status=$?
+[ "$arbitrary_status" -ne 0 ] || fail "reply accepted a caller-supplied destination"
+assert_contains "$arbitrary_out" "Usage:" "arbitrary destination refusal was not actionable"
+pass "older inbound records and arbitrary destinations are refused without a network call"
+
+H_REPLY_FAIL="$TMP_ROOT/reply-failure"
+REPLY_FAIL_ENV="$TMP_ROOT/reply-failure.env"
+arm_home "$H_REPLY_FAIL" "$REPLY_FAIL_ENV"
+poll_once "$H_REPLY_FAIL" "$REPLY_FAIL_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+api_fail_status=0
+api_fail_out=$(printf 'definite failure\n' | CURL_STUB_HTTP=400 reply_once "$H_REPLY_FAIL" "$REPLY_FAIL_ENV" /dev/null 400 2>&1) \
+  || api_fail_status=$?
+[ "$api_fail_status" -ne 0 ] || fail "definite Telegram refusal reported success"
+assert_contains "$api_fail_out" "definitely refused" "definite refusal was not actionable"
+assert_equal "$(db_query "$H_REPLY_FAIL" "SELECT state FROM replies WHERE update_id=1101")" failed \
+  "definite refusal was not durably failed"
+assert_contains "$(FM_HOME="$H_REPLY_FAIL" "$ADAPTER" doctor)" \
+  "reply.1101=definitely-failed detail=http-400" "doctor did not report definite failure"
+clear_curl_calls
+failed_empty_status=0
+failed_empty_out=$(reply_once "$H_REPLY_FAIL" "$REPLY_FAIL_ENV" \
+  "$FIXTURES/reply-success.json" </dev/null 2>&1) || failed_empty_status=$?
+[ "$failed_empty_status" -ne 0 ] || fail "an empty body made a definitely-failed reply retryable"
+assert_contains "$failed_empty_out" "definitely refused" \
+  "an empty body hid the durable definitely-failed state"
+assert_contains "$failed_empty_out" "automatic retry is refused" \
+  "an empty body hid the definite failure no-retry requirement"
+assert_no_curl "an empty body retried a definitely-failed reply"
+
+H_REPLY_UNKNOWN="$TMP_ROOT/reply-unknown"
+REPLY_UNKNOWN_ENV="$TMP_ROOT/reply-unknown.env"
+arm_home "$H_REPLY_UNKNOWN" "$REPLY_UNKNOWN_ENV"
+poll_once "$H_REPLY_UNKNOWN" "$REPLY_UNKNOWN_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+transport_status=0
+transport_out=$(printf 'uncertain transport\n' | CURL_STUB_EXIT=7 reply_once "$H_REPLY_UNKNOWN" "$REPLY_UNKNOWN_ENV" /dev/null 2>&1) \
+  || transport_status=$?
+[ "$transport_status" -ne 0 ] || fail "transport failure reported success"
+assert_contains "$transport_out" "delivery is unknown" "transport failure was not delivery-unknown"
+assert_equal "$(db_query "$H_REPLY_UNKNOWN" "SELECT state FROM replies WHERE update_id=1101")" unknown \
+  "transport failure was not durably unknown"
+retry_status=0
+retry_out=$(printf 'uncertain transport\n' | reply_once "$H_REPLY_UNKNOWN" "$REPLY_UNKNOWN_ENV" "$FIXTURES/reply-success.json" 2>&1) \
+  || retry_status=$?
+[ "$retry_status" -ne 0 ] || fail "delivery-unknown reply was automatically retried"
+assert_contains "$retry_out" "automatic retry is refused" \
+  "delivery-unknown refusal did not prevent duplicate delivery"
+for unknown_body_case in empty oversized; do
+  clear_curl_calls
+  unknown_body_status=0
+  if [ "$unknown_body_case" = empty ]; then
+    unknown_body_out=$(reply_once "$H_REPLY_UNKNOWN" "$REPLY_UNKNOWN_ENV" \
+      "$FIXTURES/reply-success.json" </dev/null 2>&1) || unknown_body_status=$?
+  else
+    unknown_body_out=$(python3 -c 'print("x" * 4097, end="")' | \
+      reply_once "$H_REPLY_UNKNOWN" "$REPLY_UNKNOWN_ENV" \
+        "$FIXTURES/reply-success.json" 2>&1) || unknown_body_status=$?
+  fi
+  [ "$unknown_body_status" -ne 0 ] \
+    || fail "$unknown_body_case body made delivery-unknown look retryable"
+  assert_contains "$unknown_body_out" "delivery is unknown" \
+    "$unknown_body_case body hid the durable delivery-unknown state"
+  assert_contains "$unknown_body_out" "automatic retry is refused" \
+    "$unknown_body_case body hid the no-retry requirement"
+  assert_no_curl "$unknown_body_case body retried a delivery-unknown reply"
+done
+rm -f "$REPLY_UNKNOWN_ENV"
+clear_curl_calls
+unknown_credential_status=0
+unknown_credential_out=$(printf 'uncertain transport\n' | reply_once "$H_REPLY_UNKNOWN" \
+  "$REPLY_UNKNOWN_ENV" "$FIXTURES/reply-success.json" 2>&1) || unknown_credential_status=$?
+[ "$unknown_credential_status" -ne 0 ] \
+  || fail "delivery-unknown reply with unavailable credentials reported success"
+assert_contains "$unknown_credential_out" "delivery is unknown" \
+  "unavailable credentials hid the durable delivery-unknown state"
+assert_contains "$unknown_credential_out" "doctor" \
+  "delivery-unknown credential refusal did not point to doctor"
+case "$unknown_credential_out" in
+  *"repair the configured credential file"*)
+    fail "delivery-unknown reply invited an unsafe retry after credential repair"
+    ;;
+esac
+assert_no_curl "delivery-unknown reply with unavailable credentials reached Telegram"
+pass "definite refusal and uncertain transport outcomes remain non-sent and non-retryable"
+
+H_REPLY_CRASH="$TMP_ROOT/reply-crash"
+REPLY_CRASH_ENV="$TMP_ROOT/reply-crash.env"
+arm_home "$H_REPLY_CRASH" "$REPLY_CRASH_ENV"
+poll_once "$H_REPLY_CRASH" "$REPLY_CRASH_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+crash_status=0
+printf 'crash boundary\n' | FM_TELEGRAM_FAILPOINT=after_reply_response reply_once "$H_REPLY_CRASH" "$REPLY_CRASH_ENV" \
+  "$FIXTURES/reply-success.json" >/dev/null 2>&1 || crash_status=$?
+[ "$crash_status" -ne 0 ] || fail "reply response crash failpoint reported success"
+assert_contains "$(FM_HOME="$H_REPLY_CRASH" "$ADAPTER" doctor)" \
+  "reply.1101=delivery-unknown" "response crash was not surfaced as unknown"
+crash_retry_status=0
+crash_retry=$(printf 'crash boundary\n' | reply_once "$H_REPLY_CRASH" "$REPLY_CRASH_ENV" "$FIXTURES/reply-success.json" 2>&1) \
+  || crash_retry_status=$?
+[ "$crash_retry_status" -ne 0 ] || fail "response crash allowed an automatic duplicate retry"
+assert_contains "$crash_retry" "automatic retry is refused" \
+  "response crash retry refusal was not actionable"
+pass "a crash after the API response cannot falsely become sent or authorize a duplicate"
+
+H_REPLY_FINISH_FAILURE="$TMP_ROOT/reply-finish-failure"
+REPLY_FINISH_FAILURE_ENV="$TMP_ROOT/reply-finish-failure.env"
+arm_home "$H_REPLY_FINISH_FAILURE" "$REPLY_FINISH_FAILURE_ENV"
+poll_once "$H_REPLY_FINISH_FAILURE" "$REPLY_FINISH_FAILURE_ENV" \
+  "$FIXTURES/replyable-text.json" >/dev/null
+finish_failure_status=0
+finish_failure_out=$(printf 'uncommitted success\n' | \
+  FM_TELEGRAM_FAILPOINT=before_reply_finish_commit reply_once \
+  "$H_REPLY_FINISH_FAILURE" "$REPLY_FINISH_FAILURE_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || finish_failure_status=$?
+[ "$finish_failure_status" -ne 0 ] || fail "an uncommitted send success reported sent"
+assert_contains "$finish_failure_out" "delivery is unknown" \
+  "an uncommitted send success did not report delivery-unknown"
+assert_contains "$finish_failure_out" "automatic retry is refused" \
+  "an uncommitted send success permitted an unsafe retry"
+assert_contains "$finish_failure_out" "doctor" \
+  "an uncommitted send success did not point to doctor"
+case "$finish_failure_out" in
+  *"local Telegram state failure"*|*"uncommitted success"*)
+    fail "an uncommitted send success produced opaque or private output"
+    ;;
+esac
+assert_equal "$(db_query "$H_REPLY_FINISH_FAILURE" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "unknown|1" \
+  "a failed sent-state commit did not retain delivery-unknown"
+clear_curl_calls
+finish_failure_retry_status=0
+finish_failure_retry=$(printf 'uncommitted success\n' | reply_once \
+  "$H_REPLY_FINISH_FAILURE" "$REPLY_FINISH_FAILURE_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || finish_failure_retry_status=$?
+[ "$finish_failure_retry_status" -ne 0 ] \
+  || fail "an uncommitted send success allowed a duplicate retry"
+assert_contains "$finish_failure_retry" "automatic retry is refused" \
+  "the failed sent-state commit was not durably non-retryable"
+assert_no_curl "a failed sent-state commit reached Telegram again"
+pass "reply commit failures surface durable unknown state and refuse retry"
+
+for reply_boundary in before-reserve before-network after-commit; do
+  boundary_home="$TMP_ROOT/reply-$reply_boundary"
+  boundary_env="$TMP_ROOT/reply-$reply_boundary.env"
+  arm_home "$boundary_home" "$boundary_env"
+  poll_once "$boundary_home" "$boundary_env" "$FIXTURES/replyable-text.json" >/dev/null
+  boundary_status=0
+  case "$reply_boundary" in
+    before-reserve)
+      printf 'boundary body\n' | FM_TELEGRAM_FAILPOINT=before_reply_reserve reply_once \
+        "$boundary_home" "$boundary_env" "$FIXTURES/reply-success.json" >/dev/null 2>&1 || boundary_status=$?
+      [ "$boundary_status" -ne 0 ] || fail "before-reserve crash reported success"
+      assert_equal "$(db_query "$boundary_home" "SELECT count(*) FROM replies")" 0 \
+        "before-reserve crash created a reply"
+      ;;
+    before-network)
+      printf 'boundary body\n' | FM_TELEGRAM_FAILPOINT=before_reply_network reply_once \
+        "$boundary_home" "$boundary_env" "$FIXTURES/reply-success.json" >/dev/null 2>&1 || boundary_status=$?
+      [ "$boundary_status" -ne 0 ] || fail "before-network crash reported success"
+      assert_equal "$(db_query "$boundary_home" "SELECT state FROM replies WHERE update_id=1101")" unknown \
+        "before-network crash was not delivery-unknown"
+      ;;
+    after-commit)
+      clear_curl_calls
+      printf 'boundary body\n' | FM_TELEGRAM_FAILPOINT=after_reply_commit reply_once \
+        "$boundary_home" "$boundary_env" "$FIXTURES/reply-success.json" >/dev/null 2>&1 || boundary_status=$?
+      [ "$boundary_status" -ne 0 ] || fail "after-commit crash reported success"
+      assert_equal "$(db_query "$boundary_home" "SELECT state FROM replies WHERE update_id=1101")" sent \
+        "after-commit crash lost sent state"
+      clear_curl_calls
+      boundary_retry=$(printf 'boundary body\n' | reply_once "$boundary_home" "$boundary_env" \
+        "$FIXTURES/reply-success.json")
+      assert_contains "$boundary_retry" "already-sent" "after-commit restart did not remain idempotent"
+      assert_no_curl "after-commit restart sent a duplicate"
+      ;;
+  esac
+done
+pass "reply crashes before reservation, before network, and after commit preserve honest restart behavior"
+
+for reply_bad_response in reply-malformed reply-api-failure; do
+  bad_home="$TMP_ROOT/$reply_bad_response"
+  bad_env="$TMP_ROOT/$reply_bad_response.env"
+  arm_home "$bad_home" "$bad_env"
+  poll_once "$bad_home" "$bad_env" "$FIXTURES/replyable-text.json" >/dev/null
+  bad_status=0
+  bad_out=$(printf 'bad response\n' | reply_once "$bad_home" "$bad_env" \
+    "$FIXTURES/$reply_bad_response.json" 2>&1) || bad_status=$?
+  [ "$bad_status" -ne 0 ] || fail "$reply_bad_response reported success"
+  if [ "$reply_bad_response" = reply-api-failure ]; then
+    assert_contains "$bad_out" "definitely refused" "API refusal was not identified"
+    expected_bad_state=failed
+  else
+    assert_contains "$bad_out" "delivery is unknown" "malformed success was not unknown"
+    expected_bad_state=unknown
+  fi
+  assert_equal "$(db_query "$bad_home" "SELECT state FROM replies WHERE update_id=1101")" \
+    "$expected_bad_state" "$reply_bad_response persisted the wrong state"
+done
+pass "malformed successes become unknown while explicit Telegram refusals become definitely failed"
+
+H_REPLY_TIMEOUT="$TMP_ROOT/reply-timeout"
+REPLY_TIMEOUT_ENV="$TMP_ROOT/reply-timeout.env"
+arm_home "$H_REPLY_TIMEOUT" "$REPLY_TIMEOUT_ENV"
+poll_once "$H_REPLY_TIMEOUT" "$REPLY_TIMEOUT_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+timeout_status=0
+timeout_out=$(printf 'timeout body\n' | FM_TELEGRAM_SEND_MAX_TIME=1 CURL_STUB_SLEEP=1 CURL_STUB_TIMEOUT=1 \
+  reply_once "$H_REPLY_TIMEOUT" "$REPLY_TIMEOUT_ENV" /dev/null 2>&1) || timeout_status=$?
+[ "$timeout_status" -ne 0 ] || fail "reply timeout reported success"
+assert_contains "$timeout_out" "delivery is unknown" "reply timeout was not delivery-unknown"
+assert_equal "$(db_query "$H_REPLY_TIMEOUT" "SELECT state FROM replies WHERE update_id=1101")" unknown \
+  "reply timeout did not persist delivery-unknown"
+pass "a send timeout is nonzero, durable, and never reported as sent"
+
+H_REPLY_RESERVED="$TMP_ROOT/reply-reserved"
+REPLY_RESERVED_ENV="$TMP_ROOT/reply-reserved.env"
+arm_home "$H_REPLY_RESERVED" "$REPLY_RESERVED_ENV"
+poll_once "$H_REPLY_RESERVED" "$REPLY_RESERVED_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+reserve_crash_status=0
+printf 'reserved then retry\n' | FM_TELEGRAM_FAILPOINT=after_reply_reserve reply_once \
+  "$H_REPLY_RESERVED" "$REPLY_RESERVED_ENV" "$FIXTURES/reply-success.json" >/dev/null 2>&1 \
+  || reserve_crash_status=$?
+[ "$reserve_crash_status" -ne 0 ] || fail "reserve crash failpoint reported success"
+assert_equal "$(db_query "$H_REPLY_RESERVED" "SELECT state FROM replies WHERE update_id=1101")" reserved \
+  "crash before network did not leave a durable reservation"
+reserved_retry_status=0
+reserved_retry=$(printf 'reserved then retry\n' | reply_once "$H_REPLY_RESERVED" "$REPLY_RESERVED_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || reserved_retry_status=$?
+[ "$reserved_retry_status" -eq 0 ] || fail "a reservation with no network start could not safely resume"
+assert_contains "$reserved_retry" "sent: update_id=1101" \
+  "resumed reservation did not commit a validated send"
+
+H_REPLY_REGENERATED="$TMP_ROOT/reply-regenerated"
+REPLY_REGENERATED_ENV="$TMP_ROOT/reply-regenerated.env"
+REGENERATED_REQUEST="$TMP_ROOT/reply-regenerated.request"
+arm_home "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV"
+poll_once "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+regenerated_crash_status=0
+printf 'first answer\n' | FM_TELEGRAM_FAILPOINT=after_reply_reserve reply_once \
+  "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV" "$FIXTURES/reply-success.json" >/dev/null 2>&1 \
+  || regenerated_crash_status=$?
+[ "$regenerated_crash_status" -ne 0 ] || fail "reserve crash failpoint reported success"
+assert_equal "$(db_query "$H_REPLY_REGENERATED" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "reserved|0" \
+  "the crash did not leave a reservation that proves it never reached the network"
+regenerated_status=0
+regenerated_out=$(printf 'second answer\n' | CURL_STUB_SEND_CAPTURE="$REGENERATED_REQUEST" reply_once \
+  "$H_REPLY_REGENERATED" "$REPLY_REGENERATED_ENV" "$FIXTURES/reply-success.json" 2>&1) \
+  || regenerated_status=$?
+[ "$regenerated_status" -eq 0 ] || fail "a regenerated body could not replace a pre-network reservation"
+assert_contains "$regenerated_out" "sent: update_id=1101" \
+  "the regenerated reply was not committed as sent"
+assert_grep 'text=second+answer%0A' "$REGENERATED_REQUEST" \
+  "the regenerated body was not the text actually sent"
+clear_curl_calls
+sent_repeat=$(printf 'third answer\n' | reply_once "$H_REPLY_REGENERATED" \
+  "$REPLY_REGENERATED_ENV" "$FIXTURES/reply-success.json")
+assert_contains "$sent_repeat" "already-sent: update_id=1101" \
+  "new stdin hid the durable sent state"
+assert_no_curl "new stdin resent an already-sent reply"
+
+H_REPLY_STARTED="$TMP_ROOT/reply-network-started"
+REPLY_STARTED_ENV="$TMP_ROOT/reply-network-started.env"
+arm_home "$H_REPLY_STARTED" "$REPLY_STARTED_ENV"
+poll_once "$H_REPLY_STARTED" "$REPLY_STARTED_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+started_crash_status=0
+printf 'first answer\n' | FM_TELEGRAM_FAILPOINT=before_reply_network reply_once \
+  "$H_REPLY_STARTED" "$REPLY_STARTED_ENV" "$FIXTURES/reply-success.json" >/dev/null 2>&1 \
+  || started_crash_status=$?
+[ "$started_crash_status" -ne 0 ] || fail "network-start crash failpoint reported success"
+assert_equal "$(db_query "$H_REPLY_STARTED" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "unknown|1" \
+  "the crash after network start was not durably delivery-unknown"
+clear_curl_calls
+started_conflict_status=0
+started_conflict=$(printf 'second answer\n' | reply_once "$H_REPLY_STARTED" "$REPLY_STARTED_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || started_conflict_status=$?
+[ "$started_conflict_status" -ne 0 ] || fail "a possibly delivered reply accepted a different body"
+assert_contains "$started_conflict" "delivery is unknown" \
+  "a different body hid the durable delivery-unknown state"
+assert_contains "$started_conflict" "automatic retry is refused" \
+  "a different body made delivery-unknown look retryable"
+assert_contains "$started_conflict" "doctor" \
+  "a different body hid the delivery-unknown recovery action"
+assert_no_curl "a possibly delivered reply was sent again with a different body"
+pass "only a reservation that proves it never reached the network accepts a regenerated body"
+
+H_REPLY_RACE="$TMP_ROOT/reply-body-race"
+REPLY_RACE_ENV="$TMP_ROOT/reply-body-race.env"
+RACE_MARKER="$TMP_ROOT/reply-body-race.marker"
+RACE_RELEASE="$TMP_ROOT/reply-body-race.release"
+RACE_OUT="$TMP_ROOT/reply-body-race.out"
+RACE_BODY_A="$TMP_ROOT/reply-body-race.a"
+RACE_BODY_B="$TMP_ROOT/reply-body-race.b"
+printf 'answer alpha\n' > "$RACE_BODY_A"
+printf 'answer beta\n' > "$RACE_BODY_B"
+arm_home "$H_REPLY_RACE" "$REPLY_RACE_ENV"
+poll_once "$H_REPLY_RACE" "$REPLY_RACE_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+CURL_STUB_SEND_BODY="$FIXTURES/reply-success.json" \
+  FM_TELEGRAM_FAILPOINT=reply-after-reserve \
+  FM_TELEGRAM_FAILPOINT_MARKER="$RACE_MARKER" \
+  FM_TELEGRAM_FAILPOINT_RELEASE="$RACE_RELEASE" \
+  FM_HOME="$H_REPLY_RACE" FM_TELEGRAM_ENV_FILE="$REPLY_RACE_ENV" \
+  "$ADAPTER" reply 1101 < "$RACE_BODY_A" > "$RACE_OUT" 2>&1 &
+race_pid=$!
+for _ in $(seq 1 500); do
+  [ -e "$RACE_MARKER" ] && break
+  sleep 0.01
+done
+assert_present "$RACE_MARKER" "the reply race never reached the post-reservation boundary"
+race_replace_status=0
+CURL_STUB_SEND_BODY="$FIXTURES/reply-success.json" FM_TELEGRAM_FAILPOINT=before_reply_network \
+  FM_HOME="$H_REPLY_RACE" FM_TELEGRAM_ENV_FILE="$REPLY_RACE_ENV" \
+  "$ADAPTER" reply 1101 < "$RACE_BODY_B" >/dev/null 2>&1 || race_replace_status=$?
+[ "$race_replace_status" -ne 0 ] || fail "the replacing reply reported success"
+assert_equal "$(db_query "$H_REPLY_RACE" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "unknown|1" \
+  "the replacing reply did not persist its send claim"
+: > "$RACE_RELEASE"
+race_status=0
+wait "$race_pid" || race_status=$?
+[ "$race_status" -ne 0 ] || fail "a reply whose reserved body was replaced still reported success"
+assert_contains "$(cat "$RACE_OUT")" "delivery is unknown" \
+  "a concurrent send claim did not surface durable delivery-unknown"
+assert_contains "$(cat "$RACE_OUT")" "automatic retry is refused" \
+  "a concurrent send claim left the stale reply looking retryable"
+assert_contains "$(cat "$RACE_OUT")" "doctor" \
+  "a concurrent send claim omitted the state inspection action"
+assert_no_curl "a reply sent a body the durable reservation no longer held"
+assert_equal "$(db_query "$H_REPLY_RACE" "SELECT state, network_started FROM replies WHERE update_id=1101")" \
+  "unknown|1" "a concurrent send claim lost its delivery-unknown state"
+pass "a concurrent send claim overrides stale in-memory reply state"
+
+H_REPLY_CONCURRENT="$TMP_ROOT/reply-concurrent"
+REPLY_CONCURRENT_ENV="$TMP_ROOT/reply-concurrent.env"
+arm_home "$H_REPLY_CONCURRENT" "$REPLY_CONCURRENT_ENV"
+poll_once "$H_REPLY_CONCURRENT" "$REPLY_CONCURRENT_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+concurrent_pids=()
+for concurrent_number in $(seq 1 8); do
+  printf 'one concurrent reply\n' | reply_once "$H_REPLY_CONCURRENT" "$REPLY_CONCURRENT_ENV" \
+    "$FIXTURES/reply-success.json" >"$TMP_ROOT/reply-concurrent.$concurrent_number" 2>&1 &
+  concurrent_pids+=("$!")
+done
+for concurrent_pid in "${concurrent_pids[@]}"; do
+  wait "$concurrent_pid" || true
+done
+assert_equal "$(grep -c 'sendMessage' "$CURL_CALLS" || true)" 1 \
+  "concurrent attempts performed more than one Telegram send"
+assert_equal "$(db_query "$H_REPLY_CONCURRENT" "SELECT state FROM replies WHERE update_id=1101")" sent \
+  "concurrent attempts did not converge to sent"
+pass "concurrent attempts serialize to one durable Telegram reply"
+
+for malformed_response in reply-wrong-chat reply-wrong-message reply-wrong-text reply-missing-text; do
+  shape_home="$TMP_ROOT/$malformed_response-shape"
+  shape_env="$TMP_ROOT/$malformed_response-shape.env"
+  arm_home "$shape_home" "$shape_env"
+  poll_once "$shape_home" "$shape_env" "$FIXTURES/replyable-text.json" >/dev/null
+  shape_status=0
+  shape_out=$(printf 'shape check\n' | reply_once "$shape_home" "$shape_env" \
+    "$FIXTURES/$malformed_response.json" 2>&1) || shape_status=$?
+  [ "$shape_status" -ne 0 ] || fail "$malformed_response reported success"
+  assert_contains "$shape_out" "delivery is unknown" \
+    "$malformed_response was not rejected as unbound"
+  assert_equal "$(db_query "$shape_home" "SELECT state FROM replies WHERE update_id=1101")" unknown \
+    "$malformed_response did not persist delivery-unknown"
+done
+pass "a response with mismatched destination, target, or text is not accepted as delivery proof"
+
+H_REPLY_LONG="$TMP_ROOT/reply-long"
+REPLY_LONG_ENV="$TMP_ROOT/reply-long.env"
+arm_home "$H_REPLY_LONG" "$REPLY_LONG_ENV"
+poll_once "$H_REPLY_LONG" "$REPLY_LONG_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+long_status=0
+long_out=$(python3 -c 'print("x" * 4097, end="")' | reply_once "$H_REPLY_LONG" "$REPLY_LONG_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || long_status=$?
+[ "$long_status" -ne 0 ] || fail "an over-limit reply reported success"
+assert_contains "$long_out" "exceeds the Telegram limit" "over-limit refusal was not actionable"
+case "$long_out" in *xxxx*) fail "over-limit refusal echoed the reply text" ;; esac
+assert_no_curl "an over-limit reply reached the network"
+assert_equal "$(db_query "$H_REPLY_LONG" "SELECT count(*) FROM replies")" 0 \
+  "an over-limit reply created a reservation"
+limit_out=$(python3 -c 'print("y" * 4096, end="")' | reply_once "$H_REPLY_LONG" "$REPLY_LONG_ENV" \
+  "$FIXTURES/reply-success.json")
+assert_contains "$limit_out" "sent: update_id=1101" "a reply at the Telegram limit was refused"
+
+H_REPLY_BLANK="$TMP_ROOT/reply-blank"
+REPLY_BLANK_ENV="$TMP_ROOT/reply-blank.env"
+arm_home "$H_REPLY_BLANK" "$REPLY_BLANK_ENV"
+poll_once "$H_REPLY_BLANK" "$REPLY_BLANK_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+blank_status=0
+blank_out=$(printf ' \t\n' | reply_once "$H_REPLY_BLANK" "$REPLY_BLANK_ENV" \
+  "$FIXTURES/reply-success.json" 2>&1) || blank_status=$?
+[ "$blank_status" -ne 0 ] || fail "a whitespace-only reply reported success"
+assert_contains "$blank_out" "must not be empty" "the whitespace-only refusal was not actionable"
+assert_no_curl "a whitespace-only reply reached the network"
+assert_equal "$(db_query "$H_REPLY_BLANK" "SELECT count(*) FROM replies")" 0 \
+  "a whitespace-only reply created a reservation"
+blank_corrected=$(printf 'corrected answer\n' | reply_once "$H_REPLY_BLANK" "$REPLY_BLANK_ENV" \
+  "$FIXTURES/reply-success.json")
+assert_contains "$blank_corrected" "sent: update_id=1101" \
+  "a whitespace-only body left the reply permanently unanswerable"
+
+H_REPLY_ASTRAL="$TMP_ROOT/reply-astral"
+REPLY_ASTRAL_ENV="$TMP_ROOT/reply-astral.env"
+arm_home "$H_REPLY_ASTRAL" "$REPLY_ASTRAL_ENV"
+poll_once "$H_REPLY_ASTRAL" "$REPLY_ASTRAL_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+astral_status=0
+astral_out=$(python3 -c 'print("\U0001F600" * 2049, end="")' | reply_once "$H_REPLY_ASTRAL" \
+  "$REPLY_ASTRAL_ENV" "$FIXTURES/reply-success.json" 2>&1) || astral_status=$?
+[ "$astral_status" -ne 0 ] || fail "a reply over the limit in UTF-16 code units reported success"
+assert_contains "$astral_out" "exceeds the Telegram limit" \
+  "the UTF-16 over-limit refusal was not actionable"
+assert_no_curl "a reply over the UTF-16 limit reached the network"
+assert_equal "$(db_query "$H_REPLY_ASTRAL" "SELECT count(*) FROM replies")" 0 \
+  "a reply over the UTF-16 limit created a reservation"
+astral_limit=$(python3 -c 'print("\U0001F600" * 2048, end="")' | reply_once "$H_REPLY_ASTRAL" \
+  "$REPLY_ASTRAL_ENV" "$FIXTURES/reply-success.json")
+assert_contains "$astral_limit" "sent: update_id=1101" \
+  "a reply exactly at the UTF-16 limit was refused"
+pass "reply text is bounded by the Telegram character limit before any reservation or send"
+
+H_REPLY_CONFIG="$TMP_ROOT/reply-config"
+REPLY_CONFIG_ENV="$TMP_ROOT/reply-config.env"
+arm_home "$H_REPLY_CONFIG" "$REPLY_CONFIG_ENV"
+poll_once "$H_REPLY_CONFIG" "$REPLY_CONFIG_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+clear_curl_calls
+config_status=0
+config_out=$(printf 'config typo\n' | FM_TELEGRAM_SEND_MAX_TIME=abc reply_once \
+  "$H_REPLY_CONFIG" "$REPLY_CONFIG_ENV" "$FIXTURES/reply-success.json" 2>&1) || config_status=$?
+[ "$config_status" -ne 0 ] || fail "an invalid send timeout reported success"
+assert_contains "$config_out" "still owed" \
+  "an invalid send timeout did not preserve the reply obligation"
+assert_contains "$config_out" "reply 1101" \
+  "an invalid send timeout did not name the safe explicit retry"
+assert_contains "$config_out" "doctor" \
+  "an invalid send timeout did not provide state-inspection guidance"
+assert_no_curl "an invalid send timeout still reached the network"
+assert_equal "$(db_query "$H_REPLY_CONFIG" "SELECT state FROM replies WHERE update_id=1101")" reserved \
+  "a purely local failure before the network was recorded as delivery-unknown"
+config_resume=$(printf 'config typo\n' | reply_once "$H_REPLY_CONFIG" "$REPLY_CONFIG_ENV" \
+  "$FIXTURES/reply-success.json")
+assert_contains "$config_resume" "sent: update_id=1101" \
+  "a reservation left by a local failure could not resume"
+pass "local send configuration failures stay recoverable instead of destroying the reply"
+
+H_REPLY_LIMITED="$TMP_ROOT/reply-rate-limited"
+REPLY_LIMITED_ENV="$TMP_ROOT/reply-rate-limited.env"
+arm_home "$H_REPLY_LIMITED" "$REPLY_LIMITED_ENV"
+poll_once "$H_REPLY_LIMITED" "$REPLY_LIMITED_ENV" "$FIXTURES/replyable-text.json" >/dev/null
+limited_status=0
+limited_out=$(printf 'throttled reply\n' | CURL_STUB_HTTP=429 reply_once "$H_REPLY_LIMITED" \
+  "$REPLY_LIMITED_ENV" /dev/null 429 2>&1) || limited_status=$?
+[ "$limited_status" -ne 0 ] || fail "a rate-limited reply reported success"
+assert_contains "$limited_out" "rate-limited" "rate-limit refusal was not actionable"
+assert_contains "$limited_out" "reply 1101" \
+  "the rate-limit refusal did not name the exact reply to send again"
+assert_equal "$(db_query "$H_REPLY_LIMITED" \
+  "SELECT state, network_started FROM replies WHERE update_id=1101")" "reserved|0" \
+  "a rate-limited reply did not stay owed as a pre-network reservation"
+limited_doctor=$(FM_HOME="$H_REPLY_LIMITED" "$ADAPTER" doctor)
+assert_contains "$limited_doctor" "reply_reserved=1" "doctor lost the reply still owed"
+assert_contains "$limited_doctor" "reply.1101=reserved" \
+  "doctor did not name the reply still owed"
+limited_retry=$(printf 'throttled reply\n' | reply_once "$H_REPLY_LIMITED" "$REPLY_LIMITED_ENV" \
+  "$FIXTURES/reply-success.json")
+assert_contains "$limited_retry" "sent: update_id=1101" \
+  "an explicit attempt after a rate limit could not deliver the reply"
+pass "a Telegram rate limit is never sent, is nonzero, and permits one later explicit attempt"
+
+H_REPLY_RETENTION="$TMP_ROOT/reply-owed-retention"
+REPLY_RETENTION_ENV="$TMP_ROOT/reply-owed-retention.env"
+arm_home "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV"
+retention_notice=$(poll_once "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV" \
+  "$FIXTURES/replyable-text.json")
+retention_status=0
+printf 'throttled reply\n' | CURL_STUB_HTTP=429 reply_once "$H_REPLY_RETENTION" \
+  "$REPLY_RETENTION_ENV" /dev/null 429 >/dev/null 2>&1 || retention_status=$?
+[ "$retention_status" -ne 0 ] || fail "the rate-limited reply reported success"
+assert_equal "$(db_query "$H_REPLY_RETENTION" "SELECT count(*) FROM replies")" 1 \
+  "the rate-limited reply was not retained as owed"
+ack_result "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV" "$retention_notice" >/dev/null
+poll_once "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV" "$FIXTURES/empty.json" >/dev/null
+assert_equal "$(db_query "$H_REPLY_RETENTION" "SELECT count(*) FROM replies")" 1 \
+  "a poll dropped a reply that is still worth sending"
+db_exec "$H_REPLY_RETENTION" \
+  "UPDATE replies SET reserved_at = reserved_at - 90000, updated_at = updated_at - 90000;"
+poll_once "$H_REPLY_RETENTION" "$REPLY_RETENTION_ENV" "$FIXTURES/empty.json" >/dev/null
+assert_equal "$(db_query "$H_REPLY_RETENTION" "SELECT count(*) FROM replies")" 1 \
+  "a poll abandoned an old reply that is still owed"
+retention_doctor=$(FM_HOME="$H_REPLY_RETENTION" "$ADAPTER" doctor)
+assert_contains "$retention_doctor" "reply_reserved=1" \
+  "doctor lost an old reply that is still owed"
+assert_contains "$retention_doctor" "reply.1101=reserved" \
+  "doctor stopped reporting the old reply obligation"
+retention_send=$(printf 'late but explicit\n' | reply_once "$H_REPLY_RETENTION" \
+  "$REPLY_RETENTION_ENV" \
+  "$FIXTURES/reply-success.json")
+assert_contains "$retention_send" "sent: update_id=1101" \
+  "an old owed reply blocked a later explicit correction"
+pass "a reply still owed remains durable across polls and age"
+
+for reply_bot_status in 401 404; do
+  bot_home="$TMP_ROOT/reply-bot-$reply_bot_status"
+  bot_env="$TMP_ROOT/reply-bot-$reply_bot_status.env"
+  arm_home "$bot_home" "$bot_env"
+  poll_once "$bot_home" "$bot_env" "$FIXTURES/replyable-text.json" >/dev/null
+  bot_status_code=0
+  bot_out=$(printf 'stale credentials\n' | CURL_STUB_HTTP="$reply_bot_status" reply_once \
+    "$bot_home" "$bot_env" /dev/null "$reply_bot_status" 2>&1) || bot_status_code=$?
+  [ "$bot_status_code" -ne 0 ] || fail "http-$reply_bot_status reply reported success"
+  assert_contains "$bot_out" "credentials or endpoint" \
+    "http-$reply_bot_status refusal was not actionable"
+  assert_contains "$bot_out" "reply 1101" \
+    "the http-$reply_bot_status refusal did not name the exact reply to send again"
+  assert_equal "$(db_query "$bot_home" \
+    "SELECT state, network_started FROM replies WHERE update_id=1101")" "reserved|0" \
+    "http-$reply_bot_status left the reply permanently unanswerable"
+  bot_retry=$(printf 'corrected credentials\n' | reply_once "$bot_home" "$bot_env" \
+    "$FIXTURES/reply-success.json")
+  assert_contains "$bot_retry" "sent: update_id=1101" \
+    "an explicit attempt after http-$reply_bot_status could not deliver the reply"
+done
+pass "a refusal about the bot rather than the message stays recoverable after correction"
+
+H_REPLY_BULK="$TMP_ROOT/reply-bulk"
+REPLY_BULK_ENV="$TMP_ROOT/reply-bulk.env"
+python3 - "$FIXTURES/reply-bulk.json" "$CAPTAIN_CHAT_ID" "$CAPTAIN_USER_ID" <<'BULK'
+import json
+import sys
+
+path, chat_id, user_id = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+updates = [
+    {
+        "update_id": 1400 + n,
+        "message": {
+            "message_id": 771,
+            "date": 1700000000 + n,
+            "chat": {"id": chat_id},
+            "from": {"id": user_id},
+            "text": "bulk message %d" % n,
+        },
+    }
+    for n in range(1, 15)
+]
+with open(path, "w") as handle:
+    handle.write(json.dumps({"ok": True, "result": updates}))
+BULK
+arm_home "$H_REPLY_BULK" "$REPLY_BULK_ENV"
+poll_once "$H_REPLY_BULK" "$REPLY_BULK_ENV" "$FIXTURES/reply-bulk.json" >/dev/null
+for bulk_number in $(seq 1 14); do
+  bulk_update=$((1400 + bulk_number))
+  if [ "$bulk_number" -le 3 ]; then
+    printf 'bulk answer %s\n' "$bulk_number" | CURL_STUB_SEND_ECHO_TEXT=1 \
+      FM_HOME="$H_REPLY_BULK" FM_TELEGRAM_ENV_FILE="$REPLY_BULK_ENV" \
+      "$ADAPTER" reply "$bulk_update" >/dev/null 2>&1 \
+      || fail "bulk reply $bulk_update did not send"
+  elif [ "$bulk_number" -eq 4 ]; then
+    printf 'bulk answer %s\n' "$bulk_number" | FM_TELEGRAM_FAILPOINT=after_reply_reserve \
+      FM_HOME="$H_REPLY_BULK" FM_TELEGRAM_ENV_FILE="$REPLY_BULK_ENV" \
+      "$ADAPTER" reply "$bulk_update" >/dev/null 2>&1 \
+      && fail "bulk reply $bulk_update crossed its reserve crash boundary"
+  else
+    printf 'bulk answer %s\n' "$bulk_number" | CURL_STUB_EXIT=7 \
+      FM_HOME="$H_REPLY_BULK" FM_TELEGRAM_ENV_FILE="$REPLY_BULK_ENV" \
+      "$ADAPTER" reply "$bulk_update" >/dev/null 2>&1 \
+      && fail "bulk reply $bulk_update reported success after a transport failure"
+  fi
+done
+db_exec "$H_REPLY_BULK" \
+  "UPDATE replies SET reserved_at = reserved_at - 90000, updated_at = updated_at - 90000 WHERE update_id = 1404;"
+bulk_doctor=$(FM_HOME="$H_REPLY_BULK" "$ADAPTER" doctor)
+assert_contains "$bulk_doctor" "reply_count=14" "doctor lost the reply total"
+assert_contains "$bulk_doctor" "reply_sent=3" "doctor miscounted sent replies"
+assert_contains "$bulk_doctor" "reply_delivery_unknown=10" \
+  "doctor miscounted delivery-unknown replies"
+assert_contains "$bulk_doctor" "reply_reserved=1" "doctor miscounted reserved replies"
+assert_contains "$bulk_doctor" "reply_definitely_failed=0" \
+  "doctor miscounted definitely-failed replies"
+assert_equal "$(printf '%s\n' "$bulk_doctor" | grep -c '^reply\.')" 11 \
+  "doctor did not list every owed reply plus bounded terminal rows"
+assert_contains "$bulk_doctor" "reply_attention_omitted=0" \
+  "doctor omitted a terminal row inside its bound"
+assert_contains "$bulk_doctor" "reply.1414=delivery-unknown detail=delivery-unknown" \
+  "doctor omitted the newest reply needing attention"
+assert_contains "$bulk_doctor" "reply.1404=reserved" \
+  "doctor hid an old owed reply behind newer terminal rows"
+case "$bulk_doctor" in
+  *"=sent"*) fail "doctor enumerated a sent reply row" ;;
+esac
+pass "doctor lists every owed reply while bounding terminal attention rows"
+
+H_FOREIGN_ID="$TMP_ROOT/foreign-message-id"
+FOREIGN_ID_ENV="$TMP_ROOT/foreign-message-id.env"
+arm_home "$H_FOREIGN_ID" "$FOREIGN_ID_ENV"
+foreign_out=$(poll_once "$H_FOREIGN_ID" "$FOREIGN_ID_ENV" "$FIXTURES/foreign-unusable-message-id.json")
+assert_contains "$foreign_out" "message: 1" \
+  "a skipped message with an unusable message_id blocked the captain's batch"
+assert_equal "$(db_query "$H_FOREIGN_ID" "SELECT committed_offset FROM meta")" 1203 \
+  "a skipped message with an unusable message_id stalled the committed offset"
+assert_equal "$(db_query "$H_FOREIGN_ID" "SELECT update_id FROM messages")" 1202 \
+  "the captain message in a mixed batch was not stored"
+pass "an unusable message_id outside the captain conversation never poisons a batch"
+
+H_CAPTAIN_ID="$TMP_ROOT/captain-message-id"
+CAPTAIN_ID_ENV="$TMP_ROOT/captain-message-id.env"
+arm_home "$H_CAPTAIN_ID" "$CAPTAIN_ID_ENV"
+captain_id_out=$(poll_once "$H_CAPTAIN_ID" "$CAPTAIN_ID_ENV" "$FIXTURES/captain-unusable-message-id.json")
+assert_contains "$captain_id_out" "message: 1" \
+  "a captain message with an unusable message_id was not delivered"
+write_result "$captain_id_out"
+assert_contains "$(FM_HOME="$H_CAPTAIN_ID" "$ADAPTER" messages "$RESULT_FILE")" \
+  "captain without usable message identity" "intake dropped the captain text"
+clear_curl_calls
+captain_id_status=0
+captain_id_reply=$(printf 'no identity\n' | FM_HOME="$H_CAPTAIN_ID" FM_TELEGRAM_ENV_FILE="$CAPTAIN_ID_ENV" \
+  "$ADAPTER" reply 1301 2>&1) || captain_id_status=$?
+[ "$captain_id_status" -ne 0 ] || fail "reply accepted an inbound record with an unusable message_id"
+assert_contains "$captain_id_reply" "lacks strict reply identity evidence" \
+  "unusable reply identity refusal was not actionable"
+assert_no_curl "an unusable reply identity still reached the network"
+assert_equal "$(db_query "$H_CAPTAIN_ID" "SELECT count(*) FROM replies")" 0 \
+  "an unusable reply identity created a reservation"
+pass "a captain message with an unusable message_id stays readable but refuses a reply"
 
 PATH="$ORIGINAL_PATH"
 printf 'all fm-procevent-telegram tests passed\n'

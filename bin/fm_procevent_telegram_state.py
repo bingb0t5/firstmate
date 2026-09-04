@@ -30,10 +30,35 @@ import urllib.parse
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import IO, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 SCHEMA_VERSION = 1
+MAX_REPLY_BYTES = 65536
+# The Bot API accepts 1-4096 characters in the sendMessage text field and counts
+# them as UTF-16 code units, the same unit it uses for entity offsets.
+MAX_REPLY_CHARS = 4096
+MAX_SEND_TIME = 300
+DOCTOR_REPLY_TERMINAL_LIMIT = 10
+REPLY_LABEL_COUNTS_SQL = (
+    "SELECT CASE"
+    " WHEN state = 'sent' THEN 'sent'"
+    " WHEN state = 'failed' THEN 'definitely-failed'"
+    " WHEN state = 'unknown' OR network_started = 1 THEN 'delivery-unknown'"
+    " ELSE 'reserved' END AS label, COUNT(*) FROM replies GROUP BY label"
+)
+REPLY_STATES = {"reserved", "sent", "failed", "unknown"}
+DELIVERY_UNKNOWN_GUIDANCE = (
+    "delivery is unknown; automatic retry is refused; inspect durable reply state with: doctor"
+)
+DEFINITE_FAILURE_GUIDANCE = (
+    "Telegram definitely refused the reply; automatic retry is refused; "
+    "inspect durable reply state with: doctor"
+)
+REPLY_STATE_UNAVAILABLE_GUIDANCE = (
+    "Telegram reply state is unavailable; inspect with: doctor before deciding whether "
+    "retry is safe"
+)
 # The Bot API declares Update identifiers as positive Integers and says an
 # unspecified Integer field is safe in a signed 32-bit value, so the ceiling is
 # that published contract rather than any local arithmetic width.
@@ -118,6 +143,10 @@ class UserError(Exception):
     """An explicit operator action or valid external configuration is needed."""
 
 
+class ReplyStateError(UserError):
+    pass
+
+
 class LocalStateError(Exception):
     """The authoritative store cannot safely produce a transition."""
 
@@ -135,11 +164,24 @@ class ProtocolError(Exception):
     """A Telegram response cannot be accepted as a complete typed batch."""
 
 
+class ApiRefusal(ProtocolError):
+    """Telegram explicitly refused a send request."""
+
+
 @dataclass(frozen=True)
 class Credentials:
     token: str
     captain_chat_id: int
     captain_user_id: int
+
+
+@dataclass(frozen=True)
+class SendRequest:
+    body_file: IO[bytes]
+    max_time: int
+
+    def close(self) -> None:
+        self.body_file.close()
 
 
 @dataclass(frozen=True)
@@ -407,6 +449,82 @@ def required_schema() -> Dict[str, Tuple[str, ...]]:
     }
 
 
+def reply_schema() -> Tuple[str, ...]:
+    return (
+        "update_id",
+        "body_sha256",
+        "state",
+        "reserved_at",
+        "updated_at",
+        "network_started",
+        "telegram_message_id",
+        "failure_detail",
+    )
+
+
+def ensure_reply_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS replies (
+            update_id INTEGER PRIMARY KEY REFERENCES messages(update_id) ON DELETE RESTRICT,
+            body_sha256 TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('reserved', 'sent', 'failed', 'unknown')),
+            reserved_at INTEGER NOT NULL CHECK (reserved_at >= 0),
+            updated_at INTEGER NOT NULL CHECK (updated_at >= reserved_at),
+            network_started INTEGER NOT NULL DEFAULT 0 CHECK (network_started IN (0, 1)),
+            telegram_message_id INTEGER,
+            failure_detail TEXT,
+            CHECK (
+                (state = 'sent' AND telegram_message_id IS NOT NULL AND failure_detail IS NULL)
+                OR (state = 'reserved' AND telegram_message_id IS NULL AND failure_detail IS NULL)
+                OR (state = 'unknown' AND telegram_message_id IS NULL AND failure_detail IS NOT NULL)
+                OR (state = 'failed' AND telegram_message_id IS NULL AND failure_detail IS NOT NULL)
+            )
+        )
+        """
+    )
+    conn.commit()
+
+
+def validate_reply_rows(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(replies)").fetchall()
+    if tuple(row[1] for row in rows) != reply_schema():
+        raise LocalStateError("reply-columns", repr(tuple(row[1] for row in rows)))
+    for row in conn.execute(
+        "SELECT update_id, body_sha256, state, reserved_at, updated_at, "
+        "network_started, telegram_message_id, failure_detail FROM replies"
+    ):
+        update_id, digest, state, reserved_at, updated_at, started, sent_id, failure = row
+        if not valid_update_id(update_id):
+            raise LocalStateError("reply-update-id", repr(update_id))
+        if not isinstance(digest, str) or RESOLUTION_DIGEST_RE.fullmatch(digest) is None:
+            raise LocalStateError("reply-digest", repr(update_id))
+        if state not in REPLY_STATES:
+            raise LocalStateError("reply-state", repr(state))
+        if type(reserved_at) is not int or reserved_at < 0:
+            raise LocalStateError("reply-reserved", repr(update_id))
+        if type(updated_at) is not int or updated_at < reserved_at:
+            raise LocalStateError("reply-updated", repr(update_id))
+        if started not in (0, 1):
+            raise LocalStateError("reply-network-started", repr(update_id))
+        if state == "sent":
+            if type(sent_id) is not int or sent_id <= 0 or failure is not None:
+                raise LocalStateError("reply-sent-shape", repr(update_id))
+        elif state == "failed":
+            if sent_id is not None or not isinstance(failure, str) or not DETAIL_RE.fullmatch(failure):
+                raise LocalStateError("reply-failed-shape", repr(update_id))
+        elif state == "unknown":
+            if sent_id is not None or not isinstance(failure, str) or not DETAIL_RE.fullmatch(failure):
+                raise LocalStateError("reply-unknown-shape", repr(update_id))
+        elif sent_id is not None or failure is not None:
+            raise LocalStateError("reply-pending-shape", repr(update_id))
+        if conn.execute(
+            "SELECT 1 FROM messages WHERE update_id = ? AND payload IS NOT NULL",
+            (update_id,),
+        ).fetchone() is None:
+            raise LocalStateError("reply-inbound-missing", repr(update_id))
+
+
 def resolution_extension_tables(conn: sqlite3.Connection) -> Tuple[bool, bool]:
     names = {
         row[0]
@@ -520,10 +638,13 @@ def validate_resolution_extension(
     return fingerprint, manifest_digest, acknowledged_at, payload_count
 
 
-def validate_store(conn: sqlite3.Connection) -> None:
+def verify_integrity(conn: sqlite3.Connection) -> None:
     quick = conn.execute("PRAGMA quick_check").fetchall()
     if quick != [("ok",)]:
         raise LocalStateError("integrity-check", repr(quick[:4]))
+
+
+def validate_store(conn: sqlite3.Connection) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()
     if version is None or version[0] != SCHEMA_VERSION:
         raise LocalStateError("schema-version", repr(version))
@@ -638,6 +759,14 @@ def validate_store(conn: sqlite3.Connection) -> None:
                 or decoded.get("update_id") != update_id
                 or not isinstance(decoded.get("text"), str)
                 or not decoded.get("text")
+                or not isinstance(decoded.get("chat_id"), int)
+                or type(decoded.get("chat_id")) is bool
+                or not isinstance(decoded.get("from_id"), int)
+                or type(decoded.get("from_id")) is bool
+                or (
+                    "message_id" in decoded
+                    and not valid_update_id(decoded.get("message_id"))
+                )
             ):
                 raise LocalStateError("message-payload-shape", repr(update_id))
         if notice_id is not None:
@@ -648,6 +777,7 @@ def validate_store(conn: sqlite3.Connection) -> None:
             raise LocalStateError("unhandled-message-notice", repr(update_id))
         if handled_at is not None and (type(handled_at) is not int or handled_at < 0):
             raise LocalStateError("message-handled", repr(handled_at))
+    validate_reply_rows(conn)
 
 
 def connect_existing(state: Path) -> sqlite3.Connection:
@@ -658,6 +788,8 @@ def connect_existing(state: Path) -> sqlite3.Connection:
         uri = "file:%s?mode=rw" % urllib.parse.quote(database.as_posix(), safe="")
         conn = sqlite3.connect(uri, uri=True, isolation_level=None, timeout=5)
         configure_connection(conn)
+        verify_integrity(conn)
+        ensure_reply_schema(conn)
         validate_store(conn)
         return conn
     except LocalStateError:
@@ -720,6 +852,22 @@ def create_schema(conn: sqlite3.Connection) -> None:
             notice_id INTEGER REFERENCES notices(id),
             started_at INTEGER NOT NULL
         );
+        CREATE TABLE replies (
+            update_id INTEGER PRIMARY KEY REFERENCES messages(update_id) ON DELETE RESTRICT,
+            body_sha256 TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('reserved', 'sent', 'failed', 'unknown')),
+            reserved_at INTEGER NOT NULL CHECK (reserved_at >= 0),
+            updated_at INTEGER NOT NULL CHECK (updated_at >= reserved_at),
+            network_started INTEGER NOT NULL DEFAULT 0 CHECK (network_started IN (0, 1)),
+            telegram_message_id INTEGER,
+            failure_detail TEXT,
+            CHECK (
+                (state = 'sent' AND telegram_message_id IS NOT NULL AND failure_detail IS NULL)
+                OR (state = 'reserved' AND telegram_message_id IS NULL AND failure_detail IS NULL)
+                OR (state = 'unknown' AND telegram_message_id IS NULL AND failure_detail IS NOT NULL)
+                OR (state = 'failed' AND telegram_message_id IS NULL AND failure_detail IS NOT NULL)
+            )
+        );
         PRAGMA user_version = 1;
         """
     )
@@ -774,6 +922,7 @@ def create_store(
         failpoint("during_database_build")
         conn.commit()
         failpoint("after_database_commit")
+        verify_integrity(conn)
         validate_store(conn)
         conn.close()
         conn = None
@@ -1096,36 +1245,40 @@ def read_bounded_stream(
         chunks.append(chunk)
 
 
-def run_curl(
-    state: Path, credentials: Credentials, offset: int, timeout: int, curl_max: int
+def run_curl_request(
+    config: bytes,
+    extra_argv: Sequence[str],
+    max_time: int,
+    pass_fds: Tuple[int, ...] = (),
 ) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
-    ensure_telegram_directory(state, create=False)
-    config = (
-        'url = "https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=%d"\n'
-        % (credentials.token, offset, timeout)
-    )
     try:
+        # -q must stay first: curl otherwise reads the user's default config
+        # file, whose url, retry, or trace settings could resend or record the
+        # captain's reply outside this bounded transaction.
         process = subprocess.Popen(
             [
                 "curl",
+                "-q",
                 "-s",
                 "-w",
                 "\\n%{http_code}",
                 "--max-time",
-                str(curl_max),
+                str(max_time),
                 "-K",
                 "-",
-            ],
+            ]
+            + list(extra_argv),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            pass_fds=pass_fds,
         )
     except OSError:
         return None, None, "transport"
-    deadline = time.monotonic() + curl_max + 5
+    deadline = time.monotonic() + max_time + 5
     try:
         try:
-            process.stdin.write(config.encode("utf-8"))
+            process.stdin.write(config)
             process.stdin.close()
         except OSError:
             return None, None, "transport"
@@ -1155,6 +1308,17 @@ def run_curl(
             except OSError:
                 pass
         process.wait()
+
+
+def run_curl(
+    state: Path, credentials: Credentials, offset: int, timeout: int, curl_max: int
+) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
+    ensure_telegram_directory(state, create=False)
+    config = (
+        'url = "https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=%d"\n'
+        % (credentials.token, offset, timeout)
+    ).encode("utf-8")
+    return run_curl_request(config, (), curl_max)
 
 
 def canonical_message(
@@ -1190,15 +1354,19 @@ def canonical_message(
         raise ProtocolError("message date is not integer shaped")
     if chat_id != credentials.captain_chat_id or sender_id != credentials.captain_user_id:
         return None
+    message_id = raw_message.get("message_id")
     update_id = update["update_id"]
+    payload_data = {
+        "update_id": update_id,
+        "date": date,
+        "chat_id": chat_id,
+        "from_id": sender_id,
+        "text": text,
+    }
+    if valid_update_id(message_id):
+        payload_data["message_id"] = message_id
     payload = json.dumps(
-        {
-            "update_id": update_id,
-            "date": date,
-            "chat_id": chat_id,
-            "from_id": sender_id,
-            "text": text,
-        },
+        payload_data,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -1251,6 +1419,21 @@ def reset_success_conditions(conn: sqlite3.Connection) -> None:
     )
 
 
+def payload_conflicts(stored: str, planned: str) -> bool:
+    try:
+        stored_data = json.loads(stored)
+        planned_data = json.loads(planned)
+    except ValueError:
+        return True
+    if not isinstance(stored_data, dict) or not isinstance(planned_data, dict):
+        return True
+    if "message_id" not in stored_data:
+        planned_data = {
+            key: value for key, value in planned_data.items() if key != "message_id"
+        }
+    return stored_data != planned_data
+
+
 def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
     failpoint("after_validate")
     conn.execute("BEGIN IMMEDIATE")
@@ -1277,7 +1460,7 @@ def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
                 new_messages.append(message)
             elif existing[0] is None:
                 continue
-            elif existing[0] != message.payload:
+            elif payload_conflicts(existing[0], message.payload):
                 raise LocalStateError("message-conflict", repr(message.update_id))
         notice_id = None
         if new_messages:
@@ -1414,6 +1597,427 @@ def command_poll(state: Path, credential_path: Path) -> int:
     finally:
         if conn is not None:
             conn.close()
+
+
+def send_max_time() -> int:
+    return validate_positive_int(
+        os.environ.get("FM_TELEGRAM_SEND_MAX_TIME", "30"),
+        "FM_TELEGRAM_SEND_MAX_TIME",
+        MAX_SEND_TIME,
+    )
+
+
+def read_reply_body() -> Tuple[bytes, str]:
+    body = sys.stdin.buffer.read(MAX_REPLY_BYTES + 1)
+    if len(body) > MAX_REPLY_BYTES:
+        raise UserError("reply text exceeds the bounded Telegram send limit")
+    if not body:
+        raise UserError("reply text from stdin must not be empty")
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        raise UserError("reply text from stdin is not valid UTF-8")
+    if not text.strip():
+        raise UserError("reply text from stdin must not be empty")
+    if len(text.encode("utf-16-le")) // 2 > MAX_REPLY_CHARS:
+        raise UserError(
+            "reply text exceeds the Telegram limit of %d characters" % MAX_REPLY_CHARS
+        )
+    return body, text
+
+
+def stage_send_request(chat_id: int, message_id: int, text: str) -> SendRequest:
+    max_time = send_max_time()
+    encoded = urllib.parse.urlencode(
+        {
+            "chat_id": str(chat_id),
+            "reply_parameters": json.dumps(
+                {"message_id": message_id}, separators=(",", ":")
+            ),
+            "text": text,
+        }
+    ).encode("utf-8")
+    body_file = tempfile.TemporaryFile(mode="w+b")
+    try:
+        body_file.write(encoded)
+        body_file.flush()
+        body_file.seek(0)
+    except Exception:
+        body_file.close()
+        raise
+    return SendRequest(body_file, max_time)
+
+
+def run_send_curl(
+    credentials: Credentials, request: SendRequest
+) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
+    body_fd = request.body_file.fileno()
+    config = (
+        'url = "https://api.telegram.org/bot%s/sendMessage"\n'
+        "request = POST\n"
+        % credentials.token
+    ).encode("utf-8")
+    return run_curl_request(
+        config,
+        ("--data-binary", "@/dev/fd/%d" % body_fd),
+        request.max_time,
+        (body_fd,),
+    )
+
+
+def parse_send_success(
+    body: bytes, chat_id: int, message_id: int, expected_text: str
+) -> int:
+    try:
+        response = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise ProtocolError("send response is not valid JSON")
+    if not isinstance(response, dict):
+        raise ProtocolError("send response is not a Telegram envelope")
+    if response.get("ok") is False:
+        error_code = response.get("error_code")
+        if type(error_code) is int and 400 <= error_code <= 599:
+            raise ApiRefusal("api-refusal-%d" % error_code)
+        raise ApiRefusal("api-refusal")
+    if response.get("ok") is not True:
+        raise ProtocolError("send response is not a successful Telegram envelope")
+    result = response.get("result")
+    if not isinstance(result, dict):
+        raise ProtocolError("send response result is not an object")
+    sent_id = result.get("message_id")
+    result_chat = result.get("chat")
+    reply_to = result.get("reply_to_message")
+    if (
+        not valid_update_id(sent_id)
+        or not isinstance(result_chat, dict)
+        or type(result_chat.get("id")) is not int
+        or result_chat.get("id") != chat_id
+        or not isinstance(reply_to, dict)
+        or not valid_update_id(reply_to.get("message_id"))
+        or reply_to.get("message_id") != message_id
+        or result.get("text") != expected_text
+    ):
+        raise ProtocolError("send response is not bound to the accepted Telegram message")
+    return sent_id
+
+
+def safe_reply_failure(detail: str) -> str:
+    detail = re.sub(r"[^a-z0-9.-]+", "-", detail.lower()).strip("-")
+    return (detail or "unknown")[:64]
+
+
+def reply_record(
+    conn: sqlite3.Connection, update_id: int
+) -> Optional[Tuple[object, ...]]:
+    return conn.execute(
+        "SELECT body_sha256, state, reserved_at, updated_at, network_started, "
+        "telegram_message_id, failure_detail FROM replies WHERE update_id = ?",
+        (update_id,),
+    ).fetchone()
+
+
+def reply_label(state: str, network_started: int) -> str:
+    if state == "sent":
+        return "sent"
+    if state == "failed":
+        return "definitely-failed"
+    if state == "unknown" or network_started:
+        return "delivery-unknown"
+    return "reserved"
+
+
+def replaceable_reservation(row: Tuple[object, ...]) -> bool:
+    return row[1] == "reserved" and not row[4]
+
+
+def classify_reply_state(row: Optional[Tuple[object, ...]]) -> str:
+    if row is None:
+        return "new"
+    label = reply_label(row[1], row[4])
+    if label == "definitely-failed":
+        raise UserError(DEFINITE_FAILURE_GUIDANCE)
+    if label == "delivery-unknown":
+        raise UserError(DELIVERY_UNKNOWN_GUIDANCE)
+    return label
+
+
+def classify_reply_attempt(
+    row: Optional[Tuple[object, ...]], body_sha256: str
+) -> str:
+    label = classify_reply_state(row)
+    if row is not None and row[0] != body_sha256 and not replaceable_reservation(row):
+        raise UserError("an accepted inbound event already has a different reply")
+    return label
+
+
+def reconcile_reply_error(
+    conn: sqlite3.Connection,
+    update_id: int,
+    error: Exception,
+    delivery_may_have_happened: bool,
+) -> str:
+    try:
+        row = reply_record(conn, update_id)
+    except Exception as state_error:
+        if delivery_may_have_happened:
+            raise UserError(DELIVERY_UNKNOWN_GUIDANCE) from state_error
+        raise UserError(REPLY_STATE_UNAVAILABLE_GUIDANCE) from state_error
+    if row is None:
+        if delivery_may_have_happened:
+            raise UserError(DELIVERY_UNKNOWN_GUIDANCE) from error
+        if isinstance(error, UserError):
+            raise error
+        raise UserError(REPLY_STATE_UNAVAILABLE_GUIDANCE) from error
+    label = reply_label(row[1], row[4])
+    if label == "sent":
+        return label
+    if label == "delivery-unknown":
+        raise UserError(DELIVERY_UNKNOWN_GUIDANCE) from error
+    if label == "definitely-failed":
+        raise UserError(DEFINITE_FAILURE_GUIDANCE) from error
+    if isinstance(error, ReplyStateError):
+        raise error
+    if isinstance(error, UserError):
+        raise ReplyStateError(
+            "%s; the reply is still owed - inspect durable reply state with: doctor, "
+            "correct the issue, then retry with: reply %d" % (error, update_id)
+        ) from error
+    raise UserError(
+        "the reply was not sent and is still owed - inspect durable reply state with: "
+        "doctor, correct the local issue, then retry with: reply %d" % update_id
+    ) from error
+
+
+def reserve_reply(
+    conn: sqlite3.Connection, update_id: int, body_sha256: str
+) -> str:
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = reply_record(conn, update_id)
+        disposition = classify_reply_attempt(row, body_sha256)
+        if row is not None:
+            if disposition == "sent":
+                conn.commit()
+                return "sent"
+            if row[0] != body_sha256:
+                conn.execute(
+                    "UPDATE replies SET body_sha256 = ?, updated_at = ? WHERE update_id = ? "
+                    "AND state = 'reserved' AND network_started = 0",
+                    (body_sha256, now_epoch(), update_id),
+                )
+            conn.commit()
+            return "reserved"
+        now = now_epoch()
+        conn.execute(
+            "INSERT INTO replies (update_id, body_sha256, state, reserved_at, updated_at, "
+            "network_started, telegram_message_id, failure_detail) "
+            "VALUES (?, ?, 'reserved', ?, ?, 0, NULL, NULL)",
+            (update_id, body_sha256, now, now),
+        )
+        conn.commit()
+        return "reserved"
+    except Exception:
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        raise
+
+
+def mark_reply_network_started(
+    conn: sqlite3.Connection, update_id: int, body_sha256: str
+) -> None:
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        changed = conn.execute(
+            "UPDATE replies SET state = 'unknown', network_started = 1, "
+            "updated_at = ?, failure_detail = 'delivery-unknown' "
+            "WHERE update_id = ? AND state = 'reserved' AND network_started = 0 "
+            "AND body_sha256 = ?",
+            (now_epoch(), update_id, body_sha256),
+        ).rowcount
+        if changed != 1:
+            raise LocalStateError("reply-reservation-changed", repr(update_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def finish_reply(
+    conn: sqlite3.Connection,
+    update_id: int,
+    state: str,
+    telegram_message_id: Optional[int] = None,
+    failure_detail: Optional[str] = None,
+) -> None:
+    if state not in ("sent", "failed", "unknown"):
+        raise LocalStateError("reply-result", state)
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        row = reply_record(conn, update_id)
+        if row is None or row[1] not in ("reserved", "unknown") or not row[4]:
+            raise LocalStateError("reply-reservation", repr(update_id))
+        if state == "sent":
+            conn.execute(
+                "UPDATE replies SET state = 'sent', updated_at = ?, "
+                "telegram_message_id = ?, failure_detail = NULL WHERE update_id = ?",
+                (now_epoch(), telegram_message_id, update_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE replies SET state = ?, updated_at = ?, "
+                "telegram_message_id = NULL, failure_detail = ? WHERE update_id = ?",
+                (state, now_epoch(), failure_detail or "delivery-unknown", update_id),
+            )
+        raising_failpoint("before_reply_finish_commit")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def retain_reply_intent(conn: sqlite3.Connection, update_id: int) -> None:
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        changed = conn.execute(
+            "UPDATE replies SET state = 'reserved', network_started = 0, updated_at = ?, "
+            "telegram_message_id = NULL, failure_detail = NULL "
+            "WHERE update_id = ? AND state = 'unknown' AND network_started = 1",
+            (now_epoch(), update_id),
+        ).rowcount
+        if changed != 1:
+            raise LocalStateError("reply-reservation", repr(update_id))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def command_reply(state: Path, credential_path: Path, update_id_text: str) -> int:
+    update_id = validate_positive_int(update_id_text, "accepted inbound update id", MAX_UPDATE_ID)
+    try:
+        conn = connect_existing(state)
+    except Exception as exc:
+        raise UserError(REPLY_STATE_UNAVAILABLE_GUIDANCE) from exc
+    network_outcome_unresolved = False
+    try:
+        disposition = classify_reply_state(reply_record(conn, update_id))
+        if disposition == "sent":
+            print("already-sent: update_id=%d" % update_id)
+            return 0
+        body, text = read_reply_body()
+        body_sha256 = hashlib.sha256(body).hexdigest()
+        try:
+            credentials = read_credentials(credential_path)
+        except CredentialError:
+            raise UserError(
+                "Telegram reply credentials are unavailable or invalid; repair the configured "
+                "credential file, then retry with: reply %d" % update_id
+            )
+        raising_failpoint("before_reply_inbound_lookup")
+        inbound = conn.execute(
+            "SELECT payload FROM messages WHERE update_id = ?", (update_id,)
+        ).fetchone()
+        if inbound is None or inbound[0] is None:
+            raise UserError("accepted inbound event is unknown")
+        try:
+            payload = json.loads(inbound[0])
+        except (TypeError, ValueError):
+            raise UserError("accepted inbound event has malformed evidence")
+        inbound_message_id = payload.get("message_id") if isinstance(payload, dict) else None
+        if (
+            not isinstance(payload, dict)
+            or payload.get("chat_id") != credentials.captain_chat_id
+            or payload.get("from_id") != credentials.captain_user_id
+            or not valid_update_id(inbound_message_id)
+        ):
+            raise UserError("accepted inbound event lacks strict reply identity evidence")
+        failpoint("before_reply_reserve")
+        reservation = reserve_reply(conn, update_id, body_sha256)
+        if reservation == "sent":
+            print("already-sent: update_id=%d" % update_id)
+            return 0
+        failpoint("after_reply_reserve")
+        synchronization_failpoint("reply-after-reserve")
+        try:
+            request = stage_send_request(credentials.captain_chat_id, inbound_message_id, text)
+        except Exception as exc:
+            raise ReplyStateError(
+                "Telegram reply preparation failed before sending; the reply is still owed - "
+                "inspect with: doctor, correct the local issue, then retry with: reply %d"
+                % update_id
+            ) from exc
+        try:
+            mark_reply_network_started(conn, update_id, body_sha256)
+            network_outcome_unresolved = True
+            failpoint("before_reply_network")
+            http_code, response, transport_error = run_send_curl(credentials, request)
+        finally:
+            request.close()
+        credentials = Credentials("", credentials.captain_chat_id, credentials.captain_user_id)
+        if transport_error is not None or http_code is None:
+            finish_reply(conn, update_id, "unknown", failure_detail="delivery-unknown")
+            network_outcome_unresolved = False
+            raise UserError(DELIVERY_UNKNOWN_GUIDANCE)
+        if http_code == 429:
+            retain_reply_intent(conn, update_id)
+            network_outcome_unresolved = False
+            raise ReplyStateError(
+                "Telegram rate-limited the reply; it was not sent and is still owed - "
+                "send it explicitly again with: reply %d" % update_id
+            )
+        if http_code in (401, 404):
+            retain_reply_intent(conn, update_id)
+            network_outcome_unresolved = False
+            raise ReplyStateError(
+                "Telegram refused the bot credentials or endpoint (http-%d); the reply was "
+                "not sent and is still owed - send it explicitly again with: reply %d "
+                "once the configuration is corrected" % (http_code, update_id)
+            )
+        if 400 <= http_code < 500:
+            finish_reply(conn, update_id, "failed", failure_detail="http-%d" % http_code)
+            network_outcome_unresolved = False
+            raise UserError("Telegram definitely refused the reply (http-%d)" % http_code)
+        if http_code != 200 or response is None:
+            finish_reply(conn, update_id, "unknown", failure_detail="delivery-unknown")
+            network_outcome_unresolved = False
+            raise UserError(DELIVERY_UNKNOWN_GUIDANCE)
+        try:
+            sent_message_id = parse_send_success(
+                response,
+                credentials.captain_chat_id,
+                inbound_message_id,
+                text.strip(),
+            )
+        except ApiRefusal as exc:
+            detail = safe_reply_failure(str(exc))
+            finish_reply(conn, update_id, "failed", failure_detail=detail)
+            network_outcome_unresolved = False
+            raise UserError("Telegram definitely refused the reply")
+        except ProtocolError:
+            finish_reply(conn, update_id, "unknown", failure_detail="unbound-response")
+            network_outcome_unresolved = False
+            raise UserError(
+                "Telegram did not prove delivery to the accepted message; "
+                + DELIVERY_UNKNOWN_GUIDANCE
+            )
+        failpoint("after_reply_response")
+        finish_reply(conn, update_id, "sent", telegram_message_id=sent_message_id)
+        network_outcome_unresolved = False
+        failpoint("after_reply_commit")
+        print("sent: update_id=%d telegram_message_id=%d" % (update_id, sent_message_id))
+        return 0
+    except Exception as exc:
+        disposition = reconcile_reply_error(
+            conn, update_id, exc, network_outcome_unresolved
+        )
+        if disposition == "sent":
+            print("already-sent: update_id=%d" % update_id)
+            return 0
+        raise LocalStateError("reply-reconciliation", repr(disposition))
+    finally:
+        conn.close()
 
 
 def read_result_file(path: Path) -> str:
@@ -2803,6 +3407,7 @@ def command_resolve_migration(
                 (current_evidence.plan.offset,),
             )
             failpoint("after_resolution_meta")
+            verify_integrity(conn)
             validate_store(conn)
             failpoint("before_resolution_commit")
             conn.commit()
@@ -2921,6 +3526,40 @@ def command_doctor(state: Path) -> int:
                         "migration_resolution_detail=%s"
                         % migration_cause_text(state, exc)
                     )
+        totals = {"sent": 0, "reserved": 0, "definitely-failed": 0, "delivery-unknown": 0}
+        for label, count in conn.execute(REPLY_LABEL_COUNTS_SQL):
+            totals[label] = count
+        print("reply_count=%d" % sum(totals.values()))
+        print("reply_sent=%d" % totals["sent"])
+        print("reply_reserved=%d" % totals["reserved"])
+        print("reply_definitely_failed=%d" % totals["definitely-failed"])
+        print("reply_delivery_unknown=%d" % totals["delivery-unknown"])
+        reserved = conn.execute(
+            "SELECT update_id, state, network_started, failure_detail FROM replies "
+            "WHERE state = 'reserved' AND network_started = 0 "
+            "ORDER BY updated_at DESC, update_id DESC"
+        )
+        terminal = conn.execute(
+            "SELECT update_id, state, network_started, failure_detail FROM replies "
+            "WHERE state != 'sent' AND NOT (state = 'reserved' AND network_started = 0) "
+            "ORDER BY updated_at DESC, update_id DESC LIMIT ?",
+            (DOCTOR_REPLY_TERMINAL_LIMIT,),
+        ).fetchall()
+        for rows in (reserved, terminal):
+            for update_id, reply_state, network_started, failure in rows:
+                label = reply_label(reply_state, network_started)
+                if failure is None:
+                    print("reply.%d=%s" % (update_id, label))
+                else:
+                    print("reply.%d=%s detail=%s" % (update_id, label, failure))
+        print(
+            "reply_attention_omitted=%d"
+            % (
+                totals["definitely-failed"]
+                + totals["delivery-unknown"]
+                - len(terminal)
+            )
+        )
         print(
             "pending_notices=%d"
             % conn.execute(
@@ -2993,6 +3632,7 @@ def build_parser() -> argparse.ArgumentParser:
             "classify",
             "credential-check",
             "doctor",
+            "reply",
             "export-legacy-offset",
             "messages",
             "migrate",
@@ -3014,6 +3654,12 @@ def dispatch(arguments: argparse.Namespace) -> int:
         if not arguments.credentials:
             raise UserError("poll needs --credentials")
         return command_poll(state, Path(arguments.credentials))
+    if command == "reply":
+        if not arguments.credentials:
+            raise UserError("reply needs --credentials")
+        if not arguments.argument:
+            raise UserError("reply needs an accepted inbound update id")
+        return command_reply(state, Path(arguments.credentials), arguments.argument)
     if command == "credential-check":
         if not arguments.credentials:
             raise UserError("credential-check needs --credentials")
@@ -3061,6 +3707,7 @@ def main(argv: Sequence[str]) -> int:
             "poll",
             "classify",
             "messages",
+            "reply",
             "ack",
             "arm-state",
             "doctor",
