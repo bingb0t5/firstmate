@@ -698,10 +698,10 @@ pause_state_class() {  # <window> <task>
   # recheck age, so the common repeat-poll path never repeats the costly state read.
   kind=$(window_kind "$win")
   if [ -e "$STATE/.paused-$key" ] && [ "$(age_of "$recheck_file")" -lt "$STALE_ESCALATE_SECS" ]; then
-    if [ "$(cat "$recheck_file" 2>/dev/null || true)" = settled ]; then
-      printf 'settled'
-      return
-    fi
+    case "$(cat "$recheck_file" 2>/dev/null || true)" in
+      settled) printf 'settled'; return ;;
+      none) printf 'none'; return ;;
+    esac
     if [ "$kind" != secondmate ]; then
       agent_alive=$(fm_backend_agent_alive "$(window_backend "$win")" "$win" 2>/dev/null) || agent_alive=unknown
       case "$agent_alive" in
@@ -726,7 +726,7 @@ pause_state_class() {  # <window> <task>
   fi
   case "$class" in
     paused) date +%s > "$recheck_file" ;;
-    settled) printf 'settled' > "$recheck_file" ;;
+    settled|none) printf '%s' "$class" > "$recheck_file" ;;
     *) rm -f "$recheck_file" ;;
   esac
   printf '%s' "$class"
@@ -743,7 +743,7 @@ surface_nonterminal_stale() {  # <window> <hash>
   last=$(last_status_line "$STATE/$task.status")
   if status_is_paused_or_captain_held "$last"; then
     : > "$STATE/.paused-$key"
-    date +%s > "$STATE/.paused-rechecked-$key"
+    [ -e "$STATE/.paused-rechecked-$key" ] || date +%s > "$STATE/.paused-rechecked-$key"
     date +%s > "$STATE/.paused-resurfaced-$key"
   else
     rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key"
@@ -1570,7 +1570,7 @@ EOF
       task=$(window_to_task "$w" "$STATE")
       if ! afk_present && status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")" && [ "$busy_now" -ne 0 ]; then
         handle_declared_wait_stale "$w" "$task" "$h"
-      elif [ "$paused_bound" -ne 0 ] && [ -e "$pf" ]; then
+      elif ! afk_present && [ "$paused_bound" -ne 0 ] && [ -e "$pf" ]; then
         # Same rule as the stable-hash branch: never clear pause bookkeeping the
         # declared-pause cadence recorded on this very poll.
         clear_pause_tracking "$key"

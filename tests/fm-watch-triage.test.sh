@@ -1262,6 +1262,86 @@ test_changed_hash_rearms_preserve_nonsettled_declared_waits() {
   pass "changing hashes preserve failed, live, and unconfirmed declared-wait rechecks"
 }
 
+test_failed_declared_wait_reclassification_is_cached() {
+  local dir state fakebin out capture_file statusf state_read_log window key pane_hash sig pid back reads
+  dir=$(make_case failed-declared-wait-cache); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/failed-cache.status"
+  state_read_log="$dir/state-read.log"; window="test:fm-failed-cache"
+  printf 'idle shell after failed validation\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/failed-cache.meta"
+  printf 'paused: stale external wait after validation failed\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-failed-cache_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle shell after failed validation")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '%s' "$pane_hash" > "$state/.stale-$key"
+  printf '1\n' > "$state/.count-$key"
+  : > "$state/.paused-$key"
+  : > "$state/.paused-resurfaced-$key"
+  printf 'legacy-cache\n' > "$state/.paused-rechecked-$key"
+  back=$(( $(date +%s) - 500 ))
+  set_mtime "$back" "$state/.paused-rechecked-$key"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed' \
+    FM_FAKE_CREW_STATE_LOG="$state_read_log" FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "failed declared wait exited during its first cached recheck cycle"; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "failed declared wait exited during its second cached recheck cycle"; }
+  reap "$pid"
+
+  [ -e "$state_read_log" ] || fail "failed declared wait never reclassified its expired cache"
+  reads=$(wc -l < "$state_read_log" | tr -d ' ')
+  [ "$reads" -eq 1 ] || fail "failed declared wait reread authoritative state $reads times after one cache expiry"
+  [ "$(cat "$state/.paused-rechecked-$key" 2>/dev/null || true)" = none ] \
+    || fail "failed declared wait did not retain its nonsettled cache"
+  [ ! -s "$out" ] || fail "cached failed declared wait printed another wake: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "cached failed declared wait queued another wake"
+  pass "failed declared waits reclassify once per bounded cache window"
+}
+
+test_afk_changing_hash_preserves_settled_pause_cache() {
+  local dir state fakebin out capture_file statusf state_read_log window key sig pid cache_mtime
+  dir=$(make_case afk-changing-hash-settled-cache); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/settled-afk.status"
+  state_read_log="$dir/state-read.log"; window="test:fm-settled-afk"
+  printf 'changing idle pane after completion\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/settled-afk.meta"
+  printf 'paused: stale external wait after completion\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-settled-afk_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf 'previous pane hash\n' > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  printf 'previous stale suppressor\n' > "$state/.stale-$key"
+  : > "$state/.paused-$key"
+  : > "$state/.paused-resurfaced-$key"
+  printf 'settled' > "$state/.paused-rechecked-$key"
+  cache_mtime=$(( $(date +%s) - 30 ))
+  set_mtime "$cache_mtime" "$state/.paused-rechecked-$key"
+  : > "$state/.afk"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
+    FM_FAKE_CREW_STATE_LOG="$state_read_log" FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "AFK changing-hash watcher exited while preserving settlement"; }
+  [ -e "$state/.paused-$key" ] || { reap "$pid"; fail "AFK changing hash removed settled pause tracking"; }
+  [ "$(cat "$state/.paused-rechecked-$key" 2>/dev/null || true)" = settled ] \
+    || { reap "$pid"; fail "AFK changing hash removed the settled classification"; }
+  [ "$(file_mtime "$state/.paused-rechecked-$key")" = "$cache_mtime" ] \
+    || { reap "$pid"; fail "AFK changing hash refreshed the settled classification"; }
+  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = 'previous stale suppressor' ] \
+    || { reap "$pid"; fail "AFK changing hash removed the settled stale suppressor"; }
+  [ ! -e "$state_read_log" ] || { reap "$pid"; fail "AFK changing hash reclassified a settled lane"; }
+  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "AFK changing hash queued a stale wake before becoming stable"; }
+  reap "$pid"
+  pass "AFK changing hashes preserve daemon-owned settlement state"
+}
+
 test_secondmate_paused_resurfaces_in_normal_mode() {
   local dir state fakebin out capture_file statusf window key pane_hash sig pid back
   dir=$(make_case secondmate-paused-resurface); state="$dir/state"; fakebin="$dir/fakebin"
@@ -2792,6 +2872,8 @@ test_nonterminal_stale_not_working_surfaced
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_changed_hash_rearms_preserve_nonsettled_declared_waits
+test_failed_declared_wait_reclassification_is_cached
+test_afk_changing_hash_preserves_settled_pause_cache
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_captain_held_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed
