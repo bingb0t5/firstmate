@@ -1,0 +1,47 @@
+{
+  "invocation": "FM_HOME=<fixture> FM_SNAPSHOT_NOW=2026-07-14T00:00:00Z FM_SNAPSHOT_SECONDMATES=0 bin/fm-fleet-snapshot.sh --json",
+  "fixture_mtimes": {
+    "a-status-new": {
+      "meta": "2020-01-01T00:00:00Z",
+      "status": "2020-01-02T00:00:00Z"
+    },
+    "b-meta-new": {
+      "meta": "2020-01-03T00:00:00Z",
+      "status": "2020-01-01T00:00:00Z"
+    },
+    "y-status-new": {
+      "meta": "2020-01-01T00:00:00Z",
+      "status": "2020-01-05T00:00:00Z"
+    },
+    "z-meta-new": {
+      "meta": "2020-01-04T00:00:00Z",
+      "status": "2020-01-01T00:00:00Z"
+    }
+  },
+  "snapshot": {
+    "schema": "fm-fleet-snapshot.v1",
+    "generated": "2026-07-14T00:00:00Z",
+    "tasks": [
+      {
+        "id": "a-status-new",
+        "last_changed_at": "2020-01-02T00:00:00Z",
+        "observed_at": "2026-07-14T00:00:00Z"
+      },
+      {
+        "id": "b-meta-new",
+        "last_changed_at": "2020-01-03T00:00:00Z",
+        "observed_at": "2026-07-14T00:00:00Z"
+      },
+      {
+        "id": "z-meta-new",
+        "last_changed_at": "2020-01-04T00:00:00Z",
+        "observed_at": "2026-07-14T00:00:00Z"
+      },
+      {
+        "id": "y-status-new",
+        "last_changed_at": "2020-01-05T00:00:00Z",
+        "observed_at": "2026-07-14T00:00:00Z"
+      }
+    ]
+  }
+}
