@@ -751,6 +751,13 @@ surface_nonterminal_stale() {  # <window> <hash>
   wake "stale: $win"
 }
 
+# Route a stale pane whose status log ends in a declared wait through one
+# classification, so the unchanged-hash and changing-hash stale paths cannot
+# diverge on the same lane. Existing markers decide what a nonterminal class does:
+# a declaration that has never surfaced still gets its one inspection, while
+# .paused-resurfaced-<key> (live, unconfirmed) or .paused-<key> (none) proves that
+# inspection already happened, so the lane returns to the bounded cadence rather
+# than surfacing again on every poll.
 handle_declared_wait_stale() {  # <window> <task> <hash>
   local win=$1 task=$2 h=$3 key sf ssf ewf class
   key=$(window_key "$win")
