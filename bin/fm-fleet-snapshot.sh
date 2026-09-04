@@ -35,6 +35,9 @@
 #     It never changes captain_actionable; renderers may use it to keep
 #     prose-deferred rows out of default views.
 #   tasks[]: one row per state/<id>.meta, sorted by id.
+#     last_changed_at is the latest UTC timestamp evidenced by the task metadata
+#     or status-log mtime, or null when neither source can be read. It is distinct
+#     from the snapshot-wide generated and current_state.observed_at timestamps.
 #     current_state is parsed from bin/fm-crew-state.sh <id> and preserves
 #     state, source, detail, and raw line separately.
 #     paths.status_log.last_event is historical wake-event data only, never
@@ -488,7 +491,7 @@ task_json_lines() {
   local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
   local current_state_file status_json_file open_decisions_file last_event_raw_file pr_file projects_file
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
-  local open_decisions_tsv open_decisions_json rows_file
+  local last_changed_at open_decisions_tsv open_decisions_json rows_file
 
   rows_file="$SNAPSHOT_TMPDIR/task-rows"
   snapshot_write "$rows_file" ""
@@ -518,6 +521,7 @@ task_json_lines() {
     fi
     status_log="$STATE/$id.status"
     report_path="$DATA/$id/report.md"
+    last_changed_at=$(task_last_changed_at "$meta" "$status_log")
     pr=$(meta_value "$meta" pr)
     pr_source=meta
     if [ -z "$pr" ]; then
@@ -644,6 +648,7 @@ task_json_lines() {
       --arg pr_source "$pr_source" \
       --arg agent_alive "$agent_alive" \
       --arg observed_at "$SNAPSHOT_NOW" \
+      --arg last_changed_at "$last_changed_at" \
       --rawfile last_event_raw "$last_event_raw_file" \
       --slurpfile current_state "$current_state_file" \
       --argjson meta_path "$meta_json" \
@@ -663,6 +668,7 @@ task_json_lines() {
         mode:($mode // ""),
         yolo:($yolo // ""),
         project:($project // ""),
+        last_changed_at:($last_changed_at | if . == "" then null else . end),
         backend:$backend,
         remote:(if $remote_host == "" then null else {host:$remote_host,root:$remote_root} end),
         paths:{
@@ -908,6 +914,29 @@ else
   file_mtime_epoch() { stat -c '%Y' "$1" 2>/dev/null || true; }
   file_mode_octal() { stat -c '%a' "$1" 2>/dev/null || true; }
 fi
+
+file_mtime_iso() {  # <epoch> - convert an evidenced mtime to a UTC timestamp
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  if [ "$SNAPSHOT_STAT_STYLE" = bsd ]; then
+    date -u -r "$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null
+  else
+    date -u -d "@$1" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null
+  fi
+}
+
+task_last_changed_at() {  # <path>... - use only metadata/status mtimes as evidence
+  local path epoch newest=''
+  for path in "$@"; do
+    [ -f "$path" ] || continue
+    epoch=$(file_mtime_epoch "$path")
+    case "$epoch" in ''|*[!0-9]*) continue ;; esac
+    if [ -z "$newest" ] || [ "$epoch" -gt "$newest" ]; then
+      newest=$epoch
+    fi
+  done
+  [ -n "$newest" ] || return 0
+  file_mtime_iso "$newest"
+}
 
 registry_secondmates_json() {
   local reg="$DATA/secondmates.md" out rc reason mode script parse_filter output_filter
