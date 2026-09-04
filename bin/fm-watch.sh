@@ -76,10 +76,12 @@
 #                          inactive terminal outcome that still lacks its durable
 #                          upstream receipt
 #   check: secondmate wake-loop stalled: mate=<id> row=<seq> age=<seconds>s
-#                          the oldest valid row in an endpoint-recorded local
+#                          the oldest non-parked row in an endpoint-recorded local
 #                          secondmate home's durable wake queue exceeded
-#                          FM_SECONDMATE_WAKE_STALL_SECS; observation is read-only
-#                          and one parent receipt suppresses repeats for that row
+#                          FM_SECONDMATE_WAKE_STALL_SECS; declared external-wait
+#                          rechecks remain durable for the mate but do not count
+#                          as a stalled wake loop; observation is read-only and
+#                          one parent receipt suppresses repeats for each row
 # For normal supervision, resume the session-start primary-harness protocol
 # after each printed reason. Direct duplicate invocations of this script still
 # no-op through the watcher singleton lock.
@@ -378,14 +380,18 @@ recorded_windows() {
   done
 }
 
-# Print the oldest structurally valid row in a local secondmate's foreign queue.
-# This is a read-only observation: the receiving home owns acknowledgement and
-# this parent never changes the row or the foreign queue.
+# Print the oldest structurally valid row in a local secondmate's foreign queue
+# that needs parent attention. This is a read-only observation: the receiving home
+# owns acknowledgement and this parent never changes the row or the foreign queue.
+# A declared external-wait recheck is intentionally parked work for the mate's own
+# supervisor, not evidence that the mate's wake loop is stalled. Captain-held
+# rechecks and genuine wedge rows remain eligible for this parent guard.
 secondmate_oldest_queue_row() {  # <queue-path>
   local queue=$1
   [ -f "$queue" ] && [ ! -L "$queue" ] || return 0
   awk -F '\t' '
-    NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {
+    NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ \
+      && !($3 == "stale" && $5 ~ /^stale: .* \(paused [-0-9]+s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds\)$/) {
       if (!found || $2 < seq) {
         found = 1
         seq = $2
@@ -396,10 +402,10 @@ secondmate_oldest_queue_row() {  # <queue-path>
   ' "$queue" 2>/dev/null || true
 }
 
-# Surface one durable parent check for one unchanged foreign row after its
-# bounded age. The primary marker and queued-key check make repeated watcher
-# cycles converge without a notification storm, while an empty queue removes
-# only this home's marker so a later row can be observed.
+# Surface one durable parent check for one unchanged non-parked foreign row after
+# its bounded age. The primary marker and queued-key check make repeated watcher
+# cycles converge without a notification storm, while a queue with no eligible
+# row clears only this home's stall bookkeeping so a later row can be observed.
 secondmate_wake_stall_tick() {
   local now=$(( $(date +%s) )) threshold=$SECONDMATE_WAKE_STALL_SECS
   local meta task kind remote_host home queue row epoch seq row_key marker receipt receipt_dir notify_key queued age reason
