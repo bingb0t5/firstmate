@@ -111,13 +111,6 @@ HARNESS=$(meta_value harness)
 REMOTE_HOST=$(meta_value remote_host)
 [ -n "$KIND" ] || KIND=ship
 
-# A torn-down (or never-created) worktree has no current state to read. A
-# remote secondmate's recorded worktree is a path on ITS host, so the local
-# probe proves nothing for it - the remote arm below reads the true source.
-if [ -z "$REMOTE_HOST" ] && { [ -z "$WT" ] || [ ! -d "$WT" ]; }; then
-  emit unknown none "worktree gone (torn down?)"
-fi
-
 # --- status log ------------------------------------------------------------
 
 # Last non-empty status line, and its leading verb (the word before the colon).
@@ -147,6 +140,13 @@ map_log_state() {  # <line>
 
 LOG_LINE=$(log_last_line || true)
 LOG_VERB=$(status_line_verb "$LOG_LINE")
+
+# A torn-down (or never-created) worktree has no current state to read. A
+# remote secondmate's recorded worktree is a path on ITS host, so the local
+# probe proves nothing for it - the remote arm below reads the true source.
+if [ -z "$REMOTE_HOST" ] && { [ -z "$WT" ] || [ ! -d "$WT" ]; }; then
+  emit unknown none "worktree gone (torn down?)"
+fi
 
 # --- remote secondmate: the true source is the remote endpoint ---------------
 # A remote mate's recorded worktree and backend target live on its own host, so

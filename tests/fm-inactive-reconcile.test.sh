@@ -97,10 +97,11 @@ write_mate_meta() {
 }
 
 run_reconcile() { # <home> [--startup]
-  local home=$1 option=${2:-}
+  local home=$1 option=${2:-} crew_state_bin
+  crew_state_bin=${FM_INACTIVE_CREW_STATE_BIN:-$WORLD/fakebin/fm-crew-state.sh}
   PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" \
+    FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$crew_state_bin" \
     FM_FORGE_LOG="$WORLD/forge.log" "$RECON" scan ${option:+"$option"}
 }
 
@@ -328,6 +329,18 @@ test_nonterminal_and_captain_held_states_do_not_report() {
   pass "nonterminal and captain-held workers remain outside inactive terminal reporting"
 }
 
+test_post_completion_pause_does_not_report_terminal_outcome() {
+  make_world post-completion-pause
+  write_child "$MAIN" child 'paused: waiting on an external dependency'
+  printf 'done: shipped\npaused: waiting on an external dependency\n' > "$MAIN/state/child.status"
+  age "$MAIN/state/child.status"
+  FM_INACTIVE_CREW_STATE_BIN="$ROOT/bin/fm-crew-state.sh" run_reconcile "$MAIN" --startup
+  [ "$(outcome_count "$MAIN" pending)" = 0 ] || fail "post-completion pause created a terminal outcome record"
+  ! grep -Fq 'inactive-outcome:' "$MAIN/state/.wake-queue" 2>/dev/null \
+    || fail "post-completion pause created an inactive terminal wake"
+  pass "post-completion pauses remain outside inactive terminal reporting"
+}
+
 # The actual watcher poll invokes the helper, while an idle secondmate remains
 # exempt from wedge escalation and emits no false wake.
 test_watcher_hook_and_idle_secondmate_exemption() {
@@ -455,6 +468,7 @@ test_relaunch_cannot_replace_metadata_during_state_snapshot
 test_heartbeat_cap_does_not_delay_reconciliation
 test_scan_marker_replaces_symlink_safely
 test_nonterminal_and_captain_held_states_do_not_report
+test_post_completion_pause_does_not_report_terminal_outcome
 test_watcher_hook_and_idle_secondmate_exemption
 test_stalled_state_read_is_bounded_and_scan_progresses
 test_full_scan_budget_includes_wake_lock_wait

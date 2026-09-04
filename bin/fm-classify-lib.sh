@@ -13,13 +13,14 @@
 # daemon keeps its escalation-digest seen-markers; the watcher keeps its .seen-*
 # signatures).
 #
-# There are three documented exceptions. The absorb classification
-# (crew_absorb_class and its working/paused wrappers) is NOT a pure status-file
-# read: it reuses bin/fm-crew-state.sh, which may make a bounded no-mistakes call,
-# to decide whether a crew that just stopped its turn or went stale is working,
-# deliberately paused, or neither. Callers run it ONLY on no-verb signal handling
-# and first sighting of a stale hash, never on every wake, so the per-wake triage
-# stays cheap. status_open_decisions_incremental (see "incremental (cursor-backed)
+# There are three documented exceptions. The supervision classification
+# (crew_supervision_record, declared_wait_class, crew_absorb_class, and the
+# working/paused wrappers) is NOT a pure status-file read: it reuses
+# bin/fm-crew-state.sh, which may make a bounded no-mistakes call, to preserve the
+# authoritative current state while deciding whether a stale crew is working,
+# deliberately paused, settled, or actionable. Callers run it only at bounded
+# classification points, never on every wake, so per-wake triage stays cheap.
+# status_open_decisions_incremental (see "incremental (cursor-backed)
 # open-decisions fold" below) also writes: it persists a per-status-file byte
 # cursor and folded open-set as a side effect, so a per-drain fleet-wide scan
 # stays bounded by new appends instead of re-reading each task's whole lifetime
@@ -1178,31 +1179,92 @@ signal_reason_is_actionable() {  # <file> ...
   return 1
 }
 
-# Classify WHY an idle/stale crew MIGHT be safely absorbed instead of surfaced,
-# from bin/fm-crew-state.sh's one authoritative current-state line
-# ("state: <s> · source: <src> · <detail>"). Prints exactly one token:
-#   working - an actively-running no-mistakes step (running/fixing/ci) or a busy
-#             pane; the crew is legitimately mid-work on a static-looking pane
-#             (e.g. waiting on CI);
-#   paused  - the crew's authoritative current state is a declared external-wait
-#             pause (paused:), which is EXPECTED to idle;
-#   none    - neither, so the wake must surface (a stopped/finished/parked/failed/
-#             torn-down/unknown crew, or an unreadable verdict).
-# One fm-crew-state.sh read serves BOTH absorb reasons at once. Reading the state
-# authoritatively (not the status log) is what keeps run-step precedence: a crew
-# that appended paused: but then STARTED a run reports working, never paused.
-# NOT a pure read: fm-crew-state.sh may make a bounded no-mistakes call, so callers
-# run it only on no-verb signal and first-sighting stale paths, never every wake.
-# FM_CREW_STATE_BIN lets tests stub the verdict.
-crew_absorb_class() {  # <id>
+# Preserve bin/fm-crew-state.sh's canonical state and source as "<state>|<source>".
+# Malformed, unreadable, or unsupported verdicts fail closed to unknown|none.
+# FM_CREW_STATE_BIN lets tests supply the same executable protocol without a live
+# worktree or no-mistakes run.
+crew_supervision_record() {  # <id>
   local id=$1 line state src
-  [ -n "$id" ] || { printf 'none'; return; }
+  [ -n "$id" ] || { printf 'unknown|none'; return; }
   line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
-  case "$line" in state:*) ;; *) printf 'none'; return ;; esac
+  case "$line" in state:*"source: "*) ;; *) printf 'unknown|none'; return ;; esac
   state=${line#state: }; state=${state%% *}
+  src=${line#*source: }; src=${src%% *}
+  case "$state" in
+    working|parked|done|blocked|paused|failed|unknown) ;;
+    *) state=unknown; src=none ;;
+  esac
+  printf '%s|%s' "$state" "$src"
+}
+
+declared_wait_supervision_record() {  # <id> <state-dir>
+  local id=$1 state_dir=$2 record meta wt remote previous='' last='' line
+  record=$(crew_supervision_record "$id")
+  if [ "$record" != 'unknown|none' ]; then
+    printf '%s' "$record"
+    return
+  fi
+  meta="$state_dir/$id.meta"
+  [ -f "$meta" ] || { printf '%s' "$record"; return; }
+  remote=$(grep '^remote_host=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  [ -z "$remote" ] || { printf '%s' "$record"; return; }
+  wt=$(grep '^worktree=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  [ -n "$wt" ] && [ ! -d "$wt" ] || { printf '%s' "$record"; return; }
+  while IFS= read -r line; do
+    previous=$last
+    last=$line
+  done < <(grep -v '^[[:space:]]*$' "$state_dir/$id.status" 2>/dev/null | tail -2)
+  if status_is_paused "$last" && [ "$(status_line_verb "$previous")" = 'done' ]; then
+    printf 'done|status-log'
+  else
+    printf '%s' "$record"
+  fi
+}
+
+# Classify a declared wait from the preserved current-state record, task kind,
+# and backend agent liveness. Only a confidently dead ordinary agent on a done
+# or parked lane is settled. A secondmate keeps its declaration cadence without an
+# endpoint-liveness read, while trusted work and a live ordinary agent retain
+# their existing working and decision-gate paths.
+declared_wait_class() {  # <kind> <state|source> <alive|dead|unknown>
+  local kind=$1 record=$2 agent_alive=$3 state src
+  state=${record%%|*}
+  src=${record#*|}
+  if [ "$state" = working ]; then
+    case "$src" in run-step|pane) printf 'working'; return ;; esac
+  fi
+  if [ "$kind" = secondmate ]; then
+    printf 'paused'
+    return
+  fi
+  case "$agent_alive" in
+    alive) printf 'live' ;;
+    dead)
+      case "$state" in
+        done|parked) printf 'settled' ;;
+        paused|unknown) printf 'paused' ;;
+        *) printf 'none' ;;
+      esac
+      ;;
+    *)
+      case "$state" in
+        paused|unknown) printf 'unconfirmed' ;;
+        *) printf 'none' ;;
+      esac
+      ;;
+  esac
+}
+
+# Classify WHY an idle/stale crew might be safely absorbed instead of surfaced.
+# One authoritative read serves both absorb reasons while the exact record remains
+# available to the declared-wait policy above.
+crew_absorb_class() {  # <id>
+  local record state src
+  record=$(crew_supervision_record "$1")
+  state=${record%%|*}
+  src=${record#*|}
   if [ "$state" = paused ]; then printf 'paused'; return; fi
   if [ "$state" = working ]; then
-    src=${line#*source: }; src=${src%% *}
     case "$src" in run-step|pane) printf 'working'; return ;; esac
   fi
   printf 'none'

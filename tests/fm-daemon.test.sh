@@ -224,15 +224,23 @@ test_stale_paused_classifies_pause() {
 # EXPECTED, so it earns the same pause action as paused: rather than being aged as a
 # wedge. The wait itself is already durable in the captain-held backlog task.
 test_stale_captain_held_classifies_pause() {
-  local dir state out held_reason
+  local dir state out held_reason win
   dir=$(make_supercase stale-captain-held)
   state="$dir/state"
+  win="sess:fm-held-w9h"
   held_reason='captain-held [key=route]: tracked by task-decision-route'
   status_is_captain_relevant "$held_reason" && fail "a captain-held transfer line was treated as captain-relevant"
   printf '%s\n' "$held_reason" > "$state/held-w9h.status"
-  out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9h" "$state")
+  fm_write_meta "$state/held-w9h.meta" "window=$win" "kind=ship" "backend=tmux"
+  out=$(
+    # shellcheck disable=SC2329 # Runtime override called indirectly by classify_stale.
+    crew_supervision_record() { printf 'unknown|none'; }
+    # shellcheck disable=SC2329 # Runtime override called indirectly by classify_stale.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state"
+  )
   case "$out" in pause\|*) ;; *) fail "captain-held transfer did not classify as pause: $out" ;; esac
-  pass "a captain-held transfer classifies as pause, not as a wedge candidate"
+  pass "a dead captain-held transfer with unreadable state keeps its pause cadence"
 }
 
 # handle_wake on a paused stale records a pause marker, drops any pre-existing wedge
@@ -267,6 +275,159 @@ test_handle_wake_paused_signal_records_pause_marker() {
   [ ! -e "$state/.subsuper-stale-$key" ] || fail "pause signal did not clear the wedge marker"
   [ ! -s "$state/.subsuper-escalations" ] || fail "a declared pause signal escalated instead of self-handling"
   pass "handle_wake records a declared pause from a routine signal for long-cadence rechecks"
+}
+
+test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
+  local dir state fakebin win key watcher_key recheck fixed back liveness_log state_read_log
+  dir=$(make_supercase away-settled-pause)
+  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-away-settled"
+  make_fake_crew_state "$fakebin" >/dev/null
+  mkdir -p "$dir/wt"
+  fm_write_meta "$state/away-settled.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
+  printf 'paused: stale external wait after completion\n' > "$state/away-settled.status"
+  key=$(_stale_key away-settled)
+  watcher_key=$(_stale_key "$win")
+  recheck="$state/.paused-rechecked-$watcher_key"
+  printf 'pane-hash' > "$state/.stale-$watcher_key"
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ "$(cat "$recheck" 2>/dev/null || true)" = settled ] || fail "away mode did not settle a dead completed lane"
+  [ -e "$state/.paused-$watcher_key" ] || fail "away settlement did not retain status-transition tracking"
+  [ "$(cat "$state/.stale-$watcher_key" 2>/dev/null || true)" = pane-hash ] \
+    || fail "away settlement discarded the watcher's stale-hash suppressor"
+  [ ! -e "$state/.subsuper-paused-$key" ] || fail "away settlement retained a long-cadence pause marker"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "away settlement escalated a completed lane"
+
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$back" "$recheck"; fi
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: parked · source: run-step · captain gate frozen' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ "$(cat "$recheck" 2>/dev/null || true)" = settled ] || fail "away mode did not settle a dead parked lane"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "away settlement escalated a parked lane"
+
+  rm -rf "$dir/wt"
+  printf 'done: shipped\npaused: post-completion idle\n' > "$state/away-settled.status"
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$back" "$recheck"; fi
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: unknown · source: none · worktree gone' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ "$(cat "$recheck" 2>/dev/null || true)" = settled ] || fail "away mode did not settle a torn-down post-completion lane"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "away settlement escalated a torn-down post-completion lane"
+  mkdir -p "$dir/wt"
+  printf 'paused: stale external wait after completion\n' > "$state/away-settled.status"
+
+  fixed=$(( $(date +%s) - 30 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$fixed" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$fixed" "$recheck"; fi
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ "$(_stat_file_mtime "$recheck")" = "$fixed" ] \
+    || fail "away settled fast path refreshed its cache instead of allowing expiry"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "fresh away settlement cache unexpectedly started wedge tracking"
+
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$back" "$recheck"; fi
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ ! -e "$recheck" ] || fail "expired away settlement cache hid a failed run"
+  [ ! -e "$state/.paused-$watcher_key" ] || fail "failed run retained watcher-owned settlement tracking"
+  [ -e "$state/.subsuper-paused-$key" ] || fail "failed run did not enter bounded away pause tracking"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "failed run returned to short-cadence wedge tracking"
+  grep -F 'declared wait state requires inspection' "$state/.subsuper-escalations" >/dev/null \
+    || fail "expired away settlement did not surface its failed state"
+
+  dir=$(make_supercase away-secondmate-pause)
+  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-away-mate"; liveness_log="$dir/liveness.log"; state_read_log="$dir/state-read.log"
+  make_fake_crew_state "$fakebin" >/dev/null
+  mkdir -p "$dir/wt"
+  fm_write_meta "$state/away-mate.meta" "window=$win" "worktree=$dir/wt" "kind=secondmate" "backend=tmux"
+  printf 'captain-held [key=route]: tracked by held-decision-route\n' > "$state/away-mate.status"
+  key=$(_stale_key away-mate)
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    fm_backend_agent_alive() { printf 'called\n' >> "$liveness_log"; printf 'dead'; }
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    crew_supervision_record() { printf 'called\n' >> "$state_read_log"; printf 'done|run-step'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ -e "$state/.subsuper-paused-$key" ] || fail "away secondmate captain hold lost its bounded recheck"
+  [ ! -e "$state_read_log" ] || fail "away settlement policy read secondmate authoritative state"
+  [ ! -e "$liveness_log" ] || fail "away settlement policy read secondmate endpoint liveness"
+  pass "away settlement is completed-or-parked, expiring, and secondmate-safe"
+}
+
+test_housekeeping_settles_migrated_dead_completed_pause() {
+  local dir state fakebin win key watcher_key recheck back fixed
+  dir=$(make_supercase housekeeping-settled-pause)
+  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-house-settled"
+  make_fake_crew_state "$fakebin" >/dev/null
+  mkdir -p "$dir/wt"
+  fm_write_meta "$state/house-settled.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
+  printf 'paused: stale external wait after completion\n' > "$state/house-settled.status"
+  key=$(_stale_key house-settled)
+  watcher_key=$(_stale_key "$win")
+  recheck="$state/.paused-rechecked-$watcher_key"
+  back=$(( $(date +%s) - 5000 ))
+  printf '%s\n' "$back" > "$state/.subsuper-paused-$key"
+  : > "$state/.paused-$watcher_key"
+  printf 'pane-hash' > "$state/.stale-$watcher_key"
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    fm_backend_agent_alive() { printf 'dead'; }
+    PATH="$fakebin:$PATH" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
+      FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
+  )
+  [ ! -e "$state/.subsuper-paused-$key" ] || fail "away housekeeping retained a settled pause marker"
+  [ "$(cat "$recheck" 2>/dev/null || true)" = settled ] || fail "away housekeeping did not cache settled eligibility"
+  [ "$(cat "$state/.stale-$watcher_key" 2>/dev/null || true)" = pane-hash ] \
+    || fail "away housekeeping discarded the stale-hash suppressor"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "away housekeeping re-surfaced a settled declared pause"
+
+  fixed=$(( $(date +%s) - 30 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$fixed" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$fixed" "$recheck"; fi
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    fm_backend_agent_alive() { printf 'dead'; }
+    PATH="$fakebin:$PATH" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
+      FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
+  )
+  [ "$(_stat_file_mtime "$recheck")" = "$fixed" ] \
+    || fail "away housekeeping refreshed a cached settlement without reclassification"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "cached away settlement re-surfaced on housekeeping"
+  pass "away housekeeping absorbs migrated settled pauses without refreshing their cache"
 }
 
 test_handle_wake_terminal_signal_clears_pause_tracking() {
@@ -501,6 +662,143 @@ test_housekeeping_pause_marker_transitions_to_clear() {
   [ ! -e "$state/.subsuper-stale-$key" ] || fail "resume retained normal stale tracking"
   [ ! -s "$state/.subsuper-escalations" ] || fail "resuming from pause escalated immediately"
   pass "housekeeping clears tracking when a crew leaves pause"
+}
+
+test_housekeeping_migration_seeds_working_stale_once() {
+  local dir state fakebin task win pane marker state_read_log
+  dir=$(make_supercase migrate-working-declared-wait)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  task=migrate-working; win="sess:fm-$task"; pane="$dir/pane.txt"
+  marker="$state/.subsuper-stale-$(_stale_key "$task")"
+  state_read_log="$dir/state-read.log"
+  mkdir -p "$dir/wt"
+  fm_write_meta "$state/$task.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
+  printf 'paused: waiting while validation runs\n' > "$state/$task.status"
+  printf 'idle prompt $\n' > "$pane"
+
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    crew_supervision_record() { printf '%s\n' "$1" >> "$state_read_log"; printf 'working|run-step'; }
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    fm_backend_agent_alive() { printf 'dead'; }
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+      FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+      FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+  )
+  [ "$(wc -l < "$state_read_log" | tr -d ' ')" = 1 ] \
+    || fail "working declared wait was reclassified on every migration tick"
+  [ -e "$marker" ] || fail "working declared wait migration did not seed bounded stale tracking"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "working declared wait escalated before its stale deadline"
+  pass "migration classifies working declared waits once before bounded stale tracking"
+}
+
+test_housekeeping_working_declared_wait_rechecks_only_when_due() {
+  local dir state fakebin task win pane marker state_read_log
+  dir=$(make_supercase declared-wait-due-working)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  task='due-working'; win="sess:fm-$task"; pane="$dir/pane.txt"
+  marker="$state/.subsuper-stale-$(_stale_key "$task")"
+  state_read_log="$dir/state-read.log"
+  fm_write_meta "$state/$task.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
+  printf 'paused: awaiting an external dependency\n' > "$state/$task.status"
+  printf 'idle prompt $\n' > "$pane"
+  date +%s > "$marker"
+
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    crew_supervision_record() { printf '%s\n' "$1" >> "$state_read_log"; printf 'working|run-step'; }
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 \
+      FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 \
+      FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+  )
+  [ ! -e "$state_read_log" ] || fail "working declared wait was reclassified before its stale deadline"
+  [ -e "$marker" ] || fail "working declared wait lost stale tracking before its deadline"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "working declared wait escalated before its stale deadline"
+
+  printf '%s\n' "$(( $(date +%s) - 500 ))" > "$marker"
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    crew_supervision_record() { printf '%s\n' "$1" >> "$state_read_log"; printf 'working|run-step'; }
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 \
+      FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+  )
+  [ "$(wc -l < "$state_read_log" | tr -d ' ')" = 1 ] \
+    || fail "working declared wait was not reclassified exactly once at its stale deadline"
+  [ ! -e "$marker" ] || fail "working declared wait retained stale tracking after wedge escalation"
+  grep -F 'possible wedge' "$state/.subsuper-escalations" >/dev/null \
+    || fail "authoritative working state lost bounded wedge detection"
+  pass "housekeeping reclassifies authoritative working waits only at the stale deadline"
+}
+
+test_housekeeping_failed_declared_wait_uses_pause_cadence() {
+  local dir state fakebin task win pane key marker state_read_log
+  dir=$(make_supercase declared-wait-failed-cadence)
+  state="$dir/state"; fakebin="$dir/fakebin"
+  task='due-failed'; win="sess:fm-$task"; pane="$dir/pane.txt"
+  key=$(_stale_key "$task")
+  marker="$state/.subsuper-paused-$key"
+  state_read_log="$dir/state-read.log"
+  fm_write_meta "$state/$task.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
+  printf 'paused: stale external wait before validation failed\n' > "$state/$task.status"
+  printf 'idle prompt $\n' > "$pane"
+
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    crew_supervision_record() { printf '%s\n' "$1" >> "$state_read_log"; printf 'failed|run-step'; }
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_STATE_OVERRIDE="$state" FM_ESCALATE_BATCH_SECS=999999 \
+      handle_wake "signal: $state/$task.status" "$state"
+  )
+  [ -e "$marker" ] || fail "failed declared wait did not retain pause tracking after its initial surface"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "failed declared wait entered short-cadence wedge tracking"
+  [ "$(wc -l < "$state/.subsuper-escalations" | tr -d ' ')" = 1 ] \
+    || fail "failed declared wait did not surface exactly once initially"
+
+  printf '%s\n' "$(( $(date +%s) - 500 ))" > "$marker"
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    crew_supervision_record() { printf '%s\n' "$1" >> "$state_read_log"; printf 'failed|run-step'; }
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    fm_backend_agent_alive() { printf 'dead'; }
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 \
+      FM_PAUSE_RESURFACE_SECS=1000 FM_ESCALATE_BATCH_SECS=999999 FM_HEARTBEAT_SCAN_SECS=999999 \
+      housekeeping "$state"
+  )
+  [ "$(wc -l < "$state_read_log" | tr -d ' ')" = 1 ] \
+    || fail "failed declared wait was reclassified on the short wedge cadence"
+  [ "$(wc -l < "$state/.subsuper-escalations" | tr -d ' ')" = 1 ] \
+    || fail "failed declared wait re-surfaced on the short wedge cadence"
+  [ -e "$marker" ] || fail "failed declared wait lost pause tracking before its long deadline"
+
+  printf '%s\n' "$(( $(date +%s) - 1500 ))" > "$marker"
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    crew_supervision_record() { printf '%s\n' "$1" >> "$state_read_log"; printf 'failed|run-step'; }
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+    fm_backend_agent_alive() { printf 'dead'; }
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+      FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 \
+      FM_PAUSE_RESURFACE_SECS=1000 FM_ESCALATE_BATCH_SECS=999999 FM_HEARTBEAT_SCAN_SECS=999999 \
+      housekeeping "$state"
+  )
+  [ "$(wc -l < "$state_read_log" | tr -d ' ')" = 2 ] \
+    || fail "failed declared wait was not reclassified exactly once at its pause deadline"
+  [ "$(wc -l < "$state/.subsuper-escalations" | tr -d ' ')" = 2 ] \
+    || fail "failed declared wait did not re-surface once at its pause deadline"
+  grep -F 'paused ' "$state/.subsuper-escalations" >/dev/null \
+    || fail "failed declared wait did not use the declared-pause recheck"
+  grep -F 'possible wedge' "$state/.subsuper-escalations" >/dev/null \
+    && fail "failed declared wait flooded the short possible-wedge cadence"
+  [ -e "$marker" ] || fail "failed declared wait did not reset its pause marker"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "failed declared wait restored wedge tracking"
+  pass "failed declared waits surface once and then use the long pause cadence"
 }
 
 test_housekeeping_persistent_stale_escalates() {
@@ -1937,10 +2235,15 @@ test_stale_paused_classifies_pause
 test_stale_captain_held_classifies_pause
 test_handle_wake_paused_records_pause_marker
 test_handle_wake_paused_signal_records_pause_marker
+test_away_settlement_revalidates_and_preserves_secondmate_pauses
+test_housekeeping_settles_migrated_dead_completed_pause
 test_handle_wake_terminal_signal_clears_pause_tracking
 test_housekeeping_migrates_watcher_pause_marker
 test_housekeeping_migrates_watcher_unpaused_marker_to_clear
 test_housekeeping_seeds_pause_marker_from_status
+test_housekeeping_migration_seeds_working_stale_once
+test_housekeeping_working_declared_wait_rechecks_only_when_due
+test_housekeeping_failed_declared_wait_uses_pause_cadence
 test_housekeeping_persistent_stale_escalates
 test_housekeeping_resumed_stale_cleared
 test_housekeeping_paused_resurfaces_and_resets
