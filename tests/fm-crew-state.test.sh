@@ -976,7 +976,7 @@ test_no_run_idle_pane_paused() {
   pass "no run + idle pane on a paused: status reports state: paused with its reason"
 }
 
-test_post_completion_pause_retains_terminal_state_without_run() {
+test_post_completion_pause_remains_current_wait() {
   reset_fakes
   local d out
   d=$(new_case post-completion-pause)
@@ -987,20 +987,22 @@ test_post_completion_pause_retains_terminal_state_without_run() {
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" post-completion-pause
   out=$(run_crew_state "$d" post-completion-pause)
-  assert_contains "$out" "state: done" "post-completion pause lost its terminal state without an attributable run"
-  assert_contains "$out" "source: status-log" "post-completion pause did not use its durable status history"
+  assert_contains "$out" "state: paused" "a live-worktree external wait was silenced by an earlier completion"
+  assert_contains "$out" "source: status-log" "a live-worktree external wait lost its current status source"
 
   rm -rf "$d/wt"
   out=$(run_crew_state "$d" post-completion-pause)
-  assert_contains "$out" "state: done" "post-completion pause lost completion after worktree teardown"
+  assert_contains "$out" "state: unknown" "torn-down worktree history became global current state"
+  assert_contains "$out" "source: none" "torn-down worktree did not retain the unknown current-state contract"
 
   mkdir -p "$d/wt"
   printf 'working: resumed implementation\npaused: waiting on a live dependency\n' > "$d/state/post-completion-pause.status"
   arm_idle_record "$d/state" post-completion-pause
   out=$(run_crew_state "$d" post-completion-pause)
   assert_contains "$out" "state: paused" "a nonterminal predecessor was mistaken for post-completion idle"
-  pass "post-completion pauses retain terminal state without a run or worktree"
+  pass "status history never silences a current external wait or changes torn-down state"
 }
 
 test_no_run_idle_pane_custom_paused_verb() {
@@ -1468,7 +1470,7 @@ test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle
 test_no_run_idle_pane_uses_log
 test_no_run_idle_pane_uses_keyed_log
 test_no_run_idle_pane_paused
-test_post_completion_pause_retains_terminal_state_without_run
+test_post_completion_pause_remains_current_wait
 test_no_run_idle_pane_custom_paused_verb
 test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log

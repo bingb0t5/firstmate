@@ -1197,6 +1197,30 @@ crew_supervision_record() {  # <id>
   printf '%s|%s' "$state" "$src"
 }
 
+declared_wait_supervision_record() {  # <id> <state-dir>
+  local id=$1 state_dir=$2 record meta wt remote previous='' last='' line
+  record=$(crew_supervision_record "$id")
+  if [ "$record" != 'unknown|none' ]; then
+    printf '%s' "$record"
+    return
+  fi
+  meta="$state_dir/$id.meta"
+  [ -f "$meta" ] || { printf '%s' "$record"; return; }
+  remote=$(grep '^remote_host=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  [ -z "$remote" ] || { printf '%s' "$record"; return; }
+  wt=$(grep '^worktree=' "$meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+  [ -n "$wt" ] && [ ! -d "$wt" ] || { printf '%s' "$record"; return; }
+  while IFS= read -r line; do
+    previous=$last
+    last=$line
+  done < <(grep -v '^[[:space:]]*$' "$state_dir/$id.status" 2>/dev/null | tail -2)
+  if status_is_paused "$last" && [ "$(status_line_verb "$previous")" = done ]; then
+    printf 'done|status-log'
+  else
+    printf '%s' "$record"
+  fi
+}
+
 # Classify a declared wait from the preserved current-state record, task kind,
 # and backend agent liveness. Only a confidently dead ordinary agent on a done
 # or parked lane is settled. A secondmate keeps its declaration cadence without an

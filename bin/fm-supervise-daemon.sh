@@ -547,7 +547,7 @@ supervise_declared_wait_class() {  # <window> <state> [force]
     return
   fi
   [ -n "$target" ] || target=$win
-  record=$(FM_STATE_OVERRIDE="$state" crew_supervision_record "$task")
+  record=$(FM_STATE_OVERRIDE="$state" declared_wait_supervision_record "$task" "$state")
   agent_alive=$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null) || agent_alive=unknown
   class=$(declared_wait_class "$kind" "$record" "$agent_alive")
   if [ "$prior" = settled ] && [ "$class" = none ]; then
@@ -1147,10 +1147,10 @@ housekeeping() {  # <state>
 
   # (2b) pause re-surface recheck. A declared wait idles by design, so an eligible
   # wait is rechecked on a much longer cadence than a wedge and never escalated as
-  # one. A confidently dead completed lane settles, while another nonsettled lane
-  # remains on the pause cadence after its initial inspection. A remaining idle
-  # wait re-surfaces with wording that distinguishes an external dependency from a
-  # captain-held transfer.
+  # one. A confidently dead completed or parked lane settles, while another
+  # nonsettled lane remains on the pause cadence after its initial inspection. A
+  # remaining idle wait re-surfaces with wording that distinguishes an external
+  # dependency from a captain-held transfer.
   pause_secs=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
   for marker in "$state"/.subsuper-paused-*; do
     [ -e "$marker" ] || continue

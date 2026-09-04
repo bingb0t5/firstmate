@@ -145,6 +145,7 @@ Classify each wake this way:
   Other signals with no captain-relevant status -> self-handle.
 - `signal` or `stale` for a declared wait, either a `paused:` external wait or a verified `captain-held` transfer -> reconcile authoritative state and ordinary-worker liveness before choosing pause, settlement, or wedge tracking.
   A confidently dead ordinary worker settles silently on a completed or parked lane.
+  When canonical state is unreadable because the recorded local worktree is gone, a directly preceding `done:` event before the trailing pause supplies completion evidence only for this declared-wait decision.
   Another known nonsettled dead lane surfaces once and then retains pause tracking instead of entering the short wedge cadence, while authoritative working state still returns to bounded wedge handling.
   A dead worker with unreadable current state, a current external wait, a live or liveness-inconclusive ordinary worker, and every secondmate declaration retain pause tracking; secondmate state and endpoint liveness are deliberately not read for this decision.
   If an eligible wait remains declared and idle past `FM_PAUSE_RESURFACE_SECS` (default 3600s), housekeeping sends one recheck and resets the pause window.

@@ -355,8 +355,8 @@ test_status_is_paused_classifier() {
 # (surface it) - so the watcher's stale path gets both for one bounded call.
 # crew_is_paused delegates to it exactly as crew_is_provably_working does.
 test_crew_absorb_class_classifier() {
-  local dir fakebin
-  dir=$(make_case absorb-class); fakebin="$dir/fakebin"
+  local dir fakebin state missing
+  dir=$(make_case absorb-class); fakebin="$dir/fakebin"; state="$dir/state"; missing="$dir/missing-worktree"
   export FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh"
   export FM_FAKE_CREW_STATE
   FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
@@ -376,6 +376,17 @@ test_crew_absorb_class_classifier() {
     || fail "dead declared wait with unreadable current state lost its pause cadence"
   [ "$(declared_wait_class ship "$(crew_supervision_record a)" unknown)" = unconfirmed ] \
     || fail "unreadable state and liveness did not fail open"
+  printf 'window=test:fm-a\nworktree=%s\nkind=ship\n' "$missing" > "$state/a.meta"
+  printf 'done: shipped\npaused: post-completion idle\n' > "$state/a.status"
+  [ "$(declared_wait_supervision_record a "$state")" = 'done|status-log' ] \
+    || fail "torn-down post-completion wait lost its supervision-only completion evidence"
+  [ "$(declared_wait_class ship "$(declared_wait_supervision_record a "$state")" dead)" = settled ] \
+    || fail "torn-down post-completion wait did not settle under supervision"
+  mkdir -p "$missing"
+  [ "$(declared_wait_supervision_record a "$state")" = 'unknown|none' ] \
+    || fail "live-worktree wait inherited historical completion evidence"
+  [ "$(declared_wait_class ship "$(declared_wait_supervision_record a "$state")" dead)" = paused ] \
+    || fail "live-worktree wait lost its bounded declared-wait cadence"
   FM_FAKE_CREW_STATE='state: done · source: run-step · checks green'
   [ "$(crew_supervision_record a)" = 'done|run-step' ] || fail "completed state was collapsed before declared-wait classification"
   [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = settled ] \
@@ -1019,9 +1030,9 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
 # A completed crew can leave a stable backend endpoint after its agent exits.
 # A stale paused declaration is then only a leftover on a lane with no worker to
 # recheck, so changing pane hashes and repeated watcher re-arms must remain silent.
-# A parked no-mistakes gate and a still-live agent at an external-decision gate
-# are the disconfirming cases: each must surface once, while an unchanged hash
-# must not append the same wake on every watcher re-arm.
+# A still-live agent at an external-decision gate is the disconfirming case: it
+# must surface once, while an unchanged hash must not append the same wake on
+# every watcher re-arm.
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   local dir state fakebin out capture_file statusf window key pane_hash sig pid back round wakes bare cache_mtime
   dir=$(make_case exited-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
@@ -1092,6 +1103,35 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   [ ! -e "$state/.paused-$key" ] || { reap "$pid"; fail "resumed run retained settled pause tracking"; }
   [ -e "$state/.stale-since-$key" ] || { reap "$pid"; fail "resumed run did not return to bounded wedge detection"; }
   reap "$pid"
+
+  dir=$(make_case torn-post-completion); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
+  window="test:fm-held"
+  printf 'idle bare shell after worktree teardown\n' > "$capture_file"
+  printf 'window=%s\nworktree=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" "$dir/missing-worktree" > "$state/held.meta"
+  printf 'done: shipped\npaused: post-completion idle\n' > "$statusf"
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
+  else touch -m -d "@$back" "$statusf"; fi
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after worktree teardown")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: unknown · source: none · worktree gone' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || {
+    reap "$pid"
+    fail "torn-down post-completion lane did not complete a settled poll cycle"
+  }
+  reap "$pid"
+  ack_stopped_cycle "$state" || fail "could not acknowledge torn-down post-completion watcher cycle"
+  [ ! -s "$state/.wake-queue" ] || fail "torn-down post-completion lane produced a stale wake"
+  [ "$(cat "$state/.paused-rechecked-$key" 2>/dev/null || true)" = settled ] \
+    || fail "torn-down post-completion lane did not cache its settled classification"
 
   dir=$(make_case parked-authority-gate); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
@@ -1214,7 +1254,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   bare=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
   [ "$wakes" -eq 0 ] || fail "acknowledged external-decision surface replayed $wakes wakes"
   [ "$bare" -eq 0 ] || fail "acknowledged external-decision bare stale remained queued"
-  pass "completed and parked panes settle while captain-held and live gates stay actionable"
+  pass "completed, torn-down post-completion, and parked panes settle while captain-held and live gates stay actionable"
 }
 
 test_changed_hash_rearms_preserve_nonsettled_declared_waits() {

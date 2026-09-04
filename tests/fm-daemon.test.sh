@@ -316,6 +316,23 @@ test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
   [ "$(cat "$recheck" 2>/dev/null || true)" = settled ] || fail "away mode did not settle a dead parked lane"
   [ ! -s "$state/.subsuper-escalations" ] || fail "away settlement escalated a parked lane"
 
+  rm -rf "$dir/wt"
+  printf 'done: shipped\npaused: post-completion idle\n' > "$state/away-settled.status"
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$back" "$recheck"; fi
+  (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: unknown · source: none · worktree gone' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ "$(cat "$recheck" 2>/dev/null || true)" = settled ] || fail "away mode did not settle a torn-down post-completion lane"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "away settlement escalated a torn-down post-completion lane"
+  mkdir -p "$dir/wt"
+  printf 'paused: stale external wait after completion\n' > "$state/away-settled.status"
+
   fixed=$(( $(date +%s) - 30 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$fixed" '+%Y%m%d%H%M.%S')" "$recheck"
   else touch -m -d "@$fixed" "$recheck"; fi

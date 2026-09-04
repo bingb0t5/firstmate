@@ -23,8 +23,8 @@
 #                          external-wait pause or verified captain-held transfer is
 #                          absorbed instead with its own long re-surface cadence,
 #                          never as a wedge, and that recheck reason names which
-#                          human the wait is on. A confidently dead completed
-#                          ordinary lane settles until its expiring state
+#                          human the wait is on. A confidently dead completed or
+#                          parked ordinary lane settles until its expiring state
 #                          classification is revalidated. Only when neither class
 #                          applies does the log's last line decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
@@ -714,7 +714,7 @@ pause_state_class() {  # <window> <task>
     return
   fi
   prior=$(cat "$recheck_file" 2>/dev/null || true)
-  record=$(crew_supervision_record "$task")
+  record=$(declared_wait_supervision_record "$task" "$STATE")
   if [ "$kind" != secondmate ]; then
     agent_alive=$(fm_backend_agent_alive "$(window_backend "$win")" "$win" 2>/dev/null) || agent_alive=unknown
   else

@@ -33,6 +33,7 @@ No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign 
 A `kind=secondmate` task's status signal is the parent-directed reply stream and is never absorbed as provably working; only its bare turn-ended signal retains the ordinary absorb rule.
 A declared `paused:` external wait or verified `captain-held` transfer that remains eligible is separately absorbed while idle and re-surfaced only on the longer pause cadence, rather than being treated as a possible wedge.
 A completed or captain-frozen ordinary crew whose agent has exited is settled silently when its stale `paused:` or `captain-held` declaration is only a leftover, because no worker remains for a recheck.
+Only declared-wait supervision may recover a directly prior `done:` event when the canonical state is unknown because the recorded local worktree is gone.
 A live or liveness-inconclusive ordinary crew still receives the initial stale inspection, while a confirmed-dead crew with unreadable current state keeps the declared-wait cadence; a secondmate's endpoint liveness is never read at all, so its declared pause or captain hold keeps that cadence and cannot rot invisibly.
 Its initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
 Fresh stale panes use the same current-state read before trusting the status log, so an active run or a proven busy worker outranks an old captain-relevant status-log line left behind before validation.
@@ -60,7 +61,7 @@ During no-mistakes' `ci` monitor phase, it also reads the ci step log tail becau
 The most recent recognized ci log marker wins, so checks-green monitoring reports done while a later re-arm, failed-check, or issue marker returns the crew to working.
 Only when no matching run exists does it consult semantic busy state; exact busy reports working, exact idle permits fallback to a status-log event whose verb maps to a recognized run-state, and unknown or a dead pane stays unknown instead of trusting a stale log.
 Decision-only events such as `resolved` never become current state or leak their prose into the current-state detail.
-In that status-log fallback, a declared external wait reports the distinct `paused` state with its reason, except that a `done:` event immediately followed by the wait remains completed when no newer work is attributable.
+In that status-log fallback, a declared external wait reports the distinct `paused` state with its reason.
 The semantic branch reports working only on an exact busy verdict and names the source that produced it; an unknown verdict never becomes working, never permits the status-log fallback, and never becomes a silent idle.
 For whole-fleet read-only review, `bin/fm-fleet-snapshot.sh --json` emits schema `fm-fleet-snapshot.v1` from the backlog, task metadata, current crew state, endpoint probes, PR/report pointers, scout reports, bounded current summaries from registered secondmate homes, and secondmate return-channel guidance.
 `bin/fm-fleet-view.sh` renders that snapshot as Markdown for humans, while `bin/fm-bearings-snapshot.sh` provides the bounded bearings projection, so both views consume one structured contract instead of reparsing raw fleet files.
