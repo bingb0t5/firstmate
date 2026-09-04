@@ -269,6 +269,117 @@ test_handle_wake_paused_signal_records_pause_marker() {
   pass "handle_wake records a declared pause from a routine signal for long-cadence rechecks"
 }
 
+test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
+  local dir state fakebin win key watcher_key recheck fixed back liveness_log
+  dir=$(make_supercase away-settled-pause)
+  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-away-settled"
+  make_fake_crew_state "$fakebin" >/dev/null
+  mkdir -p "$dir/wt"
+  fm_write_meta "$state/away-settled.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
+  printf 'paused: stale external wait after completion\n' > "$state/away-settled.status"
+  key=$(_stale_key away-settled)
+  watcher_key=$(_stale_key "$win")
+  recheck="$state/.paused-rechecked-$watcher_key"
+  printf 'pane-hash' > "$state/.stale-$watcher_key"
+  (
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ "$(cat "$recheck" 2>/dev/null || true)" = settled ] || fail "away mode did not settle a dead completed lane"
+  [ -e "$state/.paused-$watcher_key" ] || fail "away settlement did not retain status-transition tracking"
+  [ "$(cat "$state/.stale-$watcher_key" 2>/dev/null || true)" = pane-hash ] \
+    || fail "away settlement discarded the watcher's stale-hash suppressor"
+  [ ! -e "$state/.subsuper-paused-$key" ] || fail "away settlement retained a long-cadence pause marker"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "away settlement escalated a completed lane"
+
+  fixed=$(( $(date +%s) - 30 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$fixed" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$fixed" "$recheck"; fi
+  (
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ "$(_stat_file_mtime "$recheck")" = "$fixed" ] \
+    || fail "away settled fast path refreshed its cache instead of allowing expiry"
+  [ ! -e "$state/.subsuper-stale-$key" ] || fail "fresh away settlement cache unexpectedly started wedge tracking"
+
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$back" "$recheck"; fi
+  (
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ ! -e "$recheck" ] || fail "expired away settlement cache hid a failed run"
+  [ ! -e "$state/.paused-$watcher_key" ] || fail "failed run retained away settlement tracking"
+  [ -e "$state/.subsuper-stale-$key" ] || fail "failed run did not return to away-mode wedge tracking"
+
+  dir=$(make_supercase away-secondmate-pause)
+  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-away-mate"; liveness_log="$dir/liveness.log"
+  make_fake_crew_state "$fakebin" >/dev/null
+  mkdir -p "$dir/wt"
+  fm_write_meta "$state/away-mate.meta" "window=$win" "worktree=$dir/wt" "kind=secondmate" "backend=tmux"
+  printf 'captain-held [key=route]: tracked by held-decision-route\n' > "$state/away-mate.status"
+  key=$(_stale_key away-mate)
+  (
+    fm_backend_agent_alive() { printf 'called\n' >> "$liveness_log"; printf 'dead'; }
+    FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
+      FM_STATE_OVERRIDE="$state" handle_wake "stale: $win" "$state"
+  )
+  [ -e "$state/.subsuper-paused-$key" ] || fail "away secondmate captain hold lost its bounded recheck"
+  [ ! -e "$liveness_log" ] || fail "away settlement policy read secondmate endpoint liveness"
+  pass "away settlement is done-or-parked-only, expiring, and secondmate-safe"
+}
+
+test_housekeeping_settles_migrated_dead_completed_pause() {
+  local dir state fakebin win key watcher_key recheck back fixed
+  dir=$(make_supercase housekeeping-settled-pause)
+  state="$dir/state"; fakebin="$dir/fakebin"; win="sess:fm-house-settled"
+  make_fake_crew_state "$fakebin" >/dev/null
+  mkdir -p "$dir/wt"
+  fm_write_meta "$state/house-settled.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
+  printf 'paused: stale external wait after completion\n' > "$state/house-settled.status"
+  key=$(_stale_key house-settled)
+  watcher_key=$(_stale_key "$win")
+  recheck="$state/.paused-rechecked-$watcher_key"
+  back=$(( $(date +%s) - 5000 ))
+  printf '%s\n' "$back" > "$state/.subsuper-paused-$key"
+  : > "$state/.paused-$watcher_key"
+  printf 'pane-hash' > "$state/.stale-$watcher_key"
+  (
+    fm_backend_agent_alive() { printf 'dead'; }
+    PATH="$fakebin:$PATH" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
+      FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
+  )
+  [ ! -e "$state/.subsuper-paused-$key" ] || fail "away housekeeping retained a settled pause marker"
+  [ "$(cat "$recheck" 2>/dev/null || true)" = settled ] || fail "away housekeeping did not cache settled eligibility"
+  [ "$(cat "$state/.stale-$watcher_key" 2>/dev/null || true)" = pane-hash ] \
+    || fail "away housekeeping discarded the stale-hash suppressor"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "away housekeeping re-surfaced a settled declared pause"
+
+  fixed=$(( $(date +%s) - 30 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$fixed" '+%Y%m%d%H%M.%S')" "$recheck"
+  else touch -m -d "@$fixed" "$recheck"; fi
+  (
+    fm_backend_agent_alive() { printf 'dead'; }
+    PATH="$fakebin:$PATH" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+      FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
+      FM_STATE_OVERRIDE="$state" FM_PAUSE_RESURFACE_SECS=240 housekeeping "$state"
+  )
+  [ "$(_stat_file_mtime "$recheck")" = "$fixed" ] \
+    || fail "away housekeeping refreshed a cached settlement without reclassification"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "cached away settlement re-surfaced on housekeeping"
+  pass "away housekeeping absorbs migrated settled pauses without refreshing their cache"
+}
+
 test_handle_wake_terminal_signal_clears_pause_tracking() {
   local dir state key watcher_key win
   dir=$(make_supercase handle-terminal-signal)
@@ -1937,6 +2048,8 @@ test_stale_paused_classifies_pause
 test_stale_captain_held_classifies_pause
 test_handle_wake_paused_records_pause_marker
 test_handle_wake_paused_signal_records_pause_marker
+test_away_settlement_revalidates_and_preserves_secondmate_pauses
+test_housekeeping_settles_migrated_dead_completed_pause
 test_handle_wake_terminal_signal_clears_pause_tracking
 test_housekeeping_migrates_watcher_pause_marker
 test_housekeeping_migrates_watcher_unpaused_marker_to_clear

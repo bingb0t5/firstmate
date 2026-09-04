@@ -372,9 +372,28 @@ test_crew_absorb_class_classifier() {
   FM_FAKE_CREW_STATE='state: unknown · source: none · worktree gone'
   [ "$(crew_absorb_class a)" = none ] || fail "unknown crew classed absorbable"
   ! crew_is_paused a || fail "unknown crew classed paused"
+  FM_FAKE_CREW_STATE='state: done · source: run-step · checks green'
+  [ "$(crew_supervision_record a)" = 'done|run-step' ] || fail "completed state was collapsed before declared-wait classification"
+  [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = settled ] \
+    || fail "dead completed lane did not classify settled"
+  [ "$(declared_wait_class ship "$(crew_supervision_record a)" alive)" = live ] \
+    || fail "live completed lane lost its decision-gate classification"
+  FM_FAKE_CREW_STATE='state: parked · source: run-step · captain gate'
+  [ "$(crew_supervision_record a)" = 'parked|run-step' ] || fail "parked state was collapsed before declared-wait classification"
+  [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = settled ] \
+    || fail "dead captain-frozen lane did not classify settled"
+  [ "$(declared_wait_class secondmate "$(crew_supervision_record a)" unknown)" = paused ] \
+    || fail "secondmate captain-held semantics were replaced by ordinary settlement"
+  FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed'
+  [ "$(crew_supervision_record a)" = 'failed|run-step' ] || fail "failed state was collapsed before declared-wait classification"
+  [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = none ] \
+    || fail "dead failed lane was silently settled"
+  FM_FAKE_CREW_STATE='state: paused · source: status-log · awaiting upstream'
+  [ "$(declared_wait_class ship "$(crew_supervision_record a)" unknown)" = unconfirmed ] \
+    || fail "ambiguous external wait did not retain fail-open classification"
   [ "$(crew_absorb_class "")" = none ] || fail "empty id not classed none"
   unset FM_FAKE_CREW_STATE
-  pass "crew_absorb_class: working/paused/none from one read; crew_is_paused and crew_is_provably_working agree"
+  pass "shared declared-wait classification preserves authoritative state and settles only dead done or parked lanes"
 }
 
 # The wedge detector's third liveness input: writes inside the crew's own recorded
@@ -1001,7 +1020,7 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
 # must surface once, while the unchanged hash must not append the same wake on
 # every watcher re-arm.
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
-  local dir state fakebin out capture_file statusf window key pane_hash sig pid back round wakes bare
+  local dir state fakebin out capture_file statusf window key pane_hash sig pid back round wakes bare cache_mtime
   dir=$(make_case exited-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
   window="test:fm-held"
@@ -1025,6 +1044,10 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
     if [ "$round" -gt 1 ] && [ -e "$state/.paused-resurfaced-$key" ]; then
       set_mtime "$(( $(date +%s) - 500 ))" "$state/.paused-resurfaced-$key"
     fi
+    if [ "$round" -eq 2 ]; then
+      cache_mtime=$(( $(date +%s) - 30 ))
+      set_mtime "$cache_mtime" "$state/.paused-rechecked-$key"
+    fi
     printf 'idle bare shell after agent exit (round %s)\n' "$round" > "$capture_file"
     PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
       FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
@@ -1039,6 +1062,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
     else
       wait "$pid" || fail "dead-agent watcher round $round failed"
     fi
+    ack_stopped_cycle "$state" || fail "could not acknowledge dead-agent watcher round $round"
     round=$((round + 1))
   done
   # No queue means no wakes, per the drain-count read at the end of this file.
@@ -1047,6 +1071,24 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   [ -e "$state/.paused-$key" ] || fail "dead-agent completed lane did not retain settled declaration tracking"
   [ "$(cat "$state/.paused-rechecked-$key" 2>/dev/null || true)" = settled ] \
     || fail "dead-agent completed lane did not cache its settled classification"
+  [ "$(file_mtime "$state/.paused-rechecked-$key")" = "$cache_mtime" ] \
+    || fail "settled absorption refreshed its cache instead of allowing revalidation"
+
+  set_mtime "$(( $(date +%s) - 500 ))" "$state/.paused-rechecked-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: working · source: run-step · validation resumed' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || {
+    reap "$pid"
+    fail "expired settled cache did not reclassify a resumed run: output=$(cat "$out" 2>/dev/null || true) queue=$(cat "$state/.wake-queue" 2>/dev/null || true) triage=$(tail -5 "$state/.watch-triage.log" 2>/dev/null || true)"
+  }
+  [ ! -e "$state/.paused-rechecked-$key" ] || { reap "$pid"; fail "resumed run retained its settled cache"; }
+  [ ! -e "$state/.paused-$key" ] || { reap "$pid"; fail "resumed run retained settled pause tracking"; }
+  [ -e "$state/.stale-since-$key" ] || { reap "$pid"; fail "resumed run did not return to bounded wedge detection"; }
+  reap "$pid"
 
   dir=$(make_case exited-captain-held); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
@@ -1071,6 +1113,28 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   [ ! -s "$out" ] || { reap "$pid"; fail "captain-held dead-agent pane printed a stale wake: $(cat "$out")"; }
   [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "captain-held dead-agent pane produced a stale wake: $(cat "$state/.wake-queue")"; }
   reap "$pid"
+
+  dir=$(make_case failed-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/failed.status"
+  window="test:fm-failed"
+  printf 'idle shell after failed validation\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/failed.meta"
+  printf 'paused: stale external-wait event before validation failed\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-failed_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle shell after failed validation")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "dead failed lane was silently settled behind a paused event"; }
+  grep -F "stale: $window" "$state/.wake-queue" >/dev/null \
+    || fail "dead failed lane did not surface an actionable stale wake"
+  [ "$(cat "$state/.paused-rechecked-$key" 2>/dev/null || true)" != settled ] \
+    || fail "dead failed lane was marked settled"
 
   dir=$(make_case alive-decision-gate); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/gate.status"

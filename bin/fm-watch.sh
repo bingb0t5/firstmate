@@ -23,7 +23,9 @@
 #                          external-wait pause or verified captain-held transfer is
 #                          absorbed instead with its own long re-surface cadence,
 #                          never as a wedge, and that recheck reason names which
-#                          human the wait is on. Only when neither absorb class
+#                          human the wait is on. A confidently dead completed or
+#                          parked ordinary lane settles until its expiring state
+#                          classification is revalidated. Only when neither class
 #                          applies does the log's last line decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
 #                          both surfaced at once. A provably-working stale past the
@@ -634,7 +636,6 @@ handle_settled_stale() {  # <window> <task> <hash>
   key=$(window_key "$win")
   printf '%s' "$h" > "$STATE/.stale-$key"
   : > "$STATE/.paused-$key"
-  printf 'settled' > "$STATE/.paused-rechecked-$key"
   rm -f "$STATE/.paused-resurfaced-$key" "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key"
   clear_write_tracking "$key"
   triage_log "absorbed stale (settled declared wait after agent exit): $win"
@@ -684,7 +685,7 @@ clear_pause_tracking() {  # <window-key>
 # wake. A secondmate earns `paused` from its declaration alone because its endpoint
 # liveness is deliberately never read.
 pause_state_class() {  # <window> <task>
-  local win=$1 task=$2 key last recheck_file class agent_alive kind
+  local win=$1 task=$2 key last recheck_file class agent_alive kind record prior
   key=$(window_key "$win")
   last=$(last_status_line "$STATE/$task.status")
   recheck_file="$STATE/.paused-rechecked-$key"
@@ -712,29 +713,20 @@ pause_state_class() {  # <window> <task>
     printf 'paused'
     return
   fi
-  class=$(crew_absorb_class "$task")
-  if [ "$class" = working ]; then
-    rm -f "$recheck_file"
-    printf 'working'
-    return
-  fi
+  prior=$(cat "$recheck_file" 2>/dev/null || true)
+  record=$(crew_supervision_record "$task")
   if [ "$kind" != secondmate ]; then
     agent_alive=$(fm_backend_agent_alive "$(window_backend "$win")" "$win" 2>/dev/null) || agent_alive=unknown
-    case "$agent_alive" in
-      alive) rm -f "$recheck_file"; printf 'live'; return ;;
-      dead)  : ;; # a dead agent can only keep the cadence for a genuine pause
-      *)     rm -f "$recheck_file"; printf 'none'; return ;;
-    esac
+  else
+    agent_alive=unknown
   fi
-  if [ "$kind" = secondmate ] && [ "$class" = none ]; then
-    class=paused
-  elif [ "$class" = none ]; then
-    printf 'settled' > "$recheck_file"
-    printf 'settled'
-    return
+  class=$(declared_wait_class "$kind" "$record" "$agent_alive")
+  if [ "$prior" = settled ] && [ "$class" = none ]; then
+    class=invalidated
   fi
   case "$class" in
     paused) date +%s > "$recheck_file" ;;
+    settled) printf 'settled' > "$recheck_file" ;;
     *) rm -f "$recheck_file" ;;
   esac
   printf '%s' "$class"
@@ -1462,6 +1454,10 @@ EOF
           #     absorb permanently until its declaration or authoritative state changes;
           #   - live: a live agent at a decision gate, so surface once and then use
           #     the bounded pause cadence;
+          #   - unconfirmed: an authoritative pause with ambiguous endpoint liveness,
+          #     so fail open once before using the bounded pause cadence;
+          #   - invalidated: an expired settlement no longer reports an eligible state,
+          #     so surface the transition immediately;
           #   - none: no running pipeline, no exact busy verdict, no admitted declared wait.
           #     Surface immediately so firstmate inspects the inconclusive state
           #     (it may be done via an interactive menu that wrote no done: status,
@@ -1490,7 +1486,18 @@ EOF
             task=$(window_to_task "$w" "$STATE")
             if [ -e "$pf" ] || status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")"; then
               case "$(pause_state_class "$w" "$task")" in
-                paused|live|none) handle_paused_stale "$w" "$task" "$h" ;;
+                paused|live|unconfirmed) handle_paused_stale "$w" "$task" "$h" ;;
+                none)
+                  if [ -e "$pf" ]; then
+                    handle_paused_stale "$w" "$task" "$h"
+                  else
+                    surface_nonterminal_stale "$w" "$h"
+                  fi
+                  ;;
+                invalidated)
+                  clear_pause_tracking "$key"
+                  surface_nonterminal_stale "$w" "$h"
+                  ;;
                 working) clear_pause_state "$key"
                          printf '%s' "$h" > "$sf"
                          wedge_timer_check "$w" "$ssf" "non-terminal stale (provably working after a declared pause)" "$ewf" "$task"
@@ -1535,9 +1542,10 @@ EOF
       task=$(window_to_task "$w" "$STATE")
       if ! afk_present && status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")" && [ "$busy_now" -ne 0 ]; then
         case "$(pause_state_class "$w" "$task")" in
-          paused)  handle_paused_stale "$w" "$task" "$h" ;;
-          settled) handle_settled_stale "$w" "$task" "$h" ;;
-          *)       clear_pause_tracking "$key" ;;
+          paused)      handle_paused_stale "$w" "$task" "$h" ;;
+          settled)     handle_settled_stale "$w" "$task" "$h" ;;
+          invalidated) clear_pause_tracking "$key"; surface_nonterminal_stale "$w" "$h" ;;
+          *)           clear_pause_tracking "$key" ;;
         esac
       elif [ "$paused_bound" -ne 0 ] && [ -e "$pf" ]; then
         # Same rule as the stable-hash branch: never clear pause bookkeeping the
