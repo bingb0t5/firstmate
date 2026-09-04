@@ -1218,12 +1218,15 @@ declared_wait_class() {  # <kind> <state|source> <alive|dead|unknown>
     dead)
       case "$state" in
         done) printf 'settled' ;;
-        paused) printf 'paused' ;;
+        paused|unknown) printf 'paused' ;;
         *) printf 'none' ;;
       esac
       ;;
     *)
-      if [ "$state" = paused ]; then printf 'unconfirmed'; else printf 'none'; fi
+      case "$state" in
+        paused|unknown) printf 'unconfirmed' ;;
+        *) printf 'none' ;;
+      esac
       ;;
   esac
 }

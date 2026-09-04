@@ -224,15 +224,23 @@ test_stale_paused_classifies_pause() {
 # EXPECTED, so it earns the same pause action as paused: rather than being aged as a
 # wedge. The wait itself is already durable in the captain-held backlog task.
 test_stale_captain_held_classifies_pause() {
-  local dir state out held_reason
+  local dir state out held_reason win
   dir=$(make_supercase stale-captain-held)
   state="$dir/state"
+  win="sess:fm-held-w9h"
   held_reason='captain-held [key=route]: tracked by task-decision-route'
   status_is_captain_relevant "$held_reason" && fail "a captain-held transfer line was treated as captain-relevant"
   printf '%s\n' "$held_reason" > "$state/held-w9h.status"
-  out=$(FM_STATE_OVERRIDE="$state" classify_stale "sess:fm-held-w9h" "$state")
+  fm_write_meta "$state/held-w9h.meta" "window=$win" "kind=ship" "backend=tmux"
+  out=$(
+    # shellcheck disable=SC2329 # Runtime override called indirectly by classify_stale.
+    crew_supervision_record() { printf 'unknown|none'; }
+    # shellcheck disable=SC2329 # Runtime override called indirectly by classify_stale.
+    fm_backend_agent_alive() { printf 'dead'; }
+    FM_STATE_OVERRIDE="$state" classify_stale "$win" "$state"
+  )
   case "$out" in pause\|*) ;; *) fail "captain-held transfer did not classify as pause: $out" ;; esac
-  pass "a captain-held transfer classifies as pause, not as a wedge candidate"
+  pass "a dead captain-held transfer with unreadable state keeps its pause cadence"
 }
 
 # handle_wake on a paused stale records a pause marker, drops any pre-existing wedge

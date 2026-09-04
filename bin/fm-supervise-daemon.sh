@@ -550,9 +550,6 @@ supervise_declared_wait_class() {  # <window> <state> [force]
   record=$(FM_STATE_OVERRIDE="$state" crew_supervision_record "$task")
   agent_alive=$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null) || agent_alive=unknown
   class=$(declared_wait_class "$kind" "$record" "$agent_alive")
-  if [ "$class" = none ] && [ "${record%%|*}" = unknown ]; then
-    class=unconfirmed
-  fi
   if [ "$prior" = settled ] && [ "$class" = none ]; then
     class=invalidated
   fi

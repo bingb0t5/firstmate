@@ -372,6 +372,10 @@ test_crew_absorb_class_classifier() {
   FM_FAKE_CREW_STATE='state: unknown · source: none · worktree gone'
   [ "$(crew_absorb_class a)" = none ] || fail "unknown crew classed absorbable"
   ! crew_is_paused a || fail "unknown crew classed paused"
+  [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = paused ] \
+    || fail "dead declared wait with unreadable current state lost its pause cadence"
+  [ "$(declared_wait_class ship "$(crew_supervision_record a)" unknown)" = unconfirmed ] \
+    || fail "unreadable state and liveness did not fail open"
   FM_FAKE_CREW_STATE='state: done · source: run-step · checks green'
   [ "$(crew_supervision_record a)" = 'done|run-step' ] || fail "completed state was collapsed before declared-wait classification"
   [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = settled ] \
@@ -1114,6 +1118,33 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   [ "$(cat "$state/.paused-rechecked-$key" 2>/dev/null || true)" != settled ] \
     || fail "parked authority gate was marked settled"
 
+  dir=$(make_case exited-captain-held-unknown); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
+  window="test:fm-held"
+  printf 'idle bare shell after captain-held transfer\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
+  printf 'captain-held [key=route]: tracked by held-decision-route\n' > "$statusf"
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
+  else touch -m -d "@$back" "$statusf"; fi
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after captain-held transfer")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "dead captain-held lane did not re-surface on its bounded cadence"
+  grep -F "awaiting the captain" "$state/.wake-queue" >/dev/null \
+    || fail "dead captain-held lane lost its captain-owned recheck: $(cat "$state/.wake-queue")"
+  grep -F "possible wedge" "$state/.wake-queue" >/dev/null \
+    && fail "dead captain-held lane was mislabeled as a possible wedge"
+  bare=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$bare" -eq 0 ] || fail "dead captain-held lane surfaced as a bare stopped-worker wake"
+
   dir=$(make_case failed-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/failed.status"
   window="test:fm-failed"
@@ -1179,7 +1210,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   bare=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
   [ "$wakes" -eq 0 ] || fail "acknowledged external-decision surface replayed $wakes wakes"
   [ "$bare" -eq 0 ] || fail "acknowledged external-decision bare stale remained queued"
-  pass "dead-agent completed panes stay quiet while parked and live decision gates surface"
+  pass "completed panes settle while parked, captain-held, and live gates stay actionable"
 }
 
 test_changed_hash_rearms_preserve_nonsettled_declared_waits() {
