@@ -265,6 +265,36 @@ test_concurrent_writers_never_clobber() {
   pass "inbox: concurrent writers serialize on the sequence lock and lose nothing"
 }
 
+test_write_retries_when_lost_create_race_releases_before_recheck() {
+  local state fakebin lock real_ln rec
+  state="$TMP_ROOT/create-release-race/state"
+  fakebin="$TMP_ROOT/create-release-race/fakebin"
+  lock="$state/t1.inbox/.seq.lock"
+  real_ln=$(command -v ln)
+  mkdir -p "$state" "$fakebin"
+  cat > "$fakebin/ln" <<'SH'
+#!/usr/bin/env bash
+target=
+for target do :; done
+if [ "$target" = "$FM_RACE_LOCK" ] && [ ! -e "$FM_RACE_DIR/intercepted" ]; then
+  : > "$FM_RACE_DIR/intercepted"
+  # Model the observable result when another writer wins this creation and
+  # releases again before the caller rechecks: creation failed, lock absent.
+  exit 1
+fi
+exec "$FM_REAL_LN" "$@"
+SH
+  chmod +x "$fakebin/ln"
+
+  rec=$(PATH="$fakebin:$PATH" FM_RACE_DIR="$state" FM_RACE_LOCK="$lock" \
+    FM_REAL_LN="$real_ln" inbox_lib "$state" fm_task_inbox_write "$state" t1 \
+    "survive a released create race") \
+    || fail "an inbox writer did not retry after the winning lock disappeared"
+  [ -e "$state/intercepted" ] || fail "the lost-create interleaving did not run"
+  [ -f "$rec" ] || fail "the retried inbox write did not publish its record"
+  pass "inbox: a lost create race retries after the winning owner releases before recheck"
+}
+
 test_lock_refuses_unavailable_age_evidence_without_recursive_steals() {
   local state lock suffix i rc
   state="$TMP_ROOT/unavailable-lock-age/state"; mkdir -p "$state"
@@ -508,6 +538,7 @@ test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence
 test_concurrent_writers_never_clobber
+test_write_retries_when_lost_create_race_releases_before_recheck
 test_lock_refuses_unavailable_age_evidence_without_recursive_steals
 test_ladder_writes_ignore_vanished_inbox
 test_ring_ladder_policy

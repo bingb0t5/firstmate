@@ -145,7 +145,7 @@ test_guard_warnings() {
   printf 'project=x\n' > "$state/task.meta"
   printf 'project=y\n' > "$state/task2.meta"
   append_wake "$state" heartbeat heartbeat heartbeat || fail "guard heartbeat append failed"
-  CLAUDECODE=1 PI_CODING_AGENT='' GROK_AGENT='' FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
+  CLAUDECODE=1 PI_CODING_AGENT='' GROK_AGENT='' FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
   first=$(grep -v '^[[:space:]]*$' "$err" | head -1)
   case "$first" in
     '●'*) ;;
@@ -171,7 +171,7 @@ test_guard_warnings() {
   mkdir -p "$dir/config"
   printf 'project=x\n' > "$state/task.meta"
   : > "$dir/config/x-mode.env"
-  CLAUDECODE=1 PI_CODING_AGENT='' GROK_AGENT='' FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
+  CLAUDECODE=1 PI_CODING_AGENT='' GROK_AGENT='' FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=1 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
   grep -F "source '$dir/config/x-mode.env' first" "$err" >/dev/null || fail "guard repair line did not source the X-mode cadence config"
 
   # (2) live watcher plus fresh beacon, empty queue -> silence.
@@ -190,7 +190,7 @@ test_guard_warnings() {
   touch "$state/.last-watcher-beat"
   # Non-git FM_ROOT keeps the worktree-tangle check inert so "fresh watcher ->
   # total silence" stays a pure assertion about watcher state.
-  FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=300 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
+  FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" FM_GUARD_GRACE=300 "$ROOT/bin/fm-guard.sh" 2> "$err" >/dev/null || fail "guard failed"
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
   [ ! -s "$err" ] || fail "guard warned with a live watcher and fresh beacon: $(cat "$err")"
@@ -225,6 +225,44 @@ test_lock_single_winner_under_concurrency() {
   wins=$(awk 'NF { c++ } END { print c + 0 }' "$marker")
   [ "$wins" -eq 1 ] || fail "expected exactly one lock winner under concurrency, got $wins"
   pass "concurrent fm_lock_try_acquire yields exactly one winner"
+}
+
+test_lock_create_does_not_follow_competing_symlink() {
+  local dir state fakebin lockdir competitor real_ln out
+  dir=$(make_case lock-create-symlink-race)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  lockdir="$state/.contend.lock"
+  competitor="$state/.competing-owner"
+  real_ln=$(command -v ln)
+  mkdir -p "$fakebin" "$competitor"
+  cat > "$fakebin/ln" <<'SH'
+#!/usr/bin/env bash
+target=
+for target do :; done
+if [ "$target" = "$FM_RACE_LOCK" ] && [ ! -e "$FM_RACE_MARKER" ]; then
+  : > "$FM_RACE_MARKER"
+  "$FM_REAL_LN" -s "$FM_COMPETING_OWNER" "$FM_RACE_LOCK" || exit 20
+  "$FM_REAL_LN" "$@"
+  rc=$?
+  rm -f "$FM_RACE_LOCK"
+  exit "$rc"
+fi
+exec "$FM_REAL_LN" "$@"
+SH
+  chmod +x "$fakebin/ln"
+
+  out=$(PATH="$fakebin:$PATH" FM_RACE_LOCK="$lockdir" \
+    FM_RACE_MARKER="$dir/intercepted" FM_COMPETING_OWNER="$competitor" \
+    FM_REAL_LN="$real_ln" FM_STATE_OVERRIDE="$state" bash -c '
+      . "$1"
+      if fm_lock_try_create "$2"; then printf "created\n"; else printf "refused\n"; fi
+    ' _ "$LIB" "$lockdir")
+  [ "$out" = refused ] || fail "lock creation replaced a competing owner: $out"
+  [ -e "$dir/intercepted" ] || fail "competing lock interleaving did not run"
+  [ -z "$(find "$competitor" -mindepth 1 -print -quit)" ] \
+    || fail "lock creation left an owner link inside the released competing lock"
+  pass "lock creation never follows a competing symlink-to-directory"
 }
 
 test_lock_steals_dead_pid_lock() {
@@ -1130,6 +1168,7 @@ test_stale_watch_reclaim_publishes_before_clear
 test_live_stale_watch_lock_is_actionable
 test_guard_warnings
 test_lock_single_winner_under_concurrency
+test_lock_create_does_not_follow_competing_symlink
 test_lock_steals_dead_pid_lock
 test_lock_stale_steal_single_winner_under_concurrency
 test_lock_live_steal_mutex_is_not_reclaimed

@@ -350,7 +350,10 @@ jobs:
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
     runs-on: macos-latest
-    timeout-minutes: 10
+    # The full stock Bash 3.2 compatibility suite, retaining the 14 x 180 KB
+    # ARG_MAX fixture, took 12m53s on the measured host, so 20 minutes leaves
+    # a bounded margin for macOS runner variance rather than accepting cancellation.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - name: Run snapshot consumers with stock Bash
@@ -377,8 +380,8 @@ jobs:
           snapshot_output=$(/bin/bash tests/fm-fleet-snapshot-view.test.sh)
           printf '%s\n' "$snapshot_output"
           snapshot_count=$(printf '%s\n' "$snapshot_output" | grep -c '^ok - ')
-          [ "$snapshot_count" -eq 15 ] || {
-            echo "::error::expected 15 snapshot/fleet-view tests, got $snapshot_count"
+          [ "$snapshot_count" -eq 18 ] || {
+            echo "::error::expected 18 snapshot/fleet-view tests, got $snapshot_count"
             exit 1
           }
 
