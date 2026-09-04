@@ -318,6 +318,87 @@ SH
   pass "foreign secondmate queue stalls notify once, remain byte-stable, and stay quiet when empty or healthy"
 }
 
+# Declared pause rechecks are expected parked work for a secondmate's own
+# supervisor. When a mate is busy validating another lane, several such rows can
+# accumulate before it can drain them. Before the parent-side filter, each newly
+# aged row produced another parent wake-loop warning, even though the rows were
+# deliberate long-cadence rechecks. Keep a genuine wedge and a captain-held gate
+# in the same queue to prove the filter does not turn the guard off wholesale.
+test_secondmate_parked_pause_rechecks_do_not_flood_parent() {
+  local dir state sub fakebin out foreign_before now i round
+  dir=$(make_case secondmate-parked-rechecks)
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+    "$sub" > "$state/mate.meta"
+  printf 'working: validating another lane\n' > "$state/mate.status"
+  prime_status_seen "$state" "$state/mate.status" \
+    || fail "could not prime the busy secondmate status signal"
+  now=$(( $(date +%s) - 600 ))
+  : > "$sub/state/.wake-queue"
+  i=1
+  while [ "$i" -le 4 ]; do
+    printf '%s\t%s\tstale\tfirstmate:fm-parked-%s\tstale: firstmate:fm-parked-%s (paused 3600s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)\n' \
+      "$((now - i))" "$i" "$i" "$i" >> "$sub/state/.wake-queue"
+    i=$((i + 1))
+  done
+  fakebin="$dir/fakebin"
+  out="$dir/watch.out"
+
+  round=1
+  while [ "$round" -le 4 ]; do
+    PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+      FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+      FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 > "$out" 2> "$dir/watch-$round.err" || true
+    if grep -F 'secondmate wake-loop stalled' "$out" >/dev/null; then
+      fail "parked recheck round $round produced a false parent stall warning: $(cat "$out")"
+    fi
+    [ ! -s "$state/.wake-queue" ] \
+      || fail "parked recheck round $round published a false parent wake"
+    round=$((round + 1))
+  done
+
+  printf '%s\t5\tstale\tfirstmate:fm-wedge-lane\tstale: firstmate:fm-wedge-lane (idle 600s, possible wedge, escalation 1)\n' \
+    "$now" >> "$sub/state/.wake-queue"
+  printf '%s\t6\tstale\tfirstmate:fm-captain-gate\tstale: firstmate:fm-captain-gate (captain-held 600s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)\n' \
+    "$now" >> "$sub/state/.wake-queue"
+  foreign_before="$dir/foreign-before"
+  cp "$sub/state/.wake-queue" "$foreign_before"
+
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 > "$out" 2> "$dir/wedge.err" || true
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=5 age=' "$out" >/dev/null \
+    || fail "a genuine wedge row behind parked rechecks was skipped: $(cat "$out")"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/wedge-drain.out" 2> "$dir/wedge.err" \
+    || fail "the genuine wedge notification could not be drained"
+  ack_drain_err "$state" "$dir/wedge.err" \
+    || fail "the genuine wedge notification could not be acknowledged"
+  cmp -s "$foreign_before" "$sub/state/.wake-queue" \
+    || fail "parent observation changed the foreign queue while reporting the wedge"
+  awk -F '\t' '$2 != 5' "$sub/state/.wake-queue" > "$dir/foreign-after-wedge" \
+    || fail "could not model the mate draining the handled wedge row"
+  mv "$dir/foreign-after-wedge" "$sub/state/.wake-queue"
+  cp "$sub/state/.wake-queue" "$foreign_before"
+
+  PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 > "$out" 2> "$dir/gate.err" || true
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=6 age=' "$out" >/dev/null \
+    || fail "a captain-held decision row behind parked rechecks was skipped: $(cat "$out")"
+  cmp -s "$foreign_before" "$sub/state/.wake-queue" \
+    || fail "parent stall observation changed the secondmate foreign queue"
+  pass "parked pause rechecks stay quiet while genuine wedges and captain-held gates still reach the parent"
+}
+
 test_secondmate_stall_marker_rejects_symlink() {
   local dir state sub fakebin marker outside expected
   dir=$(make_case secondmate-stall-marker-symlink)
@@ -1200,6 +1281,7 @@ test_historical_annotation_skips_announced_status() {
 
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_secondmate_foreign_queue_stall_is_one_shot_and_read_only
+test_secondmate_parked_pause_rechecks_do_not_flood_parent
 test_secondmate_stall_marker_rejects_symlink
 test_acknowledged_stall_publication_survives_pre_marker_crash
 test_empty_prefix_mate_preserves_other_mate_receipt
