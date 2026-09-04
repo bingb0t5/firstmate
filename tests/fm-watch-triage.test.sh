@@ -380,8 +380,8 @@ test_crew_absorb_class_classifier() {
     || fail "live completed lane lost its decision-gate classification"
   FM_FAKE_CREW_STATE='state: parked · source: run-step · captain gate'
   [ "$(crew_supervision_record a)" = 'parked|run-step' ] || fail "parked state was collapsed before declared-wait classification"
-  [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = settled ] \
-    || fail "dead captain-frozen lane did not classify settled"
+  [ "$(declared_wait_class ship "$(crew_supervision_record a)" dead)" = none ] \
+    || fail "dead parked authority gate was silently settled"
   [ "$(declared_wait_class secondmate "$(crew_supervision_record a)" unknown)" = paused ] \
     || fail "secondmate captain-held semantics were replaced by ordinary settlement"
   FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed'
@@ -393,7 +393,7 @@ test_crew_absorb_class_classifier() {
     || fail "ambiguous external wait did not retain fail-open classification"
   [ "$(crew_absorb_class "")" = none ] || fail "empty id not classed none"
   unset FM_FAKE_CREW_STATE
-  pass "shared declared-wait classification preserves authoritative state and settles only dead done or parked lanes"
+  pass "shared declared-wait classification preserves authoritative state and settles only dead completed lanes"
 }
 
 # The wedge detector's third liveness input: writes inside the crew's own recorded
@@ -1012,13 +1012,12 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   pass "a declared pause is absorbed on first sight, then re-surfaced as a recheck past the threshold, never wedge-escalated"
 }
 
-# A completed or captain-frozen crew can leave a stable backend endpoint after
-# its agent exits. A stale paused/captain-held declaration is then only a leftover
-# on a lane with no worker to recheck, so changing pane hashes and repeated watcher
-# re-arms must remain silent rather than producing one wake per pause cadence.
-# A still-live agent at an external-decision gate is the disconfirming case: it
-# must surface once, while the unchanged hash must not append the same wake on
-# every watcher re-arm.
+# A completed crew can leave a stable backend endpoint after its agent exits.
+# A stale paused declaration is then only a leftover on a lane with no worker to
+# recheck, so changing pane hashes and repeated watcher re-arms must remain silent.
+# A parked no-mistakes gate and a still-live agent at an external-decision gate
+# are the disconfirming cases: each must surface once, while an unchanged hash
+# must not append the same wake on every watcher re-arm.
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   local dir state fakebin out capture_file statusf window key pane_hash sig pid back round wakes bare cache_mtime
   dir=$(make_case exited-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
@@ -1090,18 +1089,18 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   [ -e "$state/.stale-since-$key" ] || { reap "$pid"; fail "resumed run did not return to bounded wedge detection"; }
   reap "$pid"
 
-  dir=$(make_case exited-captain-held); state="$dir/state"; fakebin="$dir/fakebin"
+  dir=$(make_case parked-authority-gate); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/held.status"
   window="test:fm-held"
-  printf 'idle bare shell after captain-held transfer\n' > "$capture_file"
+  printf 'idle bare shell at parked authority gate\n' > "$capture_file"
   printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/held.meta"
-  printf 'captain-held [key=route]: tracked by held-decision-route\n' > "$statusf"
+  printf 'paused: waiting on the validation authority gate\n' > "$statusf"
   back=$(( $(date +%s) - 500 ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
   else touch -m -d "@$back" "$statusf"; fi
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "idle bare shell after captain-held transfer")
+  pane_hash=$(hash_text "idle bare shell at parked authority gate")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
@@ -1109,10 +1108,11 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "captain-held dead-agent pane did not complete a quiet poll"; }
-  [ ! -s "$out" ] || { reap "$pid"; fail "captain-held dead-agent pane printed a stale wake: $(cat "$out")"; }
-  [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "captain-held dead-agent pane produced a stale wake: $(cat "$state/.wake-queue")"; }
-  reap "$pid"
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "parked authority gate was silently settled"; }
+  grep -F "stale: $window" "$state/.wake-queue" >/dev/null \
+    || fail "parked authority gate did not surface an actionable stale wake"
+  [ "$(cat "$state/.paused-rechecked-$key" 2>/dev/null || true)" != settled ] \
+    || fail "parked authority gate was marked settled"
 
   dir=$(make_case failed-declared-pause); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/failed.status"
@@ -1179,7 +1179,7 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   bare=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
   [ "$wakes" -eq 0 ] || fail "acknowledged external-decision surface replayed $wakes wakes"
   [ "$bare" -eq 0 ] || fail "acknowledged external-decision bare stale remained queued"
-  pass "dead-agent completed and captain-held panes stay quiet while a live decision gate still surfaces once"
+  pass "dead-agent completed panes stay quiet while parked and live decision gates surface"
 }
 
 test_changed_hash_rearms_preserve_nonsettled_declared_waits() {

@@ -48,7 +48,7 @@
 #     paused: external wait or a verified captain-held transfer, per
 #     fm-classify-lib.sh's combined predicate - instead gets its own longer
 #     PAUSE_RESURFACE_SECS recheck, never a wedge escalation. A confidently dead
-#     completed or parked ordinary lane settles under an expiring classification.
+#     completed ordinary lane settles under an expiring classification.
 #     Crewmates are autonomous, so a delayed stale response does not stall a
 #     healthy crewmate's own progress.
 #     Buffered escalation delivery also has a max-defer alarm: if a digest stays
@@ -336,8 +336,9 @@ _collapse_newlines() {  # <text>
 #
 # Decision protocol: every classifier prints exactly one line on stdout of the
 # form "<action>|<distilled>". Self and settled are informational, pause records a
-# bounded declared-wait recheck, and escalate carries the pre-read summary
-# firstmate would otherwise have to re-read.
+# bounded declared-wait recheck, inspect surfaces a nonsettled declared wait before
+# recording that cadence, and escalate carries the pre-read summary firstmate
+# would otherwise have to re-read.
 
 classify_signal() {  # <reason-after-colon> <state>
   local reason=$1 state=$2 f last distilled="" rel="" all_seen=1 task seen
@@ -385,6 +386,10 @@ classify_stale() {  # <window> <state>
         ;;
       paused|live|unconfirmed)
         printf 'pause|paused (awaiting external), rechecked on a long cadence: %s' "$last"
+        return
+        ;;
+      none|invalidated)
+        printf 'inspect|declared wait state requires inspection: %s' "$last"
         return
         ;;
     esac
@@ -555,12 +560,15 @@ supervise_declared_wait_class() {  # <window> <state> [force]
 }
 
 reconcile_pause_tracking() {  # <window> <state> <last-status-line> [force]
-  local win=$1 state=$2 last=$3 force=${4:-0} task key marker watcher_key class stale_started
+  local win=$1 state=$2 last=$3 force=${4:-0} task key marker watcher_key class was_tracked=0
   task=$(window_to_task "$win" "$state")
   key=$(_stale_key "$task")
   marker="$state/.subsuper-paused-$key"
   watcher_key=$(_stale_key "$win")
   if status_is_paused_or_captain_held "$last"; then
+    if [ -e "$marker" ] || [ -e "$state/.paused-$watcher_key" ]; then
+      was_tracked=1
+    fi
     if [ "$force" != 1 ] && [ -e "$marker" ]; then
       stale_marker_remove "$win" "$state"
       return
@@ -576,11 +584,14 @@ reconcile_pause_tracking() {  # <window> <state> <last-status-line> [force]
         pause_marker_record "$win" "$state"
         return 0
         ;;
-      invalidated)
-        stale_started=$(_stat_file_mtime "$state/.paused-rechecked-$watcher_key" 2>/dev/null || _now)
+      none|invalidated)
         clear_pause_state_for_stale "$win" "$state"
-        printf '%s\n' "$stale_started" > "$state/.subsuper-stale-$key"
-        return 1
+        stale_marker_remove "$win" "$state"
+        pause_marker_record "$win" "$state"
+        if [ "$class" = invalidated ] || [ "$was_tracked" != 1 ]; then
+          escalate_add "$state" "declared wait state requires inspection: $win"
+        fi
+        return 0
         ;;
       *)
         clear_pause_state_for_stale "$win" "$state"
@@ -1071,7 +1082,7 @@ _oldest_line_age() {  # <buf> -> seconds since the oldest buffered item first ar
 #  3) heartbeat scan: every HEARTBEAT_SCAN_SECS, grep state/*.status for a
 #     captain-relevant line the per-wake classifier missed and escalate it.
 housekeeping() {  # <state>
-  local state=$1 now due f key task win marker age last max_defer oldest pause_secs pause_class pause_started
+  local state=$1 now due f key task win marker age last max_defer oldest pause_secs pause_class
   now=$(_now)
   migrate_watcher_pause_markers "$state"
 
@@ -1134,9 +1145,10 @@ housekeeping() {  # <state>
 
   # (2b) pause re-surface recheck. A declared wait idles by design, so an eligible
   # wait is rechecked on a much longer cadence than a wedge and never escalated as
-  # one. A confidently dead completed or parked lane settles, while an ineligible
-  # state returns to wedge tracking. A remaining idle wait re-surfaces with wording
-  # that distinguishes an external dependency from a captain-held transfer.
+  # one. A confidently dead completed lane settles, while another nonsettled lane
+  # remains on the pause cadence after its initial inspection. A remaining idle
+  # wait re-surfaces with wording that distinguishes an external dependency from a
+  # captain-held transfer.
   pause_secs=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
   for marker in "$state"/.subsuper-paused-*; do
     [ -e "$marker" ] || continue
@@ -1161,13 +1173,6 @@ housekeeping() {  # <state>
         ;;
       working)
         clear_pause_tracking "$win" "$state"
-        continue
-        ;;
-      none|invalidated)
-        pause_started=$(cat "$marker" 2>/dev/null || true)
-        case "$pause_started" in ''|*[!0-9]*) pause_started=$now ;; esac
-        clear_pause_tracking "$win" "$state"
-        printf '%s\n' "$pause_started" > "$state/.subsuper-stale-$key"
         continue
         ;;
     esac
@@ -1382,6 +1387,16 @@ handle_wake() {  # <reason> <state>
         settle_pause_tracking "$arg" "$state"
       fi
       log "self-handle (settled): $reason -> $distilled"
+      ;;
+    inspect)
+      if [ "$kind" = stale ]; then
+        clear_pause_state_for_stale "$arg" "$state"
+        stale_marker_remove "$arg" "$state"
+        pause_marker_record "$arg" "$state"
+      fi
+      log "escalate declared wait inspection: $reason -> $distilled"
+      escalate_add "$state" "$distilled"
+      [ "${FM_ESCALATE_BATCH_SECS:-$ESCALATE_BATCH_SECS_DEFAULT}" -le 0 ] && { escalate_flush "$state" || true; }
       ;;
     *)
       # Transient (non-terminal) stale: record/refresh the wedge marker so

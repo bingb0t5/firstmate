@@ -33,6 +33,7 @@ No-verb wakes, such as `working:` notes and bare turn-ended signals, are benign 
 A `kind=secondmate` task's status signal is the parent-directed reply stream and is never absorbed as provably working; only its bare turn-ended signal retains the ordinary absorb rule.
 A declared `paused:` external wait or verified `captain-held` transfer that remains eligible is separately absorbed while idle and re-surfaced only on the longer pause cadence, rather than being treated as a possible wedge.
 A completed or captain-frozen ordinary crew whose agent has exited is settled silently when its stale `paused:` or `captain-held` declaration is only a leftover, because no worker remains for a recheck.
+A parked no-mistakes run is an active captain gate, so it surfaces instead of settling.
 A live or inconclusive ordinary crew still receives the initial stale inspection, while a genuine external wait keeps the bounded cadence; a secondmate's endpoint liveness is never read at all, so its declared pause or captain hold keeps that cadence and cannot rot invisibly.
 Its initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
 Fresh stale panes use the same current-state read before trusting the status log, so an active run or a proven busy worker outranks an old captain-relevant status-log line left behind before validation.

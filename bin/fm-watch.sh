@@ -23,8 +23,8 @@
 #                          external-wait pause or verified captain-held transfer is
 #                          absorbed instead with its own long re-surface cadence,
 #                          never as a wedge, and that recheck reason names which
-#                          human the wait is on. A confidently dead completed or
-#                          parked ordinary lane settles until its expiring state
+#                          human the wait is on. A confidently dead completed
+#                          ordinary lane settles until its expiring state
 #                          classification is revalidated. Only when neither class
 #                          applies does the log's last line decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
@@ -679,8 +679,8 @@ clear_pause_tracking() {  # <window-key>
 
 # Reconcile a declared pause or captain-held status with authoritative crew state.
 # A genuine external wait remains bounded, but a non-secondmate whose authoritative
-# state is done or parked and whose agent is dead is settled silently because the
-# completed or captain-frozen lane has no worker left to recheck. A live agent
+# state is done and whose agent is dead is settled silently because the completed
+# lane has no worker left to recheck. A live agent
 # returns `live` so its decision gate still gets the same bounded re-surface after
 # the first wake. A secondmate earns `paused` from its declaration alone because its
 # endpoint liveness is deliberately never read.
