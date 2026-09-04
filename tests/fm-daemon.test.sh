@@ -282,6 +282,7 @@ test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
   recheck="$state/.paused-rechecked-$watcher_key"
   printf 'pane-hash' > "$state/.stale-$watcher_key"
   (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
     fm_backend_agent_alive() { printf 'dead'; }
     FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
@@ -298,6 +299,7 @@ test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$fixed" '+%Y%m%d%H%M.%S')" "$recheck"
   else touch -m -d "@$fixed" "$recheck"; fi
   (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
     fm_backend_agent_alive() { printf 'dead'; }
     FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed' \
@@ -311,6 +313,7 @@ test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$recheck"
   else touch -m -d "@$back" "$recheck"; fi
   (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
     fm_backend_agent_alive() { printf 'dead'; }
     FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_FAKE_CREW_STATE='state: failed · source: run-step · validation failed' \
@@ -328,6 +331,7 @@ test_away_settlement_revalidates_and_preserves_secondmate_pauses() {
   printf 'captain-held [key=route]: tracked by held-decision-route\n' > "$state/away-mate.status"
   key=$(_stale_key away-mate)
   (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by handle_wake.
     fm_backend_agent_alive() { printf 'called\n' >> "$liveness_log"; printf 'dead'; }
     FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
@@ -354,6 +358,7 @@ test_housekeeping_settles_migrated_dead_completed_pause() {
   : > "$state/.paused-$watcher_key"
   printf 'pane-hash' > "$state/.stale-$watcher_key"
   (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
     fm_backend_agent_alive() { printf 'dead'; }
     PATH="$fakebin:$PATH" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
@@ -369,6 +374,7 @@ test_housekeeping_settles_migrated_dead_completed_pause() {
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$fixed" '+%Y%m%d%H%M.%S')" "$recheck"
   else touch -m -d "@$fixed" "$recheck"; fi
   (
+    # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
     fm_backend_agent_alive() { printf 'dead'; }
     PATH="$fakebin:$PATH" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
       FM_FAKE_CREW_STATE='state: done · source: run-step · run completed' \
