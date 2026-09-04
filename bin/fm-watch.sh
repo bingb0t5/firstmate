@@ -625,12 +625,12 @@ handle_paused_stale() {  # <window> <task> <hash>
 }
 
 # Settle a stale pane whose declared wait is only a leftover on a completed or
-# captain-frozen task after its agent has exited. This is deliberately permanent
-# until the declaration or authoritative state changes: there is no worker left
-# whose external wait can clear, so a bounded recheck would only flood firstmate.
-# The paused marker keeps the existing status-transition cleanup path active, while
-# the settled sentinel in .paused-rechecked-<key> avoids repeating the costly state
-# read on every unchanged or churning pane hash.
+# captain-frozen task after its agent has exited. It does not enter the long pause
+# cadence: there is no worker left whose external wait can clear, so that recheck
+# would only flood firstmate. The paused marker keeps the status-transition cleanup
+# path active, while the settled sentinel in .paused-rechecked-<key> avoids repeating
+# the costly state read on every unchanged or churning pane hash until the short
+# stale-classification cache expires.
 handle_settled_stale() {  # <window> <task> <hash>
   local win=$1 task=$2 h=$3 key
   key=$(window_key "$win")
@@ -679,11 +679,11 @@ clear_pause_tracking() {  # <window-key>
 
 # Reconcile a declared pause or captain-held status with authoritative crew state.
 # A genuine external wait remains bounded, but a non-secondmate whose authoritative
-# state is no longer paused and whose agent is dead is settled silently: completed
-# and captain-frozen lanes have no worker left to recheck. A live agent returns
-# `live` so its decision gate still gets the same bounded re-surface after the first
-# wake. A secondmate earns `paused` from its declaration alone because its endpoint
-# liveness is deliberately never read.
+# state is done or parked and whose agent is dead is settled silently because the
+# completed or captain-frozen lane has no worker left to recheck. A live agent
+# returns `live` so its decision gate still gets the same bounded re-surface after
+# the first wake. A secondmate earns `paused` from its declaration alone because its
+# endpoint liveness is deliberately never read.
 pause_state_class() {  # <window> <task>
   local win=$1 task=$2 key last recheck_file class agent_alive kind record prior
   key=$(window_key "$win")
@@ -1496,7 +1496,8 @@ EOF
           #     liveness evidence each kind of crew must supply), so absorb on the long
           #     PAUSE_RESURFACE_SECS cadence instead of wedge-escalating;
           #   - settled: a completed or captain-frozen lane whose agent exited, so
-          #     absorb permanently until its declaration or authoritative state changes;
+          #     absorb until the expiring classification observes a declaration,
+          #     authoritative-state, or agent-liveness change;
           #   - live: a live agent at a decision gate, so surface once and then use
           #     the bounded pause cadence;
           #   - unconfirmed: an authoritative pause with ambiguous endpoint liveness,
