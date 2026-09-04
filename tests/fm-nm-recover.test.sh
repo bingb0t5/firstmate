@@ -94,6 +94,38 @@ EOF
   pass "fm-nm-recover: dirty worktree refuses before any custody mutation"
 }
 
+test_recovery_refuses_when_cleanliness_cannot_be_confirmed() {
+  local rec root repo fakebin log out status real_git head_before head_after
+  rec=$(make_case status-failure)
+  IFS='|' read -r root repo fakebin <<EOF
+$rec
+EOF
+  log="$root/calls"
+  real_git=$(command -v git)
+  cat > "$fakebin/git" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = status ]; then
+  exit 19
+fi
+exec "$FM_NM_REAL_GIT" "$@"
+SH
+  chmod +x "$fakebin/git"
+  head_before=$(git -C "$repo" rev-parse HEAD)
+  export FM_NM_REAL_GIT=$real_git
+  out=$(run_recover "$repo" "$fakebin" "$FIXTURE" "$log")
+  status=$?
+  unset FM_NM_REAL_GIT
+  [ "$status" -ne 0 ] || fail "recovery with an unconfirmed worktree unexpectedly succeeded"
+  assert_contains "$out" "could not verify whether unlanded work is present" \
+    "worktree inspection failure did not explain the refusal"
+  assert_contains "$out" "no files or refs were changed" \
+    "worktree inspection failure did not state its no-change boundary"
+  assert_absent "$log" "worktree inspection failure invoked no-mistakes"
+  head_after=$(git -C "$repo" rev-parse HEAD)
+  [ "$head_before" = "$head_after" ] || fail "worktree inspection failure changed HEAD"
+  pass "fm-nm-recover: failed worktree inspection refuses before custody mutation"
+}
+
 # The reproduced failure predates the supported recovery action in some CLI
 # versions. It must become a visible, actionable refusal rather than a silent
 # dead end or an improvised history edit.
@@ -150,6 +182,37 @@ EOF
   pass "fm-nm-recover: user-owned terminal state proceeds without synchronization"
 }
 
+test_recovery_refuses_contradictory_custody_signals() {
+  local rec root repo fakebin fixture log out status
+  rec=$(make_case contradictory)
+  IFS='|' read -r root repo fakebin <<EOF
+$rec
+EOF
+  fixture="$root/status.toon"
+  cat > "$fixture" <<'EOF'
+branch_sync:
+  state: user_owned
+  changed: false
+  local:
+    branch: fm/custody-fixture
+    clean: true
+  next_action:
+    code: recover_custody
+EOF
+  log="$root/calls"
+  out=$(run_recover "$repo" "$fakebin" "$fixture" "$log")
+  status=$?
+  [ "$status" -ne 0 ] || fail "contradictory custody status unexpectedly succeeded"
+  assert_contains "$out" "structured status is ambiguous" \
+    "contradictory custody status did not explain its ambiguity"
+  assert_contains "$out" "leave the branch unchanged" \
+    "contradictory custody status omitted its safety action"
+  grep -qx 'axi status' "$log" || fail "contradictory custody status was not queried"
+  assert_no_grep 'axi sync --recover' "$log" \
+    "contradictory custody status invoked recovery"
+  pass "fm-nm-recover: contradictory custody signals refuse before synchronization"
+}
+
 test_recovery_rejects_failed_status_with_user_owned_output() {
   local rec root repo fakebin fixture log out status
   rec=$(make_case failed-user-owned)
@@ -179,6 +242,8 @@ EOF
 
 test_recover_custody_uses_the_structured_offer
 test_recovery_refuses_without_touching_unlanded_work
+test_recovery_refuses_when_cleanliness_cannot_be_confirmed
 test_recovery_refuses_an_unoffered_action
 test_recovery_accepts_already_user_owned_state
+test_recovery_refuses_contradictory_custody_signals
 test_recovery_rejects_failed_status_with_user_owned_output

@@ -7,6 +7,8 @@
 # It reads the current structured `axi status` response and invokes
 # `no-mistakes axi sync --recover` only when branch_sync.next_action.code is the
 # exact supported `recover_custody` action.
+# It trusts branch_sync fields only after `axi status` exits successfully;
+# partial output from a timed-out or failed query cannot authorize a transition.
 #
 # A clean worktree is required before recovery so unlanded changes cannot be
 # discarded by a branch synchronization. Unsupported, missing, or ambiguous
@@ -53,7 +55,12 @@ BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
 [ -n "$BRANCH" ] \
   || die "the repository is detached; run no-mistakes axi status and preserve the exact branch before any follow-up"
 
-DIRTY=$(git status --porcelain=v1 --untracked-files=all 2>/dev/null || true)
+set +e
+DIRTY=$(git status --porcelain=v1 --untracked-files=all 2>/dev/null)
+DIRTY_RC=$?
+set -e
+[ "$DIRTY_RC" -eq 0 ] \
+  || die "could not verify whether unlanded work is present on $BRANCH; inspect git status, leave the branch unchanged, and do not reset or discard it (no files or refs were changed)"
 [ -z "$DIRTY" ] \
   || die "unlanded work is present on $BRANCH; commit it or inspect it before recovery, and do not reset or discard it (no files or refs were changed)"
 
@@ -119,6 +126,11 @@ next_action_code() {
 
 STATE=$(fm_nm_strip_quotes "$(branch_sync_state)")
 ACTION=$(fm_nm_strip_quotes "$(next_action_code)")
+
+if [ "$STATE" = user_owned ] && [ -n "$ACTION" ]; then
+  print_status
+  die "structured status is ambiguous: branch_sync.state=user_owned conflicts with branch_sync.next_action.code=$ACTION; rerun no-mistakes axi status, leave the branch unchanged, and return its branch_sync object to firstmate"
+fi
 
 if [ "$ACTION" = recover_custody ]; then
   echo "Applying the guarded no-mistakes custody recovery for $BRANCH."
