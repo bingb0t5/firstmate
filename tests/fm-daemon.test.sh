@@ -697,7 +697,7 @@ test_housekeeping_working_declared_wait_rechecks_only_when_due() {
   local dir state fakebin task win pane marker state_read_log
   dir=$(make_supercase declared-wait-due-working)
   state="$dir/state"; fakebin="$dir/fakebin"
-  task=due-working; win="sess:fm-$task"; pane="$dir/pane.txt"
+  task='due-working'; win="sess:fm-$task"; pane="$dir/pane.txt"
   marker="$state/.subsuper-stale-$(_stale_key "$task")"
   state_read_log="$dir/state-read.log"
   fm_write_meta "$state/$task.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
@@ -739,7 +739,7 @@ test_housekeeping_failed_declared_wait_uses_pause_cadence() {
   local dir state fakebin task win pane key marker state_read_log
   dir=$(make_supercase declared-wait-failed-cadence)
   state="$dir/state"; fakebin="$dir/fakebin"
-  task=due-failed; win="sess:fm-$task"; pane="$dir/pane.txt"
+  task='due-failed'; win="sess:fm-$task"; pane="$dir/pane.txt"
   key=$(_stale_key "$task")
   marker="$state/.subsuper-paused-$key"
   state_read_log="$dir/state-read.log"

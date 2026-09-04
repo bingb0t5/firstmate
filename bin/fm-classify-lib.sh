@@ -1214,7 +1214,7 @@ declared_wait_supervision_record() {  # <id> <state-dir>
     previous=$last
     last=$line
   done < <(grep -v '^[[:space:]]*$' "$state_dir/$id.status" 2>/dev/null | tail -2)
-  if status_is_paused "$last" && [ "$(status_line_verb "$previous")" = done ]; then
+  if status_is_paused "$last" && [ "$(status_line_verb "$previous")" = 'done' ]; then
     printf 'done|status-log'
   else
     printf '%s' "$record"
