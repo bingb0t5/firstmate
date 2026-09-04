@@ -181,6 +181,7 @@ shell_quote() {
 
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 INBOX_DIR=$(shell_quote "$STATE/$ID.inbox")
+NM_RECOVER_HELPER=$(shell_quote "$FM_ROOT/bin/fm-nm-recover.sh")
 
 # The receive-and-ack half of the steering-inbox contract, included in every
 # scaffold kind. The record format, doorbell line, and re-ring ladder are
@@ -415,6 +416,13 @@ You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
 When starting no-mistakes, make \`--intent\` preserve all relevant content from this brief's \`# Task\` section plus every later accepted Firstmate requirement, clarification, constraint, exclusion, and supersession, carrying only each requirement's current accepted form; retain direct requirements instead of substituting a diff summary, and exclude generic operational, status, delivery, and other scaffold boilerplate unless it is task-specific.
 Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
+
+After a failed or cancelled outcome, before any post-pipeline commit or fresh run, read the structured \`branch_sync\` object from \`no-mistakes axi status\`.
+If \`branch_sync.next_action.code\` is \`recover_custody\`, run \`no-mistakes axi sync --recover\`; this is the guarded recovery that returns custody without discarding preserved pipeline commits.
+You may use \`$NM_RECOVER_HELPER\` instead; it rechecks the structured status and refuses every other state.
+If status says \`user_owned\`, custody is already returned and no synchronization is needed.
+For a missing, unsupported, or ambiguous action, leave the branch unchanged, do not reset, merge, rebase, force, stash, or discard, and return the status output to firstmate with its actionable next step.
+A dirty worktree is an explicit refusal: preserve the unlanded work, then commit or otherwise resolve it only after the branch ownership decision is clear.
 
 Two firstmate-specific rules layer on top of that guidance:
 - ask-user findings are never yours to answer: escalate to firstmate (rule 6) and stop.

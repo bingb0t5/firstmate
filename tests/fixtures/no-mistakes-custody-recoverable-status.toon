@@ -1,0 +1,40 @@
+run:
+  id: "01M0XWKG0M357MSXC9V1Q9HY83"
+  branch: fm/second-attempt-r1-custody-30d7dfa
+  status: failed
+  head: e25e4615
+  pr: "https://github.com/bingb0t5/firstmate/pull/17"
+  findings: "1 awaiting, 1 auto-fix, 4 info"
+branch_sync:
+  state: pipeline_owned
+  changed: false
+  local:
+    branch: fm/second-attempt-r1-custody-30d7dfa
+    head: 3b1abf8755d7da2e6726e02db351d2980cfad438
+    clean: true
+  pipeline:
+    run: "01M0XWKG0M357MSXC9V1Q9HY83"
+    status: failed
+    phase: pre_push
+    submitted_head: 3b1abf8755d7da2e6726e02db351d2980cfad438
+    current_head: e25e46151cd7275992cf40dc0efd2b3fae278d14
+    pushed_head: 51e461a3121315cf98d9102441855a9aec1e220c
+    pushed_at: 1787721517
+    push_generation: 1
+  target:
+    kind: fork
+    remote: origin
+    url: "https://github.com/bingb0t5/firstmate.git"
+    ref: refs/heads/fm/second-attempt-r1-custody-30d7dfa
+  remote:
+    observed_head: 51e461a3121315cf98d9102441855a9aec1e220c
+    freshness: pipeline_push
+    observed_at: 1787721517
+  relation: unknown
+  safety: blocked_pipeline_owned_recoverable
+  pr_state: open
+  note: the run finished failed with unpublished pipeline commits preserved in the local gate; recover custody before any local follow-up commit
+  next_action:
+    code: recover_custody
+    command: no-mistakes axi sync --recover
+outcome: failed

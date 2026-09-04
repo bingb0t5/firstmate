@@ -345,6 +345,16 @@ test_no_mistakes_dod_wording() {
     "no-mistakes DOD must keep direct requirements and exclude generic scaffold boilerplate from --intent"
   assert_grep "exclude generic operational, status, delivery, and other scaffold boilerplate unless it is task-specific" "$brief" \
     "no-mistakes DOD must exclude non-task-specific scaffold boilerplate from --intent"
+  assert_grep "After a failed or cancelled outcome, before any post-pipeline commit or fresh run" "$brief" \
+    "no-mistakes DOD must recover terminal branch custody before follow-up work"
+  assert_grep "If \`branch_sync.next_action.code\` is \`recover_custody\`" "$brief" \
+    "no-mistakes DOD must require the structured custody offer"
+  assert_grep "no-mistakes axi sync --recover" "$brief" \
+    "no-mistakes DOD must name the guarded custody recovery command"
+  assert_grep "fm-nm-recover.sh" "$brief" \
+    "no-mistakes DOD must expose the safe recovery helper"
+  assert_grep "missing, unsupported, or ambiguous action" "$brief" \
+    "no-mistakes DOD must make unsupported custody explicit"
   # The apostrophe in "firstmate's authority check" is now structurally safe
   # (no `$(...)` wrapper around the heredoc), so it renders verbatim instead of
   # being reworded or escaped away. test_no_heredoc_in_command_substitution
