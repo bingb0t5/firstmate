@@ -1,0 +1,15 @@
+Scenario: tracked and untracked work are present before recovery.
+Expected: refuse before calling no-mistakes and preserve all work.
+
+command output (exit=2):
+  REFUSED: unlanded work is present on main; commit it or inspect it before recovery, and do not reset or discard it (no files or refs were changed)
+head_before=34b0a90763a482aa876feb95c7b24482a00a6c69
+head_after=34b0a90763a482aa876feb95c7b24482a00a6c69
+tracked_hash_before=936c6be55a2302599bfde722ee1feba05bcb8818
+tracked_hash_after=936c6be55a2302599bfde722ee1feba05bcb8818
+untracked_hash_before=02086e1e0f8fb2e04f2a3d61d77157f930091bab
+untracked_hash_after=02086e1e0f8fb2e04f2a3d61d77157f930091bab
+working tree after refusal:
+   M README.md
+  ?? untracked.txt
+no-mistakes commands observed: none

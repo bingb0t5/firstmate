@@ -1,0 +1,22 @@
+Scenario: axi status emits a partial user_owned object but exits 23.
+Expected: custody is not trusted and recovery refuses.
+
+BEFORE REVIEW FIX (commit 34f1acd)
+exit=0
+  No custody recovery is needed: structured status says main is already user-owned.
+commands observed:
+  axi status
+
+AFTER REVIEW FIX (commit a84c51a)
+exit=2
+  branch_sync:
+    state: user_owned
+    changed: false
+    local:
+      branch: fm/custody-fixture
+      clean: true
+  REFUSED: structured status could not be confirmed (exit 23); rerun no-mistakes axi status and return its branch_sync object to firstmate
+commands observed:
+  axi status
+
+Result: old code falsely returned success; current code refuses before interpreting partial status.

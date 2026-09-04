@@ -1,0 +1,17 @@
+Scenario: archived failed-run status offers branch_sync.next_action.code=recover_custody.
+Transport: isolated no-mistakes stub; the helper under test is the real executable.
+Expected: invoke only guarded axi sync --recover and surface returned custody.
+
+before_head=34b0a90763a482aa876feb95c7b24482a00a6c69
+command output (exit=0):
+  Applying the guarded no-mistakes custody recovery for main.
+  custody returned; preserved pipeline head adopted
+no-mistakes commands observed:
+  axi status
+  axi sync --recover
+after_head=380cf8ee7963769892b783e1ebd8c89314f129c0
+adopted history:
+  380cf8e adopt preserved pipeline head
+  34b0a90 initial
+adopted file:
+  preserved pipeline work

@@ -1,0 +1,8 @@
+Scenario: Git cannot confirm whether the worktree contains unlanded changes (git status exits 19).
+Expected: refuse before querying or synchronizing no-mistakes; preserve HEAD.
+
+command output (exit=2):
+  REFUSED: could not verify whether unlanded work is present on main; inspect git status, leave the branch unchanged, and do not reset or discard it (no files or refs were changed)
+no-mistakes commands observed: none
+head_before=ac62ff16686cce33283b5965e8e68285d9025345
+head_after=ac62ff16686cce33283b5965e8e68285d9025345

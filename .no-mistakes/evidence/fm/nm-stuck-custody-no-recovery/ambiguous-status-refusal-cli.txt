@@ -1,0 +1,14 @@
+Scenario: successful status contradicts itself with state=user_owned and next_action.code=recover_custody.
+Expected: explicit refusal without synchronization or branch mutation.
+
+command output (exit=2):
+  branch_sync:
+    state: user_owned
+    changed: false
+    next_action:
+      code: recover_custody
+  REFUSED: structured status is ambiguous: branch_sync.state=user_owned conflicts with branch_sync.next_action.code=recover_custody; rerun no-mistakes axi status, leave the branch unchanged, and return its branch_sync object to firstmate
+no-mistakes commands observed:
+  axi status
+head_before=1b460282ed57c9235be82568785e6603c8bed65a
+head_after=1b460282ed57c9235be82568785e6603c8bed65a
