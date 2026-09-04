@@ -1182,6 +1182,64 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   pass "dead-agent completed and captain-held panes stay quiet while a live decision gate still surfaces once"
 }
 
+test_changed_hash_rearms_preserve_nonsettled_declared_waits() {
+  local case_name command verdict dir state fakebin out capture_file statusf window key sig pid round surfaced back
+  for case_name in failed live unconfirmed; do
+    dir=$(make_case "changed-declared-wait-$case_name"); state="$dir/state"; fakebin="$dir/fakebin"
+    out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/$case_name.status"
+    window="test:fm-changed-$case_name"
+    printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/$case_name.meta"
+    printf 'paused: waiting on the upstream release\n' > "$statusf"
+    back=$(( $(date +%s) - 500 ))
+    set_mtime "$back" "$statusf"
+    sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-${case_name}_status"
+    key=$(printf '%s' "$window" | tr ':/.' '___')
+    printf 'seed hash\n' > "$state/.hash-$key"
+    printf '1\n' > "$state/.count-$key"
+    case "$case_name" in
+      failed)
+        command=zsh
+        verdict='state: failed · source: run-step · validation failed'
+        : > "$state/.paused-$key"
+        ;;
+      live)
+        command=grok
+        verdict='state: paused · source: status-log · waiting on an active decision gate'
+        ;;
+      unconfirmed)
+        command=sleep
+        verdict='state: paused · source: status-log · waiting on a genuine external dependency'
+        ;;
+    esac
+    surfaced=0
+    round=1
+    while [ "$round" -le 3 ]; do
+      printf 'changing pane round %s\n' "$round" > "$capture_file"
+      PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+        FM_FAKE_TMUX_CURRENT_COMMAND="$command" FM_FAKE_CREW_STATE="$verdict" \
+        FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+        FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+      pid=$!
+      if wait_poll_cycle "$state" "$pid"; then
+        reap "$pid"
+        ack_stopped_cycle "$state" || fail "could not acknowledge changed-hash $case_name round $round"
+      elif kill -0 "$pid" 2>/dev/null; then
+        reap "$pid"
+        fail "changed-hash $case_name round $round timed out"
+      else
+        wait "$pid" || fail "changed-hash $case_name round $round failed"
+        surfaced=1
+        break
+      fi
+      round=$((round + 1))
+    done
+    [ "$surfaced" -eq 1 ] || fail "changing hashes silenced the $case_name declared wait across re-arms"
+    grep -F "stale: $window" "$state/.wake-queue" >/dev/null \
+      || fail "changing-hash $case_name declared wait did not produce a stale wake"
+  done
+  pass "changing hashes preserve failed, live, and unconfirmed declared-wait rechecks"
+}
+
 test_secondmate_paused_resurfaces_in_normal_mode() {
   local dir state fakebin out capture_file statusf window key pane_hash sig pid back
   dir=$(make_case secondmate-paused-resurface); state="$dir/state"; fakebin="$dir/fakebin"
@@ -2711,6 +2769,7 @@ test_busy_declared_pause_is_rechecked_not_wedge_escalated
 test_nonterminal_stale_not_working_surfaced
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
+test_changed_hash_rearms_preserve_nonsettled_declared_waits
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_captain_held_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed

@@ -751,6 +751,44 @@ surface_nonterminal_stale() {  # <window> <hash>
   wake "stale: $win"
 }
 
+handle_declared_wait_stale() {  # <window> <task> <hash>
+  local win=$1 task=$2 h=$3 key sf ssf ewf class
+  key=$(window_key "$win")
+  sf="$STATE/.stale-$key"
+  ssf="$STATE/.stale-since-$key"
+  ewf="$STATE/.wedge-escalations-$key"
+  class=$(pause_state_class "$win" "$task")
+  case "$class" in
+    paused|live|unconfirmed)
+      handle_paused_stale "$win" "$task" "$h"
+      ;;
+    none)
+      if [ -e "$STATE/.paused-$key" ]; then
+        handle_paused_stale "$win" "$task" "$h"
+      else
+        surface_nonterminal_stale "$win" "$h"
+      fi
+      ;;
+    invalidated)
+      clear_pause_tracking "$key"
+      surface_nonterminal_stale "$win" "$h"
+      ;;
+    working)
+      clear_pause_state "$key"
+      printf '%s' "$h" > "$sf"
+      wedge_timer_check "$win" "$ssf" "non-terminal stale (provably working after a declared pause)" "$ewf" "$task"
+      triage_log "absorbed non-terminal stale (provably working): $win"
+      ;;
+    settled)
+      handle_settled_stale "$win" "$task" "$h"
+      ;;
+    *)
+      clear_pause_tracking "$key"
+      surface_nonterminal_stale "$win" "$h"
+      ;;
+  esac
+}
+
 # Check and heartbeat cadence must survive actionable exits and restarts: the
 # watcher may be relaunched before in-memory counters reach their threshold on a
 # busy fleet. Persist the schedule as file mtimes instead.
@@ -1485,25 +1523,7 @@ EOF
           else
             task=$(window_to_task "$w" "$STATE")
             if [ -e "$pf" ] || status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")"; then
-              case "$(pause_state_class "$w" "$task")" in
-                paused|live|unconfirmed) handle_paused_stale "$w" "$task" "$h" ;;
-                none)
-                  if [ -e "$pf" ]; then
-                    handle_paused_stale "$w" "$task" "$h"
-                  else
-                    surface_nonterminal_stale "$w" "$h"
-                  fi
-                  ;;
-                invalidated)
-                  clear_pause_tracking "$key"
-                  surface_nonterminal_stale "$w" "$h"
-                  ;;
-                working) clear_pause_state "$key"
-                         printf '%s' "$h" > "$sf"
-                         wedge_timer_check "$w" "$ssf" "non-terminal stale (provably working after a declared pause)" "$ewf" "$task"
-                         triage_log "absorbed non-terminal stale (provably working): $w" ;;
-                settled) handle_settled_stale "$w" "$task" "$h" ;;
-              esac
+              handle_declared_wait_stale "$w" "$task" "$h"
             else
               wedge_timer_check "$w" "$ssf" "non-terminal stale" "$ewf" "$task"
             fi
@@ -1541,12 +1561,7 @@ EOF
       fi
       task=$(window_to_task "$w" "$STATE")
       if ! afk_present && status_is_paused_or_captain_held "$(last_status_line "$STATE/$task.status")" && [ "$busy_now" -ne 0 ]; then
-        case "$(pause_state_class "$w" "$task")" in
-          paused)      handle_paused_stale "$w" "$task" "$h" ;;
-          settled)     handle_settled_stale "$w" "$task" "$h" ;;
-          invalidated) clear_pause_tracking "$key"; surface_nonterminal_stale "$w" "$h" ;;
-          *)           clear_pause_tracking "$key" ;;
-        esac
+        handle_declared_wait_stale "$w" "$task" "$h"
       elif [ "$paused_bound" -ne 0 ] && [ -e "$pf" ]; then
         # Same rule as the stable-hash branch: never clear pause bookkeeping the
         # declared-pause cadence recorded on this very poll.
