@@ -623,6 +623,54 @@ test_housekeeping_pause_marker_transitions_to_clear() {
   pass "housekeeping clears tracking when a crew leaves pause"
 }
 
+test_housekeeping_nonsettled_declared_wait_rechecks_only_when_due() {
+  local case_name classification_record dir state fakebin task win pane marker state_read_log
+  for case_name in working failed; do
+    dir=$(make_supercase "declared-wait-due-$case_name")
+    state="$dir/state"; fakebin="$dir/fakebin"
+    task="due-$case_name"; win="sess:fm-$task"; pane="$dir/pane.txt"
+    marker="$state/.subsuper-stale-$(_stale_key "$task")"
+    state_read_log="$dir/state-read.log"
+    fm_write_meta "$state/$task.meta" "window=$win" "worktree=$dir/wt" "kind=ship" "harness=pi" "backend=tmux"
+    printf 'paused: awaiting an external dependency\n' > "$state/$task.status"
+    printf 'idle prompt $\n' > "$pane"
+    date +%s > "$marker"
+    case "$case_name" in
+      working) classification_record='working|run-step' ;;
+      failed) classification_record='failed|run-step' ;;
+    esac
+
+    (
+      # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+      crew_supervision_record() { printf '%s\n' "$1" >> "$state_read_log"; printf '%s' "$classification_record"; }
+      PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+        FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 \
+        FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+      PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+        FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 \
+        FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+    )
+    [ ! -e "$state_read_log" ] || fail "$case_name declared wait was reclassified before its stale deadline"
+    [ -e "$marker" ] || fail "$case_name declared wait lost stale tracking before its deadline"
+    [ ! -s "$state/.subsuper-escalations" ] || fail "$case_name declared wait escalated before its stale deadline"
+
+    printf '%s\n' "$(( $(date +%s) - 500 ))" > "$marker"
+    (
+      # shellcheck disable=SC2329 # Runtime override called indirectly by housekeeping.
+      crew_supervision_record() { printf '%s\n' "$1" >> "$state_read_log"; printf '%s' "$classification_record"; }
+      PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
+        FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_STATE_OVERRIDE="$state" FM_STALE_ESCALATE_SECS=240 \
+        FM_HEARTBEAT_SCAN_SECS=999999 housekeeping "$state"
+    )
+    [ "$(wc -l < "$state_read_log" | tr -d ' ')" = 1 ] \
+      || fail "$case_name declared wait was not reclassified exactly once at its stale deadline"
+    [ ! -e "$marker" ] || fail "$case_name declared wait retained stale tracking after wedge escalation"
+    grep -F 'possible wedge' "$state/.subsuper-escalations" >/dev/null \
+      || fail "$case_name declared wait did not preserve wedge detection"
+  done
+  pass "housekeeping reclassifies nonsettled declared waits only at the stale deadline"
+}
+
 test_housekeeping_persistent_stale_escalates() {
   local dir state fakebin win pane key
   dir=$(make_supercase stale-persistent)
@@ -2063,6 +2111,7 @@ test_handle_wake_terminal_signal_clears_pause_tracking
 test_housekeeping_migrates_watcher_pause_marker
 test_housekeeping_migrates_watcher_unpaused_marker_to_clear
 test_housekeeping_seeds_pause_marker_from_status
+test_housekeeping_nonsettled_declared_wait_rechecks_only_when_due
 test_housekeeping_persistent_stale_escalates
 test_housekeeping_resumed_stale_cleared
 test_housekeeping_paused_resurfaces_and_resets
