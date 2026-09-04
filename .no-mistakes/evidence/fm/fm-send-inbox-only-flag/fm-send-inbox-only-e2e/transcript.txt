@@ -1,0 +1,64 @@
+fm-send --inbox-only end-to-end routing evidence
+base: f55495d203cde74469e0542aaaf86129c0942f6c
+target: eb39ac947dd469e89159a1a685f1995c38880a61
+interface: real bin/fm-send.sh executable with a terminal-boundary recorder
+note: the recorder captures exact bytes offered to tmux while inbox files use the production serializer/parser.
+
+CASE: base-default-slash
+command: fm-send.sh t1 /no-mistakes
+exit: 0
+durable inbox record: none
+terminal input:
+TYPE /no-mistakes
+KEY Enter
+result: PASS - default shape-based typed routing preserved
+
+CASE: base-default-dollar
+command: fm-send.sh t1 \$no-mistakes
+exit: 0
+durable inbox record: none
+terminal input:
+TYPE $no-mistakes
+KEY Enter
+result: PASS - default shape-based typed routing preserved
+
+CASE: target-default-slash
+command: fm-send.sh t1 /no-mistakes
+exit: 0
+durable inbox record: none
+terminal input:
+TYPE /no-mistakes
+KEY Enter
+result: PASS - default shape-based typed routing preserved
+
+CASE: target-default-dollar
+command: fm-send.sh t1 \$no-mistakes
+exit: 0
+durable inbox record: none
+terminal input:
+TYPE $no-mistakes
+KEY Enter
+result: PASS - default shape-based typed routing preserved
+
+CASE: target-inbox-only-slash
+command: fm-send.sh t1 --inbox-only /no-mistakes
+exit: 0
+durable inbox record: /home/rich/.no-mistakes/evidence/01M1PP2SYFBTYFSXG7HENHZW3M/fm-send-inbox-only-e2e/target-inbox-only-slash/home/state/t1.inbox/001.msg
+persisted body: /no-mistakes
+terminal input:
+TYPE Firstmate instruction waiting: list /home/rich/.no-mistakes/evidence/01M1PP2SYFBTYFSXG7HENHZW3M/fm-send-inbox-only-e2e/target-inbox-only-slash/home/state/t1.inbox/*.msg and, in numeric order, read and act on each, then mv each handled file to /home/rich/.no-mistakes/evidence/01M1PP2SYFBTYFSXG7HENHZW3M/fm-send-inbox-only-e2e/target-inbox-only-slash/home/state/t1.inbox/handled/.
+KEY Enter
+result: PASS - exact body persisted, terminal received only the constant inbox doorbell
+
+CASE: target-inbox-only-dollar
+command: fm-send.sh t1 --inbox-only \$no-mistakes
+exit: 0
+durable inbox record: /home/rich/.no-mistakes/evidence/01M1PP2SYFBTYFSXG7HENHZW3M/fm-send-inbox-only-e2e/target-inbox-only-dollar/home/state/t1.inbox/001.msg
+persisted body: $no-mistakes
+terminal input:
+TYPE Firstmate instruction waiting: list /home/rich/.no-mistakes/evidence/01M1PP2SYFBTYFSXG7HENHZW3M/fm-send-inbox-only-e2e/target-inbox-only-dollar/home/state/t1.inbox/*.msg and, in numeric order, read and act on each, then mv each handled file to /home/rich/.no-mistakes/evidence/01M1PP2SYFBTYFSXG7HENHZW3M/fm-send-inbox-only-e2e/target-inbox-only-dollar/home/state/t1.inbox/handled/.
+KEY Enter
+result: PASS - exact body persisted, terminal received only the constant inbox doorbell
+
+OVERALL: PASS
+The base and target defaults both type slash/dollar invocations. The target opt-in stores each body byte-exact in the durable inbox and never types it.
