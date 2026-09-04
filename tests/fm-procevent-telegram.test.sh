@@ -1871,8 +1871,18 @@ assert_contains "$resume_notice" "blocked: migration-blocked" \
 ack_result "$H_RESUME" "$RESUME_ENV" "$resume_notice" >/dev/null \
   || fail "the resume fixture could not acknowledge its blocked-migration notice"
 resume_poll_file="$TMP_ROOT/resolve-parked-resume.out"
+resume_validation_arm="$TMP_ROOT/resolve-parked-resume.validation-arm"
+resume_validation_marker="$TMP_ROOT/resolve-parked-resume.validation-marker"
+resume_validation_release="$TMP_ROOT/resolve-parked-resume.validation-release"
+resume_resolution_marker="$TMP_ROOT/resolve-parked-resume.resolution-marker"
+resume_resolution_release="$TMP_ROOT/resolve-parked-resume.resolution-release"
+resume_resolution_file="$TMP_ROOT/resolve-parked-resume.resolution-out"
 clear_curl_calls
 CURL_STUB_BODY="$FIXTURES/resolution-resume.json" CURL_STUB_HTTP=200 \
+  FM_TELEGRAM_FAILPOINT=validation-after-meta \
+  FM_TELEGRAM_FAILPOINT_ARM="$resume_validation_arm" \
+  FM_TELEGRAM_FAILPOINT_MARKER="$resume_validation_marker" \
+  FM_TELEGRAM_FAILPOINT_RELEASE="$resume_validation_release" \
   FM_TELEGRAM_POLL_TIMEOUT=1 FM_HOME="$H_RESUME" FM_TELEGRAM_ENV_FILE="$RESUME_ENV" \
   "$ADAPTER" poll >"$resume_poll_file" 2>&1 &
 resume_pid=$!
@@ -1881,7 +1891,36 @@ kill -0 "$resume_pid" 2>/dev/null \
   || fail "the acknowledged blocked migration did not park its poll before resolution"
 [ ! -s "$resume_poll_file" ] || fail "a parked blocked migration emitted a result before resolution"
 assert_no_curl "a parked blocked migration called Telegram before resolution"
-run_resolution "$H_RESUME" >/dev/null || fail "the parked home could not be resolved"
+: > "$resume_validation_arm"
+for _ in $(seq 1 500); do
+  [ -e "$resume_validation_marker" ] && break
+  sleep 0.01
+done
+assert_present "$resume_validation_marker" \
+  "the parked poll did not reach its blocked-store validation boundary"
+FM_TELEGRAM_FAILPOINT=resolution-before-commit \
+  FM_TELEGRAM_FAILPOINT_MARKER="$resume_resolution_marker" \
+  FM_TELEGRAM_FAILPOINT_RELEASE="$resume_resolution_release" \
+  FM_HOME="$H_RESUME" "$ADAPTER" resolve-migration \
+  --blocked-fingerprint "$RESOLUTION_FINGERPRINT" \
+  --archive-manifest-sha256 "$RESOLUTION_MANIFEST" \
+  "${RESOLUTION_ARGS[@]}" >"$resume_resolution_file" 2>&1 &
+resume_resolution_pid=$!
+for _ in $(seq 1 500); do
+  [ -e "$resume_resolution_marker" ] && break
+  sleep 0.01
+done
+assert_present "$resume_resolution_marker" \
+  "resolution did not reach its pre-commit boundary"
+: > "$resume_resolution_release"
+for _ in $(seq 1 100); do
+  kill -0 "$resume_resolution_pid" 2>/dev/null || break
+  sleep 0.01
+done
+: > "$resume_validation_release"
+resume_resolution_status=0
+wait "$resume_resolution_pid" || resume_resolution_status=$?
+assert_equal "$resume_resolution_status" 0 "the parked home could not be resolved"
 resume_deadline=$((SECONDS + 30))
 while kill -0 "$resume_pid" 2>/dev/null; do
   if [ "$SECONDS" -ge "$resume_deadline" ]; then
