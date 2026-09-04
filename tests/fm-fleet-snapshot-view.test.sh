@@ -64,6 +64,10 @@ make_home() {  # <name>
   printf '%s\n' "$home"
 }
 
+set_test_mtime() {  # <path> <YYYYMMDDhhmm>
+  touch -t "$2" "$1" || fail "could not set fixture mtime for $1"
+}
+
 record_claude_idle() {  # <state-dir> <id>
   local state=$1 id=$2 gen
   gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
@@ -323,6 +327,43 @@ test_empty_fleet_json() {
   view=$(FM_HOME="$home" "$VIEW")
   assert_contains "$view" "No live task metadata found." "empty fleet view should say no live metadata"
   pass "empty fleet snapshot and view use explicit absence markers"
+}
+
+test_tasks_expose_evidenced_last_changed_at() {
+  local home fakebin out id
+  home=$(make_home per-task-change-times)
+  for id in a-status-new b-meta-new y-status-new z-meta-new; do
+    fm_write_meta "$home/state/$id.meta" \
+      "window=firstmate:fm-$id" \
+      "project=alpha" \
+      "harness=codex" \
+      "kind=ship" \
+      "mode=ship"
+    printf 'working: %s\n' "$id" > "$home/state/$id.status"
+  done
+  # The metadata/status pairs deliberately disagree so the latest available
+  # evidence, rather than one fixed source, determines the ordering.
+  set_test_mtime "$home/state/a-status-new.meta" 202001010000
+  set_test_mtime "$home/state/a-status-new.status" 202001020000
+  set_test_mtime "$home/state/b-meta-new.meta" 202001030000
+  set_test_mtime "$home/state/b-meta-new.status" 202001010000
+  set_test_mtime "$home/state/y-status-new.meta" 202001010000
+  set_test_mtime "$home/state/y-status-new.status" 202001050000
+  set_test_mtime "$home/state/z-meta-new.meta" 202001040000
+  set_test_mtime "$home/state/z-meta-new.status" 202001010000
+  fakebin=$(make_fakebin "$home")
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" \
+    FM_SNAPSHOT_NOW=2026-07-14T00:00:00Z "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    .generated == "2026-07-14T00:00:00Z"
+      and (([.tasks[].last_changed_at] | map(select(. != null)) | length) == 4)
+      and (([.tasks[].last_changed_at] | unique | length) == 4)
+      and ([.tasks[].current_state.observed_at] | unique) == ["2026-07-14T00:00:00Z"]
+      and (([.tasks[] | {id,last_changed_at}]
+        | sort_by(.last_changed_at) | map(.id))
+        == ["a-status-new", "b-meta-new", "z-meta-new", "y-status-new"])
+  ' >/dev/null || fail "task change timestamps did not preserve evidence-based ordering: $out"
+  pass "tasks expose independent change timestamps while freshness stays snapshot-wide"
 }
 
 test_fixture_snapshot_json() {
@@ -977,6 +1018,7 @@ test_large_secondmate_landed_projection_uses_file_transport
 test_signal_terminates_instead_of_emitting_partial_fleet
 test_secondmate_failure_diagnostic_is_specific
 test_empty_fleet_json
+test_tasks_expose_evidenced_last_changed_at
 test_fixture_snapshot_json
 test_main_inventory_orphan_and_unstructured_disclosure
 test_normalized_roles_and_plural_blocker_readiness
