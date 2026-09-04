@@ -74,6 +74,21 @@ fm_nm_run_bounded "$REPO" "$STATUS_TIMEOUT" axi status >"$STATUS_FILE" 2>&1
 STATUS_RC=$?
 set -e
 
+# Preserve the structured response in every refusal. It is the evidence the
+# worker should return to firstmate when no supported transition is offered.
+print_status() {
+  if [ -s "$STATUS_FILE" ]; then
+    cat "$STATUS_FILE"
+  else
+    echo "(no structured status response)"
+  fi
+}
+
+if [ "$STATUS_RC" -ne 0 ]; then
+  print_status
+  die "structured status could not be confirmed (exit $STATUS_RC); rerun no-mistakes axi status and return its branch_sync object to firstmate"
+fi
+
 branch_sync_state() {
   awk '
     /^branch_sync:[[:space:]]*$/ { in_branch=1; next }
@@ -105,21 +120,7 @@ next_action_code() {
 STATE=$(fm_nm_strip_quotes "$(branch_sync_state)")
 ACTION=$(fm_nm_strip_quotes "$(next_action_code)")
 
-# Preserve the structured response in every refusal. It is the evidence the
-# worker should return to firstmate when no supported transition is offered.
-print_status() {
-  if [ -s "$STATUS_FILE" ]; then
-    cat "$STATUS_FILE"
-  else
-    echo "(no structured status response)"
-  fi
-}
-
 if [ "$ACTION" = recover_custody ]; then
-  [ "$STATUS_RC" -eq 0 ] || {
-    print_status
-    die "status returned exit $STATUS_RC even though it offered recover_custody; retry no-mistakes axi status before changing the branch"
-  }
   echo "Applying the guarded no-mistakes custody recovery for $BRANCH."
   no-mistakes axi sync --recover
   exit $?
@@ -131,9 +132,6 @@ if [ "$STATE" = user_owned ]; then
 fi
 
 print_status
-if [ "$STATUS_RC" -ne 0 ]; then
-  die "structured status could not be confirmed (exit $STATUS_RC); rerun no-mistakes axi status and return its branch_sync object to firstmate"
-fi
 if [ -z "$ACTION" ]; then
   die "structured status did not offer a branch_sync.next_action.code; rerun no-mistakes axi status and return its branch_sync object to firstmate"
 fi

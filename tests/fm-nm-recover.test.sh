@@ -150,7 +150,35 @@ EOF
   pass "fm-nm-recover: user-owned terminal state proceeds without synchronization"
 }
 
+test_recovery_rejects_failed_status_with_user_owned_output() {
+  local rec root repo fakebin fixture log out status
+  rec=$(make_case failed-user-owned)
+  IFS='|' read -r root repo fakebin <<EOF
+$rec
+EOF
+  fixture="$root/status.toon"
+  cat > "$fixture" <<'EOF'
+branch_sync:
+  state: user_owned
+  changed: false
+  local:
+    branch: fm/custody-fixture
+    clean: true
+EOF
+  log="$root/calls"
+  out=$(FM_NM_STATUS_RC=23 run_recover "$repo" "$fakebin" "$fixture" "$log")
+  status=$?
+  [ "$status" -ne 0 ] || fail "failed status with user-owned partial output unexpectedly succeeded"
+  assert_contains "$out" "structured status could not be confirmed (exit 23)" \
+    "failed status did not refuse before trusting partial output"
+  grep -qx 'axi status' "$log" || fail "failed user-owned status was not queried"
+  assert_no_grep 'axi sync --recover' "$log" \
+    "failed user-owned status invoked custody recovery"
+  pass "fm-nm-recover: failed status cannot authorize user-owned custody"
+}
+
 test_recover_custody_uses_the_structured_offer
 test_recovery_refuses_without_touching_unlanded_work
 test_recovery_refuses_an_unoffered_action
 test_recovery_accepts_already_user_owned_state
+test_recovery_rejects_failed_status_with_user_owned_output
