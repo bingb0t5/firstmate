@@ -1,0 +1,13 @@
+=== Focused regression: fail-before / pass-after ===================
+Tests: tests/fm-watch-triage.test.sh
+  test_exited_declared_pause_is_bounded_but_live_gate_surfaces
+  test_changed_hash_rearms_preserve_nonsettled_declared_waits
+
+--- run against BASE 0e28dbc (branch tests, pre-fix bin/) ---
+not ok - dead-agent completed lane did not cache its settled classification
+exit=1
+
+--- same two tests against BRANCH cc6fdfb (post-fix bin/) ---
+ok - completed, torn-down post-completion, and parked panes settle while captain-held and live gates stay actionable
+ok - changing hashes preserve failed, live, and unconfirmed declared-wait rechecks
+exit=0

@@ -1,0 +1,346 @@
+===================================================================
+ firstmate - dead-worker declared-pause supervision: BEFORE vs AFTER
+ base   : 0e28dbc  (pre-fix)
+ branch : cc6fdfb  (fm/supervision-rechecks-dead-worker-pause)
+
+ Each 'supervision round' below is a real bin/fm-watch.sh poll against a
+ tmux window, followed by the real bin/fm-wake-drain.sh - i.e. exactly
+ what firstmate is woken with. The pane hash changes every round and the
+ long-cadence throttle is aged past FM_PAUSE_RESURFACE_SECS: this is the
+ incident condition, where every re-arm looked like a fresh stale pane.
+===================================================================
+
+############################################################
+# BEFORE - base 0e28dbc
+# scenario : dead-completed
+# window   : fleet:fm-shipping-lane  (kind=ship, backend=tmux)
+# pane     : foreground command 'zsh'
+# status   : paused: held per captain while an external decision is pending
+# crew     : state: done · source: run-step · run completed
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 501s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 502s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 503s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 504s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 505s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 506s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+RESULT [BEFORE - base 0e28dbc / dead-completed]: 6 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: not armed for this lane
+  triage log:
+
+############################################################
+# AFTER  - branch cc6fdfb
+# scenario : dead-completed
+# window   : fleet:fm-shipping-lane  (kind=ship, backend=tmux)
+# pane     : foreground command 'zsh'
+# status   : paused: held per captain while an external decision is pending
+# crew     : state: done · source: run-step · run completed
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+RESULT [AFTER  - branch cc6fdfb / dead-completed]: 0 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: not armed for this lane
+  triage log:
+    [2026-09-05T05:21:28+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:29+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:30+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:32+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:34+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:36+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+
+############################################################
+# BEFORE - base 0e28dbc
+# scenario : dead-parked
+# window   : fleet:fm-shipping-lane  (kind=ship, backend=tmux)
+# pane     : foreground command 'zsh'
+# status   : paused: waiting on the validation authority gate
+# crew     : state: parked · source: run-step · captain decision pending
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 501s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 502s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 503s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 504s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 505s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 506s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+RESULT [BEFORE - base 0e28dbc / dead-parked]: 6 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: not armed for this lane
+  triage log:
+
+############################################################
+# AFTER  - branch cc6fdfb
+# scenario : dead-parked
+# window   : fleet:fm-shipping-lane  (kind=ship, backend=tmux)
+# pane     : foreground command 'zsh'
+# status   : paused: waiting on the validation authority gate
+# crew     : state: parked · source: run-step · captain decision pending
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+RESULT [AFTER  - branch cc6fdfb / dead-parked]: 0 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: not armed for this lane
+  triage log:
+    [2026-09-05T05:21:44+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:46+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:48+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:49+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:51+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+    [2026-09-05T05:21:53+0700] absorbed stale (settled declared wait after agent exit): fleet:fm-shipping-lane
+
+############################################################
+# BEFORE - base 0e28dbc
+# scenario : live-gate
+# window   : fleet:fm-shipping-lane  (kind=ship, backend=tmux)
+# pane     : foreground command 'claude'
+# status   : paused: waiting on the upstream vendor release
+# crew     : state: paused · source: status-log · waiting on the upstream vendor release
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane
+
+RESULT [BEFORE - base 0e28dbc / live-gate]: 6 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: not armed for this lane
+  triage log:
+
+############################################################
+# AFTER  - branch cc6fdfb
+# scenario : live-gate
+# window   : fleet:fm-shipping-lane  (kind=ship, backend=tmux)
+# pane     : foreground command 'claude'
+# status   : paused: waiting on the upstream vendor release
+# crew     : state: paused · source: status-log · waiting on the upstream vendor release
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 502s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 503s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 504s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 505s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (paused 506s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds)
+
+RESULT [AFTER  - branch cc6fdfb / live-gate]: 6 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: not armed for this lane
+  triage log:
+
+############################################################
+# BEFORE - base 0e28dbc
+# scenario : secondmate-held
+# window   : fleet:fm-shipping-lane  (kind=secondmate, backend=tmux)
+# pane     : foreground command 'zsh'
+# status   : captain-held [key=route]: tracked by held-decision-route
+# crew     : state: unknown · source: none · endpoint liveness deliberately not read
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 500s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 501s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 502s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 503s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 505s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 506s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+RESULT [BEFORE - base 0e28dbc / secondmate-held]: 6 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: not armed for this lane
+  triage log:
+
+############################################################
+# AFTER  - branch cc6fdfb
+# scenario : secondmate-held
+# window   : fleet:fm-shipping-lane  (kind=secondmate, backend=tmux)
+# pane     : foreground command 'zsh'
+# status   : captain-held [key=route]: tracked by held-decision-route
+# crew     : state: unknown · source: none · endpoint liveness deliberately not read
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 501s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 502s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 503s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 504s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 505s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  CAPTAIN WOKEN >> stale: fleet:fm-shipping-lane (captain-held 506s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold)
+
+RESULT [AFTER  - branch cc6fdfb / secondmate-held]: 6 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: not armed for this lane
+  triage log:
+
+############################################################
+# BEFORE - base 0e28dbc
+# scenario : undeclared-stuck
+# window   : fleet:fm-shipping-lane  (kind=ship, backend=tmux)
+# pane     : foreground command 'claude'
+# status   : working: implementing the adapter
+# crew     : state: working · source: run-step · implementing
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+RESULT [BEFORE - base 0e28dbc / undeclared-stuck]: 0 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: ARMED (.stale-since-fleet_fm-shipping-lane present, age 0s)
+  triage log:
+    [2026-09-05T05:22:38+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:22:43+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:22:47+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:22:51+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:22:56+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:23:00+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+
+############################################################
+# AFTER  - branch cc6fdfb
+# scenario : undeclared-stuck
+# window   : fleet:fm-shipping-lane  (kind=ship, backend=tmux)
+# pane     : foreground command 'claude'
+# status   : working: implementing the adapter
+# crew     : state: working · source: run-step · implementing
+############################################################
+
+--- supervision round 1 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 2 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 3 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 4 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 5 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+--- supervision round 6 (pane hash changed, 240s past the long cadence) ---
+  (no actionable wake: watcher absorbed this round)
+
+RESULT [AFTER  - branch cc6fdfb / undeclared-stuck]: 0 actionable stale wake(s) delivered to the captain over 6 rounds
+  wedge detection: ARMED (.stale-since-fleet_fm-shipping-lane present, age 1s)
+  triage log:
+    [2026-09-05T05:24:29+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:24:33+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:24:38+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:24:42+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:24:47+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+    [2026-09-05T05:24:51+0700] absorbed non-terminal stale (provably working): fleet:fm-shipping-lane
+
