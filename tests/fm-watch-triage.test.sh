@@ -1190,9 +1190,6 @@ test_changed_hash_rearms_preserve_nonsettled_declared_waits() {
     window="test:fm-changed-$case_name"
     printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/$case_name.meta"
     printf 'paused: waiting on the upstream release\n' > "$statusf"
-    back=$(( $(date +%s) - 500 ))
-    set_mtime "$back" "$statusf"
-    sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-${case_name}_status"
     key=$(printf '%s' "$window" | tr ':/.' '___')
     printf 'seed hash\n' > "$state/.hash-$key"
     printf '1\n' > "$state/.count-$key"
@@ -1201,16 +1198,23 @@ test_changed_hash_rearms_preserve_nonsettled_declared_waits() {
         command=zsh
         verdict='state: failed · source: run-step · validation failed'
         : > "$state/.paused-$key"
+        back=$(( $(date +%s) - 500 ))
+        set_mtime "$back" "$statusf"
         ;;
       live)
         command=grok
         verdict='state: paused · source: status-log · waiting on an active decision gate'
+        : > "$state/.paused-$key"
+        printf 'settled' > "$state/.paused-rechecked-$key"
+        back=$(( $(date +%s) - 500 ))
+        set_mtime "$back" "$state/.paused-rechecked-$key"
         ;;
       unconfirmed)
         command=sleep
         verdict='state: paused · source: status-log · waiting on a genuine external dependency'
         ;;
     esac
+    sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-${case_name}_status"
     surfaced=0
     round=1
     while [ "$round" -le 3 ]; do
@@ -1236,6 +1240,24 @@ test_changed_hash_rearms_preserve_nonsettled_declared_waits() {
     [ "$surfaced" -eq 1 ] || fail "changing hashes silenced the $case_name declared wait across re-arms"
     grep -F "stale: $window" "$state/.wake-queue" >/dev/null \
       || fail "changing-hash $case_name declared wait did not produce a stale wake"
+    case "$case_name" in
+      live|unconfirmed)
+        ack_stopped_cycle "$state" || fail "could not acknowledge changed-hash $case_name initial surface"
+        : > "$out"
+        printf 'changing pane after initial surface\n' > "$capture_file"
+        PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+          FM_FAKE_TMUX_CURRENT_COMMAND="$command" FM_FAKE_CREW_STATE="$verdict" \
+          FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+          FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+        pid=$!
+        if ! wait_poll_cycle "$state" "$pid"; then
+          reap "$pid"
+          fail "changing-hash $case_name replayed before its bounded cadence: $(cat "$out")"
+        fi
+        [ ! -s "$state/.wake-queue" ] || { reap "$pid"; fail "changing-hash $case_name queued a duplicate initial surface"; }
+        reap "$pid"
+        ;;
+    esac
   done
   pass "changing hashes preserve failed, live, and unconfirmed declared-wait rechecks"
 }

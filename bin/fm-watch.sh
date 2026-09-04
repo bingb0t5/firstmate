@@ -759,8 +759,15 @@ handle_declared_wait_stale() {  # <window> <task> <hash>
   ewf="$STATE/.wedge-escalations-$key"
   class=$(pause_state_class "$win" "$task")
   case "$class" in
-    paused|live|unconfirmed)
+    paused)
       handle_paused_stale "$win" "$task" "$h"
+      ;;
+    live|unconfirmed)
+      if [ -e "$STATE/.paused-resurfaced-$key" ]; then
+        handle_paused_stale "$win" "$task" "$h"
+      else
+        surface_nonterminal_stale "$win" "$h"
+      fi
       ;;
     none)
       if [ -e "$STATE/.paused-$key" ]; then
