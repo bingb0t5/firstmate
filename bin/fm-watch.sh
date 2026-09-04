@@ -404,8 +404,8 @@ secondmate_oldest_queue_row() {  # <queue-path>
 
 # Surface one durable parent check for one unchanged non-parked foreign row after
 # its bounded age. The primary marker and queued-key check make repeated watcher
-# cycles converge without a notification storm, while an empty queue removes
-# only this home's marker so a later row can be observed.
+# cycles converge without a notification storm, while a queue with no eligible
+# row clears only this home's stall bookkeeping so a later row can be observed.
 secondmate_wake_stall_tick() {
   local now=$(( $(date +%s) )) threshold=$SECONDMATE_WAKE_STALL_SECS
   local meta task kind remote_host home queue row epoch seq row_key marker receipt receipt_dir notify_key queued age reason
