@@ -111,7 +111,9 @@ fi
 # The re-surface cadence for a known-but-unresolved obligation is the fleet's,
 # not this scan's: an unanswered decision is re-queued on the same interval
 # bin/fm-watch.sh's resurface_absorbed uses, so a decision waiting on an absent
-# human does not re-wake firstmate once per scan.
+# human does not re-wake firstmate once per scan. Like resurface_absorbed, the
+# FIRST re-surface also waits out that interval whenever the per-wake path
+# already surfaced the fact; a fact it never surfaced is queued immediately.
 PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
 
 FM_INACTIVE_RECONCILE_BUDGET_SECS=${FM_INACTIVE_RECONCILE_BUDGET_SECS:-10}
@@ -529,7 +531,14 @@ active_management_locked() { # <id> <meta> <timeout>
   if [ -n "$decision_rows" ]; then
     decision_key=$(printf '%s\n' "$decision_rows" | awk -F '\t' 'NR == 1 { print $1 }')
     alert_fingerprint="decision|$decision_signature"
-    if active_alert_due "$ACTIVE_RECORD_ALERT_FINGERPRINT" "$ACTIVE_RECORD_ALERT_EPOCH" \
+    if [ "$ACTIVE_RECORD_ALERT_FINGERPRINT" != "$alert_fingerprint" ] \
+      && status_surfaced_matches "$STATE" "$id" "$last_line"; then
+      # The per-wake path already showed the captain this exact line, so this
+      # first observation only starts the re-surface clock. An obligation the
+      # per-wake path never surfaced has no matching marker and is queued below
+      # on this same scan.
+      last_alert=$now
+    elif active_alert_due "$ACTIVE_RECORD_ALERT_FINGERPRINT" "$ACTIVE_RECORD_ALERT_EPOCH" \
       "$alert_fingerprint" "$now" "$PAUSE_RESURFACE_SECS"; then
       # A signal payload is word-split AND pathname-expanded by both away-mode
       # consumers, so it carries only the status path and the validated decision
@@ -709,9 +718,11 @@ scan() {
   # A cold cursor anchors a fresh sweep, which keeps the established rotation:
   # this sweep runs from just after it and then wraps back over the rest.
   [ "$resuming" -eq 1 ] || SCAN_ORIGIN=$cursor
-  # A position before the origin can only have been written by the wrap segment,
-  # so the segment before it is already covered.
-  if [ -n "$SCAN_ORIGIN" ] && [ -n "$cursor" ] && [[ "$SCAN_ORIGIN" > "$cursor" ]]; then
+  # On a resume the after segment can only ever have written a position strictly
+  # after the origin, so a position at or before it means that segment is done
+  # and only the wrap is outstanding. A fresh sweep starts its cursor AT the
+  # origin, which is why this reads the resume flag rather than the order alone.
+  if [ "$resuming" -eq 1 ] && [ -n "$SCAN_ORIGIN" ] && ! [[ "$cursor" > "$SCAN_ORIGIN" ]]; then
     wrapping=1
   fi
   write_scan_marker "$cursor" || return 1

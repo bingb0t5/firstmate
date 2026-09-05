@@ -557,6 +557,42 @@ SH
   pass "a truncated cold-cursor sweep still wraps back over its earlier children"
 }
 
+# A wrap segment truncated on its own upper bound has nothing left to visit, so
+# the sweep must terminate and re-arm the cadence rather than restart itself.
+test_wrap_truncated_at_the_origin_completes_the_sweep() {
+  local reads
+  make_world wrap-at-origin
+  write_child "$MAIN" a 'done: green'
+  write_child "$MAIN" b 'working: state read will stall'
+  write_child "$MAIN" c 'done: green'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+[ "$1" != b ] || sleep 30
+printf 'state: done · source: fake\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  : > "$WORLD/state-reads"
+  # A cold cursor at b anchors the sweep: the after segment covers c, then the
+  # wrap runs a and truncates on b, which is the wrap's own upper bound.
+  printf 'epoch=1\ncursor=b\n' > "$MAIN/state/.inactive-outcome-reconcile"
+  set_mtime "$(( $(date +%s) - 600 ))" "$MAIN/state/.inactive-outcome-reconcile"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=2 run_reconcile "$MAIN"
+  grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
+    || fail "the sweep never reached its wrap segment: $(cat "$MAIN/state/.wake-queue" 2>/dev/null)"
+  [ "$(sed -n 's/^cursor=//p' "$MAIN/state/.inactive-outcome-reconcile")" = b ] \
+    || fail "the wrap did not truncate on the origin child"
+
+  FM_STATE_READ_LOG="$WORLD/state-reads" run_reconcile "$MAIN"
+  [ -z "$(sed -n 's/^cursor=//p' "$MAIN/state/.inactive-outcome-reconcile")" ] \
+    || fail "the sweep restarted instead of completing at its origin"
+  reads=$(wc -l < "$WORLD/state-reads")
+  FM_STATE_READ_LOG="$WORLD/state-reads" run_reconcile "$MAIN"
+  [ "$(wc -l < "$WORLD/state-reads")" = "$reads" ] \
+    || fail "the cadence gate never re-armed: $(cat "$WORLD/state-reads")"
+  pass "a wrap truncated on its origin completes the sweep and re-arms the cadence"
+}
+
 # `--help` renders this script's own contract block; a truncated render is the
 # defect, and it shows up as output that stops mid-sentence.
 test_help_renders_the_whole_contract_block() {
@@ -672,6 +708,40 @@ SH
     | grep -Fxq 'orca:child-endpoint' \
     || fail "due-work stale row was not keyed by the backend target: $(cat "$MAIN/state/.wake-queue")"
   pass "due-work intervention keys by backend target and never duplicates a queued row"
+}
+
+# A decision the per-wake path already surfaced is a handled fact: the due-work
+# scan starts its re-surface clock instead of waking the captain again, while a
+# decision no wake path ever surfaced is queued on the first scan that sees it.
+test_already_surfaced_decision_is_not_re_alerted_immediately() {
+  local now
+  local FM_PAUSE_RESURFACE_SECS=120
+  make_world surfaced-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3"' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" \
+    "$MAIN/state/child.status" || fail "could not record the per-wake surfaced marker"
+  [ -s "$MAIN/state/.hb-surfaced-child" ] || fail "the surfaced marker was not written"
+
+  : > "$MAIN/state/.wake-queue"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "an already-surfaced decision was immediately re-alerted: $(cat "$MAIN/state/.wake-queue")"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 119)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "the re-surface clock did not hold for its interval"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 120)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "an unresolved decision was suppressed past its re-surface interval"
+
+  # A decision no wake path surfaced has no marker and must not wait.
+  make_world unsurfaced-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "a never-surfaced decision was delayed by the re-surface clock"
+  pass "an already-surfaced decision starts the re-surface clock instead of re-waking"
 }
 
 # The durable state/active-management/<task> record, not the live queue, is what
@@ -843,10 +913,12 @@ test_provably_working_evidence_is_not_overdue
 test_unreadable_current_state_is_absorbed
 test_terminal_verdict_is_not_surfaced_as_missing_progress
 test_cold_cursor_sweep_still_wraps_after_a_truncation
+test_wrap_truncated_at_the_origin_completes_the_sweep
 test_help_renders_the_whole_contract_block
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
 test_alert_clock_survives_drain_acknowledgement
+test_already_surfaced_decision_is_not_re_alerted_immediately
 test_budget_truncated_sweep_resumes_on_the_next_poll
 test_decision_wake_is_actionable_to_the_away_classifier
 test_secondmate_active_evidence_reaches_its_owning_actor

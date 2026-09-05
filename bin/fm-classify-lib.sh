@@ -1435,6 +1435,21 @@ stale_is_terminal() {  # <window> <state>
 # catch-all backstop for a captain-relevant status the per-wake path might miss.
 # No dedup is applied here: each consumer dedupes against its own seen-state (the
 # daemon against .subsuper-seen-status-*, the watcher against .seen-* signatures).
+# The state-relative file recording the last captain-relevant status line that
+# was surfaced to firstmate for <task>. Written by bin/fm-push-transition-lib.sh's
+# mark_surfaced on every wake path that enqueues one, and read by the heartbeat
+# backstop and the due-work scan to tell an already-handled fact from one the
+# per-wake path never surfaced. Lives here because that judgement belongs with
+# status_is_captain_relevant, which decides what is worth marking.
+_hb_surfaced_path() {  # <state> <task>
+  printf '%s/.hb-surfaced-%s' "$1" "$(printf '%s' "$2" | tr ':/.' '___')"
+}
+
+# 0 when <status-line> is exactly what was last surfaced to firstmate for <task>.
+status_surfaced_matches() {  # <state> <task> <status-line>
+  [ "$(cat "$(_hb_surfaced_path "$1" "$2")" 2>/dev/null || true)" = "$3" ]
+}
+
 scan_captain_relevant_statuses() {  # <state>
   local state=$1 f last task
   for f in "$state"/*.status; do
