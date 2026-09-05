@@ -168,7 +168,7 @@ The helper sets `FM_ASTRA_REQUEST_ID`, `FM_ASTRA_SESSION_DIR`, `FM_ASTRA_DESKTOP
 
 The helper returns a JSON envelope containing the request identifier, observable `duration_ms`, and the adapter response.
 
-Adapter diagnostics stay on standard error and are not copied into the result. When a call fails, the adapter's captured standard error is written through to the operator's standard error so a failing guest adapter is debuggable; on a successful call it is replaced by a one-line note. Diagnostics are free text and are not redacted, so an adapter must not print credential values.
+Adapter diagnostics stay on standard error and are not copied into the result. When a call fails, the adapter's captured standard error is written through to the operator's standard error so a failing guest adapter is debuggable; on a successful call it is replaced by a one-line note. Diagnostics are free text and are not redacted, so an adapter must not print credential values. Bytes on that stream that are not valid UTF-8 are replaced rather than failing the call, so a native tool writing a locale-encoded warning can never discard a completed action's result.
 
 A response key that names a credential is returned as `[redacted]` and listed under the envelope's `redacted` field, so a completed desktop action still reports its result and `duration_ms` while no credential value is ever printed.
 

@@ -106,6 +106,9 @@ elif action == "detach":
 elif action == "undecodable":
     os.write(1, b'{"ok": true, "value": "Xin ch\xe0o"}\n')
     sys.exit(0)
+elif action == "diagnostic_bytes":
+    os.write(2, b"noise \xff diagnostic\n")
+    result = {"ok": True, "diagnostic_bytes": True}
 elif action == "noisy":
     print("adapter-diagnostic-detail", file=sys.stderr)
     sys.exit(3)
@@ -357,6 +360,13 @@ test_serialized_fixture_calls() {
   assert_contains "$output" '"client.session_token"' "the redacted list addresses the envelope by dotted path"
   assert_contains "$output" '"client.credentials"' "a redacted object is named by the same dotted path"
   assert_not_contains "$output" 'client.secrets_found' "an unredacted field is not reported as redacted"
+
+  write_request "$request" diagnostic_bytes
+  status=0
+  output=$(run_fixture "$manifest" "$state" "$client" "$request" 2>&1) || status=$?
+  expect_code 0 "$status" "a non-UTF-8 diagnostic byte does not fail a completed call"
+  assert_contains "$output" '"diagnostic_bytes": true' "the completed action still returns its result"
+  assert_contains "$output" '"duration_ms"' "the completed action still reports its observable timing"
 
   write_request "$request" noisy
   status=0

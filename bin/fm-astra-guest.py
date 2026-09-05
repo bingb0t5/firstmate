@@ -328,7 +328,7 @@ def report_diagnostics(stderr: str) -> None:
         print(stderr.rstrip("\n"), file=sys.stderr)
 
 
-def kill_process_group(process: subprocess.Popen[str]) -> None:
+def kill_process_group(process: subprocess.Popen[bytes]) -> None:
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
@@ -379,8 +379,6 @@ def command_run(args: argparse.Namespace) -> int:
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    text=True,
-                    encoding="utf-8",
                     env=env,
                     start_new_session=True,
                 )
@@ -388,8 +386,9 @@ def command_run(args: argparse.Namespace) -> int:
                 return die(f"client adapter failed to start: {exc}", EXIT_CLIENT)
             try:
                 try:
-                    stdout, stderr = process.communicate(
-                        json.dumps(payload, ensure_ascii=False) + "\n", timeout=args.timeout
+                    stdout_bytes, stderr_bytes = process.communicate(
+                        json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n",
+                        timeout=args.timeout,
                     )
                 except BaseException:
                     kill_process_group(process)
@@ -399,9 +398,11 @@ def command_run(args: argparse.Namespace) -> int:
             except subprocess.TimeoutExpired:
                 return die("client timed out; desktop input lock released", EXIT_CLIENT)
             duration_ms = int((time.monotonic() - started) * 1000)
+            stderr = stderr_bytes.decode("utf-8", "replace")
             if process.returncode != 0:
                 report_diagnostics(stderr)
                 return die(f"client adapter exited {process.returncode}", EXIT_CLIENT)
+            stdout = stdout_bytes.decode("utf-8")
             lines = [line for line in stdout.splitlines() if line.strip()]
             if not lines:
                 report_diagnostics(stderr)
