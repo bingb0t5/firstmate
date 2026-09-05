@@ -34,7 +34,8 @@
     "docs/zellij-backend.md",
     "docs/orca-backend.md",
     "docs/cmux-backend.md",
-    "docs/remote-secondmates.md"
+    "docs/remote-secondmates.md",
+    "docs/astra-desktop-vm.md"
   ],
   "requiredOwnerPointers": [
     {
@@ -257,6 +258,10 @@
     },
     {
       "path": "docs/codex-app-backend.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "docs/astra-desktop-vm.md",
       "audience": "operator-current"
     },
     {
