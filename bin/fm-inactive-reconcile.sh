@@ -14,10 +14,13 @@
 # reconciliation, so there is one due-work detector rather than two schedulers.
 # Each scan uses an aggregate FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default
 # 10, valid 1..30) and resumes after its last visited child on the next scan.
-# A sweep the budget truncated leaves its resume cursor recorded, and the cadence
-# gate measures time since the last COMPLETED sweep, so the next poll continues a
-# truncated sweep immediately instead of waiting out another interval. The bound
-# is therefore per child rather than per scan.
+# A sweep the budget truncated leaves its resume cursor recorded, so the next
+# poll continues it immediately instead of waiting out another interval and the
+# bound is per child rather than per scan. A resumed sweep skips the wrap pass,
+# because the children before its cursor are the ones it already visited; only a
+# cold cursor - one older than the cadence window, left behind by a dead watcher
+# - still wraps. A sweep that reaches the end clears the cursor, which is what
+# re-arms the cadence gate.
 # The scan enforces that budget itself through a whole-second deadline, and the
 # first due child of every scan is always visited with at least a one-second
 # state-read bound: whole-second arithmetic can otherwise round a small budget
@@ -28,8 +31,13 @@
 # deadline path is not racing its own backstop.
 #
 # Active management considers only direct ordinary crewmates with an open
-# working phase in their append-only status log. It ignores chatter, turn-ended
-# liveness, declared external waits, and captain-held transfers. When the same
+# working phase in their append-only status log. Chatter, turn-ended liveness,
+# declared external waits, and captain-held transfers are not meaningful
+# progress and never reset the due clock once a working signature has been
+# observed; status lines carry no timestamps, so the clock is anchored to the
+# status file's mtime at the first scan that observes each new working
+# signature, and chatter written before that first observation moves the anchor
+# with it - conservatively, by at most one interval. When the same
 # meaningful working evidence remains overdue, it performs one bounded
 # fm-crew-state.sh read and queues a task-local stale wake for targeted
 # intervention. Unresolved needs-decision/blocked events are folded separately
@@ -98,6 +106,12 @@ if [ "$FM_INACTIVE_RECONCILE_SECS" -lt 60 ] || [ "$FM_INACTIVE_RECONCILE_SECS" -
   printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 1800\n' >&2
   exit 2
 fi
+# The re-surface cadence for a known-but-unresolved obligation is the fleet's,
+# not this scan's: an unanswered decision is re-queued on the same interval
+# bin/fm-watch.sh's resurface_absorbed uses, so a decision waiting on an absent
+# human does not re-wake firstmate once per scan.
+PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
+
 FM_INACTIVE_RECONCILE_BUDGET_SECS=${FM_INACTIVE_RECONCILE_BUDGET_SECS:-10}
 case "$FM_INACTIVE_RECONCILE_BUDGET_SECS" in
   ''|*[!0-9]*|0)
@@ -356,8 +370,29 @@ active_record_path() { # <task>
   printf '%s/%s\n' "$ACTIVE_DIR" "$1"
 }
 
-active_record_value() { # <record> <key>
-  record_value "$1" "$2"
+ACTIVE_RECORD_SIGNATURE=
+ACTIVE_RECORD_PROGRESS_EPOCH=
+ACTIVE_RECORD_DECISION_SIGNATURE=
+ACTIVE_RECORD_ALERT_FINGERPRINT=
+ACTIVE_RECORD_ALERT_EPOCH=
+
+active_record_read() { # <record>
+  local record=$1 line
+  ACTIVE_RECORD_SIGNATURE=
+  ACTIVE_RECORD_PROGRESS_EPOCH=
+  ACTIVE_RECORD_DECISION_SIGNATURE=
+  ACTIVE_RECORD_ALERT_FINGERPRINT=
+  ACTIVE_RECORD_ALERT_EPOCH=
+  [ -f "$record" ] && [ ! -L "$record" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      signature=*) ACTIVE_RECORD_SIGNATURE=${line#signature=} ;;
+      progress_epoch=*) ACTIVE_RECORD_PROGRESS_EPOCH=${line#progress_epoch=} ;;
+      decision_signature=*) ACTIVE_RECORD_DECISION_SIGNATURE=${line#decision_signature=} ;;
+      alert_fingerprint=*) ACTIVE_RECORD_ALERT_FINGERPRINT=${line#alert_fingerprint=} ;;
+      alert_epoch=*) ACTIVE_RECORD_ALERT_EPOCH=${line#alert_epoch=} ;;
+    esac
+  done < "$record"
 }
 
 active_record_write() { # <task> <signature> <progress-epoch> <decision-signature> <alert-fingerprint> <alert-epoch>
@@ -405,14 +440,12 @@ active_current_state() { # <id> <timeout>
   return 1
 }
 
-active_alert_due() { # <record> <fingerprint> <now>
-  local record=$1 fingerprint=$2 now=$3 previous previous_epoch
-  previous=$(active_record_value "$record" alert_fingerprint)
-  previous_epoch=$(active_record_value "$record" alert_epoch)
+active_alert_due() { # <previous-fingerprint> <previous-epoch> <fingerprint> <now> <interval>
+  local previous=$1 previous_epoch=$2 fingerprint=$3 now=$4 interval=$5
   [ "$previous" != "$fingerprint" ] && return 0
   case "$previous_epoch" in ''|*[!0-9]*) return 0 ;; esac
   [ "$now" -ge "$previous_epoch" ] || return 1
-  [ $((now - previous_epoch)) -ge "$FM_INACTIVE_RECONCILE_SECS" ]
+  [ $((now - previous_epoch)) -ge "$interval" ]
 }
 
 active_queue_once() { # <kind> <key> <payload>
@@ -463,8 +496,9 @@ active_management_locked() { # <id> <meta> <timeout>
   progress_signature=$(active_progress_signature "$status")
   [ -n "$progress_signature" ] || [ -n "$decision_rows" ] || return 0
   record=$(active_record_path "$id")
-  old_signature=$(active_record_value "$record" signature)
-  progress_epoch=$(active_record_value "$record" progress_epoch)
+  active_record_read "$record"
+  old_signature=$ACTIVE_RECORD_SIGNATURE
+  progress_epoch=$ACTIVE_RECORD_PROGRESS_EPOCH
   now=$(reconcile_now)
   if [ "$old_signature" != "$progress_signature" ] || \
      { [ -n "$progress_signature" ] && { [ -z "$progress_epoch" ] || \
@@ -476,12 +510,13 @@ active_management_locked() { # <id> <meta> <timeout>
   if [ -n "$decision_rows" ]; then
     decision_signature=$(sha256_text "$decision_rows")
   fi
-  alert_fingerprint=$(active_record_value "$record" alert_fingerprint)
-  last_alert=$(active_record_value "$record" alert_epoch)
+  alert_fingerprint=$ACTIVE_RECORD_ALERT_FINGERPRINT
+  last_alert=$ACTIVE_RECORD_ALERT_EPOCH
   if [ -n "$decision_rows" ]; then
     decision_key=$(printf '%s\n' "$decision_rows" | awk -F '\t' 'NR == 1 { print $1 }')
     alert_fingerprint="decision|$decision_signature"
-    if active_alert_due "$record" "$alert_fingerprint" "$now"; then
+    if active_alert_due "$ACTIVE_RECORD_ALERT_FINGERPRINT" "$ACTIVE_RECORD_ALERT_EPOCH" \
+      "$alert_fingerprint" "$now" "$PAUSE_RESURFACE_SECS"; then
       # A signal payload is word-split AND pathname-expanded by both away-mode
       # consumers, so it carries only the status path and the validated decision
       # slug. The decision's free-text note reaches the captain through
@@ -519,7 +554,8 @@ active_management_locked() { # <id> <meta> <timeout>
       last_target=$(fm_backend_target_of_meta "$meta")
       [ -n "$last_target" ] || last_target=$id
       alert_fingerprint="progress|$progress_signature|$progress_epoch"
-      if active_alert_due "$record" "$alert_fingerprint" "$now"; then
+      if active_alert_due "$ACTIVE_RECORD_ALERT_FINGERPRINT" "$ACTIVE_RECORD_ALERT_EPOCH" \
+        "$alert_fingerprint" "$now" "$FM_INACTIVE_RECONCILE_SECS"; then
         payload="stale: $last_target (active work has no meaningful progress for ${age}s)"
         active_queue_once stale "$last_target" "$payload" || result=$?
         if [ "$result" -eq 0 ]; then last_alert=$now; fi
@@ -527,8 +563,14 @@ active_management_locked() { # <id> <meta> <timeout>
       fi
     fi
   fi
-  active_record_write "$id" "$progress_signature" "$progress_epoch" "$decision_signature" \
-    "$alert_fingerprint" "$last_alert" || return 1
+  if [ "$progress_signature" != "$ACTIVE_RECORD_SIGNATURE" ] \
+    || [ "$progress_epoch" != "$ACTIVE_RECORD_PROGRESS_EPOCH" ] \
+    || [ "$decision_signature" != "$ACTIVE_RECORD_DECISION_SIGNATURE" ] \
+    || [ "$alert_fingerprint" != "$ACTIVE_RECORD_ALERT_FINGERPRINT" ] \
+    || [ "$last_alert" != "$ACTIVE_RECORD_ALERT_EPOCH" ]; then
+    active_record_write "$id" "$progress_signature" "$progress_epoch" "$decision_signature" \
+      "$alert_fingerprint" "$last_alert" || return 1
+  fi
   [ "$result" -ne 2 ]
 }
 
@@ -548,7 +590,10 @@ reconcile_direct_child_locked() { # <id> <meta> <secondmate-id-or-empty> <timeou
       "$CREW_STATE_BIN" "$id" 2>/dev/null) || state_rc=$?
     [ "$state_rc" -ne 124 ] || return 3
     [ -n "$state_line" ] || state_line='state: unknown · source: unavailable'
-    ACTIVE_STATE_LINE=$state_line
+    case "$state_line" in
+      state:*"source: "*) ACTIVE_STATE_LINE=$state_line ;;
+      *) ACTIVE_STATE_LINE='state: unknown · source: unavailable' ;;
+    esac
   fi
   # A single child's wake-queue or record write failure is tolerated exactly as
   # the terminal-outcome paths below tolerate theirs: the scan keeps visiting
@@ -632,13 +677,17 @@ scan_pass() { # <cursor> <after|through> <deadline> <secondmate-id-or-empty>
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0
+  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age resuming=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
   cursor=$(scan_marker_cursor)
   valid_id "$cursor" || cursor=''
-  if [ "$startup" != 1 ] && [ -z "$cursor" ] \
-    && [ "$(scan_marker_age)" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
+  marker_age=$(scan_marker_age)
+  if [ -n "$cursor" ] && [ "$marker_age" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
+    resuming=1
+  fi
+  if [ "$startup" != 1 ] && [ "$resuming" -eq 0 ] \
+    && [ "$marker_age" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
     return 0
   fi
   write_scan_marker "$cursor" || return 1
@@ -655,7 +704,7 @@ scan() {
   deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
   SCAN_FIRST_VISIT_PENDING=1
   scan_pass "$cursor" after "$deadline" "$self" || rc=$?
-  if [ "$rc" -eq 0 ] && [ -n "$cursor" ]; then
+  if [ "$rc" -eq 0 ] && [ -n "$cursor" ] && [ "$resuming" -eq 0 ]; then
     scan_pass "$cursor" through "$deadline" "$self" || rc=$?
   fi
   if [ "$rc" -eq 0 ]; then

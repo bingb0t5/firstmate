@@ -102,6 +102,7 @@ run_reconcile() { # <home> [--startup]
   PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
     FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$crew_state_bin" \
+    FM_PAUSE_RESURFACE_SECS="${FM_PAUSE_RESURFACE_SECS:-3600}" \
     FM_FORGE_LOG="$WORLD/forge.log" "$RECON" scan ${option:+"$option"}
 }
 
@@ -476,28 +477,55 @@ SH
 # line is exactly what makes its verdict inconclusive, so a stubbed verdict here
 # would assert a pairing the production reader never emits for this log.
 test_overdue_active_work_ignores_chatter() {
-  local now
+  local t0
   make_world overdue-chatter
   write_child "$MAIN" child 'working: implementation is under way'
   mkdir -p "$MAIN/projects/child"
-  touch "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<SH
 #!/usr/bin/env bash
 printf '%s\\n' "\$1" >> "\${FM_STATE_READ_LOG:?}"
 exec "$ROOT/bin/fm-crew-state.sh" "\$@"
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
-  now=$(date +%s)
-  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW="$now" \
+  # The working line lands at T0; the first scan observes it well inside the
+  # threshold, so the due clock is anchored at T0 and nothing is due yet.
+  t0=$(( $(date +%s) - 100 ))
+  set_mtime "$t0" "$MAIN/state/child.meta"
+  set_mtime "$t0" "$MAIN/state/child.status"
+  set_mtime "$t0" "$MAIN/state/child.turn-ended"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW=$((t0 + 10)) \
     FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "work inside the threshold was surfaced early"
+  # Chatter at T0+55 is the only later write. A clock that reset on it would see
+  # 15s at the next scan; a clock anchored to the working line sees 70s.
   printf 'note: routine check-in chatter\n' >> "$MAIN/state/child.status"
-  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW=$((now + 60)) \
+  set_mtime $((t0 + 55)) "$MAIN/state/child.status"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW=$((t0 + 70)) \
     FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   grep -Fq 'active work has no meaningful progress' "$MAIN/state/.wake-queue" \
     || fail "chatter reset the meaningful-progress due clock"
   [ "$(grep -c 'child$' "$WORLD/state-reads" 2>/dev/null || true)" = 1 ] \
     || fail "overdue intervention performed more than one bounded current-state read: $(cat "$WORLD/state-reads" 2>/dev/null || true)"
   pass "overdue active work surfaces through a targeted wake despite chatter"
+}
+
+# A garbled or failed current-state verdict is not evidence either way, so it
+# must be absorbed rather than parsed into a state/source pair and surfaced.
+test_unreadable_current_state_is_absorbed() {
+  make_world garbled-state
+  write_child "$MAIN" child 'working: implementation is under way'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'error: worktree probe failed\n'
+exit 1
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] \
+    || fail "a garbled current-state verdict was surfaced as a wedge: $(cat "$MAIN/state/.wake-queue")"
+  [ "$(outcome_count "$MAIN" pending)" = 0 ] \
+    || fail "a garbled current-state verdict produced a terminal outcome"
+  pass "an unreadable current-state verdict is absorbed instead of parsed"
 }
 
 # A live attributed run or a busy pane is the evidence crew_absorb_class calls
@@ -589,6 +617,7 @@ SH
 # restarted - and it must not suppress the obligation past its re-alert interval.
 test_alert_clock_survives_drain_acknowledgement() {
   local now err seq generation
+  local FM_PAUSE_RESURFACE_SECS=120
   make_world alert-clock
   write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
   now=$(date +%s)
@@ -602,33 +631,48 @@ test_alert_clock_survives_drain_acknowledgement() {
   FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation"
   [ "$(wake_count "$MAIN" 'child.status')" = 0 ] || fail "acknowledgement did not consume the routed row"
 
-  FM_INACTIVE_RECONCILE_NOW=$((now + 59)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  FM_INACTIVE_RECONCILE_NOW=$((now + 60)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "an answered-once decision re-alerted on the scan cadence instead of the re-surface cadence"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 119)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
     || fail "the durable alert clock did not survive acknowledgement and restart"
-  FM_INACTIVE_RECONCILE_NOW=$((now + 60)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  FM_INACTIVE_RECONCILE_NOW=$((now + 120)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
-    || fail "an unresolved obligation stayed suppressed past its re-alert interval"
-  pass "the alert clock survives acknowledgement without suppressing the obligation"
+    || fail "an unresolved obligation stayed suppressed past its re-surface interval"
+  pass "the decision alert clock survives acknowledgement and re-surfaces on the fleet cadence"
 }
 
 # A sweep the aggregate budget truncated resumes on the next ordinary poll
 # instead of waiting out another full interval, so the bound is per child.
 test_budget_truncated_sweep_resumes_on_the_next_poll() {
+  local reads
   make_world truncated-sweep
   write_child "$MAIN" a 'working: state read will stall'
   write_child "$MAIN" b 'done: green'
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
 if [ "$1" = a ]; then sleep 30; else printf 'state: done · source: fake\n'; fi
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+  : > "$WORLD/state-reads"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=1 \
+    run_reconcile "$MAIN" --startup
   ! grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" 2>/dev/null \
     || fail "the truncated sweep already reached the later child"
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=1 \
+    run_reconcile "$MAIN"
   grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
     || fail "a cadence-gated poll refused to resume the truncated sweep"
-  pass "a budget-truncated sweep resumes on the next poll instead of the next interval"
+  # The completed sweep clears the cursor, so the cadence gate re-arms and the
+  # next poll must not re-probe anything.
+  reads=$(wc -l < "$WORLD/state-reads")
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=1 \
+    run_reconcile "$MAIN"
+  [ "$(wc -l < "$WORLD/state-reads")" = "$reads" ] \
+    || fail "the resumed sweep never completed, so every poll re-enters the scan: $(cat "$WORLD/state-reads")"
+  pass "a truncated sweep resumes on the next poll and re-arms the cadence once complete"
 }
 
 # status_line_verb ignores leading whitespace when it folds an event, so the
@@ -734,6 +778,7 @@ test_notice_recovery_does_not_duplicate_wake
 test_quiet_active_scan_does_not_read_current_state
 test_overdue_active_work_ignores_chatter
 test_provably_working_evidence_is_not_overdue
+test_unreadable_current_state_is_absorbed
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
 test_alert_clock_survives_drain_acknowledgement
