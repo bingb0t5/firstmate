@@ -423,7 +423,7 @@ EOF
   pass "Pi actionable close starts one successor before wake delivery settles"
 }
 
-test_pi_mixed_wake_routes_branch_and_main() {
+test_pi_check_trigger_keeps_mixed_queue_on_main() {
   local repo home plugin log stop out status
   repo="$TMP_ROOT/pi-branch-offer-root"
   home="$TMP_ROOT/pi-branch-offer-home"
@@ -454,9 +454,9 @@ SH
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-// Two independent runs against the SAME dispatcher build: with an accepting
-// branch listener the task rows go to the branch while the triggering check
-// stays on main; with no acceptor the whole queue stays on main.
+// Two independent runs against the same dispatcher build prove that a
+// check-triggered mixed queue stays wholly main-owned even when a branch
+// listener is present and willing to accept eligible offers.
 async function runScenario(withAcceptor) {
   writeFileSync(process.env.FM_ARM_LOG, "");
   const offers = [];
@@ -474,8 +474,8 @@ async function runScenario(withAcceptor) {
   };
   if (withAcceptor) {
     bus.on("fm-branch-supervision:dispatch", (offer) => {
-      offers.push({ message: offer.message, projects: offer.projects, mainAlso: offer.mainAlso });
-      offer.accept();
+      offers.push({ message: offer.message, projects: offer.projects, eligible: offer.eligible });
+      if (offer.eligible) offer.accept();
     });
   }
   const pi = {
@@ -493,7 +493,7 @@ async function runScenario(withAcceptor) {
   mod.default(pi);
   await tool.execute("tool-call-branch-offer", {}, undefined, undefined, {});
   for (let i = 0; i < 250; i += 1) {
-    const settled = withAcceptor ? offers.length > 0 && mainPrompt !== "" : mainPrompt !== "";
+    const settled = mainPrompt !== "";
     if (settled) break;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -514,15 +514,15 @@ writeFileSync(
 );
 const accepted = await runScenario(true);
 if (accepted.offers.length !== 1) throw new Error(`expected one branch offer, got ${accepted.offers.length}`);
-if (!accepted.offers[0].message.includes("signal: branch-offer synthetic wake")) {
-  throw new Error(`offer missed the wake reason: ${accepted.offers[0].message}`);
+if (!accepted.offers[0].message.includes("check: inactive-outcome")) {
+  throw new Error(`offer missed the main-owned wake reason: ${accepted.offers[0].message}`);
 }
 if (JSON.stringify(accepted.offers[0].projects) !== JSON.stringify(["/projects/approved"])) {
   throw new Error(`offer did not carry the queued task project: ${JSON.stringify(accepted.offers[0].projects)}`);
 }
-if (accepted.offers[0].mainAlso !== true) throw new Error("mixed offer did not preserve main ownership");
+if (accepted.offers[0].eligible !== false) throw new Error("check-triggered mixed queue was branch-eligible");
 if (!accepted.mainPrompt.includes("FIRSTMATE WATCHER WAKE") || !accepted.mainPrompt.includes("check: inactive-outcome")) {
-  throw new Error(`mixed offer did not concurrently reach main: ${accepted.mainPrompt}`);
+  throw new Error(`check-triggered mixed queue did not reach main: ${accepted.mainPrompt}`);
 }
 if (!accepted.rows.some((row) => row.startsWith("confirmed generation=fixture-generation"))) {
   throw new Error(`handling delivery was not confirmed before the branch handoff: ${accepted.rows.join(" | ")}`);
@@ -540,9 +540,9 @@ process.exit(0);
 EOF
   )
   status=$?
-  expect_code 0 "$status" "Pi dispatcher must split a mixed wake between branch and main"
-  [ -z "$out" ] || fail "Pi mixed-wake branch-offer test printed output: $out"
-  pass "Pi dispatcher routes mixed task and terminal wakes concurrently"
+  expect_code 0 "$status" "Pi dispatcher must keep a check-triggered mixed queue on main"
+  [ -z "$out" ] || fail "Pi mixed check-trigger test printed output: $out"
+  pass "Pi dispatcher keeps check-triggered mixed queues on main"
 }
 
 test_pi_branch_offer_flags_heartbeat() {
@@ -2768,7 +2768,7 @@ test_pi_tool_returns_agent_tool_result
 test_pi_redundant_tool_call_is_owned_noop
 test_pi_scheduled_retry_call_is_owned_noop
 test_pi_actionable_close_starts_single_successor_before_delivery
-test_pi_mixed_wake_routes_branch_and_main
+test_pi_check_trigger_keeps_mixed_queue_on_main
 test_pi_branch_offer_flags_heartbeat
 test_pi_heartbeat_with_main_owned_queue_row_stays_on_main
 test_pi_heartbeat_restoration_failure_stays_on_main

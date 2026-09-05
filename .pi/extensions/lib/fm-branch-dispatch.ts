@@ -10,11 +10,10 @@ import { readdirSync, readFileSync } from "node:fs";
 // SYNCHRONOUSLY inside its handler (the event bus invokes handlers
 // synchronously up to their first await), so after emit returns the watcher
 // reads `accepted`: true means the branch now owns delivering and handling the
-// offered rows (including its own fallback back to main on a later failure).
-// A mainAlso offer has already granted those rows and still delivers its
-// triggering main-owned wake to main. False leaves the whole wake with main.
-// Watcher-failure alarms are never offered - only main can repair the watcher
-// cycle (fm_watch_arm_pi lives on main).
+// wake (including its own fallback back to main on a later failure); false
+// means no branch took it and the watcher delivers to main exactly as it did
+// before the branch existed. Watcher-failure alarms are never offered - only
+// main can repair the watcher cycle (fm_watch_arm_pi lives on main).
 
 export const FM_BRANCH_DISPATCH_EVENT = "fm-branch-supervision:dispatch";
 
@@ -33,8 +32,6 @@ export interface UnreadWakeScope {
    * `eligible` is false.
    */
   eligibleSeqs: string[];
-  /** Payload of the first currently eligible task-local row. */
-  eligibleReason: string;
   /**
    * True only when this scan itself is untrustworthy: the queue or its
    * metadata could not be read, a line fails the structural tab-field check,
@@ -49,8 +46,8 @@ export interface UnreadWakeScope {
   corrupted: boolean;
 }
 
-const EMPTY_SCOPE: UnreadWakeScope = { status: "empty", eligible: false, projects: [], eligibleSeqs: [], eligibleReason: "", corrupted: false };
-const UNSAFE_SCOPE: UnreadWakeScope = { status: "unsafe", eligible: false, projects: [], eligibleSeqs: [], eligibleReason: "", corrupted: true };
+const EMPTY_SCOPE: UnreadWakeScope = { status: "empty", eligible: false, projects: [], eligibleSeqs: [], corrupted: false };
+const UNSAFE_SCOPE: UnreadWakeScope = { status: "unsafe", eligible: false, projects: [], eligibleSeqs: [], corrupted: true };
 
 // scopeForUnreadWake is the single owner of branch-eligibility classification
 // (docs/pi-supervision-branch.md "Autonomy"; docs/watcher-continuity.md
@@ -105,7 +102,6 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean): UnreadWak
   }
 
   const eligibleSeqs: string[] = [];
-  let eligibleReason = "";
   for (const line of rows) {
     const fields = line.split("\t");
     if (fields.length < 5 || !/^[0-9]+$/.test(fields[1])) return UNSAFE_SCOPE;
@@ -137,14 +133,13 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean): UnreadWak
     if (!project) return UNSAFE_SCOPE;
     projects.add(project);
     eligibleSeqs.push(seq);
-    if (!eligibleReason) eligibleReason = fields.slice(4).join("\t");
   }
   const eligible = heartbeat ? true : eligibleSeqs.length > 0;
   // Reached only after every row passed classification without a veto: a
   // heartbeat review is always eligible here, and a non-heartbeat scan that
   // ends up ineligible simply found no signal/stale rows to offer - ordinary
   // main-only content, not a fault.
-  return { status: eligible ? "safe" : "unsafe", eligible, projects: [...projects], eligibleSeqs, eligibleReason, corrupted: false };
+  return { status: eligible ? "safe" : "unsafe", eligible, projects: [...projects], eligibleSeqs, corrupted: false };
 }
 
 // The exact state-relative filename bin/fm-wake-drain.sh reads for a
@@ -213,7 +208,7 @@ export function deactivateEligibleRowsOwner(
 }
 
 export interface BranchDispatchOffer {
-  /** The actionable reason for the rows offered to the branch. */
+  /** The watcher's actionable close message (the wake reason line(s)). */
   message: string;
   /**
    * Exact project values from the unread task metadata this wake will drain.
@@ -224,8 +219,6 @@ export interface BranchDispatchOffer {
   heartbeat: boolean;
   /** True only when at least one currently unread row is safe for branch handling. */
   eligible: boolean;
-  /** True when main must concurrently handle the triggering main-owned wake. */
-  mainAlso: boolean;
   /** Set by accept(); read by the watcher after emit returns. */
   accepted: boolean;
   accept(): void;
@@ -236,14 +229,12 @@ export function createBranchDispatchOffer(
   projects: readonly string[] = [],
   heartbeat = false,
   eligible = false,
-  mainAlso = false,
 ): BranchDispatchOffer {
   const offer: BranchDispatchOffer = {
     message,
     projects: [...projects],
     heartbeat,
     eligible,
-    mainAlso,
     accepted: false,
     accept() {
       offer.accepted = true;

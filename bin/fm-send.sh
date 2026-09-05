@@ -131,7 +131,7 @@
 # Decision closure (answerer-closes): pass --resolve-key <key> (repeatable,
 # before the message) when this send answers an open keyed needs-decision: or
 # blocked: record in the target task's state/<id>.status. fm-send itself
-# appends the closing "resolved [key=<key>]: answered: <capped excerpt>" line
+# appends the closing "resolved [key=<key>] [at=<epoch>]: answered: <capped excerpt>" line
 # to that status file, so the captain-facing OPEN DECISIONS record closes at
 # answer time and never depends on the busy worker writing a matching resolved
 # line. On the inbox plane the close happens at ENQUEUE time, because enqueue
@@ -579,15 +579,16 @@ fi
 # (bin/fm-wake-lib.sh) and does not wake this same session again; any
 # concurrent foreign status bytes leave the watcher's wake path untouched.
 fm_send_close_resolved_keys() {  # <answer-text>
-  local note=$1 k line append_rc
+  local note=$1 k line append_rc now
   note=$(printf '%s' "$note" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177')
+  now=$(fm_pending_reply_now)
   for k in $RESOLVE_STATUS_KEYS; do
-    line="resolved [key=$k]: answered: $note"
+    line="resolved [key=$k] [at=$now]: answered: $note"
     fm_cap_line_var "$line"
     append_rc=0
     fm_wake_status_append_self_announced "$STATE" "$RESOLVE_STATUS_FILE" "$FM_LINE_CAP_LINE" || append_rc=$?
     if [ "$append_rc" -eq 2 ]; then
-      echo "error: the answer was delivered to $T, but decision key '$k' could not be closed in $RESOLVE_STATUS_FILE. Close it manually with: echo 'resolved [key=$k]: <how it was answered>' >> $RESOLVE_STATUS_FILE - do not resend the answer." >&2
+      echo "error: the answer was delivered to $T, but decision key '$k' could not be closed in $RESOLVE_STATUS_FILE. Close it manually with a timestamped resolved [key=$k] line - do not resend the answer." >&2
       return 1
     fi
   done

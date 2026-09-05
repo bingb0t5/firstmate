@@ -129,7 +129,7 @@ test_answer_send_closes_open_decision() {
   grep -qF "go with REST" "$home/state/t1.inbox/001.msg" \
     || fail "the answer text should reach the worker's durable inbox record"
   assert_contains "$(cat "$log")" "Firstmate instruction waiting" "the doorbell should be rung for the answer"
-  grep -F 'resolved [key=api-shape]: answered: go with REST' "$home/state/t1.status" >/dev/null \
+  grep -E 'resolved \[key=api-shape\] \[at=[0-9]+\]: answered: go with REST' "$home/state/t1.status" >/dev/null \
     || fail "fm-send did not append the closing resolved line:"$'\n'"$(cat "$home/state/t1.status")"
 
   out=$(drain_out "$home")
@@ -159,7 +159,7 @@ test_answer_close_is_self_announced() {
 
   run_send "$fb" "$home" "$log" t9 --resolve-key port-choice "use 9090"; rc=$?
   expect_code 0 "$rc" "the answer send should succeed"
-  grep -F 'resolved [key=port-choice]: answered: use 9090' "$home/state/t9.status" >/dev/null \
+  grep -E 'resolved \[key=port-choice\] \[at=[0-9]+\]: answered: use 9090' "$home/state/t9.status" >/dev/null \
     || fail "the closing resolved line is missing"
   FM_STATE_OVERRIDE="$home/state" bash -c '
     . "$1"; fm_wake_signal_seen_current "$2" "$3"
@@ -194,7 +194,7 @@ test_colon_first_key_position_is_answerable() {
 
   run_send "$fb" "$home" "$log" t8 --resolve-key seam-max-bound "cap it at 4"; rc=$?
   expect_code 0 "$rc" "answering a colon-first stated key should succeed, not refuse as unknown"
-  grep -F 'resolved [key=seam-max-bound]: answered: cap it at 4' "$home/state/t8.status" >/dev/null \
+  grep -E 'resolved \[key=seam-max-bound\] \[at=[0-9]+\]: answered: cap it at 4' "$home/state/t8.status" >/dev/null \
     || fail "the closing resolved line is missing:"$'\n'"$(cat "$home/state/t8.status")"
 
   out=$(drain_out "$home")
@@ -424,7 +424,7 @@ test_remote_secondmate_answer_closes_locally() {
   expect_code 0 "$rc" "a remote secondmate answer send should succeed"
   assert_grep 'fm-remote-entrypoint.sh' "$ssh_log" \
     "the answer message should cross the remote transport"
-  grep -F 'resolved [key=upgrade-window]: answered: the weekend, freeze Friday' "$home/state/rsm.status" >/dev/null \
+  grep -E 'resolved \[key=upgrade-window\] \[at=[0-9]+\]: answered: the weekend, freeze Friday' "$home/state/rsm.status" >/dev/null \
     || fail "the remote answer did not close the local ledger: $(cat "$home/state/rsm.status")"
   out=$(drain_out "$home")
   if printf '%s' "$out" | grep -F 'OPEN DECISIONS' >/dev/null; then
@@ -459,7 +459,7 @@ test_remote_reply_corr_tag_does_not_block_resolve_key() {
     FM_SSH_BIN="$fb/fake-ssh" FM_SSH_LOG="$ssh_log" FM_FAKE_SSH_RC=0 \
     "$SEND" rsm --resolve-key loan-installment-cadence-amount "monthly" >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "answering a corr-tagged remote decision should succeed, not refuse as unknown"
-  grep -F 'resolved [key=loan-installment-cadence-amount]: answered: monthly' "$home/state/rsm.status" >/dev/null \
+  grep -E 'resolved \[key=loan-installment-cadence-amount\] \[at=[0-9]+\]: answered: monthly' "$home/state/rsm.status" >/dev/null \
     || fail "the closing resolved line is missing:"$'\n'"$(cat "$home/state/rsm.status")"
 
   out=$(drain_out "$home")

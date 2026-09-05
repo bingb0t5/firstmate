@@ -720,7 +720,11 @@ test_fresh_progress_is_not_aged_from_task_creation() {
   FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ "$(stale_row_count "$MAIN")" = 0 ] \
     || fail "fresh progress was aged from task creation"
-  pass "fresh progress anchors to its status generation"
+  printf 'resolved [key=api] [at=%s]: unrelated decision closed\n' "$((now + 1))" >> "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW="$((now + 1))" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] \
+    || fail "a fresh unrelated resolution aged independent work"
+  pass "fresh progress and bookkeeping resolutions anchor to their event epochs"
 }
 
 test_decision_backstop_commits_the_watcher_generation() {

@@ -68,21 +68,22 @@ if [ ! -d "$(dirname "$STATUS_FILE")" ]; then
 fi
 
 token=$(fm_pending_reply_corr_token "$CORR")
+EVENT_EPOCH=$(fm_pending_reply_now)
 if [ "$DOC_MODE" = 1 ]; then
   [ $# -ge 1 ] || usage
   DOC_PATH=$1
   shift
   NOTE=$*
   if [ -n "$NOTE" ]; then
-    printf '%s [%s]: %s (%s via-helper)\n' "$VERB" "$token" "$NOTE" "$DOC_PATH" >> "$STATUS_FILE"
+    printf '%s [at=%s] [%s]: %s (%s via-helper)\n' "$VERB" "$EVENT_EPOCH" "$token" "$NOTE" "$DOC_PATH" >> "$STATUS_FILE"
   else
-    printf '%s [%s]: %s (via-helper)\n' "$VERB" "$token" "$DOC_PATH" >> "$STATUS_FILE"
+    printf '%s [at=%s] [%s]: %s (via-helper)\n' "$VERB" "$EVENT_EPOCH" "$token" "$DOC_PATH" >> "$STATUS_FILE"
   fi
 else
   NOTE=$*
   if [ -n "$NOTE" ]; then
-    printf '%s [%s]: %s (via-helper)\n' "$VERB" "$token" "$NOTE" >> "$STATUS_FILE"
+    printf '%s [at=%s] [%s]: %s (via-helper)\n' "$VERB" "$EVENT_EPOCH" "$token" "$NOTE" >> "$STATUS_FILE"
   else
-    printf '%s [%s]: (via-helper)\n' "$VERB" "$token" >> "$STATUS_FILE"
+    printf '%s [at=%s] [%s]: (via-helper)\n' "$VERB" "$EVENT_EPOCH" "$token" >> "$STATUS_FILE"
   fi
 fi

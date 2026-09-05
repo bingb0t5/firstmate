@@ -673,11 +673,6 @@ ${context.command}
     if (!actingAsOwner()) return; // cold start pre-lock, secondary session, or shutdown
     if (afkActive()) return; // the away daemon owns supervision while afk
     if (branchBroken) return; // fail back to today's wake-to-main path
-    if (offer.mainAlso) {
-      const scope = scopeForUnreadWake(state, false);
-      if (scope.corrupted || scope.eligibleSeqs.length === 0) return;
-      if (writeEligibleRowsSnapshot(state, scope.eligibleSeqs, wakeGrantScript, String(generation)) !== "published") return;
-    }
     offer.accept();
     enqueueWake(offer.message, generation);
   });

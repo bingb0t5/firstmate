@@ -301,16 +301,10 @@ export default function (pi: ExtensionAPI) {
     const heartbeat = /^heartbeat($|:)/.test(message);
     const isCheckTrigger = /^check:/.test(message);
     const scope = scopeForUnreadWake(state, heartbeat);
-    const mainAlso = isCheckTrigger && scope.eligible && scope.eligibleReason.length > 0;
-    const offer = createBranchDispatchOffer(
-      mainAlso ? scope.eligibleReason : message,
-      scope.projects,
-      heartbeat,
-      scope.eligible && (!isCheckTrigger || mainAlso),
-      mainAlso,
-    );
+    const eligible = !isCheckTrigger && scope.eligible;
+    const offer = createBranchDispatchOffer(message, scope.projects, heartbeat, eligible);
     pi.events?.emit?.(FM_BRANCH_DISPATCH_EVENT, offer);
-    return offer.accepted && !offer.mainAlso;
+    return offer.accepted;
   }
 
   async function deliverActionableWake(
