@@ -95,6 +95,11 @@ elif action == "critical":
 elif action == "slow":
     time.sleep(float(request.get("seconds", 2)))
     result = {"ok": True, "slow": True}
+elif action == "detach":
+    import subprocess
+    subprocess.Popen(["sleep", str(int(request.get("seconds", 30)))], start_new_session=True)
+    time.sleep(float(request.get("seconds", 30)))
+    result = {"ok": True, "detached": True}
 elif action == "rich_edit":
     state["document"]["body"][1] = request["replacement"]
     result = {"ok": True, "document": state["document"]}
@@ -143,6 +148,22 @@ PY
   expect_code 3 "$status" "credential-bearing readiness manifest is rejected"
   assert_not_contains "$output" "must-never-be-published" "credential value is never echoed"
   pass "readiness contract validates required fields and suppresses credential values"
+}
+
+test_unusable_state_dir_reports_defined_exit_code() {
+  local root status output
+  root=$(fm_test_tmproot astra-state-dir)
+  printf 'not a directory\n' > "$root/blocker"
+  status=0
+  output=$("$RUNNER" status --state-dir "$root/blocker/state" 2>&1) || status=$?
+  expect_code 2 "$status" "an unusable state directory uses a defined exit code"
+  assert_contains "$output" "fm-astra-guest:" "the failure is reported as a CLI error"
+  assert_not_contains "$output" "Traceback" "the failure does not surface a Python traceback"
+  status=0
+  output=$("$RUNNER" pause --state-dir "$root/blocker/state" 2>&1) || status=$?
+  expect_code 2 "$status" "pause reports the same defined exit code"
+  assert_not_contains "$output" "Traceback" "pause does not surface a Python traceback"
+  pass "an unusable state directory is reported inside the documented exit-code contract"
 }
 
 test_additive_prepare() {
@@ -252,6 +273,14 @@ test_serialized_fixture_calls() {
   output=$(run_fixture "$manifest" "$state" "$client" "$request" 0.1 2>&1) || status=$?
   expect_code 5 "$status" "timed-out call returns client failure"
   assert_contains "$output" "input lock released" "timeout reports input release"
+
+  write_request "$request" detach ',"seconds":30'
+  status=0
+  output=$(timeout 10 "$RUNNER" run --manifest "$manifest" --state-dir "$state" \
+    --client "$client" --timeout 0.2 --request "$request" 2>&1) || status=$?
+  expect_code 5 "$status" "timeout cleanup does not block on a detached client grandchild"
+  assert_contains "$output" "input lock released" "detached-grandchild timeout still reports input release"
+  "$RUNNER" status --state-dir "$state" >/dev/null || fail "input lock was not released after the detached timeout"
   write_request "$request" form ',"text":" after-timeout"'
   output=$(run_fixture "$manifest" "$state" "$client" "$request")
   assert_contains "$output" 'after-timeout' "client continues after timeout cleanup"
@@ -277,6 +306,7 @@ test_live_acceptance_gate() {
 }
 
 test_readiness_contract
+test_unusable_state_dir_reports_defined_exit_code
 test_additive_prepare
 test_serialized_fixture_calls
 test_live_acceptance_gate
