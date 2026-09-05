@@ -480,7 +480,7 @@ test_overdue_active_work_ignores_chatter() {
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
-printf 'state: working · source: run-step\n'
+printf 'state: working · source: status-log\n'
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
   now=$(date +%s)
@@ -494,6 +494,28 @@ SH
   [ "$(grep -c 'child$' "$WORLD/state-reads" 2>/dev/null || true)" = 1 ] \
     || fail "overdue intervention performed more than one bounded current-state read: $(cat "$WORLD/state-reads" 2>/dev/null || true)"
   pass "overdue active work surfaces through a targeted wake despite chatter"
+}
+
+# A live attributed run or a busy pane is the evidence crew_absorb_class calls
+# provably working. Overdue status evidence alone must not surface it.
+test_provably_working_evidence_is_not_overdue() {
+  local now src
+  for src in run-step pane; do
+    make_world "liveness-$src"
+    write_child "$MAIN" child 'working: implementation is under way'
+    touch "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
+    cat > "$WORLD/fakebin/fm-crew-state.sh" <<SH
+#!/usr/bin/env bash
+printf 'state: working · source: $src\n'
+SH
+    chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+    now=$(date +%s)
+    FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+    FM_INACTIVE_RECONCILE_NOW=$((now + 600)) run_reconcile "$MAIN" --startup
+    [ "$(stale_row_count "$MAIN")" = 0 ] \
+      || fail "source=$src liveness was surfaced as overdue work: $(cat "$MAIN/state/.wake-queue")"
+  done
+  pass "a live run or busy pane is absorbed instead of surfaced as overdue"
 }
 
 test_unresolved_decision_is_routed_once_and_survives_restart() {
@@ -515,11 +537,9 @@ test_declared_wait_and_parent_boundary_are_respected() {
   [ ! -s "$MAIN/state/.wake-queue" ] || fail "declared external wait was treated as overdue work"
   bind_secondmate local
   write_mate_meta
-  write_child "$MATE" mate-child 'working: delegated implementation'
   FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ ! -e "$MAIN/state/active-management/mate" ] \
     || fail "main took active management of a registered secondmate"
-  [ ! -e "$MAIN/state/active-management/mate-child" ] || fail "main scanned a secondmate child"
   pass "declared waits and the main/secondmate ownership boundary remain intact"
 }
 
@@ -538,7 +558,7 @@ test_active_intervention_does_not_duplicate_an_existing_wake() {
   age "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
-printf 'state: working · source: run-step\n'
+printf 'state: working · source: status-log\n'
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
   FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; fm_wake_append stale "$2" "$3"' _ \
@@ -558,6 +578,81 @@ SH
     | grep -Fxq 'orca:child-endpoint' \
     || fail "due-work stale row was not keyed by the backend target: $(cat "$MAIN/state/.wake-queue")"
   pass "due-work intervention keys by backend target and never duplicates a queued row"
+}
+
+# status_line_verb ignores leading whitespace when it folds an event, so the
+# cheap pre-fold guards must too: an indented event is a real event.
+test_indented_status_events_are_not_skipped() {
+  local now
+  make_world indented-decision
+  write_child "$MAIN" child '  needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "an indented needs-decision received no due-work check"
+
+  make_world indented-working
+  write_child "$MAIN" child '  working: implementation is under way'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] \
+    || fail "an indented working phase received no due-work check"
+  pass "indented status events are folded like any other"
+}
+
+# The away-mode daemon re-derives a signal row's actionability from the task's
+# own status file, so a row queued here must be one its real classifier
+# escalates - and a decision it cannot see must keep its drain surface instead.
+test_decision_wake_is_actionable_to_the_away_classifier() {
+  local payload decision
+  make_world away-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue")
+  [ -n "$payload" ] || fail "unresolved decision queued no signal row"
+  decision=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+    FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; classify_signal "${2#signal: }" "$3"' _ \
+    "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
+  case "$decision" in
+    escalate\|*) : ;;
+    *) fail "away mode self-handled an unresolved decision instead of escalating: $decision" ;;
+  esac
+
+  make_world away-decision-buried
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  printf 'working [key=impl]: continuing on the rest while blocked on api-shape\n' \
+    >> "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue" 2>/dev/null || true)
+  [ -z "$payload" ] \
+    || fail "queued a decision signal away mode acknowledges without escalating: $payload"
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$DRAIN" > "$WORLD/drain.out" 2>/dev/null
+  grep -Fq 'api-shape' "$WORLD/drain.out" \
+    || fail "buried decision lost its OPEN DECISIONS surface: $(cat "$WORLD/drain.out")"
+  pass "decision wakes are only queued where the away classifier escalates them"
+}
+
+# A secondmate home applies the same bounded pass to its own direct children, so
+# the evidence reaches the actor that owns it instead of being stranded or
+# duplicated by the parent's lane.
+test_secondmate_active_evidence_reaches_its_owning_actor() {
+  make_world routed-active
+  bind_secondmate local
+  write_mate_meta
+  write_child "$MATE" mate-child 'needs-decision [key=scope]: which module first'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MATE" --startup
+  [ "$(wake_count "$MATE" 'mate-child.status')" = 1 ] \
+    || fail "secondmate evidence never reached its own supervision queue"
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "secondmate evidence was queued into the parent's lane"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MATE" --startup
+  [ "$(wake_count "$MATE" 'mate-child.status')" = 1 ] || fail "a rescan duplicated the routed report"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "the parent duplicated the secondmate's routed report"
+  pass "secondmate active-management evidence routes once to its owning actor"
 }
 
 # Forge command shims fail loudly. A successful scan proves this path never uses
@@ -587,7 +682,11 @@ test_full_scan_budget_includes_wake_lock_wait
 test_notice_recovery_does_not_duplicate_wake
 test_quiet_active_scan_does_not_read_current_state
 test_overdue_active_work_ignores_chatter
+test_provably_working_evidence_is_not_overdue
+test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
+test_decision_wake_is_actionable_to_the_away_classifier
+test_secondmate_active_evidence_reaches_its_owning_actor
 test_declared_wait_and_parent_boundary_are_respected
 test_active_intervention_does_not_duplicate_an_existing_wake
 test_reconciliation_never_calls_forge

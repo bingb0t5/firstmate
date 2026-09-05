@@ -380,7 +380,7 @@ active_record_write() { # <task> <signature> <progress-epoch> <decision-signatur
 active_progress_signature() { # <status-file>
   local status=$1 lines
   [ -f "$status" ] && [ ! -L "$status" ] || return 0
-  lines=$(grep -E '^(working|resolved)([[:space:]]|[[]|:)' "$status" 2>/dev/null || true)
+  lines=$(grep -E '^[[:space:]]*(working|resolved)([[:space:]]|[[]|:|$)' "$status" 2>/dev/null || true)
   [ -n "$lines" ] || return 0
   sha256_text "$lines"
 }
@@ -427,7 +427,7 @@ active_queue_once() { # <kind> <key> <payload>
 # line does, and an activity phase only where a working line does. A file with
 # neither can be skipped without ever consulting the fold.
 active_has_decision_event() { # <status-file>
-  grep -qE '^(needs-decision|blocked)([[:space:]]|[[]|:)' "$1" 2>/dev/null
+  grep -qE '^[[:space:]]*(needs-decision|blocked)([[:space:]]|[[]|:|$)' "$1" 2>/dev/null
 }
 
 active_has_open_working_phase() { # <status-file>
@@ -436,11 +436,9 @@ active_has_open_working_phase() { # <status-file>
 }
 
 active_management_locked() { # <id> <meta> <timeout>
-  local id=$1 meta=$2 timeout=$3 status kind progress_signature
+  local id=$1 meta=$2 timeout=$3 status last_line progress_signature
   local old_signature progress_epoch decision_rows decision_signature decision_key decision_note
   local record now last_target last_alert alert_fingerprint state source age payload result=0
-  kind=$(meta_field "$meta" kind)
-  [ "$kind" != secondmate ] || return 0
   status="$STATE/$id.status"
   [ -f "$status" ] && [ ! -L "$status" ] || return 0
   # The authoritative whole-file fold, not the cursor-backed sibling: that
@@ -453,6 +451,7 @@ active_management_locked() { # <id> <meta> <timeout>
   fi
   progress_signature=$(active_progress_signature "$status")
   [ -n "$progress_signature" ] || [ -n "$decision_rows" ] || return 0
+  last_line=$(last_status_line "$status")
   record=$(active_record_path "$id")
   old_signature=$(active_record_value "$record" signature)
   progress_epoch=$(active_record_value "$record" progress_epoch)
@@ -469,13 +468,18 @@ active_management_locked() { # <id> <meta> <timeout>
   fi
   alert_fingerprint=$(active_record_value "$record" alert_fingerprint)
   last_alert=$(active_record_value "$record" alert_epoch)
-  if [ -n "$decision_rows" ]; then
+  # Queued only while the task's own current status still presents the
+  # obligation: bin/fm-supervise-daemon.sh's classify_signal re-derives a signal
+  # row's actionability from the status file's last line, so a row this path
+  # queued against a buried decision would be self-handled and acknowledged
+  # without ever escalating. A decision buried under later appends stays
+  # unresolved in the fold and keeps its surface in fm-wake-drain.sh's
+  # OPEN DECISIONS section.
+  if [ -n "$decision_rows" ] && status_is_captain_relevant "$last_line"; then
     decision_key=$(printf '%s\n' "$decision_rows" | awk -F '\t' 'NR == 1 { print $1 }')
     decision_note=$(printf '%s\n' "$decision_rows" | awk -F '\t' 'NR == 1 { print $3 }')
     alert_fingerprint="decision|$decision_signature"
     if active_alert_due "$record" "$alert_fingerprint" "$now"; then
-      last_target=$(meta_field "$meta" window)
-      [ -n "$last_target" ] || last_target=$id
       payload="signal: $status (unresolved decision key=$decision_key: $(clean_field "$decision_note"))"
       active_queue_once signal "$id.status" "$payload" || result=$?
       if [ "$result" -eq 0 ]; then
@@ -494,7 +498,12 @@ active_management_locked() { # <id> <meta> <timeout>
     fi
     state=${ACTIVE_STATE_LINE#state: }; state=${state%% *}
     source=${ACTIVE_STATE_LINE#*source: }; source=${source%% *}
-    if [ "$state" = working ] && { [ "$source" = run-step ] || [ "$source" = pane ] || [ "$source" = status-log ]; }; then
+    # crew_absorb_class (bin/fm-classify-lib.sh) reports `working` for exactly
+    # state=working with source run-step or pane - a live attributed run or a
+    # busy pane. That is mere liveness the fleet absorbs rather than surfaces,
+    # so only a status log claiming working with no attributed run and no busy
+    # pane is overdue here.
+    if [ "$state" = working ] && [ "$source" = status-log ]; then
       # Keyed by the task's backend target, exactly as every other stale
       # producer keys it, so an already-queued stale row for this task is seen
       # and never duplicated on a non-tmux backend.
