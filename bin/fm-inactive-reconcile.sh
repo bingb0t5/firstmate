@@ -67,8 +67,10 @@
 # notice_emitted; the fingerprint binds the spawn incarnation, task id, terminal
 # state, PR text, and sanitized last status.
 # Pending atomically becomes reported after parent append or presented after
-# main-home acknowledgement. The atomic epoch/cursor marker's mtime gates scans,
-# and its cursor records the last child visited within the aggregate budget.
+# main-home acknowledgement. The atomic marker's mtime gates scans, its cursor
+# records the last child visited within the aggregate budget, and its origin
+# records where the sweep in flight started, so a resumed sweep still owes - and
+# still runs - the wrap segment back over the children at or before that origin.
 #
 # The scan reads only durable local state and fm-crew-state.sh; it never invokes
 # gh, gh-axi, curl, fm-pr-check.sh, fm-pr-poll.sh, or a state *.check.sh.
@@ -287,12 +289,24 @@ scan_marker_cursor() {
   grep '^cursor=' "$SCAN_MARKER" 2>/dev/null | tail -1 | cut -d= -f2- || true
 }
 
+scan_marker_origin() {
+  [ -f "$SCAN_MARKER" ] && [ ! -L "$SCAN_MARKER" ] || return 0
+  grep '^origin=' "$SCAN_MARKER" 2>/dev/null | tail -1 | cut -d= -f2- || true
+}
+
+# The sweep this marker belongs to started after SCAN_ORIGIN and owes a wrap
+# segment over the children at or before it. scan() owns the value; every
+# cursor write carries it so a resumed sweep still knows what it has not
+# covered yet.
+SCAN_ORIGIN=
+
 write_scan_marker() { # <cursor>
   local cursor=$1 marker_tmp
   marker_tmp=$(mktemp "$STATE/.inactive-outcome-reconcile.XXXXXX") || return 1
   {
     printf 'epoch=%s\n' "$(reconcile_now)"
     printf 'cursor=%s\n' "$cursor"
+    printf 'origin=%s\n' "$SCAN_ORIGIN"
   } > "$marker_tmp" || { rm -f "$marker_tmp"; return 1; }
   chmod 600 "$marker_tmp" 2>/dev/null || true
   mv -f "$marker_tmp" "$SCAN_MARKER" || { rm -f "$marker_tmp"; return 1; }
@@ -545,8 +559,10 @@ active_management_locked() { # <id> <meta> <timeout>
     # meaningful progress is already overdue is surfaced - the same call the
     # watcher makes for an inconclusive non-terminal stale. A current state this
     # scan could not read is not evidence either way, so a failed or timed-out
-    # bounded read absorbs rather than invents a wedge.
-    if [ "$source" != unavailable ] \
+    # bounded read absorbs rather than invents a wedge, and a done or failed
+    # verdict is a terminal outcome the reconciliation below already owns rather
+    # than work that has stopped making progress.
+    if [ "$source" != unavailable ] && [ "$state" != 'done' ] && [ "$state" != 'failed' ] \
       && [ "$(crew_absorb_class_of_record "$state|$source")" = none ]; then
       # Keyed by the task's backend target, exactly as every other stale
       # producer keys it, so an already-queued stale row for this task is seen
@@ -644,16 +660,14 @@ reconcile_direct_child() { # <id> <meta> <secondmate-id-or-empty> <timeout>
 # between the deadline computation and these checks; without the guaranteed
 # first visit, such a scan would return 3 having examined no child at all while
 # write_scan_marker had already advanced the cursor past the skipped child.
-scan_pass() { # <cursor> <after|through> <deadline> <secondmate-id-or-empty>
-  local cursor=$1 range=$2 deadline=$3 self=${4:-} meta id remaining rc first
+scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-or-empty>
+  local cursor=$1 upper=$2 deadline=$3 self=${4:-} meta id remaining rc first
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     id=$(basename "$meta" .meta)
     valid_id "$id" || continue
-    case "$range" in
-      after) [ -z "$cursor" ] || [[ "$id" > "$cursor" ]] || continue ;;
-      through) [ -n "$cursor" ] && [[ "$id" > "$cursor" ]] && continue ;;
-    esac
+    [ -z "$cursor" ] || [[ "$id" > "$cursor" ]] || continue
+    if [ -n "$upper" ] && [[ "$id" > "$upper" ]]; then continue; fi
     first=0
     if [ "${SCAN_FIRST_VISIT_PENDING:-0}" -eq 1 ]; then
       first=1
@@ -677,11 +691,13 @@ scan_pass() { # <cursor> <after|through> <deadline> <secondmate-id-or-empty>
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age resuming=0
+  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age resuming=0 wrapping=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
   cursor=$(scan_marker_cursor)
   valid_id "$cursor" || cursor=''
+  SCAN_ORIGIN=$(scan_marker_origin)
+  valid_id "$SCAN_ORIGIN" || SCAN_ORIGIN=''
   marker_age=$(scan_marker_age)
   if [ -n "$cursor" ] && [ "$marker_age" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
     resuming=1
@@ -689,6 +705,14 @@ scan() {
   if [ "$startup" != 1 ] && [ "$resuming" -eq 0 ] \
     && [ "$marker_age" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
     return 0
+  fi
+  # A cold cursor anchors a fresh sweep, which keeps the established rotation:
+  # this sweep runs from just after it and then wraps back over the rest.
+  [ "$resuming" -eq 1 ] || SCAN_ORIGIN=$cursor
+  # A position before the origin can only have been written by the wrap segment,
+  # so the segment before it is already covered.
+  if [ -n "$SCAN_ORIGIN" ] && [ -n "$cursor" ] && [[ "$SCAN_ORIGIN" > "$cursor" ]]; then
+    wrapping=1
   fi
   write_scan_marker "$cursor" || return 1
   if self=$(home_secondmate_id); then
@@ -703,11 +727,18 @@ scan() {
   fi
   deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
   SCAN_FIRST_VISIT_PENDING=1
-  scan_pass "$cursor" after "$deadline" "$self" || rc=$?
-  if [ "$rc" -eq 0 ] && [ -n "$cursor" ] && [ "$resuming" -eq 0 ]; then
-    scan_pass "$cursor" through "$deadline" "$self" || rc=$?
+  if [ "$wrapping" -eq 0 ]; then
+    scan_pass "$cursor" '' "$deadline" "$self" || rc=$?
+    if [ "$rc" -eq 0 ] && [ -n "$SCAN_ORIGIN" ]; then
+      cursor=''
+      wrapping=1
+    fi
+  fi
+  if [ "$rc" -eq 0 ] && [ "$wrapping" -eq 1 ]; then
+    scan_pass "$cursor" "$SCAN_ORIGIN" "$deadline" "$self" || rc=$?
   fi
   if [ "$rc" -eq 0 ]; then
+    SCAN_ORIGIN=''
     write_scan_marker '' || return 1
   elif [ "$rc" -ne 3 ]; then
     return "$rc"
@@ -773,7 +804,7 @@ case "$mode" in
     acknowledge_notice "$2"
     ;;
   -h|--help)
-    sed -n '2,40{s/^# \{0,1\}//;p;}' "$0"
+    sed -n '2,${/^#/!q;s/^# \{0,1\}//;p;}' "$0"
     ;;
   *)
     printf 'usage: fm-inactive-reconcile.sh scan [--startup]\n' >&2

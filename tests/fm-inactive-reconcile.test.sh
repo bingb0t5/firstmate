@@ -509,6 +509,68 @@ SH
   pass "overdue active work surfaces through a targeted wake despite chatter"
 }
 
+# A done or failed current-state verdict is a terminal outcome, not work that
+# stopped making progress, so the terminal path owns it and no stale is queued.
+test_terminal_verdict_is_not_surfaced_as_missing_progress() {
+  make_world terminal-verdict
+  write_child "$MAIN" child 'working: implementation is under way'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done · source: run-step\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] \
+    || fail "a terminal verdict was surfaced as missing progress: $(cat "$MAIN/state/.wake-queue")"
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] \
+    || fail "the terminal-outcome path did not own the done verdict"
+  pass "a terminal current-state verdict is left to the terminal-outcome path"
+}
+
+# A cold cursor left by a dead watcher still anchors a rotating sweep. Even when
+# that sweep is truncated before it wraps, the children at or before the cursor
+# must still be reached rather than waiting out another whole interval.
+test_cold_cursor_sweep_still_wraps_after_a_truncation() {
+  make_world cold-cursor
+  write_child "$MAIN" a 'done: green'
+  write_child "$MAIN" b 'working: quietly under way'
+  write_child "$MAIN" c 'working: state read will stall'
+  write_child "$MAIN" d 'done: green'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+[ "$1" != c ] || sleep 30
+case "$1" in
+  a|d) printf 'state: done · source: fake\n' ;;
+  *)   printf 'state: working · source: run-step\n' ;;
+esac
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  printf 'epoch=1\ncursor=b\n' > "$MAIN/state/.inactive-outcome-reconcile"
+  set_mtime "$(( $(date +%s) - 600 ))" "$MAIN/state/.inactive-outcome-reconcile"
+
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN"
+  ! grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" 2>/dev/null \
+    || fail "the truncated first pass already wrapped back to the earlier child"
+  run_reconcile "$MAIN"
+  grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
+    || fail "the resumed sweep dropped its outstanding wrap segment: $(cat "$MAIN/state/.wake-queue" 2>/dev/null)"
+  pass "a truncated cold-cursor sweep still wraps back over its earlier children"
+}
+
+# `--help` renders this script's own contract block; a truncated render is the
+# defect, and it shows up as output that stops mid-sentence.
+test_help_renders_the_whole_contract_block() {
+  local out last
+  out=$("$RECON" --help) || fail "--help exited non-zero"
+  [ -n "$out" ] || fail "--help printed nothing"
+  last=$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -1)
+  case "$last" in
+    *.) : ;;
+    *) fail "--help output stops mid-sentence: $last" ;;
+  esac
+  pass "--help renders a complete contract block"
+}
+
 # A garbled or failed current-state verdict is not evidence either way, so it
 # must be absorbed rather than parsed into a state/source pair and surfaced.
 test_unreadable_current_state_is_absorbed() {
@@ -779,6 +841,9 @@ test_quiet_active_scan_does_not_read_current_state
 test_overdue_active_work_ignores_chatter
 test_provably_working_evidence_is_not_overdue
 test_unreadable_current_state_is_absorbed
+test_terminal_verdict_is_not_surfaced_as_missing_progress
+test_cold_cursor_sweep_still_wraps_after_a_truncation
+test_help_renders_the_whole_contract_block
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
 test_alert_clock_survives_drain_acknowledgement
