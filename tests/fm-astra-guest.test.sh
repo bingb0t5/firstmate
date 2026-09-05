@@ -98,8 +98,11 @@ elif action == "slow":
 elif action == "detach":
     import subprocess
     subprocess.Popen(["sleep", str(int(request.get("seconds", 30)))], start_new_session=True)
+    (root / "detached.marker").write_text("spawned", encoding="utf-8")
     time.sleep(float(request.get("seconds", 30)))
     result = {"ok": True, "detached": True}
+elif action == "sensitive":
+    result = {"ok": True, "cookies_cleared": True, "session_token": "must-never-be-printed"}
 elif action == "rich_edit":
     state["document"]["body"][1] = request["replacement"]
     result = {"ok": True, "document": state["document"]}
@@ -204,6 +207,7 @@ test_serialized_fixture_calls() {
   request="$root/request.json"
   manifest_json "$manifest" "$root"
   write_fixture_client "$client"
+  printf 'not a directory\n' > "$root/blocker"
 
   write_request "$request" form ',"text":"Xin chào"'
   output=$(run_fixture "$manifest" "$state" "$client" "$request")
@@ -262,6 +266,19 @@ test_serialized_fixture_calls() {
   expect_code 2 "$status" "an unreadable request file is a local usage error, not a readiness gap"
   assert_contains "$output" "request not found" "the missing request file is named as a request"
 
+  write_request "$request" sensitive
+  output=$(run_fixture "$manifest" "$state" "$client" "$request")
+  assert_not_contains "$output" "must-never-be-printed" "a credential-named response value is never printed"
+  assert_contains "$output" '"session_token": "[redacted]"' "the credential-named key is redacted in place"
+  assert_contains "$output" '"ok": true' "the completed action still reports its unmatched result fields"
+  assert_contains "$output" '"duration_ms"' "the completed action still reports its observable timing"
+  assert_contains "$output" 'client response.session_token' "the envelope names every redacted field"
+
+  status=0
+  output=$("$RUNNER" run --manifest "$manifest" --state-dir "$root/blocker/state" \
+    --client "$client" --timeout 5 --prompt hi 2>&1) || status=$?
+  expect_code 2 "$status" "run reports an unusable state directory as a local usage error"
+
   "$RUNNER" pause --state-dir "$state" --reason "fixture human takeover" >/dev/null
   status=0
   run_fixture "$manifest" "$state" "$client" "$request" >/dev/null 2>&1 || status=$?
@@ -276,8 +293,9 @@ test_serialized_fixture_calls() {
 
   write_request "$request" detach ',"seconds":30'
   status=0
-  output=$(timeout 10 "$RUNNER" run --manifest "$manifest" --state-dir "$state" \
-    --client "$client" --timeout 0.2 --request "$request" 2>&1) || status=$?
+  output=$(timeout 20 "$RUNNER" run --manifest "$manifest" --state-dir "$state" \
+    --client "$client" --timeout 2 --request "$request" 2>&1) || status=$?
+  assert_present "$state/detached.marker" "the fixture actually spawned the detached grandchild"
   expect_code 5 "$status" "timeout cleanup does not block on a detached client grandchild"
   assert_contains "$output" "input lock released" "detached-grandchild timeout still reports input release"
   "$RUNNER" status --state-dir "$state" >/dev/null || fail "input lock was not released after the detached timeout"

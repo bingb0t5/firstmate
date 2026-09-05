@@ -155,6 +155,8 @@ The helper returns a JSON envelope containing the request identifier, observable
 
 Adapter diagnostics stay on standard error and are not copied into the result.
 
+A response key that names a credential is returned as `[redacted]` and listed under the envelope's `redacted` field, so a completed desktop action still reports its result and `duration_ms` while no credential value is ever printed.
+
 A client command can be exercised directly with a disposable request.
 
 ```sh

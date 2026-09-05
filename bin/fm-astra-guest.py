@@ -74,7 +74,7 @@ def load_json(path: Path, label: str = "manifest") -> dict[str, Any]:
 def reject_sensitive_keys(value: Any, path: str = "manifest") -> None:
     if isinstance(value, dict):
         for key, child in value.items():
-            if str(key).lower() in {"credential", "credentials"} or FORBIDDEN_KEY.search(str(key)):
+            if is_sensitive_key(key):
                 raise ValueError(
                     f"{path}.{key} is not allowed; publish credential status, never a credential value"
                 )
@@ -82,6 +82,33 @@ def reject_sensitive_keys(value: Any, path: str = "manifest") -> None:
     elif isinstance(value, list):
         for index, child in enumerate(value):
             reject_sensitive_keys(child, f"{path}[{index}]")
+
+
+def is_sensitive_key(key: Any) -> bool:
+    return str(key).lower() in {"credential", "credentials"} or bool(FORBIDDEN_KEY.search(str(key)))
+
+
+def redact_sensitive_values(value: Any, path: str) -> tuple[Any, list[str]]:
+    redacted: list[str] = []
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, child in value.items():
+            child_path = f"{path}.{key}"
+            if is_sensitive_key(key):
+                cleaned[key] = "[redacted]"
+                redacted.append(child_path)
+                continue
+            cleaned[key], child_redacted = redact_sensitive_values(child, child_path)
+            redacted.extend(child_redacted)
+        return cleaned, redacted
+    if isinstance(value, list):
+        items: list[Any] = []
+        for index, child in enumerate(value):
+            item, child_redacted = redact_sensitive_values(child, f"{path}[{index}]")
+            items.append(item)
+            redacted.extend(child_redacted)
+        return items, redacted
+    return value, redacted
 
 
 def get_field(doc: dict[str, Any], dotted: str) -> Any:
@@ -294,13 +321,6 @@ def kill_process_group(process: subprocess.Popen[str]) -> None:
         pass
 
 
-def release_client_pipes(process: subprocess.Popen[str]) -> None:
-    for stream in (process.stdin, process.stdout, process.stderr):
-        if stream is not None:
-            with contextlib.suppress(OSError):
-                stream.close()
-
-
 def command_run(args: argparse.Namespace) -> int:
     manifest_path = Path(args.manifest).resolve()
     try:
@@ -335,22 +355,24 @@ def command_run(args: argparse.Namespace) -> int:
             )
             command = [str(client), *args.client_arg]
             started = time.monotonic()
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=env,
-                start_new_session=True,
-            )
+            try:
+                process = subprocess.Popen(
+                    command,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=env,
+                    start_new_session=True,
+                )
+            except OSError as exc:
+                return die(f"client adapter failed to start: {exc}", EXIT_CLIENT)
             try:
                 stdout, stderr = process.communicate(
                     json.dumps(payload, ensure_ascii=False) + "\n", timeout=args.timeout
                 )
             except subprocess.TimeoutExpired:
                 kill_process_group(process)
-                release_client_pipes(process)
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     process.wait(timeout=CLEANUP_TIMEOUT)
                 return die("client timed out; desktop input lock released", EXIT_CLIENT)
@@ -366,22 +388,21 @@ def command_run(args: argparse.Namespace) -> int:
                 return die("client adapter returned invalid JSON", EXIT_CLIENT)
             if not isinstance(response, dict):
                 return die("client adapter response must be an object", EXIT_CLIENT)
-            try:
-                reject_sensitive_keys(response, "client response")
-            except ValueError as exc:
-                return die(str(exc), EXIT_CLIENT)
-            envelope = {
+            response, redacted = redact_sensitive_values(response, "client response")
+            envelope: dict[str, Any] = {
                 "protocol": 1,
                 "request_id": request_id,
                 "duration_ms": duration_ms,
                 "client": response,
             }
+            if redacted:
+                envelope["redacted"] = redacted
             print(json.dumps(envelope, ensure_ascii=False, sort_keys=True))
             if stderr.strip():
                 print("client diagnostics suppressed from result", file=sys.stderr)
             return 0
     except (OSError, ValueError) as exc:
-        return die(str(exc), EXIT_CLIENT)
+        return die(str(exc), EXIT_USAGE)
 
 
 def build_parser() -> argparse.ArgumentParser:
