@@ -159,6 +159,18 @@ test_additive_prepare() {
   [ "$(cat "$project/.codex/config.toml")" = "$existing" ] || fail "preparation changed the existing Codex config"
   assert_grep 'component = "cua_repl/node_repl"' "$project/.codex/astra-guest.toml" "sidecar selects maintained CUA components"
   assert_grep 'session_persistent = true' "$project/.codex/astra-guest.toml" "sidecar preserves a persistent guest session"
+
+  local status
+  status=0
+  output=$("$RUNNER" prepare --manifest "$manifest" --project "$project" \
+    --state-dir "$root/state" --out "$project/.codex/config.toml" --replace-generated 2>&1) || status=$?
+  expect_code 2 "$status" "--replace-generated refuses a file it did not generate"
+  assert_contains "$output" "did not generate" "refusal names the unowned file"
+  [ "$(cat "$project/.codex/config.toml")" = "$existing" ] || fail "--replace-generated clobbered the existing Codex config"
+
+  output=$("$RUNNER" prepare --manifest "$manifest" --project "$project" \
+    --state-dir "$root/state" --replace-generated)
+  assert_contains "$output" "prepared additive guest config" "--replace-generated still regenerates its own sidecar"
   pass "preparation is additive and leaves the existing Codex config intact"
 }
 
@@ -222,6 +234,12 @@ test_serialized_fixture_calls() {
     "start one:end one:start two:end two"|"start two:end two:start one:end one") : ;;
     *) fail "desktop input calls interleaved" ;;
   esac
+
+  status=0
+  output=$("$RUNNER" run --manifest "$manifest" --state-dir "$state" --client "$client" \
+    --timeout 5 --request "$root/absent-request.json" 2>&1) || status=$?
+  expect_code 2 "$status" "an unreadable request file is a local usage error, not a readiness gap"
+  assert_contains "$output" "request not found" "the missing request file is named as a request"
 
   "$RUNNER" pause --state-dir "$state" --reason "fixture human takeover" >/dev/null
   status=0
