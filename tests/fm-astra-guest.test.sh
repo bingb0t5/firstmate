@@ -106,6 +106,9 @@ elif action == "detach":
 elif action == "undecodable":
     os.write(1, b'{"ok": true, "value": "Xin ch\xe0o"}\n')
     sys.exit(0)
+elif action == "noisy":
+    print("adapter-diagnostic-detail", file=sys.stderr)
+    sys.exit(3)
 elif action == "sensitive":
     result = {
         "ok": True,
@@ -351,8 +354,16 @@ test_serialized_fixture_calls() {
   assert_contains "$output" '"cookie_banner_dismissed": false' "a credential-named boolean keeps its reported value"
   assert_contains "$output" '"ok": true' "the completed action still reports its unmatched result fields"
   assert_contains "$output" '"duration_ms"' "the completed action still reports its observable timing"
-  assert_contains "$output" 'client response.session_token' "the envelope names every redacted field"
-  assert_not_contains "$output" 'client response.secrets_found' "an unredacted field is not reported as redacted"
+  assert_contains "$output" '"client.session_token"' "the redacted list addresses the envelope by dotted path"
+  assert_contains "$output" '"client.credentials"' "a redacted object is named by the same dotted path"
+  assert_not_contains "$output" 'client.secrets_found' "an unredacted field is not reported as redacted"
+
+  write_request "$request" noisy
+  status=0
+  output=$(run_fixture "$manifest" "$state" "$client" "$request" 2>&1) || status=$?
+  expect_code 5 "$status" "an adapter that exits nonzero is a client failure"
+  assert_contains "$output" "client adapter exited 3" "the adapter exit status is reported"
+  assert_contains "$output" "adapter-diagnostic-detail" "the failing adapter's diagnostics reach the operator"
 
   status=0
   output=$("$RUNNER" run --manifest "$manifest" --state-dir "$root/blocker/state" \

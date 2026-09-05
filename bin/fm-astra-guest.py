@@ -323,6 +323,11 @@ def request_payload(args: argparse.Namespace) -> dict[str, Any]:
     return {"prompt": prompt}
 
 
+def report_diagnostics(stderr: str) -> None:
+    if stderr.strip():
+        print(stderr.rstrip("\n"), file=sys.stderr)
+
+
 def kill_process_group(process: subprocess.Popen[str]) -> None:
     try:
         os.killpg(process.pid, signal.SIGKILL)
@@ -395,17 +400,21 @@ def command_run(args: argparse.Namespace) -> int:
                 return die("client timed out; desktop input lock released", EXIT_CLIENT)
             duration_ms = int((time.monotonic() - started) * 1000)
             if process.returncode != 0:
+                report_diagnostics(stderr)
                 return die(f"client adapter exited {process.returncode}", EXIT_CLIENT)
             lines = [line for line in stdout.splitlines() if line.strip()]
             if not lines:
+                report_diagnostics(stderr)
                 return die("client adapter returned no JSON response", EXIT_CLIENT)
             try:
                 response = json.loads(lines[-1])
             except json.JSONDecodeError:
+                report_diagnostics(stderr)
                 return die("client adapter returned invalid JSON", EXIT_CLIENT)
             if not isinstance(response, dict):
+                report_diagnostics(stderr)
                 return die("client adapter response must be an object", EXIT_CLIENT)
-            response, redacted = redact_sensitive_values(response, "client response")
+            response, redacted = redact_sensitive_values(response, "client")
             envelope: dict[str, Any] = {
                 "protocol": 1,
                 "request_id": request_id,
