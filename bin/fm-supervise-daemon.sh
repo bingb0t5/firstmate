@@ -342,19 +342,37 @@ _collapse_newlines() {  # <text>
 
 classify_signal() {  # <reason-after-colon> <state>
   local reason=$1 state=$2 f last distilled="" rel="" all_seen=1 task seen
-  local decision_set=0 decision_rows=""
+  local decision_set=0 decision_count="" decision_fingerprint="" active_record active_signature line
   case "$reason" in
-    *' (unresolved decisions)') decision_set=1 ;;
+    *' (unresolved decisions count='*' fingerprint='*')')
+      decision_count=${reason##*' (unresolved decisions count='}
+      decision_count=${decision_count%%' fingerprint='*}
+      decision_fingerprint=${reason##*' fingerprint='}
+      decision_fingerprint=${decision_fingerprint%')'}
+      case "$decision_count" in ''|0|*[!0-9]*) ;;
+        *)
+          case "$decision_fingerprint" in ''|*[!0-9a-f]*) ;;
+            *) decision_set=1 ;;
+          esac
+          ;;
+      esac
+      ;;
   esac
   for f in $reason; do
     [ -e "$f" ] || continue
     case "$f" in *.status) ;; *) continue ;; esac
     if [ "$decision_set" -eq 1 ]; then
-      decision_rows=$(status_open_decisions "$f" 2>/dev/null || true)
-      if [ -n "$decision_rows" ]; then
-        distilled="${distilled}$(basename "$f"): $(_collapse_newlines "$decision_rows") | "
+      task=$(basename "$f"); task="${task%.status}"
+      active_record="$state/active-management/$task"
+      active_signature=
+      if [ -f "$active_record" ] && [ ! -L "$active_record" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+          case "$line" in decision_signature=*) active_signature=${line#decision_signature=} ;; esac
+        done < "$active_record"
+      fi
+      if [ "$active_signature" = "$decision_fingerprint" ]; then
+        distilled="${distilled}$(basename "$f"): $decision_count unresolved decisions (fingerprint $decision_fingerprint) | "
         rel=1
-        task=$(basename "$f"); task="${task%.status}"
         seen="$state/.subsuper-seen-status-$(_stale_key "$task")"
         [ "$(cat "$seen" 2>/dev/null || true)" = "$(last_status_line "$f")" ] || all_seen=0
         continue

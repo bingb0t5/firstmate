@@ -393,7 +393,10 @@ test_watcher_hook_and_idle_secondmate_exemption() {
 test_stalled_state_read_is_bounded_and_scan_progresses() {
   local started elapsed
   make_world bounded
-  write_child "$MAIN" a 'working: state read will stall'
+  write_child "$MAIN" a 'needs-decision [key=state-read]: state read will stall'
+  printf 'working [key=implementation]: independent work remains active\n' \
+    >> "$MAIN/state/a.status"
+  age "$MAIN/state/a.meta" "$MAIN/state/a.status" "$MAIN/state/a.turn-ended"
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = a ]; then
@@ -408,6 +411,8 @@ SH
   FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
   elapsed=$(( $(date +%s) - started ))
   [ "$elapsed" -le 3 ] || fail "stalled state read exceeded aggregate scan budget (${elapsed}s)"
+  [ "$(wake_count "$MAIN" 'a.status')" = 1 ] \
+    || fail "a stalled terminal-state read skipped the local decision backstop"
 
   write_child "$MAIN" b 'done: green'
   FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
@@ -512,7 +517,8 @@ SH
 test_overdue_active_work_ignores_chatter() {
   local t0
   make_world overdue-chatter
-  write_child "$MAIN" child 'working: implementation is under way'
+  t0=$(( $(date +%s) - 100 ))
+  write_child "$MAIN" child "working [at=$t0]: implementation is under way"
   mkdir -p "$MAIN/projects/child"
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<SH
 #!/usr/bin/env bash
@@ -520,17 +526,8 @@ printf '%s\\n' "\$1" >> "\${FM_STATE_READ_LOG:?}"
 exec "$ROOT/bin/fm-crew-state.sh" "\$@"
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
-  # The working line lands at T0; the first scan observes it well inside the
-  # threshold, so the due clock is anchored at T0 and nothing is due yet.
-  t0=$(( $(date +%s) - 100 ))
   set_mtime "$t0" "$MAIN/state/child.meta"
-  set_mtime "$t0" "$MAIN/state/child.status"
   set_mtime "$t0" "$MAIN/state/child.turn-ended"
-  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW=$((t0 + 10)) \
-    FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
-  [ ! -s "$MAIN/state/.wake-queue" ] || fail "work inside the threshold was surfaced early"
-  # Chatter at T0+55 is the only later write. A clock that reset on it would see
-  # 15s at the next scan; a clock anchored to the working line sees 70s.
   printf 'note: routine check-in chatter\n' >> "$MAIN/state/child.status"
   set_mtime $((t0 + 55)) "$MAIN/state/child.status"
   FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW=$((t0 + 70)) \
@@ -713,13 +710,14 @@ SH
 }
 
 test_fresh_progress_is_not_aged_from_task_creation() {
-  local old
+  local old now
   make_world fresh-progress
   write_child "$MAIN" child 'working [key=old]: earlier phase'
   old=$(( $(date +%s) - 1000 ))
+  now=$(date +%s)
   set_mtime "$old" "$MAIN/state/child.meta" "$MAIN/state/child.turn-ended"
-  printf 'working [key=new]: fresh meaningful phase\n' >> "$MAIN/state/child.status"
-  FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  printf 'working [key=new] [at=%s]: fresh meaningful phase\n' "$now" >> "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ "$(stale_row_count "$MAIN")" = 0 ] \
     || fail "fresh progress was aged from task creation"
   pass "fresh progress anchors to its status generation"
@@ -1022,8 +1020,6 @@ SH
   pass "indented status events are folded like any other"
 }
 
-# The away-mode daemon re-derives a decision signal's actionability from the
-# task's folded open decisions, including an obligation buried by later work.
 test_decision_wake_is_actionable_to_the_away_classifier() {
   local payload decision
   make_world away-decision
@@ -1052,14 +1048,14 @@ test_decision_wake_is_actionable_to_the_away_classifier() {
     FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; classify_signal "${2#signal: }" "$3"' _ \
     "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
   case "$decision" in
-    escalate\|*api-shape*release-shape*) : ;;
+    escalate\|*2\ unresolved\ decisions*) : ;;
     *) fail "away mode dropped a buried unresolved decision: $decision" ;;
   esac
   pass "decision wakes remain actionable after later status appends"
 }
 
 test_cadence_cap_and_budget_continuation_bound_each_child() {
-  local out status pid i reads id
+  local out status pid i reads id now
   make_world cadence-cap
   status=0
   out=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
@@ -1107,11 +1103,44 @@ SH
       "window=firstmate:fm-$id" "worktree=$MAIN/projects/$id" 'project=alpha' \
       'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' "spawn_gen=$i"
   done
-  run_reconcile "$MAIN" --startup
+  now=$(date +%s)
+  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW="$now" \
+    run_reconcile "$MAIN" --startup
   awk -F '\t' '$3 == "check" && $4 == "inactive-reconcile-capacity" { found = 1 } END { exit(found ? 0 : 1) }' \
     "$MAIN/state/.wake-queue" \
     || fail "an over-capacity home silently claimed the ten-minute bound"
+  ack_wakes "$MAIN" || fail "the capacity wake could not be acknowledged"
+  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW=$((now + 600)) \
+    run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'inactive-reconcile-capacity')" = 0 ] \
+    || fail "capacity evidence re-alerted on the scan cadence"
+  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW=$((now + 3600)) \
+    run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'inactive-reconcile-capacity')" = 1 ] \
+    || fail "capacity evidence did not re-alert on the unresolved-obligation cadence"
   pass "ten-minute cadence is capped and truncated sweeps continue immediately"
+}
+
+test_legacy_hot_cursor_runs_its_wrap_segment() {
+  local id
+  make_world legacy-hot-cursor
+  : > "$WORLD/state-reads"
+  for id in a b c; do
+    write_child "$MAIN" "$id" 'done: green'
+  done
+  printf 'epoch=%s\ncursor=b\n' "$(date +%s)" > "$MAIN/state/.inactive-outcome-reconcile"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+printf 'state: done · source: fake\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_STATE_READ_LOG="$WORLD/state-reads" run_reconcile "$MAIN"
+  for id in a b c; do
+    grep -Fxq "$id" "$WORLD/state-reads" \
+      || fail "legacy hot cursor omitted child $id from its rotating sweep"
+  done
+  pass "legacy hot cursors resume as complete rotating sweeps"
 }
 
 # A secondmate home applies the same bounded pass to its own direct children, so
@@ -1180,6 +1209,7 @@ test_completed_sweep_cadence_is_anchored_to_its_start
 test_mixed_terminal_and_active_output_keeps_task_local_routing
 test_decision_wake_is_actionable_to_the_away_classifier
 test_cadence_cap_and_budget_continuation_bound_each_child
+test_legacy_hot_cursor_runs_its_wrap_segment
 test_secondmate_active_evidence_reaches_its_owning_actor
 test_declared_wait_and_parent_boundary_are_respected
 test_active_intervention_does_not_duplicate_an_existing_wake
