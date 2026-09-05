@@ -184,8 +184,38 @@ test_additive_prepare() {
   output=$("$RUNNER" prepare --manifest "$manifest" --project "$project" --state-dir "$root/state")
   assert_contains "$output" "prepared additive guest config" "preparation writes the guest sidecar"
   [ "$(cat "$project/.codex/config.toml")" = "$existing" ] || fail "preparation changed the existing Codex config"
-  assert_grep 'component = "cua_repl/node_repl"' "$project/.codex/astra-guest.toml" "sidecar selects maintained CUA components"
-  assert_grep 'session_persistent = true' "$project/.codex/astra-guest.toml" "sidecar preserves a persistent guest session"
+  local sidecar parsed expected_state_dir
+  sidecar="$project/.codex/astra-guest.toml"
+  expected_state_dir=$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$root/state")
+  parsed=$(python3 - "$sidecar" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as handle:
+    doc = tomllib.load(handle)
+for table, key in (
+    ("computer_use", "component"),
+    ("computer_use", "display"),
+    ("computer_use", "browser_profile"),
+    ("computer_use", "client_adapter"),
+    ("computer_use", "astra_identifier"),
+    ("computer_use", "session_persistent"),
+    ("handoff", "ownership"),
+    ("handoff", "state_dir"),
+    ("reachability", "transport"),
+):
+    print(f"{table}.{key}={doc[table][key]!r}")
+PY
+) || fail "the generated sidecar is not valid TOML"
+  assert_contains "$parsed" "computer_use.component='cua_repl/node_repl'" "sidecar selects maintained CUA components"
+  assert_contains "$parsed" "computer_use.session_persistent=True" "sidecar preserves a persistent guest session"
+  assert_contains "$parsed" "computer_use.display=':1'" "sidecar carries the published guest display"
+  assert_contains "$parsed" "computer_use.browser_profile='$root/browser-profile'" "sidecar carries the dedicated browser profile"
+  assert_contains "$parsed" "computer_use.client_adapter='/guest/client-adapter'" "sidecar names the published client adapter"
+  assert_contains "$parsed" "computer_use.astra_identifier='gpt-6-astra'" "sidecar records the verified Astra identifier"
+  assert_contains "$parsed" "handoff.ownership='exclusive'" "sidecar declares exclusive desktop ownership"
+  assert_contains "$parsed" "handoff.state_dir='$expected_state_dir'" "sidecar points at the supplied handoff state directory"
+  assert_contains "$parsed" "reachability.transport='authenticated-test-transport'" "sidecar carries the published transport"
 
   local status
   status=0
@@ -288,10 +318,12 @@ test_serialized_fixture_calls() {
   expect_code 5 "$status" "undecodable adapter output is reported as a client failure"
   assert_contains "$output" "client adapter call failed" "the adapter is named as the source of the failure"
 
+  write_request "$request" observe
   "$RUNNER" pause --state-dir "$state" --reason "fixture human takeover" >/dev/null
   status=0
-  run_fixture "$manifest" "$state" "$client" "$request" >/dev/null 2>&1 || status=$?
+  output=$(run_fixture "$manifest" "$state" "$client" "$request" 2>&1) || status=$?
   expect_code 5 "$status" "paused desktop rejects agent input"
+  assert_contains "$output" "desktop is paused for human takeover" "the refusal names the human takeover, not an adapter failure"
   "$RUNNER" resume --state-dir "$state" >/dev/null
 
   write_request "$request" slow ',"seconds":2'
