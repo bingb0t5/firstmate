@@ -160,7 +160,9 @@ The request includes `protocol: 1` and a unique `request_id` added by the platfo
 
 The request may contain a prompt or a fixture-specific action list.
 
-The helper sets `FM_ASTRA_SESSION_DIR`, `FM_ASTRA_DESKTOP_OWNER=agent`, `FM_ASTRA_BROWSER_PROFILE`, and the guest `DISPLAY` for the adapter.
+The helper sets `FM_ASTRA_REQUEST_ID`, `FM_ASTRA_SESSION_DIR`, `FM_ASTRA_DESKTOP_OWNER=agent`, `FM_ASTRA_BROWSER_PROFILE`, and the guest `DISPLAY` for the adapter.
+
+`FM_ASTRA_REQUEST_ID` carries the same identifier as the request body and the result envelope, so an adapter can correlate its own logs without parsing standard input.
 
 The helper returns a JSON envelope containing the request identifier, observable `duration_ms`, and the adapter response.
 
