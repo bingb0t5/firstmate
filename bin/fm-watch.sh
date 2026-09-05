@@ -1251,8 +1251,11 @@ while :; do
   # so unchanged healthy cycles never wake firstmate or consume model tokens.
   inactive_out=
   inactive_reason=
+  inactive_scan_ok=0
+  inactive_scan_pending=0
   if inactive_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
+    inactive_scan_ok=1
     if [ -n "$inactive_out" ]; then
       inactive_reason=$(printf '%s\n' "$inactive_out" \
         | sed -n 's/^actionable: \(signal:\|stale:\)/\1/p' | head -1)
@@ -1266,6 +1269,10 @@ while :; do
     fi
   else
     triage_log "inactive-outcome reconciliation unavailable"
+  fi
+  if [ "$inactive_scan_ok" -eq 1 ] && FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-inactive-reconcile.sh" pending 2>/dev/null; then
+    inactive_scan_pending=1
   fi
 
   # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
@@ -1631,5 +1638,6 @@ EOF
 
   # Terminal wait: a bounded native-event wait for push-capable homes (herdr),
   # else the blind poll sleep. See event_wait_or_sleep.
+  [ "$inactive_scan_pending" -eq 0 ] || continue
   event_wait_or_sleep
 done

@@ -342,8 +342,29 @@ _collapse_newlines() {  # <text>
 
 classify_signal() {  # <reason-after-colon> <state>
   local reason=$1 state=$2 f last distilled="" rel="" all_seen=1 task seen
+  local decision_key="" decision_row=""
+  case "$reason" in
+    *' (unresolved decision key='*')')
+      decision_key=${reason##*' (unresolved decision key='}
+      decision_key=${decision_key%')'}
+      _fm_decision_slug_ok "$decision_key" || decision_key=""
+      ;;
+  esac
   for f in $reason; do
     [ -e "$f" ] || continue
+    case "$f" in *.status) ;; *) continue ;; esac
+    if [ -n "$decision_key" ]; then
+      decision_row=$(status_open_decisions "$f" 2>/dev/null \
+        | awk -F '\t' -v key="$decision_key" '$1 == key { print; exit }')
+      if [ -n "$decision_row" ]; then
+        distilled="${distilled}$(basename "$f"): ${decision_row} | "
+        rel=1
+        task=$(basename "$f"); task="${task%.status}"
+        seen="$state/.subsuper-seen-status-$(_stale_key "$task")"
+        [ "$(cat "$seen" 2>/dev/null || true)" = "$(last_status_line "$f")" ] || all_seen=0
+        continue
+      fi
+    fi
     last=$(last_status_line "$f")
     [ -n "$last" ] || continue
     distilled="${distilled}$(basename "$f"): ${last} | "

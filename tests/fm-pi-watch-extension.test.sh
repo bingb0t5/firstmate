@@ -503,11 +503,15 @@ async function runScenario(withAcceptor) {
 }
 
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
-writeFileSync(`${process.env.FM_HOME}/state/branch-offer.meta`, "project=/projects/approved\nwindow=fm-branch-offer\n");
+writeFileSync(
+  `${process.env.FM_HOME}/state/branch-offer.meta`,
+  "project=/projects/approved\nwindow=fm-branch-offer\nterminal=orca:branch-offer-endpoint\n",
+);
 writeFileSync(
   `${process.env.FM_HOME}/state/.wake-queue`,
   "1\t1\tcheck\tinactive-outcome:fixture\tcheck: inactive-outcome\n" +
-    "1\t2\tsignal\tbranch-offer.status\tsignal: branch-offer synthetic wake\n",
+    "1\t2\tsignal\tbranch-offer.status\tsignal: branch-offer synthetic wake\n" +
+    "1\t3\tstale\torca:branch-offer-endpoint\tstale: orca:branch-offer-endpoint (active work overdue)\n",
 );
 const accepted = await runScenario(true);
 if (accepted.offers.length !== 1) throw new Error(`expected one branch offer, got ${accepted.offers.length}`);

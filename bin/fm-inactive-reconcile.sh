@@ -3,20 +3,23 @@
 #
 # Usage:
 #   fm-inactive-reconcile.sh scan [--startup]
+#   fm-inactive-reconcile.sh pending
 #   fm-inactive-reconcile.sh acknowledge <fingerprint>
 #
 # This is an adjunct to the existing watcher poll loop and session-start path,
 # not a watcher, daemon, PR poll, or forge client of its own.
 # `scan` starts a sweep at most once per FM_INACTIVE_RECONCILE_SECS (default 600,
-# valid 60..1800) per home, except that --startup performs the same cheap scan
+# valid 60..600) per home, except that --startup performs the same cheap scan
 # immediately during a locked session start. The same bounded pass checks active
 # work for overdue meaningful progress and retains the older inactive-terminal
 # reconciliation, so there is one due-work detector rather than two schedulers.
 # Each scan uses an aggregate FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default
 # 10, valid 1..30) and resumes after its last visited child on the next scan.
-# A sweep the budget truncated leaves its resume cursor recorded, so the next
-# poll continues it immediately instead of waiting out another interval and the
-# bound is per child rather than per scan. The cadence clock starts with the
+# A sweep the budget truncated leaves its resume cursor recorded, so the watcher
+# continues it immediately instead of waiting out another poll interval and the
+# bound is per child rather than per scan. State reads share the cadence across
+# the direct fleet, preventing one slow child from consuming another child's
+# whole due-work window. The cadence clock starts with the
 # sweep, so time spent completing a truncated sweep does not extend the next
 # due-work interval. A resumed sweep skips the completed segment, while a cold
 # cursor left behind by a dead watcher still anchors a full rotating sweep.
@@ -33,11 +36,10 @@
 # working phase in their append-only status log. Chatter, turn-ended liveness,
 # declared external waits, and captain-held transfers are not meaningful
 # progress and never reset the due clock once a working signature has been
-# observed; status lines carry no timestamps, so the clock is anchored to the
-# status file's mtime at the first scan that observes each new working
-# signature, and chatter written before that first observation moves the anchor
-# with it - conservatively, by at most one interval. When the same
-# meaningful working evidence remains overdue, it performs one bounded
+# observed. On first observation of each meaningful signature, the clock uses
+# the task's oldest durable evidence, so chatter written after the working line
+# cannot postpone its due check. When the same meaningful working evidence
+# remains overdue, it performs one bounded
 # fm-crew-state.sh read and queues a task-local stale wake for targeted
 # intervention. Unresolved needs-decision/blocked events are folded separately
 # and re-surfaced through the same durable task signal without auto-answering.
@@ -100,12 +102,12 @@ CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-600}
 case "$FM_INACTIVE_RECONCILE_SECS" in
   ''|*[!0-9]*|0)
-    printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 1800\n' >&2
+    printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 600\n' >&2
     exit 2
     ;;
 esac
-if [ "$FM_INACTIVE_RECONCILE_SECS" -lt 60 ] || [ "$FM_INACTIVE_RECONCILE_SECS" -gt 1800 ]; then
-  printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 1800\n' >&2
+if [ "$FM_INACTIVE_RECONCILE_SECS" -lt 60 ] || [ "$FM_INACTIVE_RECONCILE_SECS" -gt 600 ]; then
+  printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 600\n' >&2
   exit 2
 fi
 # The re-surface cadence for a known-but-unresolved obligation is the fleet's,
@@ -447,10 +449,14 @@ active_progress_signature() { # <status-file>
   sha256_text "$lines"
 }
 
-active_progress_epoch() { # <status-file> <fallback>
-  local status=$1 fallback=$2 m
-  m=$(file_mtime "$status" 2>/dev/null || true)
-  case "$m" in ''|*[!0-9]*) printf '%s\n' "$fallback" ;; *) printf '%s\n' "$m" ;; esac
+active_progress_lower_bound() { # <meta-file> <status-file> <turn-file> <fallback>
+  local meta=$1 status=$2 turn=$3 fallback=$4 path m oldest=''
+  for path in "$meta" "$status" "$turn"; do
+    m=$(file_mtime "$path" 2>/dev/null || true)
+    case "$m" in ''|*[!0-9]*) continue ;; esac
+    if [ -z "$oldest" ] || [ "$m" -lt "$oldest" ]; then oldest=$m; fi
+  done
+  printf '%s\n' "${oldest:-$fallback}"
 }
 
 active_current_state() { # <id> <timeout>
@@ -499,24 +505,15 @@ active_management_locked() { # <id> <meta> <timeout>
   local id=$1 meta=$2 timeout=$3 status turn last_line progress_signature signal_signature turn_signature
   local old_signature progress_epoch decision_rows decision_signature decision_key
   local record now last_target last_alert alert_fingerprint state source age payload result=0
+  local status_epoch turn_epoch turn_seen_signature turn_seen_path
   status="$STATE/$id.status"
   [ -f "$status" ] && [ ! -L "$status" ] || return 0
   turn="$STATE/$id.turn-ended"
   signal_signature=$(fm_wake_signal_sig "$status" 2>/dev/null || true)
   turn_signature=$(fm_wake_signal_sig "$turn" 2>/dev/null || true)
   last_line=$(last_status_line "$status")
-  # The authoritative whole-file fold, not the cursor-backed sibling: that
-  # cursor is bin/fm-wake-drain.sh's presentation state, and advancing it from
-  # this read-only cadence would let a later drain present decisions from past
-  # its own committed endpoint. It is the most expensive read here, so it runs
-  # only while the task's own current status still presents the obligation:
-  # bin/fm-supervise-daemon.sh's classify_signal re-derives a signal row's
-  # actionability from that same last line, so a row queued against a decision
-  # buried under later appends would be self-handled and acknowledged without
-  # ever escalating. A buried decision stays unresolved in the fold and keeps
-  # its surface in fm-wake-drain.sh's OPEN DECISIONS section.
   decision_rows=
-  if status_is_captain_relevant "$last_line" && active_has_decision_event "$status"; then
+  if active_has_decision_event "$status"; then
     decision_rows=$(status_open_decisions "$status" 2>/dev/null || true)
   fi
   progress_signature=$(active_progress_signature "$status")
@@ -529,7 +526,7 @@ active_management_locked() { # <id> <meta> <timeout>
   if [ "$old_signature" != "$progress_signature" ] || \
      { [ -n "$progress_signature" ] && { [ -z "$progress_epoch" ] || \
        [ "$progress_epoch" = 0 ]; }; }; then
-    progress_epoch=$(active_progress_epoch "$status" "$now")
+    progress_epoch=$(active_progress_lower_bound "$meta" "$status" "$turn" "$now")
   fi
   case "$progress_epoch" in ''|*[!0-9]*) progress_epoch=$now ;; esac
   decision_signature=
@@ -555,13 +552,23 @@ active_management_locked() { # <id> <meta> <timeout>
       # slug. The decision's free-text note reaches the captain through
       # fm-wake-drain.sh's OPEN DECISIONS section instead.
       payload="signal: $status (unresolved decision key=$decision_key)"
+      status_epoch=$(file_mtime "$status" 2>/dev/null || true)
+      turn_epoch=$(file_mtime "$turn" 2>/dev/null || true)
+      turn_seen_path=$(fm_wake_signal_seen_path "$STATE" "$turn")
+      turn_seen_signature=$(cat "$turn_seen_path" 2>/dev/null || true)
       active_queue_once signal "$id.status" "$payload" || result=$?
       if [ "$result" -eq 0 ]; then
         last_alert=$now
         if fm_wake_signal_mark_seen_if_current "$STATE" "$status" "$signal_signature"; then
           status_mark_surfaced "$STATE" "$id" "$last_line" || true
+          case "$status_epoch:$turn_epoch" in *[!0-9:]*|:|*:|*:*:*) : ;;
+            *)
+              if [ -z "$turn_seen_signature" ] && [ "$turn_epoch" -le "$status_epoch" ]; then
+                fm_wake_signal_mark_seen_if_current "$STATE" "$turn" "$turn_signature" || true
+              fi
+              ;;
+          esac
         fi
-        fm_wake_signal_mark_seen_if_current "$STATE" "$turn" "$turn_signature" || true
       elif [ "$result" -eq 2 ]; then
         return 1
       fi
@@ -705,6 +712,9 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
       remaining=1
     fi
     [ "$remaining" -gt 0 ] || return 3
+    if [ "$remaining" -gt "${SCAN_CHILD_TIMEOUT:-$remaining}" ]; then
+      remaining=$SCAN_CHILD_TIMEOUT
+    fi
     reconcile_direct_child "$id" "$meta" "$self" "$remaining" || {
       rc=$?
       [ "$rc" -eq 3 ] && return 3
@@ -713,8 +723,30 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
   done
 }
 
+scan_direct_child_count() {
+  local meta id kind line count=0
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+    id=${meta##*/}; id=${id%.meta}
+    valid_id "$id" || continue
+    kind=''
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in kind=*) kind=${line#kind=} ;; esac
+    done < "$meta"
+    [ "$kind" = secondmate ] && continue
+    count=$((count + 1))
+  done
+  printf '%s\n' "$count"
+}
+
+scan_pending() {
+  local cursor
+  cursor=$(scan_marker_cursor)
+  [ -n "$cursor" ] && valid_id "$cursor"
+}
+
 scan() {
-  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age cadence_age now
+  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count
   local resuming=0 wrapping=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
@@ -768,6 +800,16 @@ scan() {
       printf 'actionable: inactive terminal outcomes remain unreconciled: invalid .fm-secondmate-home marker\n'
       return 0
     fi
+  fi
+  child_count=$(scan_direct_child_count)
+  if [ "$child_count" -gt 0 ]; then
+    SCAN_CHILD_TIMEOUT=$((FM_INACTIVE_RECONCILE_SECS / child_count - 1))
+    [ "$SCAN_CHILD_TIMEOUT" -gt 0 ] || SCAN_CHILD_TIMEOUT=1
+    if [ "$SCAN_CHILD_TIMEOUT" -gt "$FM_INACTIVE_RECONCILE_BUDGET_SECS" ]; then
+      SCAN_CHILD_TIMEOUT=$FM_INACTIVE_RECONCILE_BUDGET_SECS
+    fi
+  else
+    SCAN_CHILD_TIMEOUT=$FM_INACTIVE_RECONCILE_BUDGET_SECS
   fi
   deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
   SCAN_FIRST_VISIT_PENDING=1
@@ -835,6 +877,10 @@ case "$mode" in
     trap 'fm_lock_release "$SCAN_LOCK"' EXIT
     scan "$2"
     ;;
+  pending)
+    [ "$#" -eq 1 ] || exit 2
+    scan_pending
+    ;;
   acknowledge)
     [ "$#" -eq 2 ] || { printf 'usage: fm-inactive-reconcile.sh acknowledge <fingerprint>\n' >&2; exit 2; }
     fm_lock_acquire_wait "$SCAN_LOCK" || exit 1
@@ -852,6 +898,7 @@ case "$mode" in
     ;;
   *)
     printf 'usage: fm-inactive-reconcile.sh scan [--startup]\n' >&2
+    printf '       fm-inactive-reconcile.sh pending\n' >&2
     printf '       fm-inactive-reconcile.sh acknowledge <fingerprint>\n' >&2
     exit 2
     ;;
