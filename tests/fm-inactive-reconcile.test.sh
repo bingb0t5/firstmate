@@ -416,6 +416,28 @@ SH
   pass "stalled state reads are bounded without starving later children"
 }
 
+test_complete_child_check_is_bounded() {
+  local holder i
+  make_world bounded-child
+  write_child "$MAIN" child 'working: lock holder blocks the complete check'
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash -c '
+    . "$1"
+    lock=$(fm_meta_lock_path "$2")
+    fm_lock_acquire_wait "$lock"
+    : > "$3"
+    sleep 30
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$MAIN/state/child.meta" "$WORLD/lock-ready" &
+  holder=$!
+  i=0
+  while [ "$i" -lt 30 ] && [ ! -e "$WORLD/lock-ready" ]; do sleep 0.1; i=$((i + 1)); done
+  [ -e "$WORLD/lock-ready" ] || fail "meta lock holder did not start"
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+  reap "$holder"
+  grep -Fq 'bounded due-work check exceeded' "$MAIN/state/.wake-queue" \
+    || fail "a complete child-check timeout was silently skipped"
+  pass "the complete per-child due-work check is process-bounded"
+}
+
 test_full_scan_budget_includes_wake_lock_wait() {
   local holder started elapsed i
   make_world wake-lock; write_child "$MAIN" child 'done: green'
@@ -435,7 +457,7 @@ test_full_scan_budget_includes_wake_lock_wait() {
   elapsed=$(( $(date +%s) - started ))
   reap "$holder"
   # The unbounded wake-lock wait is ended by the process-group backstop, which
-  # fires one second after the budget; the bound proves the scan cannot ride
+  # fires two seconds after the budget; the bound proves the scan cannot ride
   # the 30-second lock hold.
   [ "$elapsed" -le 4 ] || fail "wake lock wait exceeded aggregate scan budget (${elapsed}s)"
   pass "aggregate scan budget includes durable wake operations"
@@ -518,21 +540,6 @@ SH
   [ "$(grep -c 'child$' "$WORLD/state-reads" 2>/dev/null || true)" = 1 ] \
     || fail "overdue intervention performed more than one bounded current-state read: $(cat "$WORLD/state-reads" 2>/dev/null || true)"
 
-  make_world overdue-chatter-before-observation
-  write_child "$MAIN" child 'working: implementation is under way'
-  mkdir -p "$MAIN/projects/child"
-  cat > "$WORLD/fakebin/fm-crew-state.sh" <<SH
-#!/usr/bin/env bash
-exec "$ROOT/bin/fm-crew-state.sh" "\$@"
-SH
-  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
-  t0=$(( $(date +%s) - 100 ))
-  set_mtime "$t0" "$MAIN/state/child.meta" "$MAIN/state/child.turn-ended"
-  printf 'note: routine check-in before the first due-work scan\n' >> "$MAIN/state/child.status"
-  set_mtime $((t0 + 55)) "$MAIN/state/child.status"
-  FM_INACTIVE_RECONCILE_NOW=$((t0 + 70)) run_reconcile "$MAIN" --startup
-  grep -Fq 'active work has no meaningful progress' "$MAIN/state/.wake-queue" \
-    || fail "pre-observation chatter postponed the first meaningful-progress check"
   pass "overdue active work surfaces through a targeted wake despite chatter"
 }
 
@@ -682,9 +689,40 @@ test_unresolved_decision_is_routed_once_and_survives_restart() {
   [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "unresolved decision was not routed to the owning task"
   FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "restart duplicated an unresolved decision wake"
-  grep -Fq 'unresolved decision key=api-shape' "$MAIN/state/.wake-queue" \
-    || fail "decision wake omitted its durable key"
+  grep -Fq 'unresolved decisions' "$MAIN/state/.wake-queue" \
+    || fail "decision wake omitted its folded-set marker"
   pass "unresolved decisions route durably without an automatic answer or storm"
+}
+
+test_open_decision_does_not_suppress_overdue_progress() {
+  make_world decision-and-progress
+  write_child "$MAIN" child 'needs-decision [key=api]: choose the API'
+  printf 'working [key=impl]: implementation continues independently\n' >> "$MAIN/state/child.status"
+  age "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "open decision did not produce its signal"
+  [ "$(stale_row_count "$MAIN")" = 1 ] \
+    || fail "open decision suppressed the independent overdue progress check"
+  pass "decision and progress obligations retain independent alerts"
+}
+
+test_fresh_progress_is_not_aged_from_task_creation() {
+  local old
+  make_world fresh-progress
+  write_child "$MAIN" child 'working [key=old]: earlier phase'
+  old=$(( $(date +%s) - 1000 ))
+  set_mtime "$old" "$MAIN/state/child.meta" "$MAIN/state/child.turn-ended"
+  printf 'working [key=new]: fresh meaningful phase\n' >> "$MAIN/state/child.status"
+  FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] \
+    || fail "fresh progress was aged from task creation"
+  pass "fresh progress anchors to its status generation"
 }
 
 test_decision_backstop_commits_the_watcher_generation() {
@@ -1003,6 +1041,8 @@ test_decision_wake_is_actionable_to_the_away_classifier() {
 
   make_world away-decision-buried
   write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  printf 'needs-decision [key=release-shape]: choose the release shape\n' \
+    >> "$MAIN/state/child.status"
   printf 'working [key=impl]: continuing on the rest while blocked on api-shape\n' \
     >> "$MAIN/state/child.status"
   FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
@@ -1012,14 +1052,14 @@ test_decision_wake_is_actionable_to_the_away_classifier() {
     FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; classify_signal "${2#signal: }" "$3"' _ \
     "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
   case "$decision" in
-    escalate\|*api-shape*) : ;;
-    *) fail "away mode self-handled a buried unresolved decision: $decision" ;;
+    escalate\|*api-shape*release-shape*) : ;;
+    *) fail "away mode dropped a buried unresolved decision: $decision" ;;
   esac
   pass "decision wakes remain actionable after later status appends"
 }
 
 test_cadence_cap_and_budget_continuation_bound_each_child() {
-  local out status pid i reads
+  local out status pid i reads id
   make_world cadence-cap
   status=0
   out=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
@@ -1059,6 +1099,18 @@ SH
   reap "$pid"
   [ "$reads" -ge 3 ] \
     || fail "truncated sweep slept for the 30-second poll instead of checking every child: $(cat "$WORLD/watch.out")"
+
+  make_world over-capacity
+  for i in $(seq 1 26); do
+    id=$(printf 'child%02d' "$i")
+    fm_write_meta "$MAIN/state/$id.meta" \
+      "window=firstmate:fm-$id" "worktree=$MAIN/projects/$id" 'project=alpha' \
+      'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' "spawn_gen=$i"
+  done
+  run_reconcile "$MAIN" --startup
+  awk -F '\t' '$3 == "check" && $4 == "inactive-reconcile-capacity" { found = 1 } END { exit(found ? 0 : 1) }' \
+    "$MAIN/state/.wake-queue" \
+    || fail "an over-capacity home silently claimed the ten-minute bound"
   pass "ten-minute cadence is capped and truncated sweeps continue immediately"
 }
 
@@ -1104,6 +1156,7 @@ test_nonterminal_and_captain_held_states_do_not_report
 test_post_completion_pause_does_not_report_terminal_outcome
 test_watcher_hook_and_idle_secondmate_exemption
 test_stalled_state_read_is_bounded_and_scan_progresses
+test_complete_child_check_is_bounded
 test_full_scan_budget_includes_wake_lock_wait
 test_notice_recovery_does_not_duplicate_wake
 test_quiet_active_scan_does_not_read_current_state
@@ -1116,6 +1169,8 @@ test_wrap_truncated_at_the_origin_completes_the_sweep
 test_help_renders_the_whole_contract_block
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
+test_open_decision_does_not_suppress_overdue_progress
+test_fresh_progress_is_not_aged_from_task_creation
 test_decision_backstop_commits_the_watcher_generation
 test_decision_realert_preserves_an_independent_turn_end
 test_alert_clock_survives_drain_acknowledgement
