@@ -1251,13 +1251,20 @@ while :; do
   # due-work intervention or durable terminal-outcome obligation was created,
   # so unchanged healthy cycles never wake firstmate or consume model tokens.
   inactive_out=
+  inactive_reason=
   if inactive_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
     if [ -n "$inactive_out" ]; then
       if printf '%s\n' "$inactive_out" | grep -Fq 'inactive terminal outcome'; then
         wake "check: inactive-outcome"
       else
-        wake "active-management due-work intervention"
+        # bin/fm-watch-arm.sh and bin/fm-supervise-daemon.sh both parse this
+        # stdout against the signal:/stale:/check:/heartbeat vocabulary, so the
+        # reason is the queued payload itself - it already carries the right
+        # prefix and names the task this intervention is about.
+        inactive_reason=$(printf '%s\n' "$inactive_out" | sed -n 's/^actionable: //p' | head -1)
+        [ -n "$inactive_reason" ] || inactive_reason='check: active-management due-work intervention'
+        wake "$inactive_reason"
       fi
     fi
   else

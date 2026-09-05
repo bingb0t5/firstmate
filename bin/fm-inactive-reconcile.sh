@@ -80,6 +80,8 @@ CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 . "$SCRIPT_DIR/fm-secondmate-parent-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-backend.sh
+. "$SCRIPT_DIR/fm-backend.sh"
 
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-600}
 case "$FM_INACTIVE_RECONCILE_SECS" in
@@ -419,16 +421,36 @@ active_queue_once() { # <kind> <key> <payload>
   return 0
 }
 
+# Both folds below cost one subprocess per status line, so each is reached only
+# through a cheap whole-file grep that is a strict superset of the fold's own
+# opening rule: a decision record exists only where a needs-decision or blocked
+# line does, and an activity phase only where a working line does. A file with
+# neither can be skipped without ever consulting the fold.
+active_has_decision_event() { # <status-file>
+  grep -qE '^(needs-decision|blocked)([[:space:]]|[[]|:)' "$1" 2>/dev/null
+}
+
+active_has_open_working_phase() { # <status-file>
+  status_open_activities "$1" 2>/dev/null \
+    | awk -F '\t' '$2 == "working" { found = 1 } END { exit(found ? 0 : 1) }'
+}
+
 active_management_locked() { # <id> <meta> <timeout>
-  local id=$1 meta=$2 timeout=$3 status kind activities progress_signature
+  local id=$1 meta=$2 timeout=$3 status kind progress_signature
   local old_signature progress_epoch decision_rows decision_signature decision_key decision_note
-  local record now last_target alert_fingerprint state source age payload result=0
+  local record now last_target last_alert alert_fingerprint state source age payload result=0
   kind=$(meta_field "$meta" kind)
   [ "$kind" != secondmate ] || return 0
   status="$STATE/$id.status"
   [ -f "$status" ] && [ ! -L "$status" ] || return 0
-  activities=$(status_open_activities "$status" 2>/dev/null || true)
-  decision_rows=$(status_open_decisions_incremental "$status" 2>/dev/null || true)
+  # The authoritative whole-file fold, not the cursor-backed sibling: that
+  # cursor is bin/fm-wake-drain.sh's presentation state, and advancing it from
+  # this read-only cadence would let a later drain present decisions from past
+  # its own committed endpoint.
+  decision_rows=
+  if active_has_decision_event "$status"; then
+    decision_rows=$(status_open_decisions "$status" 2>/dev/null || true)
+  fi
   progress_signature=$(active_progress_signature "$status")
   [ -n "$progress_signature" ] || [ -n "$decision_rows" ] || return 0
   record=$(active_record_path "$id")
@@ -454,7 +476,7 @@ active_management_locked() { # <id> <meta> <timeout>
     if active_alert_due "$record" "$alert_fingerprint" "$now"; then
       last_target=$(meta_field "$meta" window)
       [ -n "$last_target" ] || last_target=$id
-      payload="signal:$status (unresolved decision key=$decision_key: $(clean_field "$decision_note"))"
+      payload="signal: $status (unresolved decision key=$decision_key: $(clean_field "$decision_note"))"
       active_queue_once signal "$id.status" "$payload" || result=$?
       if [ "$result" -eq 0 ]; then
         last_alert=$now
@@ -462,25 +484,28 @@ active_management_locked() { # <id> <meta> <timeout>
         return 1
       fi
     fi
-  elif printf '%s\n' "$activities" | awk -F '\t' '$2 == "working" { found=1 } END { exit(found ? 0 : 1) }'; then
+  elif [ -n "$progress_signature" ] \
+    && [ "$((now - progress_epoch))" -ge "$FM_INACTIVE_RECONCILE_SECS" ] \
+    && active_has_open_working_phase "$status"; then
     age=$((now - progress_epoch))
-    if [ "$age" -ge "$FM_INACTIVE_RECONCILE_SECS" ]; then
-      if [ -z "$ACTIVE_STATE_LINE" ]; then
-        ACTIVE_STATE_LINE=$(active_current_state "$id" "$timeout" 2>/dev/null || true)
-        [ -n "$ACTIVE_STATE_LINE" ] || ACTIVE_STATE_LINE='state: unknown · source: unavailable'
-      fi
-      state=${ACTIVE_STATE_LINE#state: }; state=${state%% *}
-      source=${ACTIVE_STATE_LINE#*source: }; source=${source%% *}
-      if [ "$state" = working ] && { [ "$source" = run-step ] || [ "$source" = pane ] || [ "$source" = status-log ]; }; then
-        last_target=$(meta_field "$meta" window)
-        [ -n "$last_target" ] || last_target=$id
-        alert_fingerprint="progress|$progress_signature|$progress_epoch"
-        if active_alert_due "$record" "$alert_fingerprint" "$now"; then
-          payload="stale: $last_target (active work has no meaningful progress for ${age}s)"
-          active_queue_once stale "$last_target" "$payload" || result=$?
-          if [ "$result" -eq 0 ]; then last_alert=$now; fi
-          [ "$result" -ne 2 ] || return 1
-        fi
+    if [ -z "$ACTIVE_STATE_LINE" ]; then
+      ACTIVE_STATE_LINE=$(active_current_state "$id" "$timeout" 2>/dev/null || true)
+      [ -n "$ACTIVE_STATE_LINE" ] || ACTIVE_STATE_LINE='state: unknown · source: unavailable'
+    fi
+    state=${ACTIVE_STATE_LINE#state: }; state=${state%% *}
+    source=${ACTIVE_STATE_LINE#*source: }; source=${source%% *}
+    if [ "$state" = working ] && { [ "$source" = run-step ] || [ "$source" = pane ] || [ "$source" = status-log ]; }; then
+      # Keyed by the task's backend target, exactly as every other stale
+      # producer keys it, so an already-queued stale row for this task is seen
+      # and never duplicated on a non-tmux backend.
+      last_target=$(fm_backend_target_of_meta "$meta")
+      [ -n "$last_target" ] || last_target=$id
+      alert_fingerprint="progress|$progress_signature|$progress_epoch"
+      if active_alert_due "$record" "$alert_fingerprint" "$now"; then
+        payload="stale: $last_target (active work has no meaningful progress for ${age}s)"
+        active_queue_once stale "$last_target" "$payload" || result=$?
+        if [ "$result" -eq 0 ]; then last_alert=$now; fi
+        [ "$result" -ne 2 ] || return 1
       fi
     fi
   fi
@@ -507,7 +532,10 @@ reconcile_direct_child_locked() { # <id> <meta> <secondmate-id-or-empty> <timeou
     [ -n "$state_line" ] || state_line='state: unknown · source: unavailable'
     ACTIVE_STATE_LINE=$state_line
   fi
-  active_management_locked "$id" "$meta" "$timeout" || return $?
+  # A single child's wake-queue or record write failure is tolerated exactly as
+  # the terminal-outcome paths below tolerate theirs: the scan keeps visiting
+  # the remaining children and retries this one on its next pass.
+  active_management_locked "$id" "$meta" "$timeout" || true
   [ "$age" -ge "$FM_INACTIVE_RECONCILE_SECS" ] || return 0
   case "$state_line" in
     'state: done '*) state='done' ;;

@@ -109,6 +109,11 @@ wake_count() { # <home> <key prefix>
   grep -c "$2" "$1/state/.wake-queue" 2>/dev/null || true
 }
 
+stale_row_count() { # <home>
+  awk -F '\t' '$3 == "stale" { n++ } END { print n + 0 }' "$1/state/.wake-queue" 2>/dev/null \
+    || printf '0\n'
+}
+
 outcome_count() { # <home> <suffix>
   find "$1/state/terminal-outcomes" -type f -name "*.$2" 2>/dev/null | wc -l | tr -d ' '
 }
@@ -509,10 +514,50 @@ test_declared_wait_and_parent_boundary_are_respected() {
   FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ ! -s "$MAIN/state/.wake-queue" ] || fail "declared external wait was treated as overdue work"
   bind_secondmate local
+  write_mate_meta
   write_child "$MATE" mate-child 'working: delegated implementation'
   FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -e "$MAIN/state/active-management/mate" ] \
+    || fail "main took active management of a registered secondmate"
   [ ! -e "$MAIN/state/active-management/mate-child" ] || fail "main scanned a secondmate child"
   pass "declared waits and the main/secondmate ownership boundary remain intact"
+}
+
+# The watcher's own stale row and this due-work path name the same task by its
+# backend target, so a task already queued for intervention is never queued a
+# second time for a branch or away drain to act on twice.
+test_active_intervention_does_not_duplicate_an_existing_wake() {
+  local now
+  make_world no-duplicate
+  fm_write_meta "$MAIN/state/child.meta" \
+    'window=firstmate:fm-child' 'backend=orca' 'terminal=orca:child-endpoint' \
+    'endpoint_task_id=child' "worktree=$MAIN/projects/child" 'project=alpha' \
+    'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' 'spawn_gen=s1'
+  printf 'working: implementation is under way\n' > "$MAIN/state/child.status"
+  : > "$MAIN/state/child.turn-ended"
+  age "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working · source: run-step\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; fm_wake_append stale "$2" "$3"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" 'orca:child-endpoint' 'stale: orca:child-endpoint' \
+    || fail "could not seed the watcher's own stale row"
+
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] \
+    || fail "due-work intervention duplicated a queued stale row: $(cat "$MAIN/state/.wake-queue")"
+
+  rm -f "$MAIN/state/.wake-queue"
+  rm -rf "$MAIN/state/active-management"
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "due-work intervention queued no stale row of its own"
+  awk -F '\t' '$3 == "stale" { print $4 }' "$MAIN/state/.wake-queue" \
+    | grep -Fxq 'orca:child-endpoint' \
+    || fail "due-work stale row was not keyed by the backend target: $(cat "$MAIN/state/.wake-queue")"
+  pass "due-work intervention keys by backend target and never duplicates a queued row"
 }
 
 # Forge command shims fail loudly. A successful scan proves this path never uses
@@ -544,6 +589,7 @@ test_quiet_active_scan_does_not_read_current_state
 test_overdue_active_work_ignores_chatter
 test_unresolved_decision_is_routed_once_and_survives_restart
 test_declared_wait_and_parent_boundary_are_respected
+test_active_intervention_does_not_duplicate_an_existing_wake
 test_reconciliation_never_calls_forge
 
 echo "all inactive reconciliation tests passed"
