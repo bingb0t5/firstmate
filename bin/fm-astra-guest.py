@@ -297,13 +297,13 @@ def command_handoff(args: argparse.Namespace, mode: str) -> int:
 def command_status(args: argparse.Namespace) -> int:
     state_dir = Path(args.state_dir).resolve()
     try:
-        with exclusive_state(state_dir) as (state, _):
-            print(
-                f"handoff={state['mode']} generation={state.get('generation', 0)}"
-                f" reason={state.get('reason', '')}"
-            )
+        state = read_state(state_paths(state_dir)[0])
     except ValueError as exc:
         return die(str(exc))
+    print(
+        f"handoff={state['mode']} generation={state.get('generation', 0)}"
+        f" reason={state.get('reason', '')}"
+    )
     return 0
 
 
@@ -402,8 +402,12 @@ def command_run(args: argparse.Namespace) -> int:
             if process.returncode != 0:
                 report_diagnostics(stderr)
                 return die(f"client adapter exited {process.returncode}", EXIT_CLIENT)
-            stdout = stdout_bytes.decode("utf-8")
-            lines = [line for line in stdout.splitlines() if line.strip()]
+            try:
+                stdout = stdout_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                report_diagnostics(stderr)
+                raise
+            lines = [line.rstrip("\r") for line in stdout.split("\n") if line.strip()]
             if not lines:
                 report_diagnostics(stderr)
                 return die("client adapter returned no JSON response", EXIT_CLIENT)

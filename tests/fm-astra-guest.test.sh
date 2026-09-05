@@ -104,8 +104,11 @@ elif action == "detach":
     time.sleep(float(request.get("seconds", 30)))
     result = {"ok": True, "detached": True}
 elif action == "undecodable":
+    os.write(2, b"undecodable-diagnostic\n")
     os.write(1, b'{"ok": true, "value": "Xin ch\xe0o"}\n')
     sys.exit(0)
+elif action == "separator":
+    result = {"ok": True, "separator": True, "text": "a\u2028b"}
 elif action == "diagnostic_bytes":
     os.write(2, b"noise \xff diagnostic\n")
     result = {"ok": True, "diagnostic_bytes": True}
@@ -342,6 +345,19 @@ test_serialized_fixture_calls() {
     *) fail "desktop input calls interleaved" ;;
   esac
 
+  : > "$state/critical.log"
+  write_request "$request_one" critical ',"name":"status-probe","seconds":2'
+  run_fixture "$manifest" "$state" "$client" "$request_one" 10 >/dev/null 2>&1 &
+  local holder=$! probe_waited=0
+  while ! grep -q '^start status-probe' "$state/critical.log" 2>/dev/null && [ "$probe_waited" -lt 200 ]; do
+    sleep 0.05
+    probe_waited=$((probe_waited + 1))
+  done
+  grep -q '^start status-probe' "$state/critical.log" || fail "the probing desktop call never started"
+  timeout 1 "$RUNNER" status --state-dir "$state" >/dev/null \
+    || fail "status blocked behind an in-flight desktop call"
+  wait "$holder"
+
   status=0
   output=$("$RUNNER" run --manifest "$manifest" --state-dir "$state" --client "$client" \
     --timeout 5 --request "$root/absent-request.json" 2>&1) || status=$?
@@ -385,6 +401,16 @@ test_serialized_fixture_calls() {
   output=$(run_fixture "$manifest" "$state" "$client" "$request" 2>&1) || status=$?
   expect_code 5 "$status" "undecodable adapter output is reported as a client failure"
   assert_contains "$output" "client adapter call failed" "the adapter is named as the source of the failure"
+  assert_contains "$output" "undecodable-diagnostic" "diagnostics reach the operator when stdout cannot be decoded"
+
+  write_request "$request" separator
+  status=0
+  output=$(run_fixture "$manifest" "$state" "$client" "$request" 2>&1) || status=$?
+  expect_code 0 "$status" "a Unicode line separator inside the response does not fail the call"
+  printf '%s' "$output" | python3 -c 'import json, sys
+envelope = json.load(sys.stdin)
+sys.exit(0 if envelope["client"]["text"] == "a\u2028b" else 1)' \
+    || fail "the response text containing a Unicode line separator was not returned intact"
 
   write_request "$request" observe
   "$RUNNER" pause --state-dir "$state" --reason "fixture human takeover" >/dev/null
