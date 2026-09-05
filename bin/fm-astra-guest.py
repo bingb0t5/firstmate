@@ -370,19 +370,23 @@ def command_run(args: argparse.Namespace) -> int:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    encoding="utf-8",
                     env=env,
                     start_new_session=True,
                 )
             except OSError as exc:
                 return die(f"client adapter failed to start: {exc}", EXIT_CLIENT)
             try:
-                stdout, stderr = process.communicate(
-                    json.dumps(payload, ensure_ascii=False) + "\n", timeout=args.timeout
-                )
+                try:
+                    stdout, stderr = process.communicate(
+                        json.dumps(payload, ensure_ascii=False) + "\n", timeout=args.timeout
+                    )
+                except BaseException:
+                    kill_process_group(process)
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        process.wait(timeout=CLEANUP_TIMEOUT)
+                    raise
             except subprocess.TimeoutExpired:
-                kill_process_group(process)
-                with contextlib.suppress(subprocess.TimeoutExpired):
-                    process.wait(timeout=CLEANUP_TIMEOUT)
                 return die("client timed out; desktop input lock released", EXIT_CLIENT)
             duration_ms = int((time.monotonic() - started) * 1000)
             if process.returncode != 0:
@@ -461,6 +465,9 @@ def command_check(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, OSError):
+            stream.reconfigure(encoding="utf-8")
     parser = build_parser()
     args = parser.parse_args()
     try:

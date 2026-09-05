@@ -55,10 +55,12 @@ from pathlib import Path
 root = Path(os.environ["FM_ASTRA_SESSION_DIR"])
 state_path = root / "fixture-state.json"
 log_path = root / "critical.log"
-state = json.loads(state_path.read_text()) if state_path.exists() else {
+state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {
     "form": "", "scroll": 0, "stale": True,
     "document": {"title": "Keep title", "body": ["Keep this paragraph", "Edit this paragraph"], "footer": "Keep footer"},
 }
+sys.stdin.reconfigure(encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8")
 request = json.loads(sys.stdin.readline())
 action = request.get("action")
 
@@ -264,6 +266,12 @@ test_serialized_fixture_calls() {
   write_request "$request" form ',"text":" world"'
   output=$(run_fixture "$manifest" "$state" "$client" "$request")
   assert_contains "$output" 'Xin chào world' "client state persists across calls"
+
+  write_request "$request" form ',"text":" thêm"'
+  output=$(LC_ALL=C PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 "$RUNNER" run \
+    --manifest "$manifest" --state-dir "$state" --client "$client" \
+    --timeout 5 --request "$request")
+  assert_contains "$output" 'Xin chào world thêm' "Vietnamese form text survives an ASCII ambient locale"
 
   write_request "$request" scroll ',"amount":240'
   assert_contains "$(run_fixture "$manifest" "$state" "$client" "$request")" '"scroll": 240' "scroll is delivered"
