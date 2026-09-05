@@ -168,6 +168,8 @@ Adapter diagnostics stay on standard error and are not copied into the result.
 
 A response key that names a credential is returned as `[redacted]` and listed under the envelope's `redacted` field, so a completed desktop action still reports its result and `duration_ms` while no credential value is ever printed.
 
+Booleans, numbers, and nulls under such a key are returned unchanged, because they cannot carry a credential value and rewriting them would report a wrong result; strings, objects, and arrays are always redacted.
+
 A client command can be exercised directly with a disposable request.
 
 ```sh
@@ -195,7 +197,7 @@ tests/fm-astra-guest.test.sh
 
 The test uses a temporary fixture outside production repositories and proves form text including Vietnamese, scrolling, shortcut and drag, asynchronous control, stale-click recovery, screenshot coordinate alignment, state across calls, serialized concurrent calls, timed-out input release, and a targeted rich-text edit that preserves unrelated content.
 
-The test also records grouped-call timing where the adapter exposes it.
+Every `run` envelope reports that call's observable `duration_ms`, and the offline test asserts it; grouped-workflow timing is measured from those per-call durations during the gated live run.
 
 The live portion is intentionally gated and does not run until Infra Ops publishes a ready manifest and a guest adapter command.
 

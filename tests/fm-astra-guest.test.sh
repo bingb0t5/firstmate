@@ -105,7 +105,13 @@ elif action == "undecodable":
     os.write(1, b'{"ok": true, "value": "Xin ch\xe0o"}\n')
     sys.exit(0)
 elif action == "sensitive":
-    result = {"ok": True, "cookies_cleared": True, "session_token": "must-never-be-printed"}
+    result = {
+        "ok": True,
+        "secrets_found": 0,
+        "cookie_banner_dismissed": False,
+        "session_token": "must-never-be-printed",
+        "credentials": {"user": "must-never-be-printed-either"},
+    }
 elif action == "rich_edit":
     state["document"]["body"][1] = request["replacement"]
     result = {"ok": True, "document": state["document"]}
@@ -312,10 +318,14 @@ test_serialized_fixture_calls() {
   write_request "$request" sensitive
   output=$(run_fixture "$manifest" "$state" "$client" "$request")
   assert_not_contains "$output" "must-never-be-printed" "a credential-named response value is never printed"
-  assert_contains "$output" '"session_token": "[redacted]"' "the credential-named key is redacted in place"
+  assert_contains "$output" '"session_token": "[redacted]"' "a credential-named string is redacted in place"
+  assert_contains "$output" '"credentials": "[redacted]"' "a credential-named object is redacted whole"
+  assert_contains "$output" '"secrets_found": 0' "a credential-named number keeps its reported value"
+  assert_contains "$output" '"cookie_banner_dismissed": false' "a credential-named boolean keeps its reported value"
   assert_contains "$output" '"ok": true' "the completed action still reports its unmatched result fields"
   assert_contains "$output" '"duration_ms"' "the completed action still reports its observable timing"
   assert_contains "$output" 'client response.session_token' "the envelope names every redacted field"
+  assert_not_contains "$output" 'client response.secrets_found' "an unredacted field is not reported as redacted"
 
   status=0
   output=$("$RUNNER" run --manifest "$manifest" --state-dir "$root/blocker/state" \

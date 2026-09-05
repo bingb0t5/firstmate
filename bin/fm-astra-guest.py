@@ -88,13 +88,17 @@ def is_sensitive_key(key: Any) -> bool:
     return str(key).lower() in {"credential", "credentials"} or bool(FORBIDDEN_KEY.search(str(key)))
 
 
+def can_carry_credential(value: Any) -> bool:
+    return value is not None and not isinstance(value, (bool, int, float))
+
+
 def redact_sensitive_values(value: Any, path: str) -> tuple[Any, list[str]]:
     redacted: list[str] = []
     if isinstance(value, dict):
         cleaned: dict[str, Any] = {}
         for key, child in value.items():
             child_path = f"{path}.{key}"
-            if is_sensitive_key(key):
+            if is_sensitive_key(key) and can_carry_credential(child):
                 cleaned[key] = "[redacted]"
                 redacted.append(child_path)
                 continue
