@@ -1313,6 +1313,15 @@ fm_wake_signal_seen_current() {  # <state> <file>
   [ "$(cat "$(fm_wake_signal_seen_path "$1" "$2")" 2>/dev/null)" = "$sig" ]
 }
 
+fm_wake_signal_mark_seen_if_current() {  # <state> <file> <expected-signature>
+  local state=$1 file=$2 expected=$3 current marker
+  [ -n "$expected" ] || return 1
+  current=$(fm_wake_signal_sig "$file") || return 1
+  [ "$current" = "$expected" ] || return 1
+  marker=$(fm_wake_signal_seen_path "$state" "$file")
+  printf '%s' "$expected" > "$marker"
+}
+
 # Guarded self-announced status append - the one dedup primitive for a status
 # line THIS home's own machinery writes as bookkeeping it has already presented
 # in the very turn or tick that writes it (an answerer-closes resolved line, a

@@ -1254,16 +1254,14 @@ while :; do
   if inactive_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
     if [ -n "$inactive_out" ]; then
-      if printf '%s\n' "$inactive_out" | grep -Fq 'inactive terminal outcome'; then
+      inactive_reason=$(printf '%s\n' "$inactive_out" \
+        | sed -n 's/^actionable: \(signal:\|stale:\)/\1/p' | head -1)
+      if [ -n "$inactive_reason" ]; then
+        wake "$inactive_reason"
+      elif printf '%s\n' "$inactive_out" | grep -Fq 'inactive terminal outcome'; then
         wake "check: inactive-outcome"
       else
-        # bin/fm-watch-arm.sh and bin/fm-supervise-daemon.sh both parse this
-        # stdout against the signal:/stale:/check:/heartbeat vocabulary, so the
-        # reason is the queued payload itself - it already carries the right
-        # prefix and names the task this intervention is about.
-        inactive_reason=$(printf '%s\n' "$inactive_out" | sed -n 's/^actionable: //p' | head -1)
-        [ -n "$inactive_reason" ] || inactive_reason='check: active-management due-work intervention'
-        wake "$inactive_reason"
+        wake "check: active-management due-work intervention"
       fi
     fi
   else

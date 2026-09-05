@@ -127,6 +127,17 @@ prime_seen() { # <state> <status>
 
 reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
 
+ack_wakes() { # <home>
+  local home=$1 err seq generation
+  err="$WORLD/drain.err"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$DRAIN" >/dev/null 2> "$err" || return 1
+  seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
+  [ -n "$seq" ] && [ -n "$generation" ] || return 1
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$DRAIN" \
+    --ack-through "$seq" --recovery-generation "$generation"
+}
+
 # The main retains a terminal presentation receipt until the corresponding wake
 # is handled and acknowledged.
 test_main_direct_terminal_presentation_receipt() {
@@ -660,6 +671,44 @@ test_unresolved_decision_is_routed_once_and_survives_restart() {
   pass "unresolved decisions route durably without an automatic answer or storm"
 }
 
+test_decision_backstop_commits_the_watcher_generation() {
+  local actor out pid i
+  for actor in main away; do
+    make_world "decision-generation-$actor"
+    write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+    [ "$actor" != away ] || : > "$MAIN/state/.afk"
+    out="$WORLD/first-watch.out"
+    PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+      FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=60 \
+      FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=1 \
+      FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$WATCH" > "$out" 2>&1 &
+    pid=$!
+    i=0
+    while [ "$i" -lt 50 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+    wait "$pid" || fail "$actor decision watcher did not exit through its first wake: $(cat "$out")"
+    grep -Fq 'signal: ' "$out" || fail "$actor decision backstop emitted no signal wake: $(cat "$out")"
+    [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+      || fail "$actor decision backstop did not queue exactly one wake"
+    ack_wakes "$MAIN" || fail "$actor decision wake could not be acknowledged"
+
+    out="$WORLD/second-watch.out"
+    PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+      FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=60 \
+      FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=1 \
+      FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" > "$out" 2>&1 &
+    pid=$!
+    sleep 3
+    kill -0 "$pid" 2>/dev/null \
+      || fail "$actor re-arm duplicated the handled decision: $(cat "$out")"
+    reap "$pid"
+    [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+      || fail "$actor re-arm queued a duplicate handled decision"
+  done
+  pass "decision backstop commits the watcher generation for main and away ownership"
+}
+
 test_declared_wait_and_parent_boundary_are_respected() {
   make_world active-boundaries
   write_child "$MAIN" child 'paused: waiting for upstream release'
@@ -807,6 +856,61 @@ SH
   pass "a truncated sweep resumes on the next poll and re-arms the cadence once complete"
 }
 
+test_completed_sweep_cadence_is_anchored_to_its_start() {
+  local now marker reads
+  make_world sweep-start-cadence
+  write_child "$MAIN" child 'done: green'
+  : > "$WORLD/state-reads"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+printf 'state: done · source: fake\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  marker="$MAIN/state/.inactive-outcome-reconcile"
+  printf 'epoch=%s\nstarted_epoch=%s\ncursor=\norigin=\n' \
+    "$((now - 1))" "$((now - 60))" > "$marker"
+  set_mtime "$((now - 1))" "$marker"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN"
+  reads=$(wc -l < "$WORLD/state-reads")
+  [ "$reads" -eq 1 ] \
+    || fail "completion time extended the sweep cadence: $(cat "$WORLD/state-reads")"
+  pass "completed sweep cadence remains anchored to the sweep start"
+}
+
+test_mixed_terminal_and_active_output_keeps_task_local_routing() {
+  local out pid i
+  make_world mixed-terminal-active
+  write_child "$MAIN" active 'working: implementation is overdue'
+  write_child "$MAIN" terminal 'done: green'
+  prime_seen "$MAIN/state" "$MAIN/state/active.status"
+  prime_seen "$MAIN/state" "$MAIN/state/terminal.status"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  active) printf 'state: unknown · source: status-log\n' ;;
+  terminal) printf 'state: done · source: fake\n' ;;
+esac
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  out="$WORLD/watch.out"
+  PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+    FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=60 \
+    FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=1 \
+    FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$WATCH" > "$out" 2>&1 &
+  pid=$!
+  i=0
+  while [ "$i" -lt 50 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+  wait "$pid" || fail "mixed-output watcher failed: $(cat "$out")"
+  grep -Fq 'stale: firstmate:fm-active' "$out" \
+    || fail "mixed output displaced the task-local wake reason: $(cat "$out")"
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "mixed scan lost its active row"
+  [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] || fail "mixed scan lost its terminal row"
+  pass "mixed terminal and active output preserves task-local branch routing"
+}
+
 # status_line_verb ignores leading whitespace when it folds an event, so the
 # cheap pre-fold guards must too: an indented event is a real event.
 test_indented_status_events_are_not_skipped() {
@@ -917,9 +1021,12 @@ test_wrap_truncated_at_the_origin_completes_the_sweep
 test_help_renders_the_whole_contract_block
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
+test_decision_backstop_commits_the_watcher_generation
 test_alert_clock_survives_drain_acknowledgement
 test_already_surfaced_decision_is_not_re_alerted_immediately
 test_budget_truncated_sweep_resumes_on_the_next_poll
+test_completed_sweep_cadence_is_anchored_to_its_start
+test_mixed_terminal_and_active_output_keeps_task_local_routing
 test_decision_wake_is_actionable_to_the_away_classifier
 test_secondmate_active_evidence_reaches_its_owning_actor
 test_declared_wait_and_parent_boundary_are_respected

@@ -504,7 +504,11 @@ async function runScenario(withAcceptor) {
 
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
 writeFileSync(`${process.env.FM_HOME}/state/branch-offer.meta`, "project=/projects/approved\nwindow=fm-branch-offer\n");
-writeFileSync(`${process.env.FM_HOME}/state/.wake-queue`, "1\t1\tsignal\tbranch-offer.status\tsignal: branch-offer synthetic wake\n");
+writeFileSync(
+  `${process.env.FM_HOME}/state/.wake-queue`,
+  "1\t1\tcheck\tinactive-outcome:fixture\tcheck: inactive-outcome\n" +
+    "1\t2\tsignal\tbranch-offer.status\tsignal: branch-offer synthetic wake\n",
+);
 const accepted = await runScenario(true);
 if (accepted.offers.length !== 1) throw new Error(`expected one branch offer, got ${accepted.offers.length}`);
 if (!accepted.offers[0].message.includes("signal: branch-offer synthetic wake")) {

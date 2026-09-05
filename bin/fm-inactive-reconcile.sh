@@ -16,11 +16,10 @@
 # 10, valid 1..30) and resumes after its last visited child on the next scan.
 # A sweep the budget truncated leaves its resume cursor recorded, so the next
 # poll continues it immediately instead of waiting out another interval and the
-# bound is per child rather than per scan. A resumed sweep skips the wrap pass,
-# because the children before its cursor are the ones it already visited; only a
-# cold cursor - one older than the cadence window, left behind by a dead watcher
-# - still wraps. A sweep that reaches the end clears the cursor, which is what
-# re-arms the cadence gate.
+# bound is per child rather than per scan. The cadence clock starts with the
+# sweep, so time spent completing a truncated sweep does not extend the next
+# due-work interval. A resumed sweep skips the completed segment, while a cold
+# cursor left behind by a dead watcher still anchors a full rotating sweep.
 # The scan enforces that budget itself through a whole-second deadline, and the
 # first due child of every scan is always visited with at least a one-second
 # state-read bound: whole-second arithmetic can otherwise round a small budget
@@ -67,10 +66,11 @@
 # notice_emitted; the fingerprint binds the spawn incarnation, task id, terminal
 # state, PR text, and sanitized last status.
 # Pending atomically becomes reported after parent append or presented after
-# main-home acknowledgement. The atomic marker's mtime gates scans, its cursor
-# records the last child visited within the aggregate budget, and its origin
-# records where the sweep in flight started, so a resumed sweep still owes - and
-# still runs - the wrap segment back over the children at or before that origin.
+# main-home acknowledgement. The atomic marker records the sweep start, its
+# cursor records the last child visited within the aggregate budget, and its
+# origin records where the sweep in flight started, so a resumed sweep still
+# owes - and still runs - the wrap segment back over the children at or before
+# that origin.
 #
 # The scan reads only durable local state and fm-crew-state.sh; it never invokes
 # gh, gh-axi, curl, fm-pr-check.sh, fm-pr-poll.sh, or a state *.check.sh.
@@ -296,17 +296,24 @@ scan_marker_origin() {
   grep '^origin=' "$SCAN_MARKER" 2>/dev/null | tail -1 | cut -d= -f2- || true
 }
 
+scan_marker_started_epoch() {
+  [ -f "$SCAN_MARKER" ] && [ ! -L "$SCAN_MARKER" ] || return 0
+  grep '^started_epoch=' "$SCAN_MARKER" 2>/dev/null | tail -1 | cut -d= -f2- || true
+}
+
 # The sweep this marker belongs to started after SCAN_ORIGIN and owes a wrap
 # segment over the children at or before it. scan() owns the value; every
 # cursor write carries it so a resumed sweep still knows what it has not
 # covered yet.
 SCAN_ORIGIN=
+SCAN_STARTED_EPOCH=
 
 write_scan_marker() { # <cursor>
   local cursor=$1 marker_tmp
   marker_tmp=$(mktemp "$STATE/.inactive-outcome-reconcile.XXXXXX") || return 1
   {
     printf 'epoch=%s\n' "$(reconcile_now)"
+    printf 'started_epoch=%s\n' "$SCAN_STARTED_EPOCH"
     printf 'cursor=%s\n' "$cursor"
     printf 'origin=%s\n' "$SCAN_ORIGIN"
   } > "$marker_tmp" || { rm -f "$marker_tmp"; return 1; }
@@ -489,11 +496,14 @@ active_has_open_working_phase() { # <status-file>
 }
 
 active_management_locked() { # <id> <meta> <timeout>
-  local id=$1 meta=$2 timeout=$3 status last_line progress_signature
+  local id=$1 meta=$2 timeout=$3 status turn last_line progress_signature signal_signature turn_signature
   local old_signature progress_epoch decision_rows decision_signature decision_key
   local record now last_target last_alert alert_fingerprint state source age payload result=0
   status="$STATE/$id.status"
   [ -f "$status" ] && [ ! -L "$status" ] || return 0
+  turn="$STATE/$id.turn-ended"
+  signal_signature=$(fm_wake_signal_sig "$status" 2>/dev/null || true)
+  turn_signature=$(fm_wake_signal_sig "$turn" 2>/dev/null || true)
   last_line=$(last_status_line "$status")
   # The authoritative whole-file fold, not the cursor-backed sibling: that
   # cursor is bin/fm-wake-drain.sh's presentation state, and advancing it from
@@ -548,6 +558,10 @@ active_management_locked() { # <id> <meta> <timeout>
       active_queue_once signal "$id.status" "$payload" || result=$?
       if [ "$result" -eq 0 ]; then
         last_alert=$now
+        if fm_wake_signal_mark_seen_if_current "$STATE" "$status" "$signal_signature"; then
+          status_mark_surfaced "$STATE" "$id" "$last_line" || true
+        fi
+        fm_wake_signal_mark_seen_if_current "$STATE" "$turn" "$turn_signature" || true
       elif [ "$result" -eq 2 ]; then
         return 1
       fi
@@ -700,24 +714,43 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age resuming=0 wrapping=0
+  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age cadence_age now
+  local resuming=0 wrapping=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
   cursor=$(scan_marker_cursor)
   valid_id "$cursor" || cursor=''
   SCAN_ORIGIN=$(scan_marker_origin)
   valid_id "$SCAN_ORIGIN" || SCAN_ORIGIN=''
+  SCAN_STARTED_EPOCH=$(scan_marker_started_epoch)
+  now=$(reconcile_now)
   marker_age=$(scan_marker_age)
+  cadence_age=$marker_age
+  case "$SCAN_STARTED_EPOCH" in
+    ''|*[!0-9]*) SCAN_STARTED_EPOCH='' ;;
+    *)
+      if [ "$SCAN_STARTED_EPOCH" -le "$now" ]; then
+        cadence_age=$((now - SCAN_STARTED_EPOCH))
+      else
+        SCAN_STARTED_EPOCH=''
+      fi
+      ;;
+  esac
   if [ -n "$cursor" ] && [ "$marker_age" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
     resuming=1
   fi
   if [ "$startup" != 1 ] && [ "$resuming" -eq 0 ] \
-    && [ "$marker_age" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
+    && [ "$cadence_age" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
     return 0
   fi
   # A cold cursor anchors a fresh sweep, which keeps the established rotation:
   # this sweep runs from just after it and then wraps back over the rest.
-  [ "$resuming" -eq 1 ] || SCAN_ORIGIN=$cursor
+  if [ "$resuming" -eq 1 ]; then
+    [ -n "$SCAN_STARTED_EPOCH" ] || SCAN_STARTED_EPOCH=$((now - marker_age))
+  else
+    SCAN_ORIGIN=$cursor
+    SCAN_STARTED_EPOCH=$now
+  fi
   # On a resume the after segment can only ever have written a position strictly
   # after the origin, so a position at or before it means that segment is done
   # and only the wrap is outstanding. A fresh sweep starts its cursor AT the

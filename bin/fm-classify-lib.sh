@@ -1450,6 +1450,13 @@ status_surfaced_matches() {  # <state> <task> <status-line>
   [ "$(cat "$(_hb_surfaced_path "$1" "$2")" 2>/dev/null || true)" = "$3" ]
 }
 
+status_mark_surfaced() {  # <state> <task> <status-line>
+  local state=$1 task=$2 line=$3
+  [ -n "$line" ] || return 0
+  status_is_captain_relevant "$line" || return 0
+  printf '%s' "$line" > "$(_hb_surfaced_path "$state" "$task")"
+}
+
 scan_captain_relevant_statuses() {  # <state>
   local state=$1 f last task
   for f in "$state"/*.status; do
