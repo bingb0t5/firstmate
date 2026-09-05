@@ -149,11 +149,8 @@ def missing_fields(doc: dict[str, Any]) -> list[str]:
 
 
 def validate_manifest(path: Path, require_ready: bool = True) -> dict[str, Any]:
-    try:
-        doc = load_json(path)
-        reject_sensitive_keys(doc)
-    except ValueError:
-        raise
+    doc = load_json(path)
+    reject_sensitive_keys(doc)
     if "schema" not in doc:
         missing = ["schema"] + missing_fields(doc)
         raise ValueError("missing interface fields: " + ", ".join(missing))
@@ -315,10 +312,14 @@ def request_payload(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("exactly one of --request or --prompt is required")
     if args.request:
         return load_json(Path(args.request), "request")
+    prompt = args.prompt
     try:
-        prompt = args.prompt.encode(sys.getfilesystemencoding(), "surrogateescape").decode("utf-8")
-    except UnicodeError as exc:
-        raise ValueError(f"--prompt is not valid UTF-8: {exc}") from exc
+        prompt.encode("utf-8")
+    except UnicodeEncodeError:
+        try:
+            prompt = prompt.encode(sys.getfilesystemencoding(), "surrogateescape").decode("utf-8")
+        except UnicodeError as exc:
+            raise ValueError(f"--prompt is not valid UTF-8: {exc}") from exc
     return {"prompt": prompt}
 
 

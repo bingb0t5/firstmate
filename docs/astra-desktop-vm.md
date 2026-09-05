@@ -158,6 +158,8 @@ The adapter reads one JSON object from standard input and writes one JSON object
 
 The request includes `protocol: 1` and a unique `request_id` added by the platform helper.
 
+Both directions of the channel are UTF-8 regardless of the ambient locale: the helper writes the request line as UTF-8 and decodes the adapter's output as UTF-8, so an adapter that reads or writes with the locale codeset fails on non-ASCII text under a `C` or `POSIX` service session. A Python adapter should call `sys.stdin.reconfigure(encoding="utf-8")` and `sys.stdout.reconfigure(encoding="utf-8")` before reading the request.
+
 The request may contain a prompt or a fixture-specific action list.
 
 The helper sets `FM_ASTRA_REQUEST_ID`, `FM_ASTRA_SESSION_DIR`, `FM_ASTRA_DESKTOP_OWNER=agent`, `FM_ASTRA_BROWSER_PROFILE`, and the guest `DISPLAY` for the adapter.
