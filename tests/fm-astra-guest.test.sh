@@ -95,6 +95,9 @@ elif action == "critical":
         log.write("end " + request["name"] + "\n")
     result = {"ok": True, "critical": request["name"]}
 elif action == "slow":
+    if request.get("diagnostic"):
+        sys.stderr.write("stalled-adapter-diagnostic\n")
+        sys.stderr.flush()
     time.sleep(float(request.get("seconds", 2)))
     result = {"ok": True, "slow": True}
 elif action == "detach":
@@ -346,7 +349,7 @@ test_serialized_fixture_calls() {
   esac
 
   : > "$state/critical.log"
-  write_request "$request_one" critical ',"name":"status-probe","seconds":2'
+  write_request "$request_one" critical ',"name":"status-probe","seconds":6'
   run_fixture "$manifest" "$state" "$client" "$request_one" 10 >/dev/null 2>&1 &
   local holder=$! probe_waited=0
   while ! grep -q '^start status-probe' "$state/critical.log" 2>/dev/null && [ "$probe_waited" -lt 200 ]; do
@@ -354,7 +357,7 @@ test_serialized_fixture_calls() {
     probe_waited=$((probe_waited + 1))
   done
   grep -q '^start status-probe' "$state/critical.log" || fail "the probing desktop call never started"
-  timeout 1 "$RUNNER" status --state-dir "$state" >/dev/null \
+  timeout 3 "$RUNNER" status --state-dir "$state" >/dev/null \
     || fail "status blocked behind an in-flight desktop call"
   wait "$holder"
 
@@ -420,11 +423,12 @@ sys.exit(0 if envelope["client"]["text"] == "a\u2028b" else 1)' \
   assert_contains "$output" "desktop is paused for human takeover" "the refusal names the human takeover, not an adapter failure"
   "$RUNNER" resume --state-dir "$state" >/dev/null
 
-  write_request "$request" slow ',"seconds":2'
+  write_request "$request" slow ',"seconds":2,"diagnostic":true'
   status=0
-  output=$(run_fixture "$manifest" "$state" "$client" "$request" 0.1 2>&1) || status=$?
+  output=$(run_fixture "$manifest" "$state" "$client" "$request" 0.5 2>&1) || status=$?
   expect_code 5 "$status" "timed-out call returns client failure"
   assert_contains "$output" "input lock released" "timeout reports input release"
+  assert_contains "$output" "stalled-adapter-diagnostic" "a stalled adapter's diagnostics reach the operator"
 
   write_request "$request" detach ',"seconds":30'
   status=0
@@ -433,9 +437,12 @@ sys.exit(0 if envelope["client"]["text"] == "a\u2028b" else 1)' \
   assert_present "$state/detached.marker" "the fixture actually spawned the detached grandchild"
   expect_code 5 "$status" "timeout cleanup does not block on a detached client grandchild"
   assert_contains "$output" "input lock released" "detached-grandchild timeout still reports input release"
-  "$RUNNER" status --state-dir "$state" >/dev/null || fail "input lock was not released after the detached timeout"
+  timeout 5 "$RUNNER" pause --state-dir "$state" --reason "lock probe" >/dev/null \
+    && timeout 5 "$RUNNER" resume --state-dir "$state" >/dev/null \
+    || fail "input lock was not released after the detached timeout"
   write_request "$request" form ',"text":" after-timeout"'
-  output=$(run_fixture "$manifest" "$state" "$client" "$request")
+  output=$(timeout 20 "$RUNNER" run --manifest "$manifest" --state-dir "$state" \
+    --client "$client" --timeout 5 --request "$request")
   assert_contains "$output" 'after-timeout' "client continues after timeout cleanup"
   pass "fixture proves actions, recovery, state, serialization, timeout cleanup, and rich-text preservation"
 }

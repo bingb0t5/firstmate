@@ -395,7 +395,8 @@ def command_run(args: argparse.Namespace) -> int:
                     with contextlib.suppress(subprocess.TimeoutExpired):
                         process.wait(timeout=CLEANUP_TIMEOUT)
                     raise
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as exc:
+                report_diagnostics((exc.stderr or b"").decode("utf-8", "replace"))
                 return die("client timed out; desktop input lock released", EXIT_CLIENT)
             duration_ms = int((time.monotonic() - started) * 1000)
             stderr = stderr_bytes.decode("utf-8", "replace")
