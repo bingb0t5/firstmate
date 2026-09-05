@@ -448,6 +448,73 @@ test_notice_recovery_does_not_duplicate_wake() {
   pass "notice recovery remains idempotent across queue acknowledgement"
 }
 
+test_quiet_active_scan_does_not_read_current_state() {
+  local now
+  make_world quiet-active
+  write_child "$MAIN" child 'working: implementation is under way'
+  touch "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+printf 'state: working · source: run-step\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW="$now" \
+    FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -s "$WORLD/state-reads" ] || fail "quiet active scan read current state before work was due"
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "quiet active scan woke supervision"
+  pass "quiet active scans use local evidence without a current-state/model read"
+}
+
+test_overdue_active_work_ignores_chatter() {
+  local now
+  make_world overdue-chatter
+  write_child "$MAIN" child 'working: implementation is under way'
+  touch "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+printf 'state: working · source: run-step\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW="$now" \
+    FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  printf 'note: routine check-in chatter\n' >> "$MAIN/state/child.status"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW=$((now + 60)) \
+    FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  grep -Fq 'active work has no meaningful progress' "$MAIN/state/.wake-queue" \
+    || fail "chatter reset the meaningful-progress due clock"
+  [ "$(grep -c 'child$' "$WORLD/state-reads" 2>/dev/null || true)" = 1 ] \
+    || fail "overdue intervention performed more than one bounded current-state read: $(cat "$WORLD/state-reads" 2>/dev/null || true)"
+  pass "overdue active work surfaces through a targeted wake despite chatter"
+}
+
+test_unresolved_decision_is_routed_once_and_survives_restart() {
+  make_world active-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "unresolved decision was not routed to the owning task"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "restart duplicated an unresolved decision wake"
+  grep -Fq 'unresolved decision key=api-shape' "$MAIN/state/.wake-queue" \
+    || fail "decision wake omitted its durable key"
+  pass "unresolved decisions route durably without an automatic answer or storm"
+}
+
+test_declared_wait_and_parent_boundary_are_respected() {
+  make_world active-boundaries
+  write_child "$MAIN" child 'paused: waiting for upstream release'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "declared external wait was treated as overdue work"
+  bind_secondmate local
+  write_child "$MATE" mate-child 'working: delegated implementation'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -e "$MAIN/state/active-management/mate-child" ] || fail "main scanned a secondmate child"
+  pass "declared waits and the main/secondmate ownership boundary remain intact"
+}
+
 # Forge command shims fail loudly. A successful scan proves this path never uses
 # them while reconciling a local terminal outcome.
 test_reconciliation_never_calls_forge() {
@@ -473,6 +540,10 @@ test_watcher_hook_and_idle_secondmate_exemption
 test_stalled_state_read_is_bounded_and_scan_progresses
 test_full_scan_budget_includes_wake_lock_wait
 test_notice_recovery_does_not_duplicate_wake
+test_quiet_active_scan_does_not_read_current_state
+test_overdue_active_work_ignores_chatter
+test_unresolved_decision_is_routed_once_and_survives_restart
+test_declared_wait_and_parent_boundary_are_respected
 test_reconciliation_never_calls_forge
 
 echo "all inactive reconciliation tests passed"

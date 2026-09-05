@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm-inactive-reconcile.sh - bounded reconciliation of suspicious inactive terminal outcomes.
+# fm-inactive-reconcile.sh - bounded active-management and terminal reconciliation.
 #
 # Usage:
 #   fm-inactive-reconcile.sh scan [--startup]
@@ -7,11 +7,13 @@
 #
 # This is an adjunct to the existing watcher poll loop and session-start path,
 # not a watcher, daemon, PR poll, or forge client of its own.
-# `scan` evaluates at most once per FM_INACTIVE_RECONCILE_SECS (default 900,
+# `scan` evaluates at most once per FM_INACTIVE_RECONCILE_SECS (default 600,
 # valid 60..1800) per home, except that --startup performs the same cheap scan
-# immediately during a locked session start. Each scan uses an aggregate
-# FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default 10, valid 1..30) and
-# resumes after its last visited child on the next scan.
+# immediately during a locked session start. The same bounded pass checks active
+# work for overdue meaningful progress and retains the older inactive-terminal
+# reconciliation, so there is one due-work detector rather than two schedulers.
+# Each scan uses an aggregate FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default
+# 10, valid 1..30) and resumes after its last visited child on the next scan.
 # The scan enforces that budget itself through a whole-second deadline, and the
 # first due child of every scan is always visited with at least a one-second
 # state-read bound: whole-second arithmetic can otherwise round a small budget
@@ -21,11 +23,22 @@
 # an unbounded wait (for example a live-held wake-queue lock), so the clean
 # deadline path is not racing its own backstop.
 #
-# It considers only a direct ordinary crewmate whose newest meta, status, or
-# turn-ended mtime is older than that interval and whose last status is not
-# captain-held. It then uses fm-crew-state.sh as the sole current-state source.
-# Only a done or failed state is suspicious enough to create a durable terminal
-# outcome record or wake the supervisor.
+# Active management considers only direct ordinary crewmates with an open
+# working phase in their append-only status log. It ignores chatter, turn-ended
+# liveness, declared external waits, and captain-held transfers. When the same
+# meaningful working evidence remains overdue, it performs one bounded
+# fm-crew-state.sh read and queues a task-local stale wake for targeted
+# intervention. Unresolved needs-decision/blocked events are folded separately
+# and re-surfaced through the same durable task signal without auto-answering.
+# Persistent secondmates are never child-scanned by their parent; each secondmate
+# home scans its own direct children and reports required action through the
+# established parent status route.
+#
+# The inactive terminal path considers only a direct ordinary crewmate whose
+# newest meta, status, or turn-ended mtime is older than that interval and whose
+# last status is not captain-held. It then uses fm-crew-state.sh as the sole
+# current-state source. Only a done or failed state is suspicious enough to
+# create a durable terminal outcome record or wake the supervisor.
 # Working, paused, parked, blocked, unknown, persistent secondmates, and
 # captain-held work retain their existing supervision semantics.
 #
@@ -54,6 +67,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 OUTCOME_DIR="$STATE/terminal-outcomes"
+ACTIVE_DIR="$STATE/active-management"
 SCAN_MARKER="$STATE/.inactive-outcome-reconcile"
 SCAN_LOCK="$STATE/.inactive-outcome-reconcile.lock"
 CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
@@ -67,7 +81,7 @@ CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 
-FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
+FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-600}
 case "$FM_INACTIVE_RECONCILE_SECS" in
   ''|*[!0-9]*|0)
     printf 'fm-inactive-reconcile: FM_INACTIVE_RECONCILE_SECS must be a whole number from 60 to 1800\n' >&2
@@ -332,20 +346,169 @@ report_to_parent() { # <self-id> <task> <state> <outcome-key> <fingerprint> <pr>
   append_once "$destination" "$line"
 }
 
+active_record_path() { # <task>
+  printf '%s/%s\n' "$ACTIVE_DIR" "$1"
+}
+
+active_record_value() { # <record> <key>
+  record_value "$1" "$2"
+}
+
+active_record_write() { # <task> <signature> <progress-epoch> <decision-signature> <alert-fingerprint> <alert-epoch>
+  local task=$1 signature=$2 progress_epoch=$3 decision_signature=$4 alert_fingerprint=$5 alert_epoch=$6 tmp record
+  valid_id "$task" || return 1
+  mkdir -p "$ACTIVE_DIR" || return 1
+  [ ! -L "$ACTIVE_DIR" ] || return 1
+  record=$(active_record_path "$task")
+  [ ! -e "$record" ] || [ ! -L "$record" ] || return 1
+  tmp=$(mktemp "$ACTIVE_DIR/.record.XXXXXX") || return 1
+  {
+    printf 'schema=fm-active-management.v1\n'
+    printf 'task_id=%s\n' "$task"
+    printf 'signature=%s\n' "$signature"
+    printf 'progress_epoch=%s\n' "$progress_epoch"
+    printf 'decision_signature=%s\n' "$decision_signature"
+    printf 'alert_fingerprint=%s\n' "$alert_fingerprint"
+    printf 'alert_epoch=%s\n' "$alert_epoch"
+  } > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$record" || { rm -f "$tmp"; return 1; }
+}
+
+active_progress_signature() { # <status-file>
+  local status=$1 lines
+  [ -f "$status" ] && [ ! -L "$status" ] || return 0
+  lines=$(grep -E '^(working|resolved)([[:space:]]|[[]|:)' "$status" 2>/dev/null || true)
+  [ -n "$lines" ] || return 0
+  sha256_text "$lines"
+}
+
+active_progress_epoch() { # <status-file> <fallback>
+  local status=$1 fallback=$2 m
+  m=$(file_mtime "$status" 2>/dev/null || true)
+  case "$m" in ''|*[!0-9]*) printf '%s\n' "$fallback" ;; *) printf '%s\n' "$m" ;; esac
+}
+
+active_current_state() { # <id> <timeout>
+  local id=$1 timeout=$2 line
+  line=$(fm_run_timed "$timeout" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$CREW_STATE_BIN" "$id" 2>/dev/null) || return 1
+  case "$line" in
+    state:*"source: "*) printf '%s\n' "$line"; return 0 ;;
+  esac
+  return 1
+}
+
+active_alert_due() { # <record> <fingerprint> <now>
+  local record=$1 fingerprint=$2 now=$3 previous previous_epoch
+  previous=$(active_record_value "$record" alert_fingerprint)
+  previous_epoch=$(active_record_value "$record" alert_epoch)
+  [ "$previous" != "$fingerprint" ] && return 0
+  case "$previous_epoch" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$now" -ge "$previous_epoch" ] || return 1
+  [ $((now - previous_epoch)) -ge "$FM_INACTIVE_RECONCILE_SECS" ]
+}
+
+active_queue_once() { # <kind> <key> <payload>
+  local kind=$1 key=$2 payload=$3
+  if fm_wake_queued_keys "$kind" 2>/dev/null | grep -Fx -- "$key" >/dev/null 2>&1; then
+    return 1
+  fi
+  fm_wake_append "$kind" "$key" "$payload" || return 2
+  printf 'actionable: %s\n' "$payload"
+  return 0
+}
+
+active_management_locked() { # <id> <meta> <timeout>
+  local id=$1 meta=$2 timeout=$3 status kind activities progress_signature
+  local old_signature progress_epoch decision_rows decision_signature decision_key decision_note
+  local record now last_target alert_fingerprint state source age payload result=0
+  kind=$(meta_field "$meta" kind)
+  [ "$kind" != secondmate ] || return 0
+  status="$STATE/$id.status"
+  [ -f "$status" ] && [ ! -L "$status" ] || return 0
+  activities=$(status_open_activities "$status" 2>/dev/null || true)
+  decision_rows=$(status_open_decisions_incremental "$status" 2>/dev/null || true)
+  progress_signature=$(active_progress_signature "$status")
+  [ -n "$progress_signature" ] || [ -n "$decision_rows" ] || return 0
+  record=$(active_record_path "$id")
+  old_signature=$(active_record_value "$record" signature)
+  progress_epoch=$(active_record_value "$record" progress_epoch)
+  now=$(reconcile_now)
+  if [ "$old_signature" != "$progress_signature" ] || \
+     { [ -n "$progress_signature" ] && { [ -z "$progress_epoch" ] || \
+       [ "$progress_epoch" = 0 ]; }; }; then
+    progress_epoch=$(active_progress_epoch "$status" "$now")
+  fi
+  case "$progress_epoch" in ''|*[!0-9]*) progress_epoch=$now ;; esac
+  decision_signature=
+  if [ -n "$decision_rows" ]; then
+    decision_signature=$(sha256_text "$decision_rows")
+  fi
+  alert_fingerprint=$(active_record_value "$record" alert_fingerprint)
+  last_alert=$(active_record_value "$record" alert_epoch)
+  if [ -n "$decision_rows" ]; then
+    decision_key=$(printf '%s\n' "$decision_rows" | awk -F '\t' 'NR == 1 { print $1 }')
+    decision_note=$(printf '%s\n' "$decision_rows" | awk -F '\t' 'NR == 1 { print $3 }')
+    alert_fingerprint="decision|$decision_signature"
+    if active_alert_due "$record" "$alert_fingerprint" "$now"; then
+      last_target=$(meta_field "$meta" window)
+      [ -n "$last_target" ] || last_target=$id
+      payload="signal:$status (unresolved decision key=$decision_key: $(clean_field "$decision_note"))"
+      active_queue_once signal "$id.status" "$payload" || result=$?
+      if [ "$result" -eq 0 ]; then
+        last_alert=$now
+      elif [ "$result" -eq 2 ]; then
+        return 1
+      fi
+    fi
+  elif printf '%s\n' "$activities" | awk -F '\t' '$2 == "working" { found=1 } END { exit(found ? 0 : 1) }'; then
+    age=$((now - progress_epoch))
+    if [ "$age" -ge "$FM_INACTIVE_RECONCILE_SECS" ]; then
+      if [ -z "$ACTIVE_STATE_LINE" ]; then
+        ACTIVE_STATE_LINE=$(active_current_state "$id" "$timeout" 2>/dev/null || true)
+        [ -n "$ACTIVE_STATE_LINE" ] || ACTIVE_STATE_LINE='state: unknown · source: unavailable'
+      fi
+      state=${ACTIVE_STATE_LINE#state: }; state=${state%% *}
+      source=${ACTIVE_STATE_LINE#*source: }; source=${source%% *}
+      if [ "$state" = working ] && { [ "$source" = run-step ] || [ "$source" = pane ] || [ "$source" = status-log ]; }; then
+        last_target=$(meta_field "$meta" window)
+        [ -n "$last_target" ] || last_target=$id
+        alert_fingerprint="progress|$progress_signature|$progress_epoch"
+        if active_alert_due "$record" "$alert_fingerprint" "$now"; then
+          payload="stale: $last_target (active work has no meaningful progress for ${age}s)"
+          active_queue_once stale "$last_target" "$payload" || result=$?
+          if [ "$result" -eq 0 ]; then last_alert=$now; fi
+          [ "$result" -ne 2 ] || return 1
+        fi
+      fi
+    fi
+  fi
+  active_record_write "$id" "$progress_signature" "$progress_epoch" "$decision_signature" \
+    "$alert_fingerprint" "$last_alert" || return 1
+  [ "$result" -ne 2 ]
+}
+
 reconcile_direct_child_locked() { # <id> <meta> <secondmate-id-or-empty> <timeout>
   local id=$1 meta=$2 self=${3:-} timeout=$4 status turn last age state_line state pr incarnation fingerprint outcome_key payload kind state_rc=0
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
   kind=$(meta_field "$meta" kind)
   [ "$kind" = secondmate ] && return 0
+  ACTIVE_STATE_LINE=
   status="$STATE/$id.status"
   turn="$STATE/$id.turn-ended"
   last=$(last_status_line "$status")
   status_line_verb "$last" | grep -Fx captain-held >/dev/null 2>&1 && return 0
   age=$(last_activity_age "$meta" "$status" "$turn")
+  if [ "$age" -ge "$FM_INACTIVE_RECONCILE_SECS" ]; then
+    state_line=$(fm_run_timed "$timeout" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+      "$CREW_STATE_BIN" "$id" 2>/dev/null) || state_rc=$?
+    [ "$state_rc" -ne 124 ] || return 3
+    [ -n "$state_line" ] || state_line='state: unknown · source: unavailable'
+    ACTIVE_STATE_LINE=$state_line
+  fi
+  active_management_locked "$id" "$meta" "$timeout" || return $?
   [ "$age" -ge "$FM_INACTIVE_RECONCILE_SECS" ] || return 0
-  state_line=$(fm_run_timed "$timeout" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$CREW_STATE_BIN" "$id" 2>/dev/null) || state_rc=$?
-  [ "$state_rc" -ne 124 ] || return 3
   case "$state_line" in
     'state: done '*) state='done' ;;
     'state: failed '*) state='failed' ;;

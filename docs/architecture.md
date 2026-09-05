@@ -38,9 +38,11 @@ A live or liveness-inconclusive ordinary crew still receives the initial stale i
 Its initial normal-mode status signal still surfaces through the no-verb path, while away mode self-handles that routine signal and owns the later recheck.
 Fresh stale panes use the same current-state read before trusting the status log, so an active run or a proven busy worker outranks an old captain-relevant status-log line left behind before validation.
 No-change heartbeats are also benign.
-Separately from heartbeat backoff and wedge handling, the watcher poll runs `bin/fm-inactive-reconcile.sh` on its own bounded cadence, while locked session start performs the same bounded local scan immediately.
-In each home the scan considers only that home's long-inactive direct ordinary crewmates, excludes captain-held work, and accepts only `done` or `failed` from `bin/fm-crew-state.sh`.
+Separately from heartbeat backoff and wedge handling, the watcher poll runs `bin/fm-inactive-reconcile.sh` on its own bounded ten-minute cadence, while locked session start performs the same bounded local scan immediately.
+The scan uses only local structured evidence for quiet work: direct ordinary crews with an open `working` phase get a current-state read only when their meaningful working evidence is due, while chatter, turn-ended liveness, declared external waits, captain-held transfers, and unchanged healthy scans stay tokenless.
+An overdue active item queues one task-local stale wake for targeted supervisor intervention, and an unresolved folded `needs-decision` or `blocked` event queues a task-local signal without answering it; durable queue keys, branch row claims, away-mode ownership, and existing leases keep main, branch, and away from duplicating the intervention.
 A secondmate retains a durable receipt for its idempotent report through the established parent route, and main-home captain presentation retains a separate receipt; neither path performs a forge or PR check.
+The scan never child-scans a secondmate from its parent: each secondmate home applies the same bounded pass to its own direct children, so returned evidence requiring main-owned action remains on the parent's established status route.
 Absorbed wakes advance their suppression markers, log to `state/.watch-triage.log`, and keep the watcher blocking without a queue record or LLM turn.
 Each `fm-wake-drain.sh` presentation runs the same liveness guard as the supervision scripts, so a lapsed watcher chain surfaces even on a turn that only handles queued wakes.
 Routine watcher polling, supervision no-ops, elapsed waiting time, and absorbed benign wakes stay silent.
