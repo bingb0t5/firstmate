@@ -299,21 +299,18 @@ export default function (pi: ExtensionAPI) {
 
   function offerWakeToBranch(message: string): boolean {
     const heartbeat = /^heartbeat($|:)/.test(message);
-    // A check-kind close (merge-confirmation polls, Relay mentions,
-    // credential/auth failures, and every other legitimately main-only
-    // class - docs/pi-supervision-branch.md) is never routed to the branch
-    // even when other currently-unread rows are individually eligible: this
-    // watcher cycle's own triggering event stays on main, exactly as before
-    // scopeForUnreadWake stopped letting a co-present check row veto the
-    // whole scan. That relaxation is what lets an UNRELATED eligible
-    // signal/stale row still reach the branch on this cycle; it must never
-    // also let a check-kind trigger itself slip past main's delivery.
     const isCheckTrigger = /^check:/.test(message);
     const scope = scopeForUnreadWake(state, heartbeat);
-    const eligible = !isCheckTrigger && scope.eligible;
-    const offer = createBranchDispatchOffer(message, scope.projects, heartbeat, eligible);
+    const mainAlso = isCheckTrigger && scope.eligible && scope.eligibleReason.length > 0;
+    const offer = createBranchDispatchOffer(
+      mainAlso ? scope.eligibleReason : message,
+      scope.projects,
+      heartbeat,
+      scope.eligible && (!isCheckTrigger || mainAlso),
+      mainAlso,
+    );
     pi.events?.emit?.(FM_BRANCH_DISPATCH_EVENT, offer);
-    return offer.accepted;
+    return offer.accepted && !offer.mainAlso;
   }
 
   async function deliverActionableWake(

@@ -38,8 +38,8 @@
 # working phase in their append-only status log. Chatter, turn-ended liveness,
 # declared external waits, and captain-held transfers are not meaningful
 # progress and never reset the due clock. Newly generated status contracts carry
-# an event epoch on each meaningful line; legacy lines conservatively fall back
-# to the status mtime. When the same meaningful working
+# an event epoch on each meaningful line; legacy lines are due immediately on
+# first observation. When the same meaningful working
 # evidence remains overdue, it performs one bounded
 # fm-crew-state.sh read and queues a task-local stale wake for targeted
 # intervention. Unresolved needs-decision/blocked events are folded separately
@@ -474,7 +474,7 @@ active_progress_signature() { # <status-file>
 }
 
 active_progress_epoch() { # <status-file> <fallback>
-  local status=$1 fallback=$2 line prefix epoch m
+  local status=$1 fallback=$2 line prefix epoch legacy
   line=$(grep -E '^[[:space:]]*(working|resolved)([[:space:]]|[[]|:|$)' "$status" 2>/dev/null \
     | tail -1 || true)
   prefix=${line%%:*}
@@ -492,8 +492,9 @@ active_progress_epoch() { # <status-file> <fallback>
       esac
       ;;
   esac
-  m=$(file_mtime "$status" 2>/dev/null || true)
-  case "$m" in ''|*[!0-9]*) printf '%s\n' "$fallback" ;; *) printf '%s\n' "$m" ;; esac
+  legacy=$((fallback - FM_INACTIVE_RECONCILE_SECS))
+  [ "$legacy" -ge 0 ] || legacy=0
+  printf '%s\n' "$legacy"
 }
 
 active_current_state() { # <id> <timeout>

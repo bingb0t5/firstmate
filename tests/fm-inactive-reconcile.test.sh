@@ -495,7 +495,8 @@ test_notice_recovery_does_not_duplicate_wake() {
 test_quiet_active_scan_does_not_read_current_state() {
   local now
   make_world quiet-active
-  write_child "$MAIN" child 'working: implementation is under way'
+  now=$(date +%s)
+  write_child "$MAIN" child "working [at=$now]: implementation is under way"
   touch "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
@@ -503,7 +504,6 @@ printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
 printf 'state: working · source: run-step\n'
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
-  now=$(date +%s)
   FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW="$now" \
     FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ ! -s "$WORLD/state-reads" ] || fail "quiet active scan read current state before work was due"
@@ -518,7 +518,7 @@ test_overdue_active_work_ignores_chatter() {
   local t0
   make_world overdue-chatter
   t0=$(( $(date +%s) - 100 ))
-  write_child "$MAIN" child "working [at=$t0]: implementation is under way"
+  write_child "$MAIN" child "working: implementation is under way"
   mkdir -p "$MAIN/projects/child"
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<SH
 #!/usr/bin/env bash
@@ -964,7 +964,7 @@ SH
   pass "completed sweep cadence remains anchored to the sweep start"
 }
 
-test_mixed_terminal_and_active_output_keeps_task_local_routing() {
+test_mixed_terminal_and_active_output_preserves_terminal_priority() {
   local out pid i
   make_world mixed-terminal-active
   write_child "$MAIN" active 'working: implementation is overdue'
@@ -989,11 +989,11 @@ SH
   i=0
   while [ "$i" -lt 50 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
   wait "$pid" || fail "mixed-output watcher failed: $(cat "$out")"
-  grep -Fq 'stale: firstmate:fm-active' "$out" \
-    || fail "mixed output displaced the task-local wake reason: $(cat "$out")"
+  grep -Fq 'check: inactive-outcome' "$out" \
+    || fail "mixed output delayed the terminal wake reason: $(cat "$out")"
   [ "$(stale_row_count "$MAIN")" = 1 ] || fail "mixed scan lost its active row"
   [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] || fail "mixed scan lost its terminal row"
-  pass "mixed terminal and active output preserves task-local branch routing"
+  pass "mixed terminal and active output preserves terminal wake priority"
 }
 
 # status_line_verb ignores leading whitespace when it folds an event, so the
@@ -1206,7 +1206,7 @@ test_alert_clock_survives_drain_acknowledgement
 test_already_surfaced_decision_is_not_re_alerted_immediately
 test_budget_truncated_sweep_resumes_on_the_next_poll
 test_completed_sweep_cadence_is_anchored_to_its_start
-test_mixed_terminal_and_active_output_keeps_task_local_routing
+test_mixed_terminal_and_active_output_preserves_terminal_priority
 test_decision_wake_is_actionable_to_the_away_classifier
 test_cadence_cap_and_budget_continuation_bound_each_child
 test_legacy_hot_cursor_runs_its_wrap_segment

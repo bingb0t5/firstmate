@@ -255,12 +255,13 @@ const pi = {
 function fire(event, payload, ctx) {
   for (const handler of piHandlers.get(event) ?? []) handler(payload, ctx);
 }
-function makeOffer(message, projects = [approvedProject], heartbeat = false, eligible = projects.length > 0 || heartbeat) {
+function makeOffer(message, projects = [approvedProject], heartbeat = false, eligible = projects.length > 0 || heartbeat, mainAlso = false) {
   const offer = {
     message,
     projects,
     heartbeat,
     eligible,
+    mainAlso,
     accepted: false,
     accept() {
       offer.accepted = true;
@@ -268,9 +269,9 @@ function makeOffer(message, projects = [approvedProject], heartbeat = false, eli
   };
   return offer;
 }
-function dispatch(message, projects, heartbeat, eligible) {
-  const offer = makeOffer(message, projects, heartbeat, eligible);
-  if (offer.eligible) {
+function dispatch(message, projects, heartbeat, eligible, mainAlso) {
+  const offer = makeOffer(message, projects, heartbeat, eligible, mainAlso);
+  if (offer.eligible && !offer.mainAlso) {
     const row = offer.heartbeat
       ? "1\t1\theartbeat\theartbeat\theartbeat\n"
       : `1\t1\tsignal\tbranch-driver.status\t${message}\n`;
@@ -788,6 +789,59 @@ EOF
   out=$(cat "$TMP_ROOT/node-output")
   expect_code 0 "$status" "pre-drain eligibility re-check must exclude only the new main-owned row: $out"
   pass "pre-drain eligibility re-check excludes a newly main-owned row without deferring eligible work"
+}
+
+test_mixed_main_wake_grants_branch_rows_before_main_drain() {
+  local repo home out status
+  repo="$TMP_ROOT/mixed-main-branch-root"
+  home="$TMP_ROOT/mixed-main-branch-home"
+  mkdir -p "$home/state" "$home/config"
+  install_pi_branch_extension_fixture "$repo"
+  PLUGIN="$repo/.pi/extensions/fm-branch-supervision.ts" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    DRIVER_PRELUDE="$DRIVER_PRELUDE" node --input-type=module > "$TMP_ROOT/node-output" 2>&1 <<'EOF'
+const prelude = process.env.DRIVER_PRELUDE;
+await eval(`(async () => { ${prelude}; globalThis.__t = { dispatch, fire, home, realRoot }; })()`);
+const { dispatch, fire, home, realRoot } = globalThis.__t;
+const { spawnSync } = await import("node:child_process");
+const { readFileSync, writeFileSync } = await import("node:fs");
+
+fire("session_start", {});
+let releasePrompt;
+globalThis.__fmPromptGate = new Promise((resolve) => { releasePrompt = resolve; });
+writeFileSync(
+  `${home}/state/.wake-queue`,
+  "1\t1\tcheck\tinactive-outcome:fixture\tcheck: inactive-outcome\n" +
+    "1\t2\tsignal\tbranch-driver.status\tsignal: branch-driver.status\n",
+);
+const offer = dispatch("signal: branch-driver.status", undefined, false, true, true);
+if (!offer.accepted) throw new Error("mixed branch half was not accepted");
+const granted = readFileSync(`${home}/state/.branch-eligible-rows`, "utf8").trim().split("\n");
+if (granted.join(",") !== "2") throw new Error(`mixed branch grant was not published synchronously: ${granted}`);
+
+const drain = spawnSync("bash", [`${realRoot}/bin/fm-wake-drain.sh`], {
+  encoding: "utf8",
+  env: { ...process.env, FM_HOME: home, FM_STATE_OVERRIDE: `${home}/state`, FM_ROOT_OVERRIDE: realRoot },
+});
+if (drain.status !== 0) throw new Error(`main drain failed: ${drain.stderr}`);
+if (!drain.stdout.includes("\tcheck\tinactive-outcome:fixture\t")) {
+  throw new Error(`main drain lost its terminal outcome: ${drain.stdout}`);
+}
+if (drain.stdout.includes("\tsignal\tbranch-driver.status\t")) {
+  throw new Error(`main drain claimed the branch row: ${drain.stdout}`);
+}
+releasePrompt();
+for (let i = 0; i < 250 && (globalThis.__fmPrompts ?? []).length === 0; i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+if (!(globalThis.__fmPrompts ?? [])[0]?.includes("FIRSTMATE SUPERVISION WAKE: signal: branch-driver.status")) {
+  throw new Error(`branch did not receive its concurrent wake: ${JSON.stringify(globalThis.__fmPrompts)}`);
+}
+process.exit(0);
+EOF
+  status=$?
+  out=$(cat "$TMP_ROOT/node-output")
+  expect_code 0 "$status" "mixed main wake must grant task rows before main drains: $out"
+  pass "mixed main and branch wakes claim disjoint rows concurrently"
 }
 
 test_settled_branch_prompt_releases_unacknowledged_grant() {
@@ -1418,6 +1472,9 @@ if (mixed.eligibleSeqs.slice().sort().join(",") !== "2,3") {
 if (!mixed.projects.includes(project)) {
   throw new Error(`eligible project context lost: ${JSON.stringify(mixed.projects)}`);
 }
+if (mixed.eligibleReason !== "signal: task-a.status") {
+  throw new Error(`eligible wake reason lost: ${JSON.stringify(mixed)}`);
+}
 
 if (!activateEligibleRowsOwner(state, process.env.GRANT, process.pid, "fixture")) {
   throw new Error("branch owner activation failed");
@@ -1571,6 +1628,7 @@ test_branch_cache_key_is_per_home_stable
 test_branch_default_on_heartbeat_afk_and_fallback
 test_branch_predrain_recheck_defers_new_main_owned_row
 test_branch_predrain_recheck_excludes_new_main_owned_row_without_deferring_eligible_work
+test_mixed_main_wake_grants_branch_rows_before_main_drain
 test_settled_branch_prompt_releases_unacknowledged_grant
 test_main_owned_grant_result_falls_back_to_main
 test_branch_predrain_recheck_noops_already_drained_wake

@@ -1257,14 +1257,16 @@ while :; do
     "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
     inactive_scan_ok=1
     if [ -n "$inactive_out" ]; then
-      inactive_reason=$(printf '%s\n' "$inactive_out" \
-        | sed -n 's/^actionable: \(signal:\|stale:\)/\1/p' | head -1)
-      if [ -n "$inactive_reason" ]; then
-        wake "$inactive_reason"
-      elif printf '%s\n' "$inactive_out" | grep -Fq 'inactive terminal outcome'; then
+      if printf '%s\n' "$inactive_out" | grep -Fq 'inactive terminal outcome'; then
         wake "check: inactive-outcome"
       else
-        wake "check: active-management due-work intervention"
+        inactive_reason=$(printf '%s\n' "$inactive_out" \
+          | sed -n 's/^actionable: \(signal:\|stale:\)/\1/p' | head -1)
+        if [ -n "$inactive_reason" ]; then
+          wake "$inactive_reason"
+        else
+          wake "check: active-management due-work intervention"
+        fi
       fi
     fi
   else
