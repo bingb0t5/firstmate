@@ -117,6 +117,8 @@ elif action == "sensitive":
 elif action == "rich_edit":
     state["document"]["body"][1] = request["replacement"]
     result = {"ok": True, "document": state["document"]}
+elif action is None and "prompt" in request:
+    result = {"ok": True, "prompt": request["prompt"]}
 else:
     result = {"ok": False, "error": "unknown action"}
 
@@ -272,6 +274,23 @@ test_serialized_fixture_calls() {
     --manifest "$manifest" --state-dir "$state" --client "$client" \
     --timeout 5 --request "$request")
   assert_contains "$output" 'Xin chào world thêm' "Vietnamese form text survives an ASCII ambient locale"
+
+  output=$(LC_ALL=C PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 "$RUNNER" run \
+    --manifest "$manifest" --state-dir "$state" --client "$client" \
+    --timeout 5 --prompt 'Quan sát chào')
+  assert_contains "$output" 'Quan sát chào' "Vietnamese --prompt text survives an ASCII ambient locale"
+
+  status=0
+  output=$("$RUNNER" run --manifest "$manifest" --state-dir "$state" --client "$client" \
+    --timeout 5 --prompt "$(printf 'bad\377')" 2>&1) || status=$?
+  expect_code 2 "$status" "a prompt that is not valid UTF-8 is a local usage error"
+  assert_contains "$output" "--prompt is not valid UTF-8" "the refusal names the prompt as the local cause"
+
+  status=0
+  output=$("$RUNNER" run --manifest "$manifest" --state-dir "$state" \
+    --client "$(printf '%s/missing\377' "$root")" --timeout 5 --prompt hi 2>&1) || status=$?
+  expect_code 5 "$status" "an undecodable client path still reports the adapter category"
+  assert_contains "$output" "client adapter is not executable" "the diagnostic prints despite an undecodable path"
 
   write_request "$request" scroll ',"amount":240'
   assert_contains "$(run_fixture "$manifest" "$state" "$client" "$request")" '"scroll": 240' "scroll is delivered"

@@ -315,7 +315,11 @@ def request_payload(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("exactly one of --request or --prompt is required")
     if args.request:
         return load_json(Path(args.request), "request")
-    return {"prompt": args.prompt}
+    try:
+        prompt = args.prompt.encode(sys.getfilesystemencoding(), "surrogateescape").decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError(f"--prompt is not valid UTF-8: {exc}") from exc
+    return {"prompt": prompt}
 
 
 def kill_process_group(process: subprocess.Popen[str]) -> None:
@@ -467,7 +471,7 @@ def command_check(args: argparse.Namespace) -> int:
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         with contextlib.suppress(AttributeError, OSError):
-            stream.reconfigure(encoding="utf-8")
+            stream.reconfigure(encoding="utf-8", errors=stream.errors)
     parser = build_parser()
     args = parser.parse_args()
     try:
