@@ -232,7 +232,7 @@ def command_prepare(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     if not project.is_dir():
         return die(f"project directory not found: {project}")
-    output = Path(args.out).resolve() if args.out else project / ".codex" / "astra-guest.toml"
+    output = Path(args.out if args.out else project / ".codex" / "astra-guest.toml").resolve()
     try:
         output.relative_to(project)
     except ValueError:

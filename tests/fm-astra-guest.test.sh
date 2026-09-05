@@ -131,7 +131,7 @@ run_fixture() {
 
 test_readiness_contract() {
   local root manifest output status
-  root=$(fm_test_tmproot astra-readiness)
+  root=$(fm_test_tmproot fm-astra-readiness)
   manifest="$root/readiness.json"
   manifest_json "$manifest" "$root"
   output=$("$RUNNER" check --manifest "$manifest")
@@ -158,7 +158,7 @@ PY
 
 test_unusable_state_dir_reports_defined_exit_code() {
   local root status output
-  root=$(fm_test_tmproot astra-state-dir)
+  root=$(fm_test_tmproot fm-astra-state-dir)
   printf 'not a directory\n' > "$root/blocker"
   status=0
   output=$("$RUNNER" status --state-dir "$root/blocker/state" 2>&1) || status=$?
@@ -174,7 +174,7 @@ test_unusable_state_dir_reports_defined_exit_code() {
 
 test_additive_prepare() {
   local root manifest project existing output
-  root=$(fm_test_tmproot astra-prepare)
+  root=$(fm_test_tmproot fm-astra-prepare)
   manifest="$root/readiness.json"
   project="$root/project"
   mkdir -p "$project/.codex"
@@ -228,12 +228,22 @@ PY
   output=$("$RUNNER" prepare --manifest "$manifest" --project "$project" \
     --state-dir "$root/state" --replace-generated)
   assert_contains "$output" "prepared additive guest config" "--replace-generated still regenerates its own sidecar"
+
+  local escape="$root/outside-config.toml"
+  rm -f "$sidecar"
+  ln -s "$escape" "$sidecar"
+  status=0
+  output=$("$RUNNER" prepare --manifest "$manifest" --project "$project" \
+    --state-dir "$root/state" 2>&1) || status=$?
+  expect_code 2 "$status" "a default output symlinked out of the project is refused"
+  assert_contains "$output" "must be inside the guest project directory" "the refusal names the containment rule"
+  assert_absent "$escape" "the sidecar was not written through the symlink outside the guest project"
   pass "preparation is additive and leaves the existing Codex config intact"
 }
 
 test_serialized_fixture_calls() {
   local root manifest state client request output status
-  root=$(fm_test_tmproot astra-fixture)
+  root=$(fm_test_tmproot fm-astra-fixture)
   manifest="$root/readiness.json"
   state="$root/state"
   client="$root/client.py"
@@ -352,7 +362,7 @@ test_live_acceptance_gate() {
     return 0
   fi
   local root state request output
-  root=$(fm_test_tmproot astra-live)
+  root=$(fm_test_tmproot fm-astra-live)
   state="$root/state"
   request="$root/request.json"
   "$RUNNER" check --manifest "$FM_ASTRA_LIVE_MANIFEST" >/dev/null || fail "published guest readiness did not validate"
