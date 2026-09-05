@@ -472,15 +472,19 @@ SH
   pass "quiet active scans use local evidence without a current-state/model read"
 }
 
+# Driven through the real bin/fm-crew-state.sh: a trailing off-contract `note:`
+# line is exactly what makes its verdict inconclusive, so a stubbed verdict here
+# would assert a pairing the production reader never emits for this log.
 test_overdue_active_work_ignores_chatter() {
   local now
   make_world overdue-chatter
   write_child "$MAIN" child 'working: implementation is under way'
+  mkdir -p "$MAIN/projects/child"
   touch "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
-  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<SH
 #!/usr/bin/env bash
-printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
-printf 'state: working · source: status-log\n'
+printf '%s\\n' "\$1" >> "\${FM_STATE_READ_LOG:?}"
+exec "$ROOT/bin/fm-crew-state.sh" "\$@"
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
   now=$(date +%s)
@@ -578,6 +582,53 @@ SH
     | grep -Fxq 'orca:child-endpoint' \
     || fail "due-work stale row was not keyed by the backend target: $(cat "$MAIN/state/.wake-queue")"
   pass "due-work intervention keys by backend target and never duplicates a queued row"
+}
+
+# The durable state/active-management/<task> record, not the live queue, is what
+# holds the alert clock once a drain has acknowledged the row and supervision has
+# restarted - and it must not suppress the obligation past its re-alert interval.
+test_alert_clock_survives_drain_acknowledgement() {
+  local now err seq generation
+  make_world alert-clock
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "unresolved decision was not routed"
+
+  err="$WORLD/drain.err"
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$DRAIN" >/dev/null 2> "$err"
+  seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation"
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] || fail "acknowledgement did not consume the routed row"
+
+  FM_INACTIVE_RECONCILE_NOW=$((now + 59)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "the durable alert clock did not survive acknowledgement and restart"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 60)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "an unresolved obligation stayed suppressed past its re-alert interval"
+  pass "the alert clock survives acknowledgement without suppressing the obligation"
+}
+
+# A sweep the aggregate budget truncated resumes on the next ordinary poll
+# instead of waiting out another full interval, so the bound is per child.
+test_budget_truncated_sweep_resumes_on_the_next_poll() {
+  make_world truncated-sweep
+  write_child "$MAIN" a 'working: state read will stall'
+  write_child "$MAIN" b 'done: green'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = a ]; then sleep 30; else printf 'state: done · source: fake\n'; fi
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+  ! grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" 2>/dev/null \
+    || fail "the truncated sweep already reached the later child"
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN"
+  grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
+    || fail "a cadence-gated poll refused to resume the truncated sweep"
+  pass "a budget-truncated sweep resumes on the next poll instead of the next interval"
 }
 
 # status_line_verb ignores leading whitespace when it folds an event, so the
@@ -685,6 +736,8 @@ test_overdue_active_work_ignores_chatter
 test_provably_working_evidence_is_not_overdue
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
+test_alert_clock_survives_drain_acknowledgement
+test_budget_truncated_sweep_resumes_on_the_next_poll
 test_decision_wake_is_actionable_to_the_away_classifier
 test_secondmate_active_evidence_reaches_its_owning_actor
 test_declared_wait_and_parent_boundary_are_respected

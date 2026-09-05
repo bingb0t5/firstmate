@@ -1258,9 +1258,8 @@ declared_wait_class() {  # <kind> <state|source> <alive|dead|unknown>
 # Classify WHY an idle/stale crew might be safely absorbed instead of surfaced.
 # One authoritative read serves both absorb reasons while the exact record remains
 # available to the declared-wait policy above.
-crew_absorb_class() {  # <id>
-  local record state src
-  record=$(crew_supervision_record "$1")
+crew_absorb_class_of_record() {  # <state|source>
+  local record=$1 state src
   state=${record%%|*}
   src=${record#*|}
   if [ "$state" = paused ]; then printf 'paused'; return; fi
@@ -1268,6 +1267,12 @@ crew_absorb_class() {  # <id>
     case "$src" in run-step|pane) printf 'working'; return ;; esac
   fi
   printf 'none'
+}
+
+# The same decision for a caller that already holds a bounded reading, so a
+# consumer never pays a second current-state read to apply the shared rule.
+crew_absorb_class() {  # <id>
+  crew_absorb_class_of_record "$(crew_supervision_record "$1")"
 }
 
 # 0 if crew <id> shows POSITIVE evidence it is still working (crew_absorb_class

@@ -7,13 +7,17 @@
 #
 # This is an adjunct to the existing watcher poll loop and session-start path,
 # not a watcher, daemon, PR poll, or forge client of its own.
-# `scan` evaluates at most once per FM_INACTIVE_RECONCILE_SECS (default 600,
+# `scan` starts a sweep at most once per FM_INACTIVE_RECONCILE_SECS (default 600,
 # valid 60..1800) per home, except that --startup performs the same cheap scan
 # immediately during a locked session start. The same bounded pass checks active
 # work for overdue meaningful progress and retains the older inactive-terminal
 # reconciliation, so there is one due-work detector rather than two schedulers.
 # Each scan uses an aggregate FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default
 # 10, valid 1..30) and resumes after its last visited child on the next scan.
+# A sweep the budget truncated leaves its resume cursor recorded, and the cadence
+# gate measures time since the last COMPLETED sweep, so the next poll continues a
+# truncated sweep immediately instead of waiting out another interval. The bound
+# is therefore per child rather than per scan.
 # The scan enforces that budget itself through a whole-second deadline, and the
 # first due child of every scan is always visited with at least a one-second
 # state-read bound: whole-second arithmetic can otherwise round a small budget
@@ -437,21 +441,27 @@ active_has_open_working_phase() { # <status-file>
 
 active_management_locked() { # <id> <meta> <timeout>
   local id=$1 meta=$2 timeout=$3 status last_line progress_signature
-  local old_signature progress_epoch decision_rows decision_signature decision_key decision_note
+  local old_signature progress_epoch decision_rows decision_signature decision_key
   local record now last_target last_alert alert_fingerprint state source age payload result=0
   status="$STATE/$id.status"
   [ -f "$status" ] && [ ! -L "$status" ] || return 0
+  last_line=$(last_status_line "$status")
   # The authoritative whole-file fold, not the cursor-backed sibling: that
   # cursor is bin/fm-wake-drain.sh's presentation state, and advancing it from
   # this read-only cadence would let a later drain present decisions from past
-  # its own committed endpoint.
+  # its own committed endpoint. It is the most expensive read here, so it runs
+  # only while the task's own current status still presents the obligation:
+  # bin/fm-supervise-daemon.sh's classify_signal re-derives a signal row's
+  # actionability from that same last line, so a row queued against a decision
+  # buried under later appends would be self-handled and acknowledged without
+  # ever escalating. A buried decision stays unresolved in the fold and keeps
+  # its surface in fm-wake-drain.sh's OPEN DECISIONS section.
   decision_rows=
-  if active_has_decision_event "$status"; then
+  if status_is_captain_relevant "$last_line" && active_has_decision_event "$status"; then
     decision_rows=$(status_open_decisions "$status" 2>/dev/null || true)
   fi
   progress_signature=$(active_progress_signature "$status")
   [ -n "$progress_signature" ] || [ -n "$decision_rows" ] || return 0
-  last_line=$(last_status_line "$status")
   record=$(active_record_path "$id")
   old_signature=$(active_record_value "$record" signature)
   progress_epoch=$(active_record_value "$record" progress_epoch)
@@ -468,19 +478,15 @@ active_management_locked() { # <id> <meta> <timeout>
   fi
   alert_fingerprint=$(active_record_value "$record" alert_fingerprint)
   last_alert=$(active_record_value "$record" alert_epoch)
-  # Queued only while the task's own current status still presents the
-  # obligation: bin/fm-supervise-daemon.sh's classify_signal re-derives a signal
-  # row's actionability from the status file's last line, so a row this path
-  # queued against a buried decision would be self-handled and acknowledged
-  # without ever escalating. A decision buried under later appends stays
-  # unresolved in the fold and keeps its surface in fm-wake-drain.sh's
-  # OPEN DECISIONS section.
-  if [ -n "$decision_rows" ] && status_is_captain_relevant "$last_line"; then
+  if [ -n "$decision_rows" ]; then
     decision_key=$(printf '%s\n' "$decision_rows" | awk -F '\t' 'NR == 1 { print $1 }')
-    decision_note=$(printf '%s\n' "$decision_rows" | awk -F '\t' 'NR == 1 { print $3 }')
     alert_fingerprint="decision|$decision_signature"
     if active_alert_due "$record" "$alert_fingerprint" "$now"; then
-      payload="signal: $status (unresolved decision key=$decision_key: $(clean_field "$decision_note"))"
+      # A signal payload is word-split AND pathname-expanded by both away-mode
+      # consumers, so it carries only the status path and the validated decision
+      # slug. The decision's free-text note reaches the captain through
+      # fm-wake-drain.sh's OPEN DECISIONS section instead.
+      payload="signal: $status (unresolved decision key=$decision_key)"
       active_queue_once signal "$id.status" "$payload" || result=$?
       if [ "$result" -eq 0 ]; then
         last_alert=$now
@@ -498,12 +504,15 @@ active_management_locked() { # <id> <meta> <timeout>
     fi
     state=${ACTIVE_STATE_LINE#state: }; state=${state%% *}
     source=${ACTIVE_STATE_LINE#*source: }; source=${source%% *}
-    # crew_absorb_class (bin/fm-classify-lib.sh) reports `working` for exactly
-    # state=working with source run-step or pane - a live attributed run or a
-    # busy pane. That is mere liveness the fleet absorbs rather than surfaces,
-    # so only a status log claiming working with no attributed run and no busy
-    # pane is overdue here.
-    if [ "$state" = working ] && [ "$source" = status-log ]; then
+    # The shared absorb boundary (crew_absorb_class, bin/fm-classify-lib.sh): a
+    # live attributed run, a busy pane, and a declared pause are absorbed as
+    # mere liveness or a declared wait, and every other reading of an item whose
+    # meaningful progress is already overdue is surfaced - the same call the
+    # watcher makes for an inconclusive non-terminal stale. A current state this
+    # scan could not read is not evidence either way, so a failed or timed-out
+    # bounded read absorbs rather than invents a wedge.
+    if [ "$source" != unavailable ] \
+      && [ "$(crew_absorb_class_of_record "$state|$source")" = none ]; then
       # Keyed by the task's backend target, exactly as every other stale
       # producer keys it, so an already-queued stale row for this task is seen
       # and never duplicated on a non-tmux backend.
@@ -626,11 +635,12 @@ scan() {
   local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
-  if [ "$startup" != 1 ] && [ "$(scan_marker_age)" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
-    return 0
-  fi
   cursor=$(scan_marker_cursor)
   valid_id "$cursor" || cursor=''
+  if [ "$startup" != 1 ] && [ -z "$cursor" ] \
+    && [ "$(scan_marker_age)" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
+    return 0
+  fi
   write_scan_marker "$cursor" || return 1
   if self=$(home_secondmate_id); then
     :
