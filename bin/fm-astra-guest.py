@@ -335,8 +335,12 @@ def command_run(args: argparse.Namespace) -> int:
     if not client.is_file() or not os.access(client, os.X_OK):
         return die(f"client adapter is not executable: {client}", EXIT_CLIENT)
     state_dir = Path(args.state_dir).resolve()
-    try:
-        with exclusive_state(state_dir) as (state, _):
+    with contextlib.ExitStack() as stack:
+        try:
+            state, _ = stack.enter_context(exclusive_state(state_dir))
+        except (OSError, ValueError) as exc:
+            return die(str(exc), EXIT_USAGE)
+        try:
             if state["mode"] != "active":
                 return die("desktop is paused for human takeover; resume explicitly before agent use", EXIT_CLIENT)
             request_id = str(uuid.uuid4())
@@ -401,8 +405,8 @@ def command_run(args: argparse.Namespace) -> int:
             if stderr.strip():
                 print("client diagnostics suppressed from result", file=sys.stderr)
             return 0
-    except (OSError, ValueError) as exc:
-        return die(str(exc), EXIT_USAGE)
+        except (OSError, ValueError) as exc:
+            return die(f"client adapter call failed: {exc}", EXIT_CLIENT)
 
 
 def build_parser() -> argparse.ArgumentParser:

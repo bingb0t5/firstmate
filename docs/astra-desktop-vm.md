@@ -82,6 +82,17 @@ The command prints only non-secret identity and readiness fields.
 
 If readiness is incomplete, the command reports the exact missing interface fields and exits without starting a client.
 
+## Exit codes
+
+Every subcommand reports one of these codes, so a supervising work item can tell a readiness gap apart from an operator mistake and from a guest adapter failure.
+
+| Code | Meaning |
+| --- | --- |
+| 0 | The command succeeded. |
+| 2 | Local operator or state error, such as bad arguments, an unreadable request file, an unusable `--state-dir`, or a refused overwrite. |
+| 3 | The readiness manifest is missing or incomplete; report this as `paused: awaiting infra guest readiness` with the named missing fields. |
+| 5 | The guest client adapter failed, timed out, was refused because the desktop is paused, or returned an unusable response. |
+
 ## Guest preparation
 
 Run preparation as the guest non-root user inside the isolated guest project.

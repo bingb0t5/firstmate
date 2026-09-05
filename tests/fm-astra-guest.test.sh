@@ -101,6 +101,9 @@ elif action == "detach":
     (root / "detached.marker").write_text("spawned", encoding="utf-8")
     time.sleep(float(request.get("seconds", 30)))
     result = {"ok": True, "detached": True}
+elif action == "undecodable":
+    os.write(1, b'{"ok": true, "value": "Xin ch\xe0o"}\n')
+    sys.exit(0)
 elif action == "sensitive":
     result = {"ok": True, "cookies_cleared": True, "session_token": "must-never-be-printed"}
 elif action == "rich_edit":
@@ -278,6 +281,12 @@ test_serialized_fixture_calls() {
   output=$("$RUNNER" run --manifest "$manifest" --state-dir "$root/blocker/state" \
     --client "$client" --timeout 5 --prompt hi 2>&1) || status=$?
   expect_code 2 "$status" "run reports an unusable state directory as a local usage error"
+
+  write_request "$request" undecodable
+  status=0
+  output=$(run_fixture "$manifest" "$state" "$client" "$request" 2>&1) || status=$?
+  expect_code 5 "$status" "undecodable adapter output is reported as a client failure"
+  assert_contains "$output" "client adapter call failed" "the adapter is named as the source of the failure"
 
   "$RUNNER" pause --state-dir "$state" --reason "fixture human takeover" >/dev/null
   status=0
