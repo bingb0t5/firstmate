@@ -437,9 +437,10 @@ sys.exit(0 if envelope["client"]["text"] == "a\u2028b" else 1)' \
   assert_present "$state/detached.marker" "the fixture actually spawned the detached grandchild"
   expect_code 5 "$status" "timeout cleanup does not block on a detached client grandchild"
   assert_contains "$output" "input lock released" "detached-grandchild timeout still reports input release"
-  timeout 5 "$RUNNER" pause --state-dir "$state" --reason "lock probe" >/dev/null \
-    && timeout 5 "$RUNNER" resume --state-dir "$state" >/dev/null \
-    || fail "input lock was not released after the detached timeout"
+  if ! timeout 5 "$RUNNER" pause --state-dir "$state" --reason "lock probe" >/dev/null \
+    || ! timeout 5 "$RUNNER" resume --state-dir "$state" >/dev/null; then
+    fail "input lock was not released after the detached timeout"
+  fi
   write_request "$request" form ',"text":" after-timeout"'
   output=$(timeout 20 "$RUNNER" run --manifest "$manifest" --state-dir "$state" \
     --client "$client" --timeout 5 --request "$request")
