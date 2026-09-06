@@ -1345,6 +1345,7 @@ SH
     fm_write_meta "$MAIN/state/$id.meta" \
       "window=firstmate:fm-$id" "worktree=$MAIN/projects/$id" 'project=alpha' \
       'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' "spawn_gen=$i"
+    printf 'working [key=%s]: active due-work\n' "$id" > "$MAIN/state/$id.status"
   done
   now=$(date +%s)
   FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE='done' \
@@ -1374,6 +1375,28 @@ SH
     fail "capacity recovery remained supervision-unhealthy"
   fi
   pass "ten-minute cadence is capped and truncated sweeps continue immediately"
+}
+
+test_declared_waits_do_not_exhaust_due_work_capacity() {
+  local id out
+  make_world declared-wait-capacity
+  for id in $(seq 1 26); do
+    if [ "$id" -le 13 ]; then
+      write_child "$MAIN" "paused$id" "working [key=wait$id]: preparing dependency"
+      printf 'paused [key=wait%s]: waiting on upstream\n' "$id" >> "$MAIN/state/paused$id.status"
+    else
+      write_child "$MAIN" "held$id" "working [key=hold$id]: preparing backlog transfer"
+      printf 'captain-held [key=hold%s]: tracked by backlog-%s\n' "$id" "$id" >> "$MAIN/state/held$id.status"
+    fi
+  done
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ ! -e "$MAIN/state/.inactive-reconcile-capacity" ] \
+    || fail "declared waits falsely exhausted due-work capacity"
+  touch "$MAIN/state/.last-watcher-beat"
+  out=$(FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" \
+    FM_SUPERVISION_MODEL=autoarm FM_GUARD_GRACE=300 "$ROOT/bin/fm-guard.sh" 2>&1)
+  [ -z "$out" ] || fail "declared waits degraded healthy supervision: $out"
+  pass "declared waits do not exhaust due-work capacity"
 }
 
 test_legacy_hot_cursor_runs_its_wrap_segment() {
@@ -1475,6 +1498,7 @@ test_decision_wake_is_actionable_to_the_away_classifier
 test_captain_held_key_does_not_mute_other_lanes
 test_away_decision_realert_is_not_self_handled
 test_cadence_cap_and_budget_continuation_bound_each_child
+test_declared_waits_do_not_exhaust_due_work_capacity
 test_legacy_hot_cursor_runs_its_wrap_segment
 test_secondmate_active_evidence_reaches_its_owning_actor
 test_declared_wait_and_parent_boundary_are_respected

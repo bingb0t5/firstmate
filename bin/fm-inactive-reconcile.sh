@@ -15,9 +15,9 @@
 # reconciliation, so there is one due-work detector rather than two schedulers.
 # Each scan uses an aggregate FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default
 # 10, valid 1..30) and resumes after its last visited child on the next scan.
-# Homes with at most 25 direct ordinary children receive this bound; a larger
-# home records due-work supervision as unhealthy and surfaces a capacity check
-# until the direct fleet returns within that bound.
+# Homes with at most 25 direct ordinary active due-work obligations receive this
+# bound; a larger home records due-work supervision as unhealthy and surfaces a
+# capacity check until the active fleet returns within that bound.
 # A sweep the budget truncated leaves its resume cursor recorded, so the watcher
 # continues it immediately instead of waiting out another poll interval and the
 # bound is per child rather than per scan. State reads share the cadence across
@@ -559,6 +559,18 @@ active_has_decision_event() { # <status-file>
   grep -qE '^[[:space:]]*(needs-decision|blocked)([[:space:]]|[[]|:|$)' "$1" 2>/dev/null
 }
 
+active_has_open_working_phase() { # <status-file>
+  local rows key verb note
+  grep -qE '^[[:space:]]*working([[:space:]]|[[]|:|$)' "$1" 2>/dev/null || return 1
+  rows=$(status_open_activities "$1" 2>/dev/null || true)
+  while IFS=$'\t' read -r key verb note; do
+    [ "$verb" = working ] && return 0
+  done <<EOF
+$rows
+EOF
+  return 1
+}
+
 active_oldest_open_progress() { # <status-file> <fallback> -> signature<TAB>epoch<TAB>measured
   local status=$1 fallback=$2 rows key verb note line line_key working_keys='' latest=''
   local epoch event_epoch signature measured best_epoch= best_signature= best_measured=
@@ -900,6 +912,30 @@ scan_direct_child_count() {
   printf '%s\n' "$count"
 }
 
+scan_active_due_work_count() {
+  local meta id kind line status decisions count=0
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+    id=${meta##*/}; id=${id%.meta}
+    valid_id "$id" || continue
+    kind=''
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in kind=*) kind=${line#kind=} ;; esac
+    done < "$meta"
+    [ "$kind" = secondmate ] && continue
+    status="$STATE/$id.status"
+    [ -f "$status" ] && [ -r "$status" ] && [ ! -L "$status" ] || continue
+    if active_has_decision_event "$status"; then
+      decisions=$(status_open_decisions "$status" 2>/dev/null || true)
+      [ -n "$decisions" ] && count=$((count + 1))
+    elif active_has_open_working_phase "$status"; then
+      count=$((count + 1))
+    fi
+    [ "$count" -le "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ] || break
+  done
+  printf '%s\n' "$count"
+}
+
 scan_pending() {
   local cursor origin
   cursor=$(scan_marker_cursor)
@@ -912,7 +948,7 @@ scan_pending() {
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count
+  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count
   local resuming=0 wrapping=0 legacy_cursor=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
@@ -974,11 +1010,12 @@ scan() {
       return 0
     fi
   fi
-  child_count=$(scan_direct_child_count)
+  direct_child_count=$(scan_direct_child_count)
+  child_count=$(scan_active_due_work_count)
   if [ "$child_count" -gt "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then
     if scan_alert_due "$CAPACITY_MARKER" "children=$child_count" "$now"; then
       active_queue_once check inactive-reconcile-capacity \
-        "check: due-work capacity exceeded (${child_count} direct children; maximum ${FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN})" || rc=$?
+        "check: due-work capacity exceeded (${child_count} active direct children; maximum ${FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN})" || rc=$?
       [ "$rc" -ne 2 ] || return 1
       rc=0
       scan_alert_record "$CAPACITY_MARKER" "children=$child_count" "$now" || return 1
@@ -987,8 +1024,8 @@ scan() {
     [ ! -d "$CAPACITY_MARKER" ] || return 1
     rm -f "$CAPACITY_MARKER" || return 1
   fi
-  if [ "$child_count" -gt 0 ]; then
-    SCAN_CHILD_TIMEOUT=$((FM_INACTIVE_RECONCILE_SECS / child_count - 2))
+  if [ "$direct_child_count" -gt 0 ]; then
+    SCAN_CHILD_TIMEOUT=$((FM_INACTIVE_RECONCILE_SECS / direct_child_count - 2))
     [ "$SCAN_CHILD_TIMEOUT" -gt 0 ] || SCAN_CHILD_TIMEOUT=1
     if [ "$SCAN_CHILD_TIMEOUT" -gt "$FM_INACTIVE_RECONCILE_BUDGET_SECS" ]; then
       SCAN_CHILD_TIMEOUT=$FM_INACTIVE_RECONCILE_BUDGET_SECS
