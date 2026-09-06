@@ -1,0 +1,7 @@
+End-to-end due-work scan reproduction
+First scan: task a has an unanswered decision and independent active work; its one-second authoritative state check times out.
+actionable: signal: /tmp/fm-due-work-regression.lg028n/main/state/a.status (unresolved decisions count=1 fingerprint=b8978e297105af294d659aaa9b744366 generation=e43a24a537aebfaabd83b7a24926d4b9)
+Second scan: independently terminal task b is added. Expected: its inactive terminal outcome is presented without waiting for the stalled active lane.
+Durable wake queue after second scan:
+kind=signal key=a.status payload=signal: /tmp/fm-due-work-regression.lg028n/main/state/a.status (unresolved decisions count=1 fingerprint=b8978e297105af294d659aaa9b744366 generation=e43a24a537aebfaabd83b7a24926d4b9)
+RESULT: terminal outcome for b was not presented; the resumed active pass consumed the scan.

@@ -1,0 +1,6 @@
+Due-work regression reproduction
+1. First startup scan observes task a (open decision plus active working lane); its authoritative state read times out inside the one-second bound.
+actionable: signal: /tmp/fm-due-work-regression.J1CyCb/main/state/a.status (unresolved decisions count=1 fingerprint=b8978e297105af294d659aaa9b744366 generation=e43a24a537aebfaabd83b7a24926d4b9)
+2. A separate task b reaches terminal done state. The next startup scan should preserve the existing fast terminal-outcome path and present it.
+3. Observable queue after second scan:
+kind=signal key=a.status payload=signal: /tmp/fm-due-work-regression.J1CyCb/main/state/a.status (unresolved decisions count=1 fingerprint=b8978e297105af294d659aaa9b744366 generation=e43a24a537aebfaabd83b7a24926d4b9)\nRESULT: terminal outcome for b was not presented; active task a consumed the resumed scan.
