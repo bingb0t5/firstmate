@@ -1261,7 +1261,7 @@ while :; do
         wake "check: inactive-outcome"
       else
         inactive_reason=$(printf '%s\n' "$inactive_out" \
-          | sed -n 's/^actionable: \(signal:\|stale:\)/\1/p' | head -1)
+          | sed -n 's/^actionable: //p' | grep -E '^(signal:|stale:)' | head -1)
         if [ -n "$inactive_reason" ]; then
           wake "$inactive_reason"
         else

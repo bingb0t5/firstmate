@@ -373,8 +373,11 @@ classify_signal() {  # <reason-after-colon> <state>
       if [ "$active_signature" = "$decision_fingerprint" ]; then
         distilled="${distilled}$(basename "$f"): $decision_count unresolved decisions (fingerprint $decision_fingerprint) | "
         rel=1
-        seen="$state/.subsuper-seen-status-$(_stale_key "$task")"
-        [ "$(cat "$seen" 2>/dev/null || true)" = "$(last_status_line "$f")" ] || all_seen=0
+        last=$(last_status_line "$f")
+        if status_is_captain_relevant "$last"; then
+          distilled="${distilled}$(basename "$f"): ${last} | "
+        fi
+        all_seen=0
         continue
       fi
     fi

@@ -436,11 +436,30 @@ test_complete_child_check_is_bounded() {
   i=0
   while [ "$i" -lt 30 ] && [ ! -e "$WORLD/lock-ready" ]; do sleep 0.1; i=$((i + 1)); done
   [ -e "$WORLD/lock-ready" ] || fail "meta lock holder did not start"
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=2 run_reconcile "$MAIN" --startup
   reap "$holder"
-  grep -Fq 'bounded due-work check exceeded' "$MAIN/state/.wake-queue" \
-    || fail "a complete child-check timeout was silently skipped"
+  awk -F '\t' '$3 == "check" && $4 == "inactive-reconcile-budget" { found = 1 } END { exit(found ? 0 : 1) }' "$MAIN/state/.wake-queue" \
+    || fail "a complete child-check timeout was not routed as a capacity check"
+  [ "$(stale_row_count "$MAIN")" = 0 ] || fail "a complete child-check timeout was routed as a crew wedge"
   pass "the complete per-child due-work check is process-bounded"
+}
+
+test_progress_wake_only_reports_measured_duration() {
+  local now
+  make_world progress-duration
+  write_child "$MAIN" child 'working: running validation'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: unknown · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  grep -Fq 'no meaningful progress since first observation; no timestamped progress event' "$MAIN/state/.wake-queue" \
+    || fail "an untimestamped phase did not state its observation basis"
+  grep -Eq 'no meaningful progress for [0-9]+s' "$MAIN/state/.wake-queue" \
+    && fail "an untimestamped phase reported an unmeasured duration"
+  pass "untimestamped progress does not invent a duration"
 }
 
 test_full_scan_budget_includes_wake_lock_wait() {
@@ -709,6 +728,27 @@ SH
   pass "decision and progress obligations retain independent alerts"
 }
 
+test_fresh_lane_does_not_hide_an_overdue_independent_lane() {
+  local now old fresh
+  make_world independent-progress-lanes
+  now=$(date +%s)
+  old=$((now - 120))
+  fresh=$((now - 10))
+  write_child "$MAIN" child "working [key=impl] [at=$old]: implementation continues"
+  printf 'working [key=docs] [at=%s]: documentation starts\n' "$fresh" >> "$MAIN/state/child.status"
+  printf 'resolved [key=other] [at=%s]: unrelated decision closed\n' "$fresh" >> "$MAIN/state/child.status"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: unknown · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "a fresh lane hid overdue independent work"
+  grep -Fq 'no meaningful progress for 120s' "$MAIN/state/.wake-queue" \
+    || fail "the stale wake did not use the overdue lane's measured age"
+  pass "fresh independent activity does not reset an overdue lane"
+}
+
 test_fresh_progress_is_not_aged_from_task_creation() {
   local old now
   make_world fresh-progress
@@ -716,7 +756,7 @@ test_fresh_progress_is_not_aged_from_task_creation() {
   old=$(( $(date +%s) - 1000 ))
   now=$(date +%s)
   set_mtime "$old" "$MAIN/state/child.meta" "$MAIN/state/child.turn-ended"
-  printf 'working [key=new] [at=%s]: fresh meaningful phase\n' "$now" >> "$MAIN/state/child.status"
+  printf 'working [key=old] [at=%s]: fresh meaningful phase\n' "$now" >> "$MAIN/state/child.status"
   FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ "$(stale_row_count "$MAIN")" = 0 ] \
     || fail "fresh progress was aged from task creation"
@@ -913,6 +953,27 @@ test_alert_clock_survives_drain_acknowledgement() {
   pass "the decision alert clock survives acknowledgement and re-surfaces on the fleet cadence"
 }
 
+test_progress_alert_clock_uses_resurface_cadence() {
+  local now
+  local FM_PAUSE_RESURFACE_SECS=120
+  make_world progress-alert-clock
+  write_child "$MAIN" child 'working [key=impl]: implementation continues'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: unknown · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "overdue work was not routed"
+  ack_wakes "$MAIN" || fail "the overdue-progress wake could not be acknowledged"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 60)) run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] || fail "an unchanged lane re-alerted on the scan cadence"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 120)) run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "an unchanged lane stayed suppressed past the re-surface interval"
+  pass "progress alerts use the fleet re-surface cadence"
+}
+
 # A sweep the aggregate budget truncated resumes on the next ordinary poll
 # instead of waiting out another full interval, so the bound is per child.
 test_budget_truncated_sweep_resumes_on_the_next_poll() {
@@ -1058,6 +1119,41 @@ test_decision_wake_is_actionable_to_the_away_classifier() {
   pass "decision wakes remain actionable after later status appends"
 }
 
+test_captain_held_key_does_not_mute_other_lanes() {
+  local payload
+  make_world captain-held-lane
+  write_child "$MAIN" child 'needs-decision [key=api]: choose the API shape'
+  printf 'working [key=impl]: implementation continues\n' >> "$MAIN/state/child.status"
+  printf 'captain-held [key=other]: tracked by backlog-9\n' >> "$MAIN/state/child.status"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue" 2>/dev/null || true)
+  case "$payload" in *'unresolved decisions count=1'*) : ;; *) fail "a held key muted an unrelated open decision" ;; esac
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "a held key muted an independent overdue working lane"
+  pass "captain holds remain scoped to their own key"
+}
+
+test_away_decision_realert_is_not_self_handled() {
+  local payload decision
+  make_world away-decision-realert
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue" 2>/dev/null || true)
+  [ -n "$payload" ] || fail "unresolved decision queued no signal row"
+  decision=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash -c '
+    . "$1"
+    arg="${2#signal: }"
+    classify_signal "$arg" "$3" >/dev/null
+    mark_escalated_seen signal "$arg" "$3"
+    classify_signal "$arg" "$3"' _ "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
+  case "$decision" in escalate\|*'unresolved decisions'*) : ;; *) fail "away mode self-handled an unresolved decision re-alert" ;; esac
+  pass "away decision re-alerts survive status-line deduplication"
+}
+
 test_cadence_cap_and_budget_continuation_bound_each_child() {
   local out status pid i reads id now
   make_world cadence-cap
@@ -1101,6 +1197,7 @@ SH
     || fail "truncated sweep slept for the 30-second poll instead of checking every child: $(cat "$WORLD/watch.out")"
 
   make_world over-capacity
+  write_child "$MAIN" achild 'done: PR https://example.test/owner/repo/pull/1 checks green'
   for i in $(seq 1 26); do
     id=$(printf 'child%02d' "$i")
     fm_write_meta "$MAIN/state/$id.meta" \
@@ -1108,11 +1205,12 @@ SH
       'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' "spawn_gen=$i"
   done
   now=$(date +%s)
-  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW="$now" \
+  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE='done' \
     run_reconcile "$MAIN" --startup
   awk -F '\t' '$3 == "check" && $4 == "inactive-reconcile-capacity" { found = 1 } END { exit(found ? 0 : 1) }' \
     "$MAIN/state/.wake-queue" \
     || fail "an over-capacity home silently claimed the ten-minute bound"
+  [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] || fail "an over-capacity home stopped reconciling terminal outcomes"
   ack_wakes "$MAIN" || fail "the capacity wake could not be acknowledged"
   FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW=$((now + 600)) \
     run_reconcile "$MAIN" --startup
@@ -1190,6 +1288,7 @@ test_post_completion_pause_does_not_report_terminal_outcome
 test_watcher_hook_and_idle_secondmate_exemption
 test_stalled_state_read_is_bounded_and_scan_progresses
 test_complete_child_check_is_bounded
+test_progress_wake_only_reports_measured_duration
 test_full_scan_budget_includes_wake_lock_wait
 test_notice_recovery_does_not_duplicate_wake
 test_quiet_active_scan_does_not_read_current_state
@@ -1203,15 +1302,19 @@ test_help_renders_the_whole_contract_block
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
 test_open_decision_does_not_suppress_overdue_progress
+test_fresh_lane_does_not_hide_an_overdue_independent_lane
 test_fresh_progress_is_not_aged_from_task_creation
 test_decision_backstop_commits_the_watcher_generation
 test_decision_realert_preserves_an_independent_turn_end
 test_alert_clock_survives_drain_acknowledgement
+test_progress_alert_clock_uses_resurface_cadence
 test_already_surfaced_decision_is_not_re_alerted_immediately
 test_budget_truncated_sweep_resumes_on_the_next_poll
 test_completed_sweep_cadence_is_anchored_to_its_start
 test_mixed_terminal_and_active_output_preserves_terminal_priority
 test_decision_wake_is_actionable_to_the_away_classifier
+test_captain_held_key_does_not_mute_other_lanes
+test_away_decision_realert_is_not_self_handled
 test_cadence_cap_and_budget_continuation_bound_each_child
 test_legacy_hot_cursor_runs_its_wrap_segment
 test_secondmate_active_evidence_reaches_its_owning_actor
