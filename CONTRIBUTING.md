@@ -21,6 +21,12 @@ The assessment rules are vendored from `lalo-admin`; the local pin always guards
 Firstmate also fails a missing CEO overview or one that is only implementation intent; that extra check is owned by `scripts/pr-communication/firstmateCeoOverview.ts` and does not replace the shared template sections.
 The remote comparison fails closed when the credential is missing or rejected, and only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.
 
+For every no-mistakes run in this repository, author the run intent in the gate-required PR shape before the pipeline publishes the live GitHub body, so the first `github.event.pull_request.body` event already passes `pr-communication`.
+Use the full shared template: `## CEO overview` with What is changing, Why it matters, Customer or business impact, and Risk and rollout; `## What changed technically`; `## Validation` with Checks passed, Checks not run, and Evidence and limitations; `## Module-boundary decision`; and `## Decision needed`.
+The current pipeline can replace the live description with Intent-shaped text.
+Do not rely on a committed `.github/pr-bodies` sidecar because CI grades the live body.
+This is interim until upstream no-mistakes preserves the author template and appends attestation ([kunchenguid/no-mistakes#995](https://github.com/kunchenguid/no-mistakes/issues/995)).
+
 ## Workflow
 
 1. Fork the repo, then clone the parent repo or set your local `origin` back to the parent (`git@github.com:bingb0t5/firstmate.git`).
@@ -36,10 +42,9 @@ The remote comparison fails closed when the credential is missing or rejected, a
 6. Run `no-mistakes` to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.
    Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
 7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
-   Before staging, replace any legacy `Intent`, `What Changed`, `Risk Assessment`, or `Testing` description with every completed section from [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
-   The pipeline generates the legacy headings, so this replacement is always needed and is never done for you.
-   Branches that have been through the gate carry the finished replacement text at `.github/pr-bodies/<pr-number>.md`; use `bin/fm-pr-body-compose.sh` to combine that narrative with the current PR body before updating it, and `tests/pr-communication.test.sh` keeps every such file passing the same executable communication checks the PR is graded by.
-   Replace only those narrative sections.
+   `pr-communication` grades that live GitHub body, so author the required shape before publish as specified above.
+   A committed `.github/pr-bodies` sidecar is not what CI reads.
+   If a later description edit is needed, replace only the narrative sections.
    Keep no-mistakes' `## Pipeline` section verbatim, including the `Updates from [git push no-mistakes]` signature line and the `<!-- no-mistakes-pipeline-attestation:v1 ... -->` comment, because `Require no-mistakes` reads both from the body and fails when a rewrite deletes them.
    Repeat that check before every branch synchronization and after later description edits.
 
