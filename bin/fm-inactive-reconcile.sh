@@ -607,7 +607,7 @@ EOF
 
 active_management_locked() { # <id> <meta> <timeout>
   local id=$1 meta=$2 timeout=$3 status turn last_line progress_signature progress_row progress_measured signal_signature turn_signature
-  local old_signature progress_epoch decision_rows decision_signature decision_count
+  local old_signature progress_epoch decision_rows decision_signature decision_generation decision_count
   local record now last_target decision_alert_epoch decision_alert_fingerprint
   local progress_alert_epoch progress_alert_fingerprint state source age payload queue_rc state_rc
   local status_epoch turn_epoch turn_seen_signature turn_seen_path
@@ -644,9 +644,11 @@ EOF
   fi
   case "$progress_epoch" in ''|*[!0-9]*) progress_epoch=$now ;; esac
   decision_signature=
+  decision_generation=
   decision_count=0
   if [ -n "$decision_rows" ]; then
     decision_signature=$(sha256_text "$decision_rows")
+    decision_generation=$(status_decision_generation "$status") || return 1
     decision_count=$(printf '%s\n' "$decision_rows" \
       | awk 'NF { count++ } END { print count + 0 }')
   fi
@@ -655,9 +657,9 @@ EOF
   progress_alert_fingerprint=$ACTIVE_RECORD_PROGRESS_ALERT_FINGERPRINT
   progress_alert_epoch=$ACTIVE_RECORD_PROGRESS_ALERT_EPOCH
   if [ -n "$decision_rows" ]; then
-    decision_alert_fingerprint="decision|$decision_signature"
+    decision_alert_fingerprint="decision|$decision_generation|$decision_signature"
     if [ "$ACTIVE_RECORD_DECISION_ALERT_FINGERPRINT" != "$decision_alert_fingerprint" ] \
-      && fm_wake_signal_seen_current "$STATE" "$status"; then
+      && status_decision_surfaced_matches "$STATE" "$id" "$decision_generation"; then
       # The per-wake path already showed the captain this exact line, so this
       # first observation only starts the re-surface clock. An obligation the
       # per-wake path never surfaced has no matching marker and is queued below
@@ -667,7 +669,7 @@ EOF
       "$decision_alert_fingerprint" "$now" "$PAUSE_RESURFACE_SECS"; then
       # A signal payload is word-split AND pathname-expanded by both away-mode
       # consumers, so it carries only the status path and bounded scalar fields.
-      payload="signal: $status (unresolved decisions count=$decision_count fingerprint=$decision_signature)"
+      payload="signal: $status (unresolved decisions count=$decision_count fingerprint=$decision_signature generation=$decision_generation)"
       status_epoch=$(file_mtime "$status" 2>/dev/null || true)
       turn_epoch=$(file_mtime "$turn" 2>/dev/null || true)
       turn_seen_path=$(fm_wake_signal_seen_path "$STATE" "$turn")
@@ -678,6 +680,7 @@ EOF
         decision_alert_epoch=$now
         if fm_wake_signal_mark_seen_if_current "$STATE" "$status" "$signal_signature"; then
           status_mark_surfaced "$STATE" "$id" "$last_line" || true
+          status_mark_decision_surfaced "$STATE" "$id" "$status" || true
           case "$status_epoch:$turn_epoch" in *[!0-9:]*|:|*:|*:*:*) : ;;
             *)
               if [ -z "$turn_seen_signature" ] && [ "$turn_epoch" -le "$status_epoch" ]; then
@@ -858,11 +861,12 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
       position=$id
     else
       rc=$?
+      if { [ "$rc" -eq 124 ] || [ "$rc" -eq 3 ]; } \
+        && [ "$first" -eq 0 ] && [ "$remaining" -lt "$share" ]; then
+        write_scan_marker "$position" || return 1
+        return 3
+      fi
       if [ "$rc" -eq 124 ]; then
-        if [ "$first" -eq 0 ] && [ "$remaining" -lt "$share" ]; then
-          write_scan_marker "$position" || return 1
-          return 3
-        fi
         target=$(fm_backend_target_of_meta "$meta")
         [ -n "$target" ] || target=$id
         alert_now=$(reconcile_now)

@@ -342,17 +342,25 @@ _collapse_newlines() {  # <text>
 
 classify_signal() {  # <reason-after-colon> <state>
   local reason=$1 state=$2 f last distilled="" rel="" all_seen=1 task seen
-  local decision_set=0 decision_count="" decision_fingerprint="" active_record active_signature line
+  local decision_set=0 decision_count="" decision_fingerprint="" decision_generation="" active_record active_signature active_generation line
   case "$reason" in
-    *' (unresolved decisions count='*' fingerprint='*')')
+    *' (unresolved decisions count='*' fingerprint='*' generation='*')')
       decision_count=${reason##*' (unresolved decisions count='}
       decision_count=${decision_count%%' fingerprint='*}
       decision_fingerprint=${reason##*' fingerprint='}
-      decision_fingerprint=${decision_fingerprint%')'}
+      decision_fingerprint=${decision_fingerprint%%' generation='*}
+      decision_generation=${reason##*' generation='}
+      decision_generation=${decision_generation%')'}
       case "$decision_count" in ''|0|*[!0-9]*) ;;
         *)
-          case "$decision_fingerprint" in ''|*[!0-9a-f]*) ;;
-            *) decision_set=1 ;;
+          case "$decision_fingerprint" in
+            ''|*[!0-9a-f]*) ;;
+            *)
+              case "$decision_generation" in
+                ''|*[!0-9a-f]*) ;;
+                *) decision_set=1 ;;
+              esac
+              ;;
           esac
           ;;
       esac
@@ -365,12 +373,19 @@ classify_signal() {  # <reason-after-colon> <state>
       task=$(basename "$f"); task="${task%.status}"
       active_record="$state/active-management/$task"
       active_signature=
+      active_generation=
       if [ -f "$active_record" ] && [ ! -L "$active_record" ]; then
         while IFS= read -r line || [ -n "$line" ]; do
-          case "$line" in decision_signature=*) active_signature=${line#decision_signature=} ;; esac
+          case "$line" in
+            decision_signature=*) active_signature=${line#decision_signature=} ;;
+            decision_alert_fingerprint=decision\|*)
+              active_generation=${line#decision_alert_fingerprint=decision|}
+              active_generation=${active_generation%%|*}
+              ;;
+          esac
         done < "$active_record"
       fi
-      if [ "$active_signature" = "$decision_fingerprint" ]; then
+      if [ "$active_signature" = "$decision_fingerprint" ] && [ "$active_generation" = "$decision_generation" ]; then
         distilled="${distilled}$(basename "$f"): $decision_count unresolved decisions (fingerprint $decision_fingerprint) | "
         rel=1
         last=$(last_status_line "$f")

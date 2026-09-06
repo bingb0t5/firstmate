@@ -1450,11 +1450,42 @@ status_surfaced_matches() {  # <state> <task> <status-line>
   [ "$(cat "$(_hb_surfaced_path "$1" "$2")" 2>/dev/null || true)" = "$3" ]
 }
 
+_hb_surfaced_decision_path() {
+  printf '%s/.hb-surfaced-decision-%s' "$1" "$(printf '%s' "$2" | tr ':/. ' '____')"
+}
+
+status_decision_generation() {
+  local status=$1
+  [ -f "$status" ] && [ -r "$status" ] && [ ! -L "$status" ] || return 1
+  if command -v shasum >/dev/null 2>&1; then
+    grep -E '^[[:space:]]*(needs-decision|blocked|resolved|captain-held)([[:space:]]|[[]|:|$)' "$status" 2>/dev/null \
+      | shasum -a 256 | awk '{print substr($1, 1, 32)}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    grep -E '^[[:space:]]*(needs-decision|blocked|resolved|captain-held)([[:space:]]|[[]|:|$)' "$status" 2>/dev/null \
+      | sha256sum | awk '{print substr($1, 1, 32)}'
+  else
+    grep -E '^[[:space:]]*(needs-decision|blocked|resolved|captain-held)([[:space:]]|[[]|:|$)' "$status" 2>/dev/null \
+      | cksum | awk '{printf "%08x%08x", $1, $2}'
+  fi
+}
+
+status_decision_surfaced_matches() {
+  [ "$(cat "$(_hb_surfaced_decision_path "$1" "$2")" 2>/dev/null || true)" = "$3" ]
+}
+
+status_mark_decision_surfaced() {
+  local state=$1 task=$2 status=$3 generation
+  generation=$(status_decision_generation "$status") || return 0
+  [ -n "$generation" ] || return 0
+  printf '%s' "$generation" > "$(_hb_surfaced_decision_path "$state" "$task")"
+}
+
 status_mark_surfaced() {  # <state> <task> <status-line>
   local state=$1 task=$2 line=$3
   [ -n "$line" ] || return 0
   status_is_captain_relevant "$line" || return 0
   printf '%s' "$line" > "$(_hb_surfaced_path "$state" "$task")"
+  status_mark_decision_surfaced "$state" "$task" "$state/$task.status"
 }
 
 scan_captain_relevant_statuses() {  # <state>

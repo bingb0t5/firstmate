@@ -110,6 +110,10 @@ wake_count() { # <home> <key prefix>
   grep -c "$2" "$1/state/.wake-queue" 2>/dev/null || true
 }
 
+scan_cursor() {
+  sed -n 's/^cursor=//p' "$1/state/.inactive-outcome-reconcile" 2>/dev/null | tail -1
+}
+
 stale_row_count() { # <home>
   awk -F '\t' '$3 == "stale" { n++ } END { print n + 0 }' "$1/state/.wake-queue" 2>/dev/null \
     || printf '0\n'
@@ -442,6 +446,29 @@ test_complete_child_check_is_bounded() {
     || fail "a complete child-check timeout was not routed as a capacity check"
   [ "$(stale_row_count "$MAIN")" = 0 ] || fail "a complete child-check timeout was routed as a crew wedge"
   pass "the complete per-child due-work check is process-bounded"
+}
+
+test_short_state_read_defers_instead_of_skipping_a_child() {
+  make_world short-state-read
+  write_child "$MAIN" a 'working: slow but healthy'
+  write_child "$MAIN" b 'working: state read will stall'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  a) sleep 1.1; printf 'state: working · source: fake\n' ;;
+  b) sleep 30 ;;
+esac
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=3 run_reconcile "$MAIN" --startup
+  [ "$(scan_cursor "$MAIN")" = a ] \
+    || fail "a short state-read timeout skipped the child: cursor=$(scan_cursor "$MAIN")"
+
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=3 run_reconcile "$MAIN" --startup
+  [ "$(scan_cursor "$MAIN")" = b ] \
+    || fail "the deferred child was not retried with a full share: cursor=$(scan_cursor "$MAIN")"
+  pass "a short state-read timeout defers the child"
 }
 
 test_progress_wake_only_reports_measured_duration() {
@@ -941,6 +968,26 @@ test_already_surfaced_decision_is_not_re_alerted_immediately() {
   pass "an already-surfaced decision starts the re-surface clock instead of re-waking"
 }
 
+test_surfaced_decision_stays_deduped_through_chatter() {
+  local now
+  local FM_PAUSE_RESURFACE_SECS=120
+  make_world surfaced-decision-chatter
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3"' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" \
+    "$MAIN/state/child.status" || fail "could not record the surfaced decision"
+  printf 'note: continuing unrelated work\n' >> "$MAIN/state/child.status"
+  : > "$MAIN/state/.wake-queue"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "chatter duplicated an already surfaced decision: $(cat "$MAIN/state/.wake-queue")"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 120)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "the still-open decision did not re-surface on its cadence"
+  pass "decision receipts survive unrelated status chatter"
+}
+
 # The durable state/active-management/<task> record, not the live queue, is what
 # holds the alert clock once a drain has acknowledged the row and supervision has
 # restarted - and it must not suppress the obligation past its re-alert interval.
@@ -1307,6 +1354,7 @@ test_post_completion_pause_does_not_report_terminal_outcome
 test_watcher_hook_and_idle_secondmate_exemption
 test_stalled_state_read_is_bounded_and_scan_progresses
 test_complete_child_check_is_bounded
+test_short_state_read_defers_instead_of_skipping_a_child
 test_progress_wake_only_reports_measured_duration
 test_full_scan_budget_includes_wake_lock_wait
 test_notice_recovery_does_not_duplicate_wake
@@ -1329,6 +1377,7 @@ test_decision_realert_preserves_an_independent_turn_end
 test_alert_clock_survives_drain_acknowledgement
 test_progress_alert_clock_uses_resurface_cadence
 test_already_surfaced_decision_is_not_re_alerted_immediately
+test_surfaced_decision_stays_deduped_through_chatter
 test_budget_truncated_sweep_resumes_on_the_next_poll
 test_completed_sweep_cadence_is_anchored_to_its_start
 test_mixed_terminal_and_active_output_preserves_terminal_priority
