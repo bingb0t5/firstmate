@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CONTRIBUTING.md — Firstmate PR body rule</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --border: #30363d;
+      --highlight: rgba(56, 139, 253, 0.15);
+      --highlight-border: #388bfd;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    header {
+      padding: 20px 32px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    header h1 { margin: 0 0 6px; font-size: 18px; }
+    header p { margin: 0; color: var(--muted); font-size: 13px; }
+    main { max-width: 860px; margin: 0 auto; padding: 28px 32px 48px; }
+    .file {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 28px 28px;
+    }
+    .file h1 { font-size: 28px; }
+    .file h2 {
+      font-size: 20px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+    a { color: var(--accent); }
+    code {
+      background: #21262d;
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      font-size: 0.92em;
+    }
+    pre {
+      background: #21262d;
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid var(--highlight-border);
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-bottom: 16px;
+    }
+    .new-rule {
+      background: var(--highlight);
+      border: 1px solid var(--highlight-border);
+      border-radius: 8px;
+      padding: 8px 16px 4px;
+      margin: 16px 0;
+    }
+    .rule-label {
+      margin: 8px 0 4px;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Contributor-facing surface: CONTRIBUTING.md</h1>
+    <p>Rendered excerpt of the PR communication rules. The highlighted block is the new interim no-mistakes PR-body paragraph inherited by every Firstmate home.</p>
+  </header>
+  <main>
+    <div class="badge">Tracked shared file inherited by every Firstmate home</div>
+    <article class="file">
+      <h1>Contributing</h1>
+<p>Thanks for wanting to contribute.<br />
+One rule up front:</p>
+<p><strong>Human-authored pull requests targeting <code>main</code> must be raised through <a href="https://github.com/kunchenguid/no-mistakes"><code>no-mistakes</code></a>.</strong><br />
+We require this to reduce the maintainer's burden of reviewing and merging contributions.</p>
+<p><code>no-mistakes</code> puts a local git proxy in front of your real remote.<br />
+Pushing through it runs an AI-driven review/test/lint pipeline in an isolated worktree, forwards the push upstream only after every check passes, and opens a clean PR automatically.</p>
+<p>A GitHub Actions check (<code>Require no-mistakes</code>) runs on PRs targeting <code>main</code> and fails if the body is missing the deterministic signature that no-mistakes writes.<br />
+It evaluates every PR opening and body edit independently, so a later edit cannot replace an earlier pending compliance check.<br />
+GitHub Actions and Dependabot are exempt so their automation keeps working, but regular contributor PRs without the signature will not be reviewed or merged.</p>
+<p>A second check (<code>pr-communication</code>) enforces the pull request communication structure shared with the Lalo repos.<br />
+Use <a href=".github/PULL_REQUEST_TEMPLATE.md"><code>.github/PULL_REQUEST_TEMPLATE.md</code></a> verbatim for the required CEO overview, validation, module-boundary decision, and decision-needed sections.<br />
+Legacy <code>Intent</code>, <code>Risk Assessment</code>, and <code>Testing</code> headings do not satisfy the communication check.<br />
+The two checks read the same body and are satisfied together: the communication check ignores no-mistakes' own <code>## Pipeline</code> section, so never drop that section to satisfy it.<br />
+The assessment rules are vendored from <code>lalo-admin</code>; the local pin always guards that copy against unreviewed changes, and the companion <code>pr-communication-sot</code> check compares it with that remote source of truth using only <code>PR_COMMUNICATION_SOT_TOKEN</code>.<br />
+Firstmate also fails a missing CEO overview or one that is only implementation intent; that extra check is owned by <code>scripts/pr-communication/firstmateCeoOverview.ts</code> and does not replace the shared template sections.<br />
+The remote comparison fails closed when the credential is missing or rejected, and only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.</p>
+<section class="new-rule" id="interim-pr-body-rule"><p class="rule-label">New interim PR-body rule</p><p>For every no-mistakes run in this repository, author the run intent in the gate-required PR shape before the pipeline publishes the live GitHub body, so the first <code>github.event.pull_request.body</code> event already passes <code>pr-communication</code>.<br />
+Use the full shared template: <code>## CEO overview</code> with What is changing, Why it matters, Customer or business impact, and Risk and rollout; <code>## What changed technically</code>; <code>## Validation</code> with Checks passed, Checks not run, and Evidence and limitations; <code>## Module-boundary decision</code>; and <code>## Decision needed</code>.<br />
+The current pipeline can replace the live description with Intent-shaped text.<br />
+Do not rely on a committed <code>.github/pr-bodies</code> sidecar because CI grades the live body.<br />
+This is interim until upstream no-mistakes preserves the author template and appends attestation (<a href="https://github.com/kunchenguid/no-mistakes/issues/995">kunchenguid/no-mistakes#995</a>).</p></section>
+<h2>Workflow</h2>
+<ol>
+<li>Fork the repo, then clone the parent repo or set your local <code>origin</code> back to the parent (<code>git@github.com:bingb0t5/firstmate.git</code>).</li>
+<li>Create a branch and make your changes.</li>
+<li>Initialize the gate with your fork as the push target: <code>no-mistakes init --fork-url git@github.com:&lt;you&gt;/firstmate.git</code> (firstmate expects <strong>no-mistakes v1.46.0+</strong>; without a fork, plain <code>no-mistakes init</code> still works for maintainers with push access).</li>
+<li>Commit your changes.</li>
+<li>Push through the gate instead of pushing to <code>origin</code>:</li>
+</ol>
+<p><code>sh
+   git push no-mistakes</code></p>
+<ol start="6">
+<li>Run <code>no-mistakes</code> to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.<br />
+   Follow the installed no-mistakes version's SKILL.md and live <code>axi</code> help for gate mechanics.</li>
+<li>Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.<br />
+   Before staging, replace any legacy <code>Intent</code>, <code>What Changed</code>, <code>Risk Assessment</code>, or <code>Testing</code> description with every completed section from <a href=".github/PULL_REQUEST_TEMPLATE.md"><code>.github/PULL_REQUEST_TEMPLATE.md</code></a>.<br />
+   The pipeline generates the legacy headings, so this replacement is always needed and is never done for you.<br />
+   Branches that have been through the gate carry the finished replacement text at <code>.github/pr-bodies/&lt;pr-number&gt;.md</code>; use <code>bin/fm-pr-body-compose.sh</code> to combine that narrative with the current PR body before updating it, and <code>tests/pr-communication.test.sh</code> keeps every such file passing the same executable communication checks the PR is graded by.<br />
+   Replace only those narrative sections.<br />
+   Keep no-mistakes' <code>## Pipeline</code> section verbatim, including the <code>Updates from [git push no-mistakes]</code> signature line and the <code>&lt;!-- no-mistakes-pipeline-attestation:v1 ... --&gt;</code> comment, because <code>Require no-mistakes</code> reads both from the body and fails when a rewrite deletes them.<br />
+   Repeat that check before every branch synchronization and after later description edits.</li>
+</ol>
+<p>See the <a href="https://kunchenguid.github.io/no-mistakes/start-here/quick-start/">no-mistakes quick start</a> for the full first-run walkthrough.</p>
+    </article>
+  </main>
+</body>
+</html>

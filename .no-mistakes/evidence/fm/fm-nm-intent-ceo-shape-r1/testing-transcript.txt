@@ -1,0 +1,21 @@
+# Targeted validation for CONTRIBUTING.md interim no-mistakes PR-body rule
+
+$ git diff --stat 172231fdd4bc94dc8694ec52315d6f0a597aefb7 062c5e95c1e0c3396c6450994f6c09c10ddf9d48
+ CONTRIBUTING.md | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+$ git diff --name-only 172231fdd4bc94dc8694ec52315d6f0a597aefb7 062c5e95c1e0c3396c6450994f6c09c10ddf9d48
+CONTRIBUTING.md
+
+# Runtime, tests, and PR 35 were not in the diff (documentation-only change).
+
+$ bin/fm-doc-audience-check.sh
+fm-doc-audience-check: ok surfaces=83 local_links=287
+
+# CONTRIBUTING.md remains a tracked shared surface in docs/documentation-audiences.json
+# (path=CONTRIBUTING.md, audience=maintainer-architecture) and still points at
+# docs/documentation-audiences.md. The new paragraph is the contributor-facing
+# owner of the interim PR-body authoring rule.
+
+# Rendered contributor surface: contributing-pr-body-rule.html
+# Screenshots: contributing-pr-body-rule.png, contributing-pr-body-rule-closeup.png
