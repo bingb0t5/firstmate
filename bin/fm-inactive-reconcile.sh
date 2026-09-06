@@ -1204,8 +1204,7 @@ scan() {
     direct_child_count=$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN
   fi
   write_partial_marker "$child_count" "$ACTIVE_CANDIDATE_PARTIAL" || return 1
-  if [ "$ACTIVE_CANDIDATE_PARTIAL" -eq 0 ] \
-    && [ "$child_count" -gt "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then
+  if [ "$child_count" -gt "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then
     if scan_alert_due "$CAPACITY_MARKER" "children=$child_count" "$now"; then
       active_queue_once check inactive-reconcile-capacity \
         "check: due-work capacity exceeded (${child_count} active direct children; maximum ${FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN})" || rc=$?

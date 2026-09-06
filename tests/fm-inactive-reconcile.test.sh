@@ -1352,6 +1352,8 @@ SH
       printf 'working [key=%s]: active due-work\n' "$id"
     } > "$MAIN/state/$id.status"
   done
+  write_child "$MAIN" zpartial 'note: ordinary chatter'
+  printf 'note: %*s\n' 70000 '' | tr ' ' x > "$MAIN/state/zpartial.status"
   now=$(date +%s)
   FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE='done' \
     run_reconcile "$MAIN" --startup
