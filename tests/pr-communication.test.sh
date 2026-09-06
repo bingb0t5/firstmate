@@ -15,9 +15,11 @@ UNIT="$ROOT/scripts/check-pr-communication.test.ts"
 FETCH_FIXTURE="$ROOT/tests/fixtures/pr-communication-fetch.mjs"
 TEMPLATE="$ROOT/.github/PULL_REQUEST_TEMPLATE.md"
 TRACKED_BODY_DIR="$ROOT/.github/pr-bodies"
+BODY_COMPOSER="$ROOT/bin/fm-pr-body-compose.sh"
+NO_MISTAKES_WORKFLOW="$ROOT/.github/workflows/no-mistakes-required.yml"
 
-if ! command -v node >/dev/null 2>&1; then
-  echo "skip: node is required to run the PR communication gate"
+if ! command -v node >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+  echo "skip: node, python3, and jq are required to run the PR communication gates"
   exit 0
 fi
 
@@ -84,6 +86,27 @@ Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)
 EOF
 }
 
+run_no_mistakes_requirement() {
+  local script
+  script=$(python3 - "$NO_MISTAKES_WORKFLOW" <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as workflow_file:
+    workflow = yaml.safe_load(workflow_file)
+steps = workflow["jobs"]["check"]["steps"]
+for step in steps:
+    if step.get("name") == "Verify no-mistakes signature in PR body":
+        print(step["run"], end="")
+        break
+else:
+    raise SystemExit("no-mistakes signature verifier was not found")
+PY
+  ) || return $?
+  bash -e -c "$script"
+}
+
 test_cli_accepts_description_that_keeps_the_pipeline_section() {
   local out rc
   set +e
@@ -98,6 +121,36 @@ test_cli_accepts_description_that_keeps_the_pipeline_section() {
   assert_contains "$out" "PR communication is complete." \
     "the no-mistakes Pipeline section made a compliant description fail"
   pass "CLI passes a compliant description that keeps the no-mistakes Pipeline section"
+}
+
+test_pr_body_composer_preserves_the_pipeline_attestation() {
+  local existing body out rc
+  existing=$(mktemp "$ROOT/.pr-body-existing.XXXXXX")
+  pipeline_section > "$existing"
+  body=$("$BODY_COMPOSER" "$TRACKED_BODY_DIR/31.md" "$existing")
+  rm -f "$existing"
+  assert_contains "$body" \
+    '<!-- no-mistakes-pipeline-attestation:v1 {"head_sha":"0000000000000000000000000000000000000000","steps":[{"step":"review","status":"completed"},{"step":"test","status":"completed"},{"step":"document","status":"completed"}]} -->' \
+    "composed PR body changed the existing pipeline attestation"
+
+  set +e
+  out=$(PR_TITLE='Fix false supervision alarms' PR_BODY="$body" \
+    node --experimental-strip-types "$CHECK" 2>&1)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "composed PR body communication assessment"
+  assert_contains "$out" "PR communication is complete." \
+    "composed PR body did not preserve the required narrative"
+
+  set +e
+  out=$(PR_BODY="$body" PR_AUTHOR='test-author' PR_NUMBER=31 \
+    run_no_mistakes_requirement 2>&1)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "composed PR body no-mistakes attestation assessment"
+  assert_contains "$out" "Pipeline step attestation is valid" \
+    "composed PR body did not preserve the no-mistakes attestation"
+  pass "PR body composer preserves the no-mistakes Pipeline section"
 }
 
 test_missing_remote_token_fails_closed() {
@@ -361,6 +414,7 @@ test_tracked_pr_bodies_are_accepted() {
 test_missing_remote_token_fails_closed
 test_vendored_unit_suite
 test_cli_accepts_description_that_keeps_the_pipeline_section
+test_pr_body_composer_preserves_the_pipeline_attestation
 test_cli_rejects_incomplete_description
 test_cli_rejects_pipeline_generated_description
 test_cli_rejects_untouched_module_boundary_template
