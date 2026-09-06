@@ -18,6 +18,7 @@ Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) verba
 Legacy `Intent`, `Risk Assessment`, and `Testing` headings do not satisfy the communication check.
 The two checks read the same body and are satisfied together: the communication check ignores no-mistakes' own `## Pipeline` section, so never drop that section to satisfy it.
 The assessment rules are vendored from `lalo-admin`; the local pin always guards that copy against unreviewed changes, and the companion `pr-communication-sot` check compares it with that remote source of truth using only `PR_COMMUNICATION_SOT_TOKEN`.
+Firstmate also fails a missing CEO overview or one that is only implementation intent; that extra check is owned by `scripts/pr-communication/firstmateCeoOverview.ts` and does not replace the shared template sections.
 The remote comparison fails closed when the credential is missing or rejected, and only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.
 
 ## Workflow
