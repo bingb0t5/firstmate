@@ -89,7 +89,10 @@
 # doctor validates the database and reports its non-secret state, integrity,
 # migration, resolution evidence, and durability settings. It reports reply
 # totals per state, every reply still owed, and a bounded newest set of terminal
-# reply rows, with an explicit omitted-terminal count.
+# reply rows, with an explicit omitted-terminal count. It also reports photo and
+# voice intake totals per state and a bounded newest set of refused or unknown
+# media rows, with an explicit omitted-attention count, and never prints media
+# bytes, captions, transcripts, or file identifiers.
 # resolve-migration is the one guarded exit from a blocked migration.
 # It requires the exact doctor fingerprint, manifest digest, and complete
 # path-plus-payload-digest set, and records operator-acknowledged delivery
@@ -119,8 +122,8 @@
 # It validates the complete HTTP response and every update before beginning one
 # SQLite transaction.
 # A valid transaction stores every newly authorized captain payload, creates
-# its stable notice, advances the committed offset, and clears resolved
-# conditions together.
+# its stable notice, records photo and voice intake, advances the committed
+# offset, and clears resolved conditions together.
 # A rejected response creates or preserves a protocol notice but never changes
 # the committed offset, API episodes, or message rows.
 # The next getUpdates request can use a higher offset only after the transaction
@@ -184,6 +187,19 @@
 # A text carrying no sender at all, as an anonymous group administrator post
 # does, is simply not the captain: it is skipped and consumed with its batch
 # rather than rejected as malformed.
+# Photo and voice updates use that same exact chat and sender identity.
+# An authenticated photo or voice is stored as a captain payload and a received
+# media row, and wakes through the ordinary message notice.
+# A photo or voice that is not the captain is consumed as a refused media row
+# without a captain payload or wake.
+# A captain photo or voice that cannot prove the file identity needed to handle
+# it is stored as unknown media with a wake rather than dropped by advancing
+# the offset silently.
+# Older stored rows that cannot prove those media fields are refused loudly
+# instead of being treated as received.
+# Stickers and other unsupported non-text shapes remain skipped.
+# Captions live only in the stored payload: they are never copied into logs,
+# status lines, command arguments, sidecar filenames, or error messages.
 #
 # LIMITS.
 # getUpdates called with offset=N irreversibly confirms every update below N.

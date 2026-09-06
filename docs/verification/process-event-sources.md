@@ -12,6 +12,7 @@ Telegram adapter behavior verified on 2026-08-25 through the real adapter and ge
 The transactional Telegram crash matrix was verified the same day on Linux 6.8.0-138-generic with Python 3.12.3 and SQLite 3.45.1.
 Blocked Telegram migration resolution, archive-bound proof, tombstone replay, the resolution crash boundaries, and the parked unresolved poll were verified on 2026-08-30 on the same Linux and Python versions through `bash tests/fm-procevent-telegram.test.sh`.
 Telegram outbound reply binding, idempotence, definite-failure and delivery-unknown states, stdin-only body handling, crash recovery, doctor reporting, and legacy refusal were verified on 2026-08-31 on the same Linux and Python versions through `bash tests/fm-procevent-telegram.test.sh`.
+Telegram photo and voice receive, refused and unknown media intake, crash/replay offset honesty, doctor media reporting, and unchanged text plus inbound-linked reply behavior were verified on 2026-09-06 on Linux 6.8.0-138-generic with Python 3.12.3 and SQLite 3.45.1 through `bash tests/fm-procevent-telegram.test.sh`.
 The focused suite reported:
 
 ```text
@@ -28,6 +29,20 @@ all fm-procevent-telegram tests passed
 ```
 
 The crash-boundary case reruns `resolve-migration` after an injected exit at each of its seven transaction boundaries and proves the store stays valid, exposes no partial proof tables, tombstones, or notice acknowledgement before commit, and converges to exactly one complete resolution.
+
+The 2026-09-06 media-intake run reported:
+
+```text
+ok - an authenticated photo wakes, records received intake, and still accepts a bound reply
+ok - an authenticated voice wakes and records received intake
+ok - unauthenticated or wrong-chat media is refused without a captain wake
+ok - captain media that cannot prove its file identity is unknown, durable, and visible
+ok - text intake still commits in the same batch as a photo
+ok - unsupported non-text shapes stay skipped while photo intake still wakes
+ok - photo crash boundaries expose only complete transactions and remain replayable
+ok - an older record that cannot prove media fields is refused loudly
+all fm-procevent-telegram tests passed
+```
 
 ## Telegram identifier and durability evidence
 

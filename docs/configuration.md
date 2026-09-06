@@ -612,9 +612,15 @@ An already-armed Lavish source keeps its registered listener command until it is
 It is this runner's one deliberate exception to adapter-driven terminal retirement: the captain's channel never reports itself terminal, so only explicit operator retirement stops it.
 
 These paragraphs are the single prose owner of that channel's state and acknowledgement contract.
-`state/telegram/channel.db` is the sole live authoritative state: one transactional store holding the committed getUpdates offset, every accepted captain payload, its notice, and the sticky API, credential, protocol, and transport episodes.
+`state/telegram/channel.db` is the sole live authoritative state: one transactional store holding the committed getUpdates offset, every accepted captain payload, photo and voice intake, its notice, and the sticky API, credential, protocol, and transport episodes.
 There is no separate offset, blocked, pending, receipt, or mutable inbox file, and nothing outside the adapter parses that state.
-The adapter validates a complete Telegram response before opening its transaction, so a rejected batch leaves the committed offset, the episodes, and the stored messages unchanged and the next request repeats the same offset; the offset advances only inside the same commit that stored the batch's messages and notice.
+The adapter validates a complete Telegram response before opening its transaction, so a rejected batch leaves the committed offset, the episodes, the stored messages, and media intake unchanged and the next request repeats the same offset; the offset advances only inside the same commit that stored the batch's messages, media intake, and notice.
+Authenticated photo and voice updates use the same captain chat id and sender id as text, store a typed payload plus a `media_intake` row, and wake through the ordinary message notice.
+A photo or voice that is not the captain is recorded as refused media without a captain payload or wake.
+A captain photo or voice that cannot prove the file identity needed to handle it is recorded as unknown media with a wake, so the offset never advances into silent loss.
+Older stored rows that cannot prove those media fields are refused loudly rather than treated as received.
+Stickers and other unsupported non-text shapes remain skipped.
+`doctor` reports `media_count` plus `media_received`, `media_refused`, and `media_unknown` totals, lists a bounded newest set of refused and unknown rows with their sanitized detail, and never prints media bytes, captions, transcripts, or file identifiers.
 `state/telegram-inbox/` and the other pre-migration files are read-only evidence after the one-time `migrate` cutover, which retires the source, copies every old artifact into the sealed read-only `state/telegram-migration-archive/`, deletes nothing, imports only coherent state, and publishes a visibly blocked database rather than guessing an offset when the old state is ambiguous, unreadable, or malformed.
 A recoverable precondition is never a blocked cutover: `migrate` refuses up front, changing nothing, while any captured legacy Telegram result is still unhandled or while the old state cannot be archived completely, so the operator handles those and reruns the same command.
 The archive is staged in a marked private directory, fsynced, and validated against both a fresh read of its own manifest and the live legacy bytes before it is published atomically and sealed ahead of the database, so a refused attempt leaves neither a database nor a published archive.
