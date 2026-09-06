@@ -1,0 +1,71 @@
+Firstmate Telegram photo/voice receive — captain-facing adapter CLI
+Stubbed curl only (no live Telegram source). Same commands a home runs: arm, poll, classify, messages, doctor, ack.
+
+======== 1. arm the Firstmate Telegram adapter ========
+registered: telegram (telegram)
+armed: telegram
+
+======== 2. captain sends a 1280x720 photo whose largest size omitted file_size (thumbnail has file_size=100) ========
+poll stdout:
+message: 1 notice=a014b5dd-b78d-482a-a59b-2ebfed17ea24:1
+
+======== 2a. classify / messages / doctor after photo ========
+classify: message
+messages JSON:
+{"chat_id":555,"date":1700000003,"file_id":"full-id","file_unique_id":"full-uniq","from_id":909,"kind":"photo","message_id":851,"update_id":4501}
+doctor:
+integrity=ok
+schema_version=1
+state_uuid=a014b5dd-b78d-482a-a59b-2ebfed17ea24
+committed_offset=4502
+consecutive_failures=0
+migration_status=fresh
+reply_count=0
+media_count=1
+media_received=1
+media_refused=0
+media_unknown=0
+pending_notices=1
+active_conditions=none
+media_intake rows (update_id|kind|state|failure_detail):
+4501|photo|received|
+committed_offset=4502
+stored photo payload file_id (from messages JSON, not logs):
+kind=photo file_id=full-id
+
+======== 3. ack the photo notice so later updates can poll ========
+acknowledged: notice=a014b5dd-b78d-482a-a59b-2ebfed17ea24:1
+
+======== 4. captain sends a voice message ========
+poll stdout:
+message: 1 notice=a014b5dd-b78d-482a-a59b-2ebfed17ea24:2
+classify: message
+messages JSON:
+{"chat_id":555,"date":1700000004,"duration":5,"file_id":"voice-id","file_unique_id":"voice-uniq","from_id":909,"kind":"voice","message_id":852,"mime_type":"audio/ogg","update_id":4502}
+doctor:
+media_count=2
+media_received=2
+media_refused=0
+media_unknown=0
+pending_notices=1
+media_intake rows:
+4501|photo|received|
+4502|voice|received|
+
+======== 5. unauthenticated photo from a non-captain sender (must not wake) ========
+poll exit=1 stdout=''
+doctor after refused media:
+media_count=3
+media_received=2
+media_refused=1
+media_unknown=0
+media.4503=refused kind=photo detail=unauthenticated
+pending_notices=0
+media_intake rows:
+4501|photo|received|
+4502|voice|received|
+4503|photo|refused|unauthenticated
+committed_offset=4504 (refused media still advanced; durable refused row, no captain wake)
+
+======== 6. leak check: doctor/status must not contain file ids, captions, or the token ========
+doctor leak check: PASS (no file ids, captions, or token)

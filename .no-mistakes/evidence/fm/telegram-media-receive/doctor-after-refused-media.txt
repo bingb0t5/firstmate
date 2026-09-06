@@ -1,0 +1,14 @@
+integrity=ok
+schema_version=1
+committed_offset=4504
+consecutive_failures=0
+migration_status=fresh
+reply_count=0
+media_count=3
+media_received=2
+media_refused=1
+media_unknown=0
+media.4503=refused kind=photo detail=unauthenticated
+media_attention_omitted=0
+pending_notices=0
+active_conditions=none
