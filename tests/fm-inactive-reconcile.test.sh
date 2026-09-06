@@ -645,7 +645,9 @@ SH
 test_terminal_pass_preserves_active_continuation() {
   make_world wrap-at-origin
   write_child "$MAIN" a 'done: green'
-  write_child "$MAIN" b 'working: state read will stall'
+  # A keyed working phase is required for active-candidate evidence.
+  # An unkeyed working line is not an open activity, so the stall never joins the active pass.
+  write_child "$MAIN" b 'working [key=implementation]: state read will stall'
   write_child "$MAIN" c 'done: green'
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
@@ -662,12 +664,12 @@ SH
   FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=2 run_reconcile "$MAIN"
   grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
     || fail "the sweep never reached its wrap segment: $(cat "$MAIN/state/.wake-queue" 2>/dev/null)"
-  [ "$(sed -n 's/^cursor=//p' "$MAIN/state/.inactive-outcome-reconcile")" = b ] \
-    || fail "the wrap did not truncate on the origin child"
+  [ "$(scan_cursor "$MAIN")" = b ] \
+    || fail "the wrap did not truncate on the origin child: cursor=$(scan_cursor "$MAIN")"
 
   FM_STATE_READ_LOG="$WORLD/state-reads" run_reconcile "$MAIN"
   [ "$(scan_active_cursor "$MAIN")" = b ] \
-    || fail "the terminal pass lost the active continuation"
+    || fail "the terminal pass lost the active continuation: active_cursor=$(scan_active_cursor "$MAIN")"
   pass "terminal passes preserve their active continuation"
 }
 
