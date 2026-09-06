@@ -304,6 +304,12 @@ test_hook_blocks_when_due_work_capacity_is_exceeded() {
   wait "$pid" 2>/dev/null || true
   expect_code 2 "$status" "hook must block when due-work capacity exceeds its bound"
   assert_contains "$out" "DUE-WORK CAPACITY EXCEEDED" "capacity block did not name the actual supervision failure"
+  assert_contains "$out" "Active direct work exceeds" "capacity block did not describe the active-work condition"
+  case "$out" in
+    *'1 direct task(s) exceed bounded due-work coverage capacity.'*)
+      fail "capacity block reported all metadata records as active work"
+      ;;
+  esac
   pass "fm-turnend-guard: blocks when due-work capacity exceeds its bound"
 }
 
@@ -800,7 +806,9 @@ test_grok_adapter_missing_jq_and_no_supervision_allow() {
   [ ! -e "$log" ] || fail "missing jq started a resume process"
 
   dir=$(make_primary_dir "$TMP_ROOT/grok-native-no-work")
-  out=$(printf '%s' '{"sessionId":"x","stopHookActive":false}' | GROK_WORKSPACE_ROOT="$dir" bash "$dir/bin/fm-turnend-guard-grok.sh" 2>&1); status=$?
+  out=$(printf '%s' '{"sessionId":"x","stopHookActive":false}' \
+    | env -u FM_HOME -u FM_STATE_OVERRIDE -u FM_ROOT_OVERRIDE \
+      GROK_WORKSPACE_ROOT="$dir" bash "$dir/bin/fm-turnend-guard-grok.sh" 2>&1); status=$?
   expect_code 0 "$status" "healthy no-supervision-needed native stop must allow"
   [ -z "$out" ] || fail "no-supervision-needed native stop produced output: $out"
   pass "fm-turnend-guard-grok: missing jq and no-supervision-needed stops stay silent and bounded"

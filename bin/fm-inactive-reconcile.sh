@@ -311,6 +311,11 @@ scan_marker_started_epoch() {
   grep '^started_epoch=' "$SCAN_MARKER" 2>/dev/null | tail -1 | cut -d= -f2- || true
 }
 
+scan_marker_active_cursor() {
+  [ -f "$SCAN_MARKER" ] && [ ! -L "$SCAN_MARKER" ] || return 0
+  grep '^active_cursor=' "$SCAN_MARKER" 2>/dev/null | tail -1 | cut -d= -f2- || true
+}
+
 scan_marker_has_continuation() {
   [ -f "$SCAN_MARKER" ] && [ ! -L "$SCAN_MARKER" ] || return 1
   grep -q '^origin=' "$SCAN_MARKER" 2>/dev/null \
@@ -323,6 +328,8 @@ scan_marker_has_continuation() {
 # covered yet.
 SCAN_ORIGIN=
 SCAN_STARTED_EPOCH=
+SCAN_ACTIVE_CURSOR=
+SCAN_REGULAR_CURSOR=
 
 write_scan_marker() { # <cursor>
   local cursor=$1 marker_tmp
@@ -332,6 +339,7 @@ write_scan_marker() { # <cursor>
     printf 'started_epoch=%s\n' "$SCAN_STARTED_EPOCH"
     printf 'cursor=%s\n' "$cursor"
     printf 'origin=%s\n' "$SCAN_ORIGIN"
+    printf 'active_cursor=%s\n' "$SCAN_ACTIVE_CURSOR"
   } > "$marker_tmp" || { rm -f "$marker_tmp"; return 1; }
   chmod 600 "$marker_tmp" 2>/dev/null || true
   mv -f "$marker_tmp" "$SCAN_MARKER" || { rm -f "$marker_tmp"; return 1; }
@@ -569,6 +577,22 @@ active_has_open_working_phase() { # <status-file>
 $rows
 EOF
   return 1
+}
+
+direct_meta_has_active_due_work() { # <meta>
+  local meta=$1 id kind status decisions
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
+  id=${meta##*/}; id=${id%.meta}
+  valid_id "$id" || return 1
+  kind=$(meta_field "$meta" kind)
+  [ "$kind" = secondmate ] && return 1
+  status="$STATE/$id.status"
+  [ -f "$status" ] && [ -r "$status" ] && [ ! -L "$status" ] || return 1
+  if active_has_decision_event "$status"; then
+    decisions=$(status_open_decisions "$status" 2>/dev/null || true)
+    [ -n "$decisions" ] && return 0
+  fi
+  active_has_open_working_phase "$status"
 }
 
 active_oldest_open_progress() { # <status-file> <fallback> -> signature<TAB>epoch<TAB>measured
@@ -843,7 +867,7 @@ reconcile_direct_child() { # <id> <meta> <secondmate-id-or-empty> <timeout>
 # first visit, such a scan would return 3 having examined no child at all while
 # write_scan_marker had already advanced the cursor past the skipped child.
 scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-or-empty>
-  local cursor=$1 upper=$2 deadline=$3 self=${4:-} meta id remaining share rc first target payload queue_rc alert_now
+  local cursor=$1 upper=$2 deadline=$3 self=${4:-} skip_active=${5:-0} meta id remaining share rc first target payload queue_rc alert_now
   local position=$1
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
@@ -851,6 +875,7 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
     valid_id "$id" || continue
     [ -z "$cursor" ] || [[ "$id" > "$cursor" ]] || continue
     if [ -n "$upper" ] && [[ "$id" > "$upper" ]]; then continue; fi
+    [ "$skip_active" -eq 0 ] || ! direct_meta_has_active_due_work "$meta" || continue
     first=0
     if [ "${SCAN_FIRST_VISIT_PENDING:-0}" -eq 1 ]; then
       first=1
@@ -863,7 +888,8 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
     [ "$remaining" -gt 0 ] || return 3
     share=${SCAN_CHILD_TIMEOUT:-$remaining}
     [ "$remaining" -le "$share" ] || remaining=$share
-    write_scan_marker "$id" || return 1
+    SCAN_REGULAR_CURSOR=$id
+    write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
     if fm_run_timed $((remaining + 1)) env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
       FM_INACTIVE_RECONCILE_SECS="$FM_INACTIVE_RECONCILE_SECS" \
       FM_INACTIVE_RECONCILE_BUDGET_SECS="$FM_INACTIVE_RECONCILE_BUDGET_SECS" \
@@ -874,7 +900,65 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
       rc=$?
       if { [ "$rc" -eq 124 ] || [ "$rc" -eq 3 ]; } \
         && [ "$first" -eq 0 ] && [ "$remaining" -lt "$share" ]; then
-        write_scan_marker "$position" || return 1
+        SCAN_REGULAR_CURSOR=$position
+        write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
+        return 3
+      fi
+      if [ "$rc" -eq 124 ]; then
+        target=$(fm_backend_target_of_meta "$meta")
+        [ -n "$target" ] || target=$id
+        alert_now=$(reconcile_now)
+        if scan_alert_due "$BUDGET_MARKER" "$target" "$alert_now"; then
+          payload="check: bounded due-work check exceeded ${remaining}s for $target"
+          queue_rc=0
+          active_queue_once check inactive-reconcile-budget "$payload" || queue_rc=$?
+          [ "$queue_rc" -ne 2 ] || return 1
+          scan_alert_record "$BUDGET_MARKER" "$target" "$alert_now" || return 1
+        fi
+        return 3
+      fi
+      [ "$rc" -eq 3 ] && return 3
+      return "$rc"
+    fi
+  done
+}
+
+scan_active_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-or-empty> <timeout>
+  local cursor=$1 upper=$2 deadline=$3 self=${4:-} timeout=$5 meta id remaining share rc first target payload queue_rc alert_now
+  local position=$1
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    id=$(basename "$meta" .meta)
+    valid_id "$id" || continue
+    [ -z "$cursor" ] || [[ "$id" > "$cursor" ]] || continue
+    if [ -n "$upper" ] && [[ "$id" > "$upper" ]]; then continue; fi
+    direct_meta_has_active_due_work "$meta" || continue
+    first=0
+    if [ "${ACTIVE_SCAN_FIRST_VISIT_PENDING:-0}" -eq 1 ]; then
+      first=1
+      ACTIVE_SCAN_FIRST_VISIT_PENDING=0
+    fi
+    remaining=$((deadline - $(date +%s)))
+    if [ "$first" -eq 1 ] && [ "$remaining" -lt 1 ]; then
+      remaining=1
+    fi
+    [ "$remaining" -gt 0 ] || return 3
+    share=$timeout
+    [ "$remaining" -le "$share" ] || remaining=$share
+    SCAN_ACTIVE_CURSOR=$id
+    write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
+    if fm_run_timed $((remaining + 1)) env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+      FM_INACTIVE_RECONCILE_SECS="$FM_INACTIVE_RECONCILE_SECS" \
+      FM_INACTIVE_RECONCILE_BUDGET_SECS="$FM_INACTIVE_RECONCILE_BUDGET_SECS" \
+      FM_INACTIVE_CREW_STATE_BIN="$CREW_STATE_BIN" "$0" _reconcile-child \
+      "$id" "$meta" "$self" "$remaining"; then
+      position=$id
+    else
+      rc=$?
+      if { [ "$rc" -eq 124 ] || [ "$rc" -eq 3 ]; } \
+        && [ "$first" -eq 0 ] && [ "$remaining" -lt "$share" ]; then
+        SCAN_ACTIVE_CURSOR=$position
+        write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
         return 3
       fi
       if [ "$rc" -eq 124 ]; then
@@ -913,47 +997,39 @@ scan_direct_child_count() {
 }
 
 scan_active_due_work_count() {
-  local meta id kind line status decisions count=0
+  local meta count=0
   for meta in "$STATE"/*.meta; do
-    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
-    id=${meta##*/}; id=${id%.meta}
-    valid_id "$id" || continue
-    kind=''
-    while IFS= read -r line || [ -n "$line" ]; do
-      case "$line" in kind=*) kind=${line#kind=} ;; esac
-    done < "$meta"
-    [ "$kind" = secondmate ] && continue
-    status="$STATE/$id.status"
-    [ -f "$status" ] && [ -r "$status" ] && [ ! -L "$status" ] || continue
-    if active_has_decision_event "$status"; then
-      decisions=$(status_open_decisions "$status" 2>/dev/null || true)
-      [ -n "$decisions" ] && count=$((count + 1))
-    elif active_has_open_working_phase "$status"; then
-      count=$((count + 1))
-    fi
+    direct_meta_has_active_due_work "$meta" && count=$((count + 1))
     [ "$count" -le "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ] || break
   done
   printf '%s\n' "$count"
 }
 
 scan_pending() {
-  local cursor origin
+  local cursor origin active_cursor
   cursor=$(scan_marker_cursor)
   if [ -n "$cursor" ]; then
     valid_id "$cursor"
     return
   fi
   origin=$(scan_marker_origin)
-  [ -n "$origin" ] && valid_id "$origin" && scan_marker_has_continuation
+  if [ -n "$origin" ] && valid_id "$origin" && scan_marker_has_continuation; then
+    return 0
+  fi
+  active_cursor=$(scan_marker_active_cursor)
+  [ -n "$active_cursor" ] && valid_id "$active_cursor"
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count
+  local startup=${1:-0} self='' cursor active_cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0
   local resuming=0 wrapping=0 legacy_cursor=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
   cursor=$(scan_marker_cursor)
   valid_id "$cursor" || cursor=''
+  SCAN_REGULAR_CURSOR=$cursor
+  SCAN_ACTIVE_CURSOR=$(scan_marker_active_cursor)
+  valid_id "$SCAN_ACTIVE_CURSOR" || SCAN_ACTIVE_CURSOR=''
   SCAN_ORIGIN=$(scan_marker_origin)
   valid_id "$SCAN_ORIGIN" || SCAN_ORIGIN=''
   SCAN_STARTED_EPOCH=$(scan_marker_started_epoch)
@@ -975,7 +1051,7 @@ scan() {
       fi
       ;;
   esac
-  if { [ -n "$cursor" ] || [ -n "$SCAN_ORIGIN" ]; } && [ "$legacy_cursor" -eq 0 ] \
+  if { [ -n "$cursor" ] || [ -n "$SCAN_ORIGIN" ] || [ -n "$SCAN_ACTIVE_CURSOR" ]; } && [ "$legacy_cursor" -eq 0 ] \
     && [ "$marker_age" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
     resuming=1
   fi
@@ -999,7 +1075,7 @@ scan() {
   if [ "$resuming" -eq 1 ] && [ -n "$SCAN_ORIGIN" ] && ! [[ "$cursor" > "$SCAN_ORIGIN" ]]; then
     wrapping=1
   fi
-  write_scan_marker "$cursor" || return 1
+  write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
   if self=$(home_secondmate_id); then
     :
   else
@@ -1020,6 +1096,8 @@ scan() {
       rc=0
       scan_alert_record "$CAPACITY_MARKER" "children=$child_count" "$now" || return 1
     fi
+    SCAN_ACTIVE_CURSOR=''
+    write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
   elif [ -e "$CAPACITY_MARKER" ] || [ -L "$CAPACITY_MARKER" ]; then
     [ ! -d "$CAPACITY_MARKER" ] || return 1
     rm -f "$CAPACITY_MARKER" || return 1
@@ -1034,20 +1112,47 @@ scan() {
     SCAN_CHILD_TIMEOUT=$FM_INACTIVE_RECONCILE_BUDGET_SECS
   fi
   deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
+  active_timeout=$FM_INACTIVE_RECONCILE_BUDGET_SECS
+  if [ "$child_count" -gt 0 ]; then
+    active_timeout=$((FM_INACTIVE_RECONCILE_SECS / child_count - 2))
+    [ "$active_timeout" -gt 0 ] || active_timeout=1
+    if [ "$active_timeout" -gt "$FM_INACTIVE_RECONCILE_BUDGET_SECS" ]; then
+      active_timeout=$FM_INACTIVE_RECONCILE_BUDGET_SECS
+    fi
+  fi
+  if [ "$child_count" -gt 0 ] && [ "$child_count" -le "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then
+    regular_skip_active=1
+    ACTIVE_SCAN_FIRST_VISIT_PENDING=1
+    if [ -n "$SCAN_ACTIVE_CURSOR" ]; then
+      active_cursor=$SCAN_ACTIVE_CURSOR
+      scan_active_pass "$active_cursor" '' "$deadline" "$self" "$active_timeout" || rc=$?
+      if [ "$rc" -eq 0 ]; then
+        scan_active_pass '' "$active_cursor" "$deadline" "$self" "$active_timeout" || rc=$?
+      fi
+    else
+      scan_active_pass '' '' "$deadline" "$self" "$active_timeout" || rc=$?
+    fi
+    if [ "$rc" -eq 0 ]; then
+      SCAN_ACTIVE_CURSOR=''
+      write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
+    fi
+  fi
+  [ "$rc" -eq 0 ] || { [ "$rc" -eq 3 ] && return 0; return "$rc"; }
   SCAN_FIRST_VISIT_PENDING=1
   if [ "$wrapping" -eq 0 ]; then
-    scan_pass "$cursor" '' "$deadline" "$self" || rc=$?
+    scan_pass "$cursor" '' "$deadline" "$self" "$regular_skip_active" || rc=$?
     if [ "$rc" -eq 0 ] && [ -n "$SCAN_ORIGIN" ]; then
       cursor=''
       wrapping=1
     fi
   fi
   if [ "$rc" -eq 0 ] && [ "$wrapping" -eq 1 ]; then
-    scan_pass "$cursor" "$SCAN_ORIGIN" "$deadline" "$self" || rc=$?
+    scan_pass "$cursor" "$SCAN_ORIGIN" "$deadline" "$self" "$regular_skip_active" || rc=$?
   fi
   if [ "$rc" -eq 0 ]; then
     SCAN_ORIGIN=''
-    write_scan_marker '' || return 1
+    SCAN_REGULAR_CURSOR=''
+    write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
   elif [ "$rc" -ne 3 ]; then
     return "$rc"
   fi

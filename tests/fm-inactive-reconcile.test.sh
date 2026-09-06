@@ -1345,7 +1345,11 @@ SH
     fm_write_meta "$MAIN/state/$id.meta" \
       "window=firstmate:fm-$id" "worktree=$MAIN/projects/$id" 'project=alpha' \
       'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' "spawn_gen=$i"
-    printf 'working [key=%s]: active due-work\n' "$id" > "$MAIN/state/$id.status"
+    {
+      printf 'needs-decision [key=gate%s]: historical gate\n' "$id"
+      printf 'resolved [key=gate%s]: closed\n' "$id"
+      printf 'working [key=%s]: active due-work\n' "$id"
+    } > "$MAIN/state/$id.status"
   done
   now=$(date +%s)
   FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE='done' \
@@ -1397,6 +1401,34 @@ test_declared_waits_do_not_exhaust_due_work_capacity() {
     FM_SUPERVISION_MODEL=autoarm FM_GUARD_GRACE=300 "$ROOT/bin/fm-guard.sh" 2>&1)
   [ -z "$out" ] || fail "declared waits degraded healthy supervision: $out"
   pass "declared waits do not exhaust due-work capacity"
+}
+
+test_active_due_work_precedes_declared_wait_reconciliation() {
+  local id
+  make_world active-priority
+  : > "$WORLD/state-reads"
+  for id in $(seq -w 1 26); do
+    write_child "$MAIN" "paused$id" "working [key=wait$id]: preparing dependency"
+    printf 'paused [key=wait%s]: waiting on upstream\n' "$id" >> "$MAIN/state/paused$id.status"
+  done
+  write_child "$MAIN" zactive 'working [key=impl]: active due-work'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+if [ "$1" = zactive ]; then
+  printf 'state: unknown · source: fake\n'
+else
+  sleep 30
+fi
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 FM_STATE_READ_LOG="$WORLD/state-reads" \
+    run_reconcile "$MAIN" --startup
+  grep -Fxq zactive "$WORLD/state-reads" \
+    || fail "active due work waited behind declared-wait reconciliation"
+  [ ! -e "$MAIN/state/.inactive-reconcile-capacity" ] \
+    || fail "declared waits exhausted active due-work capacity"
+  pass "active due work precedes declared-wait reconciliation"
 }
 
 test_legacy_hot_cursor_runs_its_wrap_segment() {
@@ -1499,6 +1531,7 @@ test_captain_held_key_does_not_mute_other_lanes
 test_away_decision_realert_is_not_self_handled
 test_cadence_cap_and_budget_continuation_bound_each_child
 test_declared_waits_do_not_exhaust_due_work_capacity
+test_active_due_work_precedes_declared_wait_reconciliation
 test_legacy_hot_cursor_runs_its_wrap_segment
 test_secondmate_active_evidence_reaches_its_owning_actor
 test_declared_wait_and_parent_boundary_are_respected

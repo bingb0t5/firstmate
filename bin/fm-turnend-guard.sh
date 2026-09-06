@@ -179,8 +179,8 @@ block_stop() {
     {
       printf '●%s\n' "$rule"
       printf '●  TURN WOULD END WITH DUE-WORK CAPACITY EXCEEDED\n'
-      printf '●  %s direct task(s) exceed bounded due-work coverage capacity.\n' "$FM_SUP_IN_FLIGHT"
-      printf '●  Reduce direct ordinary crew count, then let the next due-work scan clear the capacity condition.\n'
+      printf '●  Active direct work exceeds bounded due-work coverage capacity.\n'
+      printf '●  Reduce active direct ordinary work, then let the next due-work scan clear the capacity condition.\n'
       printf '●%s\n' "$rule"
     } >&2
     exit 2
