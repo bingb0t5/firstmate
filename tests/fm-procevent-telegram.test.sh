@@ -224,6 +224,8 @@ fixture empty-caption \
   '{"ok":true,"result":[{"update_id":4405,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"photo":[{"file_id":"caption-photo","width":1,"height":1}],"caption":""}}]}'
 fixture next-photo \
   '{"ok":true,"result":[{"update_id":4003,"message":{"message_id":803,"date":1700000002,"chat":{"id":555},"from":{"id":909},"photo":[{"file_id":"later-photo","width":4,"height":4}]}}]}'
+fixture photo-omitted-file-size \
+  '{"ok":true,"result":[{"update_id":4501,"message":{"message_id":851,"date":1700000003,"chat":{"id":555},"from":{"id":909},"photo":[{"file_id":"thumb-id","file_unique_id":"thumb-uniq","width":90,"height":90,"file_size":100},{"file_id":"full-id","file_unique_id":"full-uniq","width":1280,"height":720}]}}]}'
 
 new_home() {
   mkdir -p "$1/state"
@@ -3371,6 +3373,35 @@ photo_reply=$(printf 'got the photo\n' | CURL_STUB_SEND_ECHO_TEXT=1 \
   FM_HOME="$H_PHOTO" FM_TELEGRAM_ENV_FILE="$PHOTO_ENV" "$ADAPTER" reply 4001)
 assert_contains "$photo_reply" "sent: update_id=4001" "inbound-linked reply to a photo failed"
 pass "an authenticated photo wakes, records received intake, and still accepts a bound reply"
+
+H_PHOTO_OMITTED="$TMP_ROOT/photo-omitted-file-size"
+PHOTO_OMITTED_ENV="$TMP_ROOT/photo-omitted-file-size.env"
+arm_home "$H_PHOTO_OMITTED" "$PHOTO_OMITTED_ENV"
+omitted_out=$(poll_once "$H_PHOTO_OMITTED" "$PHOTO_OMITTED_ENV" "$FIXTURES/photo-omitted-file-size.json")
+assert_contains "$omitted_out" "message: 1 notice=" \
+  "a photo whose largest size omitted file_size did not wake"
+case "$omitted_out" in
+  *"thumb-id"*|*"full-id"*|*"thumb-uniq"*|*"full-uniq"*)
+    fail "omitted-file-size photo notice leaked file identity"
+    ;;
+esac
+assert_equal "$(db_query "$H_PHOTO_OMITTED" "SELECT kind, state, failure_detail FROM media_intake WHERE update_id=4501")" \
+  "photo|received|" "omitted-file-size photo was not recorded as received"
+write_result "$omitted_out"
+omitted_json=$(FM_HOME="$H_PHOTO_OMITTED" "$ADAPTER" messages "$RESULT_FILE")
+assert_contains "$omitted_json" '"file_id":"full-id"' \
+  "omitted-file-size photo payload did not keep the largest usable file"
+case "$omitted_json" in
+  *"thumb-id"*) fail "omitted-file-size photo payload kept the thumbnail file identity" ;;
+esac
+omitted_doctor=$(FM_HOME="$H_PHOTO_OMITTED" "$ADAPTER" doctor)
+assert_contains "$omitted_doctor" "media_received=1" "doctor lost omitted-file-size photo intake"
+case "$omitted_doctor" in
+  *"thumb-id"*|*"full-id"*|*"thumb-uniq"*|*"full-uniq"*)
+    fail "doctor leaked omitted-file-size photo file identity"
+    ;;
+esac
+pass "a large PhotoSize with omitted file_size still beats a thumbnail"
 
 H_VOICE="$TMP_ROOT/voice"
 VOICE_ENV="$TMP_ROOT/voice.env"

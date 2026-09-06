@@ -1565,9 +1565,10 @@ def photo_file_fields(photo: object) -> Dict[str, object]:
         if unique is not None and not isinstance(unique, str):
             raise ProtocolError("photo file identity is not a string")
         key = (
-            file_size if type(file_size) is int else -1,
+            1 if isinstance(file_id, str) and file_id else 0,
             (width if type(width) is int else 0)
             * (height if type(height) is int else 0),
+            file_size if type(file_size) is int else -1,
         )
         if best is None or key > best_key:
             best = size
