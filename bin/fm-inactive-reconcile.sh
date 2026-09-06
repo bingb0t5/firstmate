@@ -15,9 +15,10 @@
 # reconciliation, so there is one due-work detector rather than two schedulers.
 # Each scan uses an aggregate FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default
 # 10, valid 1..30) and resumes after its last visited child on the next scan.
-# Homes with at most 25 direct ordinary active due-work obligations receive this
-# bound; a larger home records due-work supervision as unhealthy and surfaces a
-# capacity check until the active fleet returns within that bound.
+# Homes with at most 25 direct ordinary active due-work obligations are within
+# this bound's capacity; a larger active fleet, or candidate evidence that does
+# not fit its bound, records due-work supervision as unhealthy and surfaces a
+# capacity check until a later scan confirms coverage.
 # A sweep the budget truncated leaves its resume cursor recorded, so the watcher
 # continues it immediately instead of waiting out another poll interval and the
 # bound is per child rather than per scan. State reads share the cadence across
