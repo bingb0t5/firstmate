@@ -342,7 +342,7 @@ _collapse_newlines() {  # <text>
 
 classify_signal() {  # <reason-after-colon> <state>
   local reason=$1 state=$2 f last distilled="" rel="" all_seen=1 task seen
-  local decision_set=0 decision_count="" decision_fingerprint="" decision_generation="" active_record active_signature active_generation line
+  local decision_set=0 decision_count="" decision_fingerprint="" decision_generation="" active_record active_signature active_generation current_rows current_signature current_generation line
   case "$reason" in
     *' (unresolved decisions count='*' fingerprint='*' generation='*')')
       decision_count=${reason##*' (unresolved decisions count='}
@@ -385,7 +385,11 @@ classify_signal() {  # <reason-after-colon> <state>
           esac
         done < "$active_record"
       fi
-      if [ "$active_signature" = "$decision_fingerprint" ] && [ "$active_generation" = "$decision_generation" ]; then
+      current_rows=$(status_open_decisions "$f" 2>/dev/null || true)
+      current_signature=$(status_text_signature "$current_rows")
+      current_generation=$(status_decision_generation "$f" 2>/dev/null || true)
+      if [ "$active_signature" = "$decision_fingerprint" ] && [ "$active_generation" = "$decision_generation" ] \
+        && [ "$current_signature" = "$decision_fingerprint" ] && [ "$current_generation" = "$decision_generation" ]; then
         distilled="${distilled}$(basename "$f"): $decision_count unresolved decisions (fingerprint $decision_fingerprint) | "
         rel=1
         last=$(last_status_line "$f")

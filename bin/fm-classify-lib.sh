@@ -1473,6 +1473,16 @@ status_decision_surfaced_matches() {
   [ "$(cat "$(_hb_surfaced_decision_path "$1" "$2")" 2>/dev/null || true)" = "$3" ]
 }
 
+status_text_signature() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | awk '{print substr($1, 1, 32)}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk '{print substr($1, 1, 32)}'
+  else
+    printf '%s' "$1" | cksum | awk '{printf "%08x%08x", $1, $2}'
+  fi
+}
+
 status_mark_decision_surfaced() {
   local state=$1 task=$2 status=$3 generation
   generation=$(status_decision_generation "$status") || return 0

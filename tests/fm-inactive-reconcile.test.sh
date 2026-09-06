@@ -670,6 +670,38 @@ SH
   pass "a wrap truncated on its origin completes the sweep and re-arms the cadence"
 }
 
+test_empty_wrap_cursor_resumes_before_the_cadence() {
+  make_world empty-wrap-cursor
+  write_child "$MAIN" a 'working: state read will stall'
+  write_child "$MAIN" b 'done: green'
+  write_child "$MAIN" c 'working: slow but healthy'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  a) sleep 30 ;;
+  b) printf 'state: done · source: fake\n' ;;
+  c) sleep 1.1; printf 'state: working · source: fake\n' ;;
+esac
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  printf 'epoch=1\ncursor=b\n' > "$MAIN/state/.inactive-outcome-reconcile"
+  set_mtime "$(( $(date +%s) - 600 ))" "$MAIN/state/.inactive-outcome-reconcile"
+
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN"
+  [ -z "$(scan_cursor "$MAIN")" ] \
+    || fail "the deferred wrap did not retain its empty cursor"
+  [ "$(sed -n 's/^origin=//p' "$MAIN/state/.inactive-outcome-reconcile")" = b ] \
+    || fail "the deferred wrap lost its origin"
+
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN"
+  [ "$(scan_cursor "$MAIN")" = a ] \
+    || fail "the empty wrap did not resume with its deferred child"
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN"
+  grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
+    || fail "the resumed wrap stranded the origin child"
+  pass "an empty wrap cursor resumes before the cadence"
+}
+
 # `--help` renders this script's own contract block; a truncated render is the
 # defect, and it shows up as output that stops mid-sentence.
 test_help_renders_the_whole_contract_block() {
@@ -747,9 +779,9 @@ test_resolved_decision_reopens_as_a_new_obligation() {
   [ -n "$payload" ] || fail "the initial decision was not routed"
   ack_wakes "$MAIN" || fail "the initial decision wake could not be acknowledged"
   printf 'resolved [key=api]: answered\n' >> "$MAIN/state/child.status"
-  FM_INACTIVE_RECONCILE_NOW=$((now + 1)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   decision=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; classify_signal "${2#signal: }" "$3"' _ "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
   case "$decision" in escalate\|*) fail "a resolved decision was escalated from stale durable state" ;; esac
+  FM_INACTIVE_RECONCILE_NOW=$((now + 1)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   printf 'needs-decision [key=api]: choose X\n' >> "$MAIN/state/child.status"
   FM_INACTIVE_RECONCILE_NOW=$((now + 2)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "an identical reopened decision was suppressed"
@@ -1365,6 +1397,7 @@ test_unreadable_current_state_is_absorbed
 test_terminal_verdict_is_not_surfaced_as_missing_progress
 test_cold_cursor_sweep_still_wraps_after_a_truncation
 test_wrap_truncated_at_the_origin_completes_the_sweep
+test_empty_wrap_cursor_resumes_before_the_cadence
 test_help_renders_the_whole_contract_block
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart

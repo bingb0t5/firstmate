@@ -647,7 +647,7 @@ EOF
   decision_generation=
   decision_count=0
   if [ -n "$decision_rows" ]; then
-    decision_signature=$(sha256_text "$decision_rows")
+    decision_signature=$(status_text_signature "$decision_rows")
     decision_generation=$(status_decision_generation "$status") || return 1
     decision_count=$(printf '%s\n' "$decision_rows" \
       | awk 'NF { count++ } END { print count + 0 }')
@@ -902,9 +902,14 @@ scan_direct_child_count() {
 }
 
 scan_pending() {
-  local cursor
+  local cursor origin
   cursor=$(scan_marker_cursor)
-  [ -n "$cursor" ] && valid_id "$cursor"
+  if [ -n "$cursor" ]; then
+    valid_id "$cursor"
+    return
+  fi
+  origin=$(scan_marker_origin)
+  [ -n "$origin" ] && valid_id "$origin" && scan_marker_has_continuation
 }
 
 scan() {
@@ -935,7 +940,7 @@ scan() {
       fi
       ;;
   esac
-  if [ -n "$cursor" ] && [ "$legacy_cursor" -eq 0 ] \
+  if { [ -n "$cursor" ] || [ -n "$SCAN_ORIGIN" ]; } && [ "$legacy_cursor" -eq 0 ] \
     && [ "$marker_age" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
     resuming=1
   fi
