@@ -1564,6 +1564,8 @@ def photo_file_fields(photo: object) -> Dict[str, object]:
         unique = size.get("file_unique_id")
         if unique is not None and not isinstance(unique, str):
             raise ProtocolError("photo file identity is not a string")
+        # file_size is optional, so rank by nonempty file_id, then pixel area,
+        # then file_size so a large size that omits it still beats a thumbnail.
         key = (
             1 if isinstance(file_id, str) and file_id else 0,
             (width if type(width) is int else 0)

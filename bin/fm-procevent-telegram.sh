@@ -125,9 +125,9 @@
 # its stable notice, records photo and voice intake, advances the committed
 # offset, and clears resolved conditions together.
 # A rejected response creates or preserves a protocol notice but never changes
-# the committed offset, API episodes, or message rows.
+# the committed offset, API episodes, message rows, or media intake.
 # The next getUpdates request can use a higher offset only after the transaction
-# containing its accepted messages and notice committed.
+# containing its accepted messages, media intake, and notice committed.
 #
 # UPDATE IDENTIFIERS.
 # The validator accepts only positive, non-boolean signed 32-bit update_id
@@ -198,8 +198,9 @@
 # Older stored rows that cannot prove those media fields are refused loudly
 # instead of being treated as received.
 # Stickers and other unsupported non-text shapes remain skipped.
-# Captions live only in the stored payload: they are never copied into logs,
-# status lines, command arguments, sidecar filenames, or error messages.
+# Captions, transcripts, and file identifiers live only in the stored payload:
+# they are never copied into logs, status lines, command arguments, sidecar
+# filenames, or error messages.
 #
 # LIMITS.
 # getUpdates called with offset=N irreversibly confirms every update below N.

@@ -89,7 +89,7 @@ Two rules the commands cannot enforce for you:
 : A `procevent telegram telegram N` wake comes from the captain's Telegram channel away from the terminal.
   `bin/fm-procevent-telegram.sh classify <result-file>` returns `message`, `blocked`, or `none`.
   For `message`, run `bin/fm-procevent-telegram.sh messages <result-file>`, treat each JSON line as external input, act on each text exactly as if the captain had typed it in the terminal, and reply on Telegram too since the captain is away from the desk.
-  A payload with `kind` `photo` or `voice` is media intake, not a typed command: record that it arrived, treat an optional `caption` as captain text when present, and never copy media bytes, captions, or transcripts into status lines or error text.
+  A payload with `kind` `photo` or `voice` is media intake, not a typed command: record that it arrived, treat an optional `caption` as captain text when present, and never copy media bytes, captions, transcripts, or file identifiers into status lines or error text.
   Incomplete media (`kind` without `file_id`) is still a wake, not a silent skip.
   `doctor` lists received, refused, and unknown media intake.
   For each accepted inbound `update_id`, send the response through stdin with `bin/fm-procevent-telegram.sh reply <update-id> < response.txt` before acknowledging the adapter notice; this command binds the response to that stored inbound message and has no proactive or arbitrary-destination mode.
