@@ -649,6 +649,24 @@ test_extension_live_watcher_is_healthy_without_ownership_evidence() {
   pass "fm-guard stale banner: extension model stays silent for a live watcher"
 }
 
+test_due_work_capacity_is_not_a_healthy_guard_state() {
+  local dir home out pid
+  dir=$(make_guard_case due-work-capacity)
+  home=$(case_home "$dir")
+  printf 'schema=fm-inactive-reconcile-alert.v1\nsubject=children=26\nepoch=1\n' \
+    > "$home/state/.inactive-reconcile-capacity"
+  sleep 60 &
+  pid=$!
+  record_live_watcher "$dir" "$pid" || fail "could not record the live watcher"
+  touch "$home/state/.last-watcher-beat"
+  out=$(run_guard_case "$dir")
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  assert_contains "$out" "DUE-WORK CAPACITY EXCEEDED" \
+    "a live watcher masked the due-work capacity alarm"
+  pass "fm-guard stale banner: due-work capacity is not a healthy state"
+}
+
 # The cases above pin the model. This one takes the end-user path instead: no
 # FM_SUPERVISION_MODEL at all, so bin/fm-harness.sh must route a Pi primary to the
 # extension model on its own. Without that routing the tolerance would never reach
@@ -692,6 +710,7 @@ test_extension_stale_beacon_alarms_despite_live_session
 test_extension_handoff_keeps_queued_wake_warning
 test_persistent_model_ignores_pi_extension_evidence
 test_extension_live_watcher_is_healthy_without_ownership_evidence
+test_due_work_capacity_is_not_a_healthy_guard_state
 test_autoarm_fresh_beacon_without_watcher_is_healthy
 test_autoarm_stale_beacon_alarms_with_correct_reason
 test_autoarm_stale_episode_is_stable

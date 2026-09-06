@@ -197,12 +197,21 @@ if [ "$watcher_healthy" = false ]; then
     rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
     {
       printf '●%s\n' "$rule"
-      printf '●  WATCHER DOWN - SUPERVISION IS OFF\n'
-      if [ "$watcher_down_reason" = no-watcher ]; then
-        watcher_cause=$(printf 'no live watcher process holds this home lock (last beat: %s)' "$beacon_desc")
-      else
-        watcher_cause=$(printf 'no watcher has a fresh beacon (last beat: %s, grace %ss)' "$beacon_desc" "$GRACE")
-      fi
+      case "$watcher_down_reason" in
+        due-work-capacity)
+          printf '●  DUE-WORK CAPACITY EXCEEDED - SUPERVISION IS DEGRADED\n'
+          watcher_cause='the direct fleet exceeds bounded due-work coverage capacity'
+          fix='Reduce direct ordinary crew count, then let the next due-work scan clear the capacity condition.'
+          ;;
+        *)
+          printf '●  WATCHER DOWN - SUPERVISION IS OFF\n'
+          if [ "$watcher_down_reason" = no-watcher ]; then
+            watcher_cause=$(printf 'no live watcher process holds this home lock (last beat: %s)' "$beacon_desc")
+          else
+            watcher_cause=$(printf 'no watcher has a fresh beacon (last beat: %s, grace %ss)' "$beacon_desc" "$GRACE")
+          fi
+          ;;
+      esac
       if [ "$in_flight" -gt 0 ]; then
         printf '●  %s task(s) in flight, but %s.\n' "$in_flight" "$watcher_cause"
       elif [ "$sources" -gt 0 ]; then
@@ -220,8 +229,12 @@ if [ "$watcher_healthy" = false ]; then
       printf '●%s\n' "$rule"
     } >&2
   else
-    printf 'WARNING: watcher still down (same stale episode; last beat: %s, grace %ss) - full banner already printed this episode.\n' \
-      "$beacon_desc" "$GRACE" >&2
+    if [ "$watcher_down_reason" = due-work-capacity ]; then
+      printf 'WARNING: due-work capacity remains exceeded - full banner already printed this episode.\n' >&2
+    else
+      printf 'WARNING: watcher still down (same stale episode; last beat: %s, grace %ss) - full banner already printed this episode.\n' \
+        "$beacon_desc" "$GRACE" >&2
+    fi
   fi
 else
   # Healthy again while work is still in flight: end the episode so a later

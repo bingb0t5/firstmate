@@ -258,6 +258,10 @@ fm_watcher_supervision_verdict() {
   local beat age fresh=false model
   FM_WATCHER_VERDICT_OK=false
   FM_WATCHER_VERDICT_REASON=stale-beacon
+  if [ -f "$state/.inactive-reconcile-capacity" ] && [ ! -L "$state/.inactive-reconcile-capacity" ]; then
+    FM_WATCHER_VERDICT_REASON=due-work-capacity
+    return 0
+  fi
   beat="$state/.last-watcher-beat"
   age=$(fm_path_age "$beat")
   case "$age" in

@@ -1026,18 +1026,42 @@ test_away_completion_does_not_receipt_a_buried_decision() {
   write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
   printf 'done [key=implementation]: delivered independent work\n' >> "$MAIN/state/child.status"
   : > "$MAIN/state/.afk"
-  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3"' _ \
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3" away' _ \
     "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" \
     "$MAIN/state/child.status" || fail "could not record the away completion"
-  [ ! -e "$MAIN/state/.hb-surfaced-decision-child" ] \
-    || fail "an away completion falsely receipted a buried decision"
 
-  : > "$MAIN/state/.wake-queue"
+  FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; fm_wake_append signal "$2" "$3"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" child.status "signal: $MAIN/state/child.status" \
+    || fail "could not enqueue the away completion signal"
   now=$(date +%s)
   FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
   [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "the scan duplicated the still-pending away completion signal"
+  : > "$MAIN/state/.wake-queue"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 1)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
     || fail "the buried unresolved decision was suppressed after an away completion: $(cat "$MAIN/state/.wake-queue")"
   pass "away completion does not suppress a buried unresolved decision"
+}
+
+test_main_completion_receipts_a_buried_decision() {
+  local now
+  make_world main-completion-buried-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  printf 'done [key=implementation]: delivered independent work\n' >> "$MAIN/state/child.status"
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3" main' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" \
+    "$MAIN/state/child.status" || fail "could not record the main completion"
+  FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; fm_wake_append signal "$2" "$3"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" child.status "signal: $MAIN/state/child.status" \
+    || fail "could not enqueue the main completion signal"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  : > "$MAIN/state/.wake-queue"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 1)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "a main-presented buried decision re-alerted after its completion signal: $(cat "$MAIN/state/.wake-queue")"
+  pass "main completion receipts a buried unresolved decision"
 }
 
 # The durable state/active-management/<task> record, not the live queue, is what
@@ -1443,6 +1467,7 @@ test_progress_alert_clock_uses_resurface_cadence
 test_already_surfaced_decision_is_not_re_alerted_immediately
 test_surfaced_decision_stays_deduped_through_chatter
 test_away_completion_does_not_receipt_a_buried_decision
+test_main_completion_receipts_a_buried_decision
 test_budget_truncated_sweep_resumes_on_the_next_poll
 test_completed_sweep_cadence_is_anchored_to_its_start
 test_mixed_terminal_and_active_output_preserves_terminal_priority

@@ -1491,12 +1491,18 @@ status_mark_decision_surfaced() {
 }
 
 status_mark_surfaced() {  # <state> <task> <status-line>
-  local state=$1 task=$2 line=$3
+  local state=$1 task=$2 line=$3 actor=${4:-main}
   [ -n "$line" ] || return 0
   status_is_captain_relevant "$line" || return 0
   printf '%s' "$line" > "$(_hb_surfaced_path "$state" "$task")"
-  case "$(status_line_verb "$line")" in
-    needs-decision|blocked) status_mark_decision_surfaced "$state" "$task" "$state/$task.status" ;;
+  case "$actor" in
+    main) status_mark_decision_surfaced "$state" "$task" "$state/$task.status" ;;
+    away)
+      case "$(status_line_verb "$line")" in
+        needs-decision|blocked) status_mark_decision_surfaced "$state" "$task" "$state/$task.status" ;;
+      esac
+      ;;
+    *) return 2 ;;
   esac
 }
 

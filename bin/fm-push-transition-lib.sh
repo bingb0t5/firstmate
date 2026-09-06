@@ -110,10 +110,10 @@ wake() {
 
 # Record a captain-relevant status after its durable wake has been enqueued.
 mark_surfaced() {  # <status-file>
-  local f=$1 task last
+  local f=$1 actor=${2:-main} task last
   task=$(basename "$f"); task="${task%.status}"
   last=$(last_status_line "$f")
-  status_mark_surfaced "$STATE" "$task" "$last"
+  status_mark_surfaced "$STATE" "$task" "$last" "$actor"
 }
 
 # Act on a fresh actionable transition from a push-capable backend.
