@@ -304,7 +304,7 @@ test_hook_blocks_when_due_work_capacity_is_exceeded() {
   wait "$pid" 2>/dev/null || true
   expect_code 2 "$status" "hook must block when due-work capacity exceeds its bound"
   assert_contains "$out" "DUE-WORK CAPACITY EXCEEDED" "capacity block did not name the actual supervision failure"
-  assert_contains "$out" "Active direct work exceeds" "capacity block did not describe the active-work condition"
+  assert_contains "$out" "Bounded due-work coverage is unavailable" "capacity block did not describe the coverage condition"
   case "$out" in
     *'1 direct task(s) exceed bounded due-work coverage capacity.'*)
       fail "capacity block reported all metadata records as active work"

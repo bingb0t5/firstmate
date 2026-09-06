@@ -179,8 +179,8 @@ block_stop() {
     {
       printf '●%s\n' "$rule"
       printf '●  TURN WOULD END WITH DUE-WORK CAPACITY EXCEEDED\n'
-      printf '●  Active direct work exceeds bounded due-work coverage capacity.\n'
-      printf '●  Reduce active direct ordinary work, then let the next due-work scan clear the capacity condition.\n'
+      printf '●  Bounded due-work coverage is unavailable for this home.\n'
+      printf '●  Reduce active direct work or status-log complexity, then let the next due-work scan clear the capacity condition.\n'
       printf '●%s\n' "$rule"
     } >&2
     exit 2

@@ -1431,6 +1431,25 @@ SH
   pass "active due work precedes declared-wait reconciliation"
 }
 
+test_unbounded_candidate_evidence_degrades_supervision() {
+  local i
+  make_world candidate-evidence-bound
+  write_child "$MAIN" paused 'working [key=wait]: preparing dependency'
+  for i in $(seq 1 2000); do
+    printf 'working [key=wait]: historical work %s\n' "$i"
+    printf 'paused [key=wait]: waiting on upstream %s\n' "$i"
+  done > "$MAIN/state/paused.status"
+  write_child "$MAIN" zactive 'working [key=impl]: active due-work'
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+  [ -f "$MAIN/state/.inactive-reconcile-capacity" ] \
+    || fail "unbounded candidate evidence left supervision healthy"
+  touch "$MAIN/state/.last-watcher-beat"
+  bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
+    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state" \
+    || fail "candidate-evidence timeout did not degrade supervision"
+  pass "unbounded candidate evidence degrades supervision"
+}
+
 test_legacy_hot_cursor_runs_its_wrap_segment() {
   local id
   make_world legacy-hot-cursor
@@ -1532,6 +1551,7 @@ test_away_decision_realert_is_not_self_handled
 test_cadence_cap_and_budget_continuation_bound_each_child
 test_declared_waits_do_not_exhaust_due_work_capacity
 test_active_due_work_precedes_declared_wait_reconciliation
+test_unbounded_candidate_evidence_degrades_supervision
 test_legacy_hot_cursor_runs_its_wrap_segment
 test_secondmate_active_evidence_reaches_its_owning_actor
 test_declared_wait_and_parent_boundary_are_respected

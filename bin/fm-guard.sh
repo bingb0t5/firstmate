@@ -200,8 +200,8 @@ if [ "$watcher_healthy" = false ]; then
       case "$watcher_down_reason" in
         due-work-capacity)
           printf '●  DUE-WORK CAPACITY EXCEEDED - SUPERVISION IS DEGRADED\n'
-          watcher_cause='the direct fleet exceeds bounded due-work coverage capacity'
-          fix='Reduce direct ordinary crew count, then let the next due-work scan clear the capacity condition.'
+          watcher_cause='bounded due-work coverage is unavailable for this home'
+          fix='Reduce active direct work or status-log complexity, then let the next due-work scan clear the capacity condition.'
           ;;
         *)
           printf '●  WATCHER DOWN - SUPERVISION IS OFF\n'

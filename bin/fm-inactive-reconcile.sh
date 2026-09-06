@@ -1021,7 +1021,7 @@ scan_pending() {
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor active_cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0
+  local startup=${1:-0} self='' cursor active_cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0 candidate_rc=0
   local resuming=0 wrapping=0 legacy_cursor=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
@@ -1087,7 +1087,24 @@ scan() {
     fi
   fi
   direct_child_count=$(scan_direct_child_count)
-  child_count=$(scan_active_due_work_count)
+  child_count=$(fm_run_timed "$FM_INACTIVE_RECONCILE_BUDGET_SECS" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    FM_INACTIVE_RECONCILE_SECS="$FM_INACTIVE_RECONCILE_SECS" \
+    FM_INACTIVE_RECONCILE_BUDGET_SECS="$FM_INACTIVE_RECONCILE_BUDGET_SECS" \
+    "$0" _active-count) || candidate_rc=$?
+  if [ "$candidate_rc" -eq 124 ]; then
+    if scan_alert_due "$CAPACITY_MARKER" candidate-evidence "$now"; then
+      active_queue_once check inactive-reconcile-capacity \
+        "check: due-work candidate evidence exceeded ${FM_INACTIVE_RECONCILE_BUDGET_SECS}s; bounded coverage unavailable" || rc=$?
+      [ "$rc" -ne 2 ] || return 1
+      rc=0
+      scan_alert_record "$CAPACITY_MARKER" candidate-evidence "$now" || return 1
+    fi
+    SCAN_ACTIVE_CURSOR=''
+    write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
+    return 0
+  fi
+  [ "$candidate_rc" -eq 0 ] || return "$candidate_rc"
+  case "$child_count" in ''|*[!0-9]*) return 1 ;; esac
   if [ "$child_count" -gt "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then
     if scan_alert_due "$CAPACITY_MARKER" "children=$child_count" "$now"; then
       active_queue_once check inactive-reconcile-capacity \
@@ -1211,6 +1228,10 @@ case "$mode" in
     [ -z "$4" ] || valid_id "$4" || exit 2
     case "$5" in ''|*[!0-9]*|0) exit 2 ;; esac
     reconcile_direct_child "$2" "$3" "$4" "$5"
+    ;;
+  _active-count)
+    [ "$#" -eq 1 ] || exit 2
+    scan_active_due_work_count
     ;;
   pending)
     [ "$#" -eq 1 ] || exit 2
