@@ -149,7 +149,8 @@ family_for_basename() {
     fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|\
     fm-tmux-submit-busy.test.sh|fm-trace-context-lib.test.sh|\
     fm-transition-lib.test.sh|\
-    fm-test-run.test.sh|fm-test-isolation-proof.test.sh)
+    fm-test-run.test.sh|fm-test-isolation-proof.test.sh|\
+    host-health-episode.test.sh)
       printf '%s\n' pure-contract-unit
       ;;
     fm-daemon.test.sh|fm-guard-stale-banner.test.sh|fm-pi-watch-extension.test.sh|\
@@ -515,6 +516,7 @@ tests/fm-watch-checkpoint.test.sh 6117
 tests/fm-watch-recovery-loop.test.sh 58620
 tests/fm-watch-triage.test.sh 175195
 tests/fm-watcher-lock.test.sh 107627
+tests/host-health-episode.test.sh 450000
 tests/pr-communication.test.sh 1600
 EOF
 }
@@ -1082,6 +1084,9 @@ families_for_changed_path() {
         families_for_test_reference "fixtures/$fixture_ref" \
           || printf '%s\n' "__unmapped__:$path"
       fi
+      ;;
+    bin/host-health-episode|bin/host-health-episode*)
+      printf '%s\n' pure-contract-unit
       ;;
     bin/fm_procevent_telegram_state.py)
       # The Telegram channel's state engine is never invoked directly: the

@@ -1,0 +1,73 @@
+{
+  "account": "root",
+  "activation": {
+    "permitted": false,
+    "requires": [
+      "recorded successful lalo-dev fifteen-cycle evidence",
+      "independent reviewer concurrence",
+      "fresh worker-1 baseline hash under watcher lock",
+      "final accepted candidate hash and byte comparison",
+      "successful staged no-send probe",
+      "separate explicit worker-1 activation approval"
+    ],
+    "steps": [
+      "acquire existing host watcher lock and wait out the old invocation",
+      "recheck active baseline and staged candidate hashes under the lock",
+      "compare staged bytes with independently accepted bytes",
+      "back up source and state under the lock",
+      "atomically replace source preserving root:root 0755",
+      "release lock without changing the scheduler"
+    ]
+  },
+  "baseline_sha256": "912f99b4433cef07522c81b874e50c7b82b5560d1777495cf53ae20043e7a668",
+  "canary_order": 2,
+  "candidate_sha256": null,
+  "config": "/root/.config/host-health-watch.json",
+  "host": "worker-1",
+  "lock": "/root/.local/state/host-health-watch/lock",
+  "observation_cycles": 15,
+  "probe": {
+    "argv": [
+      "/usr/local/sbin/.host-health-watch.q27.new",
+      "--probe-once"
+    ],
+    "guarantees": [
+      "execute the staged path, not the active path",
+      "do not load sender",
+      "do not sample",
+      "do not migrate or write state",
+      "do not emit a notification"
+    ],
+    "scope": "direct staged probe only; existing cron can still run baseline"
+  },
+  "prohibitions": [
+    "no live action from this manifest",
+    "no worker-1 action before accepted lalo-dev evidence and separate approval",
+    "no scheduler edit",
+    "no credential or route change",
+    "no service, process, worker, swap, or monitoring-scope change",
+    "no state rollback without separate destructive approval"
+  ],
+  "rollback": {
+    "default_state_policy": "retain migrated state",
+    "source": "restore source backup atomically under the same host watcher lock and verify baseline hash",
+    "state": "restore only with separate destructive approval under the same lock"
+  },
+  "scheduler": {
+    "account": "root",
+    "cadence": "existing one-minute root crontab",
+    "invocation": "/usr/local/sbin/host-health-watch",
+    "mutation": "forbidden"
+  },
+  "schema_version": 1,
+  "source": {
+    "group": "root",
+    "mode": "0755",
+    "owner": "root",
+    "path": "/usr/local/sbin/host-health-watch"
+  },
+  "source_backup": "/usr/local/sbin/.host-health-watch.q27.baseline.bak",
+  "staging": "/usr/local/sbin/.host-health-watch.q27.new",
+  "state": "/root/.local/state/host-health-watch/state.json",
+  "state_backup": "/root/.local/state/host-health-watch/state.json.q27.pre-activation.bak"
+}
