@@ -1337,8 +1337,7 @@ fm_composer_queued_enter_verdict() {  # <composer-state> <busy|idle|unknown>
   fi
 }
 
-_fm_composer_pi_status_row() {  # <trimmed-row> <cursor-row> <row>
-  [ "$2" -ge 0 ] && [ "$2" -ne "$3" ] || return 1
+_fm_composer_pi_status_row() {  # <trimmed-row>
   case "$1" in
     'MCP: Failed to refresh '*': Error POSTing to endpoint: no available server')
       return 0
@@ -1354,7 +1353,7 @@ _fm_composer_classify_pi_rows() {  # <screen> <styled> <cursor-row>
     raw=$(_fm_composer_screen_row "$row" "$screen")
     content=$(_fm_composer_row_content "$raw" "$styled")
     fm_composer_normalize_trim_var content
-    _fm_composer_pi_status_row "$content" "$cursor" "$row" && {
+    _fm_composer_pi_status_row "$content" && {
       row=$((row + 1))
       continue
     }
