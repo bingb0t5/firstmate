@@ -58,6 +58,10 @@ make_case() {
   dir="$TMP_ROOT/$name"
   fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
+  # Watcher suites built from this generic fixture target a specific wake path.
+  # Keep the separate cold-start due-work scan out of those paths; its dedicated
+  # reconciliation suite owns that integration coverage.
+  : > "$dir/state/.inactive-outcome-reconcile"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u

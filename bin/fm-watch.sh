@@ -1265,8 +1265,6 @@ while :; do
           | sed -n 's/^actionable: //p' | grep -E '^(signal:|stale:)' | head -1)
         if [ -n "$inactive_reason" ]; then
           wake "$inactive_reason"
-        else
-          wake "check: active-management due-work intervention"
         fi
       fi
     fi
