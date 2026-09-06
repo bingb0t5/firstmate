@@ -16,9 +16,8 @@
 # Each scan uses an aggregate FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default
 # 10, valid 1..30) and resumes after its last visited child on the next scan.
 # Homes with at most 25 direct ordinary children receive this bound; a larger
-# home surfaces a capacity check rather than claiming a bound it cannot fit,
-# while the rotating sweep itself keeps running so terminal-outcome
-# reconciliation and due-work checks continue at whatever cadence fits.
+# home records due-work supervision as unhealthy and surfaces a capacity check
+# until the direct fleet returns within that bound.
 # A sweep the budget truncated leaves its resume cursor recorded, so the watcher
 # continues it immediately instead of waiting out another poll interval and the
 # bound is per child rather than per scan. State reads share the cadence across

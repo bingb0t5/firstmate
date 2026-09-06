@@ -1495,7 +1495,9 @@ status_mark_surfaced() {  # <state> <task> <status-line>
   [ -n "$line" ] || return 0
   status_is_captain_relevant "$line" || return 0
   printf '%s' "$line" > "$(_hb_surfaced_path "$state" "$task")"
-  status_mark_decision_surfaced "$state" "$task" "$state/$task.status"
+  case "$(status_line_verb "$line")" in
+    needs-decision|blocked) status_mark_decision_surfaced "$state" "$task" "$state/$task.status" ;;
+  esac
 }
 
 scan_captain_relevant_statuses() {  # <state>

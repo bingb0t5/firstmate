@@ -1020,6 +1020,26 @@ test_surfaced_decision_stays_deduped_through_chatter() {
   pass "decision receipts survive unrelated status chatter"
 }
 
+test_away_completion_does_not_receipt_a_buried_decision() {
+  local now
+  make_world away-completion-buried-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  printf 'done [key=implementation]: delivered independent work\n' >> "$MAIN/state/child.status"
+  : > "$MAIN/state/.afk"
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3"' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" \
+    "$MAIN/state/child.status" || fail "could not record the away completion"
+  [ ! -e "$MAIN/state/.hb-surfaced-decision-child" ] \
+    || fail "an away completion falsely receipted a buried decision"
+
+  : > "$MAIN/state/.wake-queue"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "the buried unresolved decision was suppressed after an away completion: $(cat "$MAIN/state/.wake-queue")"
+  pass "away completion does not suppress a buried unresolved decision"
+}
+
 # The durable state/active-management/<task> record, not the live queue, is what
 # holds the alert clock once a drain has acknowledged the row and supervision has
 # restarted - and it must not suppress the obligation past its re-alert interval.
@@ -1308,6 +1328,10 @@ SH
   awk -F '\t' '$3 == "check" && $4 == "inactive-reconcile-capacity" { found = 1 } END { exit(found ? 0 : 1) }' \
     "$MAIN/state/.wake-queue" \
     || fail "an over-capacity home silently claimed the ten-minute bound"
+  touch "$MAIN/state/.last-watcher-beat"
+  bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
+    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state" \
+    || fail "an over-capacity home remained supervision-healthy"
   [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] || fail "an over-capacity home stopped reconciling terminal outcomes"
   ack_wakes "$MAIN" || fail "the capacity wake could not be acknowledged"
   FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW=$((now + 600)) \
@@ -1318,6 +1342,13 @@ SH
     run_reconcile "$MAIN" --startup
   [ "$(wake_count "$MAIN" 'inactive-reconcile-capacity')" = 1 ] \
     || fail "capacity evidence did not re-alert on the unresolved-obligation cadence"
+  rm -f "$MAIN/state/child01.meta" "$MAIN/state/child02.meta"
+  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW=$((now + 3601)) \
+    run_reconcile "$MAIN" --startup
+  if bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
+    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state"; then
+    fail "capacity recovery remained supervision-unhealthy"
+  fi
   pass "ten-minute cadence is capped and truncated sweeps continue immediately"
 }
 
@@ -1411,6 +1442,7 @@ test_alert_clock_survives_drain_acknowledgement
 test_progress_alert_clock_uses_resurface_cadence
 test_already_surfaced_decision_is_not_re_alerted_immediately
 test_surfaced_decision_stays_deduped_through_chatter
+test_away_completion_does_not_receipt_a_buried_decision
 test_budget_truncated_sweep_resumes_on_the_next_poll
 test_completed_sweep_cadence_is_anchored_to_its_start
 test_mixed_terminal_and_active_output_preserves_terminal_priority
