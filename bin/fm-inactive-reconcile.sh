@@ -594,25 +594,21 @@ EOF
 # A partial result is safe because its task stays in the ordinary pass instead
 # of being treated as proven inactive.
 active_candidate_evidence() { # <meta> -> active|none|partial
-  local meta=$1 id status bytes evidence verdict=none partial=0
+  local meta=$1 id status bytes bytes_after evidence verdict=none partial=0
   id=${meta##*/}; id=${id%.meta}
   status="$STATE/$id.status"
   [ -f "$status" ] && [ -r "$status" ] && [ ! -L "$status" ] || { printf 'none\n'; return 0; }
   bytes=$(wc -c < "$status" 2>/dev/null) || { printf 'partial\n'; return 0; }
   evidence=$(mktemp "$STATE/.inactive-evidence.XXXXXX") || { printf 'partial\n'; return 0; }
-  if [ "$bytes" -gt "$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES" ]; then
+  tail -c "$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES" "$status" > "$evidence" 2>/dev/null || {
+    rm -f "$evidence"
+    printf 'partial\n'
+    return 0
+  }
+  bytes_after=$(wc -c < "$status" 2>/dev/null) || bytes_after=$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES
+  if [ "$bytes" -gt "$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES" ] \
+    || [ "$bytes_after" -gt "$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES" ]; then
     partial=1
-    tail -c "$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES" "$status" > "$evidence" 2>/dev/null || {
-      rm -f "$evidence"
-      printf 'partial\n'
-      return 0
-    }
-  else
-    cp "$status" "$evidence" 2>/dev/null || {
-      rm -f "$evidence"
-      printf 'partial\n'
-      return 0
-    }
   fi
   if [ "$partial" -eq 1 ]; then
     # Do not run the full per-line fold on an incomplete suffix.
@@ -1230,7 +1226,11 @@ scan() {
     if [ "$active_timeout" -gt "$FM_INACTIVE_RECONCILE_BUDGET_SECS" ]; then
       active_timeout=$FM_INACTIVE_RECONCILE_BUDGET_SECS
     fi
-    [ "$active_timeout" -le "$remaining" ] || active_timeout=$remaining
+    if [ "$remaining" -lt 1 ]; then
+      active_timeout=1
+    elif [ "$active_timeout" -gt "$remaining" ]; then
+      active_timeout=$remaining
+    fi
   fi
   if [ "$direct_child_count" -gt 0 ]; then
     SCAN_CHILD_TIMEOUT=$((FM_INACTIVE_RECONCILE_SECS / direct_child_count - 2))
