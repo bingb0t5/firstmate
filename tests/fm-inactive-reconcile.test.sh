@@ -1432,15 +1432,19 @@ SH
 }
 
 test_unbounded_candidate_evidence_degrades_supervision() {
-  local i
+  local i started elapsed
   make_world candidate-evidence-bound
   write_child "$MAIN" paused 'working [key=wait]: preparing dependency'
-  for i in $(seq 1 2000); do
+  for i in $(seq 1 4000); do
     printf 'working [key=wait]: historical work %s\n' "$i"
     printf 'paused [key=wait]: waiting on upstream %s\n' "$i"
   done > "$MAIN/state/paused.status"
   write_child "$MAIN" zactive 'working [key=impl]: active due-work'
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+  started=$(date +%s)
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN" --startup
+  elapsed=$(( $(date +%s) - started ))
+  [ "$elapsed" -le 3 ] \
+    || fail "candidate evidence exceeded its reserved budget (${elapsed}s)"
   [ -f "$MAIN/state/.inactive-reconcile-capacity" ] \
     || fail "unbounded candidate evidence left supervision healthy"
   touch "$MAIN/state/.last-watcher-beat"

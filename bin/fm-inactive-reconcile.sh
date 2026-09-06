@@ -1021,7 +1021,7 @@ scan_pending() {
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor active_cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0 candidate_rc=0
+  local startup=${1:-0} self='' cursor active_cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0 candidate_rc=0 remaining candidate_timeout
   local resuming=0 wrapping=0 legacy_cursor=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
@@ -1087,7 +1087,10 @@ scan() {
     fi
   fi
   direct_child_count=$(scan_direct_child_count)
-  child_count=$(fm_run_timed "$FM_INACTIVE_RECONCILE_BUDGET_SECS" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+  deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
+  candidate_timeout=$((FM_INACTIVE_RECONCILE_BUDGET_SECS / 4))
+  [ "$candidate_timeout" -gt 0 ] || candidate_timeout=1
+  child_count=$(fm_run_timed "$candidate_timeout" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     FM_INACTIVE_RECONCILE_SECS="$FM_INACTIVE_RECONCILE_SECS" \
     FM_INACTIVE_RECONCILE_BUDGET_SECS="$FM_INACTIVE_RECONCILE_BUDGET_SECS" \
     "$0" _active-count) || candidate_rc=$?
@@ -1119,6 +1122,28 @@ scan() {
     [ ! -d "$CAPACITY_MARKER" ] || return 1
     rm -f "$CAPACITY_MARKER" || return 1
   fi
+  remaining=$((deadline - $(date +%s)))
+  if [ "$child_count" -gt 0 ] && [ "$remaining" -lt 1 ]; then
+    if scan_alert_due "$CAPACITY_MARKER" candidate-evidence "$now"; then
+      active_queue_once check inactive-reconcile-capacity \
+        "check: due-work candidate evidence left no time for bounded coverage" || rc=$?
+      [ "$rc" -ne 2 ] || return 1
+      rc=0
+      scan_alert_record "$CAPACITY_MARKER" candidate-evidence "$now" || return 1
+    fi
+    SCAN_ACTIVE_CURSOR=''
+    write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
+    return 0
+  fi
+  active_timeout=$FM_INACTIVE_RECONCILE_BUDGET_SECS
+  if [ "$child_count" -gt 0 ]; then
+    active_timeout=$((FM_INACTIVE_RECONCILE_SECS / child_count - 2))
+    [ "$active_timeout" -gt 0 ] || active_timeout=1
+    if [ "$active_timeout" -gt "$FM_INACTIVE_RECONCILE_BUDGET_SECS" ]; then
+      active_timeout=$FM_INACTIVE_RECONCILE_BUDGET_SECS
+    fi
+    [ "$active_timeout" -le "$remaining" ] || active_timeout=$remaining
+  fi
   if [ "$direct_child_count" -gt 0 ]; then
     SCAN_CHILD_TIMEOUT=$((FM_INACTIVE_RECONCILE_SECS / direct_child_count - 2))
     [ "$SCAN_CHILD_TIMEOUT" -gt 0 ] || SCAN_CHILD_TIMEOUT=1
@@ -1127,15 +1152,6 @@ scan() {
     fi
   else
     SCAN_CHILD_TIMEOUT=$FM_INACTIVE_RECONCILE_BUDGET_SECS
-  fi
-  deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
-  active_timeout=$FM_INACTIVE_RECONCILE_BUDGET_SECS
-  if [ "$child_count" -gt 0 ]; then
-    active_timeout=$((FM_INACTIVE_RECONCILE_SECS / child_count - 2))
-    [ "$active_timeout" -gt 0 ] || active_timeout=1
-    if [ "$active_timeout" -gt "$FM_INACTIVE_RECONCILE_BUDGET_SECS" ]; then
-      active_timeout=$FM_INACTIVE_RECONCILE_BUDGET_SECS
-    fi
   fi
   if [ "$child_count" -gt 0 ] && [ "$child_count" -le "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then
     regular_skip_active=1
