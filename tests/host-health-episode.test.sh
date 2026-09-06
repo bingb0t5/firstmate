@@ -26,8 +26,10 @@ mutation_out=$(python3 mutation_runner.py) || fail "host-health episode mutation
 printf '%s\n' "$mutation_out" | python3 -c '
 import json, sys
 evidence = json.load(sys.stdin)
-if evidence.get("verdict") != "pass" or evidence.get("score") != "12/12":
-    raise SystemExit(f"mutation verdict {evidence.get(\"verdict\")!r} score {evidence.get(\"score\")!r}")
+verdict = evidence.get("verdict")
+score = evidence.get("score")
+if verdict != "pass" or score != "12/12":
+    raise SystemExit("mutation verdict %r score %r" % (verdict, score))
 ' || fail "host-health episode mutations were not 12/12"
 pass "host-health episode mutations 12/12"
 
@@ -37,13 +39,14 @@ import json, sys
 evidence = json.load(sys.stdin)
 steps = evidence.get("actual_steps")
 coverage = evidence.get("transition_coverage") or {}
-if evidence.get("verdict") != "pass":
-    raise SystemExit(f"enumeration verdict {evidence.get(\"verdict\")!r}")
+verdict = evidence.get("verdict")
+if verdict != "pass":
+    raise SystemExit("enumeration verdict %r" % (verdict,))
 if steps != 18089427:
-    raise SystemExit(f"enumeration steps {steps!r}, expected 18089427")
+    raise SystemExit("enumeration steps %r, expected 18089427" % (steps,))
 if coverage.get("hit") != 40 or coverage.get("defined") != 40:
-    raise SystemExit(f"transition coverage {coverage!r}")
+    raise SystemExit("transition coverage %r" % (coverage,))
 if coverage.get("missing") or coverage.get("unexpected"):
-    raise SystemExit(f"transition id mismatch {coverage!r}")
+    raise SystemExit("transition id mismatch %r" % (coverage,))
 ' || fail "host-health episode enumeration did not match the accepted bound"
 pass "host-health episode enumeration 18089427 steps, 40/40 transitions"
