@@ -3,8 +3,9 @@
 
 The shell adapter delegates every Telegram-specific state transition to this
 module.  A poll validates a complete external event before opening one SQLite
-transaction, then commits accepted messages, their durable notice, and the
-next offset together.  Rejected input never reaches that transaction.
+transaction, then commits accepted messages, photo and voice intake, their
+durable notice, and the next offset together.  Rejected input never reaches
+that transaction.
 
 The database is the only authoritative live state after initialization or
 migration.  Legacy files remain untouched as migration evidence and are never
@@ -48,6 +49,14 @@ REPLY_LABEL_COUNTS_SQL = (
     " ELSE 'reserved' END AS label, COUNT(*) FROM replies GROUP BY label"
 )
 REPLY_STATES = {"reserved", "sent", "failed", "unknown"}
+MEDIA_KINDS = {"photo", "voice"}
+MEDIA_STATES = {"received", "refused", "unknown"}
+MEDIA_DETAIL_UNAUTHENTICATED = "unauthenticated"
+MEDIA_DETAIL_WRONG_CHAT = "wrong-chat"
+MEDIA_DETAIL_MISSING_FILE = "missing-file-id"
+DOCTOR_MEDIA_ATTENTION_LIMIT = 10
+MEDIA_LABEL_COUNTS_SQL = "SELECT state, COUNT(*) FROM media_intake GROUP BY state"
+GAINABLE_PAYLOAD_KEYS = ("message_id", "file_unique_id", "mime_type", "duration")
 DELIVERY_UNKNOWN_GUIDANCE = (
     "delivery is unknown; automatic retry is refused; inspect durable reply state with: doctor"
 )
@@ -188,6 +197,9 @@ class SendRequest:
 class PlannedMessage:
     update_id: int
     payload: Optional[str]
+    media_kind: Optional[str] = None
+    media_state: Optional[str] = None
+    media_detail: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -528,6 +540,136 @@ def validate_reply_rows(conn: sqlite3.Connection) -> None:
             raise LocalStateError("reply-inbound-missing", repr(update_id))
 
 
+def media_schema() -> Tuple[str, ...]:
+    return (
+        "update_id",
+        "kind",
+        "state",
+        "created_at",
+        "updated_at",
+        "failure_detail",
+    )
+
+
+def ensure_media_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS media_intake (
+            update_id INTEGER PRIMARY KEY
+                CHECK (update_id >= 1 AND update_id <= 2147483647),
+            kind TEXT NOT NULL CHECK (kind IN ('photo', 'voice')),
+            state TEXT NOT NULL CHECK (state IN ('received', 'refused', 'unknown')),
+            created_at INTEGER NOT NULL CHECK (created_at >= 0),
+            updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+            failure_detail TEXT,
+            CHECK (
+                (state = 'received' AND failure_detail IS NULL)
+                OR (state IN ('refused', 'unknown') AND failure_detail IS NOT NULL)
+            )
+        )
+        """
+    )
+    conn.commit()
+
+
+def encode_payload(data: Dict[str, object]) -> str:
+    return json.dumps(
+        data,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def valid_identity_payload(decoded: object, update_id: int) -> bool:
+    if not isinstance(decoded, dict):
+        return False
+    if decoded.get("update_id") != update_id:
+        return False
+    if type(decoded.get("chat_id")) is not int or type(decoded.get("from_id")) is not int:
+        return False
+    if "message_id" in decoded and not valid_update_id(decoded.get("message_id")):
+        return False
+    date = decoded.get("date")
+    if date is not None and type(date) is not int:
+        return False
+    return True
+
+
+def valid_text_payload(decoded: object, update_id: int) -> bool:
+    if not valid_identity_payload(decoded, update_id):
+        return False
+    if not isinstance(decoded, dict) or "kind" in decoded:
+        return False
+    text = decoded.get("text")
+    return isinstance(text, str) and bool(text)
+
+
+def valid_media_payload(
+    decoded: object, update_id: int, kind: str, *, require_file: bool
+) -> bool:
+    if not valid_identity_payload(decoded, update_id):
+        return False
+    if not isinstance(decoded, dict) or decoded.get("kind") != kind:
+        return False
+    if "text" in decoded:
+        return False
+    caption = decoded.get("caption")
+    if caption is not None and (not isinstance(caption, str) or not caption):
+        return False
+    file_id = decoded.get("file_id")
+    if require_file:
+        return isinstance(file_id, str) and bool(file_id)
+    return file_id is None
+
+
+def validate_media_rows(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("PRAGMA table_info(media_intake)").fetchall()
+    if tuple(row[1] for row in rows) != media_schema():
+        raise LocalStateError("media-columns", repr(tuple(row[1] for row in rows)))
+    for row in conn.execute(
+        "SELECT update_id, kind, state, created_at, updated_at, failure_detail "
+        "FROM media_intake"
+    ):
+        update_id, kind, state, created_at, updated_at, failure = row
+        if not valid_update_id(update_id):
+            raise LocalStateError("media-update-id", repr(update_id))
+        if kind not in MEDIA_KINDS:
+            raise LocalStateError("media-kind", repr(kind))
+        if state not in MEDIA_STATES:
+            raise LocalStateError("media-state", repr(state))
+        if type(created_at) is not int or created_at < 0:
+            raise LocalStateError("media-created", repr(update_id))
+        if type(updated_at) is not int or updated_at < created_at:
+            raise LocalStateError("media-updated", repr(update_id))
+        message = conn.execute(
+            "SELECT payload FROM messages WHERE update_id = ?",
+            (update_id,),
+        ).fetchone()
+        payload = message[0] if message is not None else None
+        decoded = None
+        if payload is not None:
+            try:
+                decoded = json.loads(payload)
+            except (TypeError, ValueError) as exc:
+                raise LocalStateError("media-payload", str(exc))
+        if state == "received":
+            if failure is not None:
+                raise LocalStateError("media-received-shape", repr(update_id))
+            if not valid_media_payload(decoded, update_id, kind, require_file=True):
+                raise LocalStateError("media-evidence", repr(update_id))
+        elif state == "unknown":
+            if not isinstance(failure, str) or not DETAIL_RE.fullmatch(failure):
+                raise LocalStateError("media-unknown-shape", repr(update_id))
+            if not valid_media_payload(decoded, update_id, kind, require_file=False):
+                raise LocalStateError("media-unknown-evidence", repr(update_id))
+        else:
+            if not isinstance(failure, str) or not DETAIL_RE.fullmatch(failure):
+                raise LocalStateError("media-refused-shape", repr(update_id))
+            if payload is not None:
+                raise LocalStateError("media-refused-payload", repr(update_id))
+
+
 def resolution_extension_tables(conn: sqlite3.Connection) -> Tuple[bool, bool]:
     names = {
         row[0]
@@ -759,20 +901,20 @@ def validate_store(conn: sqlite3.Connection) -> None:
                 decoded = json.loads(payload)
             except (TypeError, ValueError) as exc:
                 raise LocalStateError("message-payload", str(exc))
-            if (
-                not isinstance(decoded, dict)
-                or decoded.get("update_id") != update_id
-                or not isinstance(decoded.get("text"), str)
-                or not decoded.get("text")
-                or not isinstance(decoded.get("chat_id"), int)
-                or type(decoded.get("chat_id")) is bool
-                or not isinstance(decoded.get("from_id"), int)
-                or type(decoded.get("from_id")) is bool
-                or (
-                    "message_id" in decoded
-                    and not valid_update_id(decoded.get("message_id"))
-                )
-            ):
+            kind = decoded.get("kind") if isinstance(decoded, dict) else None
+            if kind in MEDIA_KINDS:
+                media = conn.execute(
+                    "SELECT state FROM media_intake WHERE update_id = ?",
+                    (update_id,),
+                ).fetchone()
+                if media is None:
+                    raise LocalStateError("media-row-missing", repr(update_id))
+                require_file = media[0] != "unknown"
+                if not valid_media_payload(
+                    decoded, update_id, kind, require_file=require_file
+                ):
+                    raise LocalStateError("message-payload-shape", repr(update_id))
+            elif not valid_text_payload(decoded, update_id):
                 raise LocalStateError("message-payload-shape", repr(update_id))
         if notice_id is not None:
             notice = notice_map.get(notice_id)
@@ -783,6 +925,7 @@ def validate_store(conn: sqlite3.Connection) -> None:
         if handled_at is not None and (type(handled_at) is not int or handled_at < 0):
             raise LocalStateError("message-handled", repr(handled_at))
     validate_reply_rows(conn)
+    validate_media_rows(conn)
 
 
 def connect_existing(state: Path) -> sqlite3.Connection:
@@ -794,6 +937,7 @@ def connect_existing(state: Path) -> sqlite3.Connection:
         conn = sqlite3.connect(uri, uri=True, isolation_level=None, timeout=5)
         configure_connection(conn)
         ensure_reply_schema(conn)
+        ensure_media_schema(conn)
         conn.execute("BEGIN")
         try:
             verify_integrity(conn)
@@ -877,6 +1021,19 @@ def create_schema(conn: sqlite3.Connection) -> None:
                 OR (state = 'reserved' AND telegram_message_id IS NULL AND failure_detail IS NULL)
                 OR (state = 'unknown' AND telegram_message_id IS NULL AND failure_detail IS NOT NULL)
                 OR (state = 'failed' AND telegram_message_id IS NULL AND failure_detail IS NOT NULL)
+            )
+        );
+        CREATE TABLE media_intake (
+            update_id INTEGER PRIMARY KEY
+                CHECK (update_id >= 1 AND update_id <= 2147483647),
+            kind TEXT NOT NULL CHECK (kind IN ('photo', 'voice')),
+            state TEXT NOT NULL CHECK (state IN ('received', 'refused', 'unknown')),
+            created_at INTEGER NOT NULL CHECK (created_at >= 0),
+            updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+            failure_detail TEXT,
+            CHECK (
+                (state = 'received' AND failure_detail IS NULL)
+                OR (state IN ('refused', 'unknown') AND failure_detail IS NOT NULL)
             )
         );
         PRAGMA user_version = 1;
@@ -1332,6 +1489,147 @@ def run_curl(
     return run_curl_request(config, (), curl_max)
 
 
+def supported_content_kind(raw_message: Dict[str, object]) -> Optional[str]:
+    present = [name for name in ("text", "photo", "voice") if name in raw_message]
+    if len(present) > 1:
+        raise ProtocolError("an update has more than one supported message content shape")
+    if not present:
+        return None
+    return present[0]
+
+
+def read_message_identity(
+    raw_message: Dict[str, object],
+) -> Tuple[int, Optional[int], object, object]:
+    chat = raw_message.get("chat")
+    if not isinstance(chat, dict):
+        raise ProtocolError("message identity containers are malformed")
+    chat_id = chat.get("id")
+    if type(chat_id) is not int:
+        raise ProtocolError("message identity is not integer shaped")
+    date = raw_message.get("date")
+    if date is not None and type(date) is not int:
+        raise ProtocolError("message date is not integer shaped")
+    message_id = raw_message.get("message_id")
+    if "from" not in raw_message:
+        return chat_id, None, date, message_id
+    sender = raw_message["from"]
+    if not isinstance(sender, dict):
+        raise ProtocolError("message identity containers are malformed")
+    sender_id = sender.get("id")
+    if type(sender_id) is not int:
+        raise ProtocolError("message identity is not integer shaped")
+    return chat_id, sender_id, date, message_id
+
+
+def media_authorization(
+    chat_id: int, sender_id: Optional[int], credentials: Credentials
+) -> Optional[str]:
+    if chat_id != credentials.captain_chat_id:
+        return MEDIA_DETAIL_WRONG_CHAT
+    if sender_id != credentials.captain_user_id:
+        return MEDIA_DETAIL_UNAUTHENTICATED
+    return None
+
+
+def optional_caption(raw_message: Dict[str, object]) -> Optional[str]:
+    if "caption" not in raw_message:
+        return None
+    caption = raw_message["caption"]
+    if not isinstance(caption, str) or not caption:
+        raise ProtocolError("message caption is not a nonempty string")
+    return caption
+
+
+def photo_file_fields(photo: object) -> Dict[str, object]:
+    if not isinstance(photo, list) or not photo:
+        raise ProtocolError("photo is not a nonempty list")
+    best = None
+    best_key = None
+    for size in photo:
+        if not isinstance(size, dict):
+            raise ProtocolError("photo size is not an object")
+        width = size.get("width")
+        height = size.get("height")
+        file_size = size.get("file_size")
+        if width is not None and type(width) is not int:
+            raise ProtocolError("photo size fields are not integer shaped")
+        if height is not None and type(height) is not int:
+            raise ProtocolError("photo size fields are not integer shaped")
+        if file_size is not None and type(file_size) is not int:
+            raise ProtocolError("photo size fields are not integer shaped")
+        file_id = size.get("file_id")
+        if file_id is not None and not isinstance(file_id, str):
+            raise ProtocolError("photo file identity is not a string")
+        unique = size.get("file_unique_id")
+        if unique is not None and not isinstance(unique, str):
+            raise ProtocolError("photo file identity is not a string")
+        # file_size is optional, so rank by nonempty file_id, then pixel area,
+        # then file_size so a large size that omits it still beats a thumbnail.
+        key = (
+            1 if isinstance(file_id, str) and file_id else 0,
+            (width if type(width) is int else 0)
+            * (height if type(height) is int else 0),
+            file_size if type(file_size) is int else -1,
+        )
+        if best is None or key > best_key:
+            best = size
+            best_key = key
+    fields: Dict[str, object] = {}
+    file_id = best.get("file_id")
+    if isinstance(file_id, str) and file_id:
+        fields["file_id"] = file_id
+    unique = best.get("file_unique_id")
+    if isinstance(unique, str) and unique:
+        fields["file_unique_id"] = unique
+    return fields
+
+
+def voice_file_fields(voice: object) -> Dict[str, object]:
+    if not isinstance(voice, dict):
+        raise ProtocolError("voice is not an object")
+    file_id = voice.get("file_id")
+    if file_id is not None and not isinstance(file_id, str):
+        raise ProtocolError("voice file identity is not a string")
+    unique = voice.get("file_unique_id")
+    if unique is not None and not isinstance(unique, str):
+        raise ProtocolError("voice file identity is not a string")
+    duration = voice.get("duration")
+    if duration is not None and type(duration) is not int:
+        raise ProtocolError("voice duration is not integer shaped")
+    mime_type = voice.get("mime_type")
+    if mime_type is not None and not isinstance(mime_type, str):
+        raise ProtocolError("voice mime_type is not a string")
+    fields: Dict[str, object] = {}
+    if isinstance(file_id, str) and file_id:
+        fields["file_id"] = file_id
+    if isinstance(unique, str) and unique:
+        fields["file_unique_id"] = unique
+    if type(duration) is int:
+        fields["duration"] = duration
+    if isinstance(mime_type, str) and mime_type:
+        fields["mime_type"] = mime_type
+    return fields
+
+
+def identity_payload_fields(
+    update_id: object,
+    chat_id: int,
+    sender_id: int,
+    date: object,
+    message_id: object,
+) -> Dict[str, object]:
+    payload_data: Dict[str, object] = {
+        "update_id": update_id,
+        "date": date,
+        "chat_id": chat_id,
+        "from_id": sender_id,
+    }
+    if valid_update_id(message_id):
+        payload_data["message_id"] = message_id
+    return payload_data
+
+
 def canonical_message(
     update: Dict[str, object], credentials: Credentials
 ) -> Optional[PlannedMessage]:
@@ -1343,46 +1641,60 @@ def canonical_message(
     raw_message = update[present[0]]
     if not isinstance(raw_message, dict):
         raise ProtocolError("message is not an object")
-    if "text" not in raw_message:
+    content_kind = supported_content_kind(raw_message)
+    if content_kind is None:
         return None
-    text = raw_message["text"]
-    if not isinstance(text, str) or not text:
-        raise ProtocolError("message text is not a nonempty string")
-    chat = raw_message.get("chat")
-    if not isinstance(chat, dict):
-        raise ProtocolError("text message identity containers are malformed")
-    if "from" not in raw_message:
-        return None
-    sender = raw_message["from"]
-    if not isinstance(sender, dict):
-        raise ProtocolError("text message identity containers are malformed")
-    chat_id = chat.get("id")
-    sender_id = sender.get("id")
-    if type(chat_id) is not int or type(sender_id) is not int:
-        raise ProtocolError("text message identity is not integer shaped")
-    date = raw_message.get("date")
-    if date is not None and type(date) is not int:
-        raise ProtocolError("message date is not integer shaped")
-    if chat_id != credentials.captain_chat_id or sender_id != credentials.captain_user_id:
-        return None
-    message_id = raw_message.get("message_id")
+    chat_id, sender_id, date, message_id = read_message_identity(raw_message)
     update_id = update["update_id"]
-    payload_data = {
-        "update_id": update_id,
-        "date": date,
-        "chat_id": chat_id,
-        "from_id": sender_id,
-        "text": text,
-    }
-    if valid_update_id(message_id):
-        payload_data["message_id"] = message_id
-    payload = json.dumps(
-        payload_data,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
+    if content_kind == "text":
+        text = raw_message["text"]
+        if not isinstance(text, str) or not text:
+            raise ProtocolError("message text is not a nonempty string")
+        if sender_id is None:
+            return None
+        if chat_id != credentials.captain_chat_id or sender_id != credentials.captain_user_id:
+            return None
+        payload_data = identity_payload_fields(
+            update_id, chat_id, sender_id, date, message_id
+        )
+        payload_data["text"] = text
+        return PlannedMessage(int(update_id), encode_payload(payload_data))
+    media_fields = (
+        photo_file_fields(raw_message["photo"])
+        if content_kind == "photo"
+        else voice_file_fields(raw_message["voice"])
     )
-    return PlannedMessage(int(update_id), payload)
+    refusal = media_authorization(chat_id, sender_id, credentials)
+    if refusal is not None:
+        return PlannedMessage(
+            int(update_id),
+            None,
+            media_kind=content_kind,
+            media_state="refused",
+            media_detail=refusal,
+        )
+    payload_data = identity_payload_fields(
+        update_id, chat_id, sender_id, date, message_id
+    )
+    payload_data["kind"] = content_kind
+    caption = optional_caption(raw_message)
+    if caption is not None:
+        payload_data["caption"] = caption
+    if "file_id" not in media_fields:
+        return PlannedMessage(
+            int(update_id),
+            encode_payload(payload_data),
+            media_kind=content_kind,
+            media_state="unknown",
+            media_detail=MEDIA_DETAIL_MISSING_FILE,
+        )
+    payload_data.update(media_fields)
+    return PlannedMessage(
+        int(update_id),
+        encode_payload(payload_data),
+        media_kind=content_kind,
+        media_state="received",
+    )
 
 
 def validate_batch(body: bytes, offset: int, credentials: Credentials) -> BatchPlan:
@@ -1438,10 +1750,10 @@ def payload_conflicts(stored: str, planned: str) -> bool:
         return True
     if not isinstance(stored_data, dict) or not isinstance(planned_data, dict):
         return True
-    if "message_id" not in stored_data:
-        planned_data = {
-            key: value for key, value in planned_data.items() if key != "message_id"
-        }
+    planned_data = dict(planned_data)
+    for key in GAINABLE_PAYLOAD_KEYS:
+        if key not in stored_data:
+            planned_data.pop(key, None)
     return stored_data != planned_data
 
 
@@ -1468,8 +1780,11 @@ def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
                 (message.update_id,),
             ).fetchone()
             if existing is None:
-                new_messages.append(message)
+                if message.payload is not None:
+                    new_messages.append(message)
             elif existing[0] is None:
+                continue
+            elif message.payload is None:
                 continue
             elif payload_conflicts(existing[0], message.payload):
                 raise LocalStateError("message-conflict", repr(message.update_id))
@@ -1484,6 +1799,34 @@ def commit_batch(conn: sqlite3.Connection, plan: BatchPlan) -> Optional[int]:
                     (message.update_id, message.payload, notice_id),
                 )
                 failpoint("after_message")
+        for message in plan.messages:
+            if message.media_kind is None or message.media_state is None:
+                continue
+            existing_media = conn.execute(
+                "SELECT kind, state, failure_detail FROM media_intake WHERE update_id = ?",
+                (message.update_id,),
+            ).fetchone()
+            if existing_media is None:
+                conn.execute(
+                    "INSERT INTO media_intake "
+                    "(update_id, kind, state, created_at, updated_at, failure_detail) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        message.update_id,
+                        message.media_kind,
+                        message.media_state,
+                        now_epoch(),
+                        now_epoch(),
+                        message.media_detail,
+                    ),
+                )
+                failpoint("after_media")
+            elif (
+                existing_media[0] != message.media_kind
+                or existing_media[1] != message.media_state
+                or existing_media[2] != message.media_detail
+            ):
+                raise LocalStateError("media-conflict", repr(message.update_id))
         if not plan.empty:
             conn.execute(
                 "UPDATE meta SET committed_offset = ? WHERE singleton = 1",
@@ -3571,6 +3914,28 @@ def command_doctor(state: Path) -> int:
                 + totals["delivery-unknown"]
                 - len(terminal)
             )
+        )
+        media_totals = {"received": 0, "refused": 0, "unknown": 0}
+        for state, count in conn.execute(MEDIA_LABEL_COUNTS_SQL):
+            media_totals[state] = count
+        print("media_count=%d" % sum(media_totals.values()))
+        print("media_received=%d" % media_totals["received"])
+        print("media_refused=%d" % media_totals["refused"])
+        print("media_unknown=%d" % media_totals["unknown"])
+        media_attention = conn.execute(
+            "SELECT update_id, kind, state, failure_detail FROM media_intake "
+            "WHERE state != 'received' "
+            "ORDER BY updated_at DESC, update_id DESC LIMIT ?",
+            (DOCTOR_MEDIA_ATTENTION_LIMIT,),
+        ).fetchall()
+        for update_id, kind, state, failure in media_attention:
+            if failure is None:
+                print("media.%d=%s kind=%s" % (update_id, state, kind))
+            else:
+                print("media.%d=%s kind=%s detail=%s" % (update_id, state, kind, failure))
+        print(
+            "media_attention_omitted=%d"
+            % (media_totals["refused"] + media_totals["unknown"] - len(media_attention))
         )
         print(
             "pending_notices=%d"

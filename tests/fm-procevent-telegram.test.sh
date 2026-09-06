@@ -192,6 +192,40 @@ fixture malformed-date \
 fixture mixed-invalid \
   '{"ok":true,"result":[{"update_id":1001,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"must not commit"}},{"update_id":true}]}'
 fixture stale-id '{"ok":true,"result":[{"update_id":1001}]}'
+fixture one-photo \
+  '{"ok":true,"result":[{"update_id":4001,"message":{"message_id":801,"date":1700000000,"chat":{"id":555},"from":{"id":909},"photo":[{"file_id":"small-id","file_unique_id":"small-uniq","width":90,"height":90,"file_size":100},{"file_id":"large-id","file_unique_id":"large-uniq","width":1280,"height":720,"file_size":50000}],"caption":"SECRET-CAPTION-DO-NOT-LEAK"}}]}'
+fixture one-voice \
+  '{"ok":true,"result":[{"update_id":4002,"message":{"message_id":802,"date":1700000001,"chat":{"id":555},"from":{"id":909},"voice":{"file_id":"voice-id","file_unique_id":"voice-uniq","duration":5,"mime_type":"audio/ogg","file_size":23000}}}]}'
+fixture untrusted-photo \
+  '{"ok":true,"result":[{"update_id":4101,"message":{"message_id":811,"date":1,"chat":{"id":555},"from":{"id":424242},"photo":[{"file_id":"untrusted-photo","width":2,"height":2}]}}]}'
+fixture wrong-chat-photo \
+  '{"ok":true,"result":[{"update_id":4102,"message":{"message_id":812,"date":1,"chat":{"id":777},"from":{"id":909},"photo":[{"file_id":"foreign-photo","width":2,"height":2}]}}]}'
+fixture no-sender-photo \
+  '{"ok":true,"result":[{"update_id":4103,"message":{"message_id":813,"date":1,"chat":{"id":555},"photo":[{"file_id":"anon-photo","width":2,"height":2}]}}]}'
+fixture untrusted-voice \
+  '{"ok":true,"result":[{"update_id":4104,"message":{"date":1,"chat":{"id":555},"from":{"id":424242},"voice":{"file_id":"untrusted-voice"}}}]}'
+fixture unknown-photo \
+  '{"ok":true,"result":[{"update_id":4201,"message":{"message_id":821,"date":1,"chat":{"id":555},"from":{"id":909},"photo":[{"width":8,"height":8}]}}]}'
+fixture unknown-voice \
+  '{"ok":true,"result":[{"update_id":4202,"message":{"message_id":822,"date":1,"chat":{"id":555},"from":{"id":909},"voice":{"duration":3}}}]}'
+fixture photo-and-text \
+  '{"ok":true,"result":[{"update_id":4301,"message":{"message_id":831,"date":1,"chat":{"id":555},"from":{"id":909},"photo":[{"file_id":"mixed-photo","width":2,"height":2}]}},{"update_id":4302,"message":{"message_id":832,"date":2,"chat":{"id":555},"from":{"id":909},"text":"captain text beside a photo"}}]}'
+fixture photo-and-sticker \
+  '{"ok":true,"result":[{"update_id":4303,"message":{"message_id":833,"date":1,"chat":{"id":555},"from":{"id":909},"photo":[{"file_id":"batch-photo","width":2,"height":2}]}},{"update_id":4304,"message":{"date":2,"chat":{"id":555},"from":{"id":909},"sticker":{"file_id":"batch-sticker"}}}]}'
+fixture mixed-content \
+  '{"ok":true,"result":[{"update_id":4401,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"text":"must not commit","photo":[{"file_id":"also-photo","width":1,"height":1}]}}]}'
+fixture malformed-photo \
+  '{"ok":true,"result":[{"update_id":4402,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"photo":"not-a-list"}}]}'
+fixture malformed-voice \
+  '{"ok":true,"result":[{"update_id":4403,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"voice":7}}]}'
+fixture empty-photo \
+  '{"ok":true,"result":[{"update_id":4404,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"photo":[]}}]}'
+fixture empty-caption \
+  '{"ok":true,"result":[{"update_id":4405,"message":{"date":1,"chat":{"id":555},"from":{"id":909},"photo":[{"file_id":"caption-photo","width":1,"height":1}],"caption":""}}]}'
+fixture next-photo \
+  '{"ok":true,"result":[{"update_id":4003,"message":{"message_id":803,"date":1700000002,"chat":{"id":555},"from":{"id":909},"photo":[{"file_id":"later-photo","width":4,"height":4}]}}]}'
+fixture photo-omitted-file-size \
+  '{"ok":true,"result":[{"update_id":4501,"message":{"message_id":851,"date":1700000003,"chat":{"id":555},"from":{"id":909},"photo":[{"file_id":"thumb-id","file_unique_id":"thumb-uniq","width":90,"height":90,"file_size":100},{"file_id":"full-id","file_unique_id":"full-uniq","width":1280,"height":720}]}}]}'
 
 new_home() {
   mkdir -p "$1/state"
@@ -593,6 +627,7 @@ INVALID_CASES=(
   malformed-json ok-false result-object update-string bool-id zero-id
   negative-id string-id float-id range-id duplicate-id malformed-message
   malformed-chat malformed-sender malformed-text malformed-date mixed-invalid
+  mixed-content malformed-photo malformed-voice empty-photo empty-caption
 )
 for invalid_case in "${INVALID_CASES[@]}"; do
   home="$TMP_ROOT/rejected-$invalid_case"
@@ -3289,6 +3324,292 @@ assert_no_curl "an unusable reply identity still reached the network"
 assert_equal "$(db_query "$H_CAPTAIN_ID" "SELECT count(*) FROM replies")" 0 \
   "an unusable reply identity created a reservation"
 pass "a captain message with an unusable message_id stays readable but refuses a reply"
+
+# --- photo and voice intake never silently advances the offset ---------------
+H_PHOTO="$TMP_ROOT/photo"
+PHOTO_ENV="$TMP_ROOT/photo.env"
+arm_home "$H_PHOTO" "$PHOTO_ENV"
+clear_curl_calls
+photo_out=$(poll_once "$H_PHOTO" "$PHOTO_ENV" "$FIXTURES/one-photo.json")
+assert_contains "$photo_out" "message: 1 notice=" "captain photo did not create a stable notice"
+case "$photo_out" in
+  *"SECRET-CAPTION-DO-NOT-LEAK"*|*"large-id"*|*"small-id"*)
+    fail "photo notice leaked caption or file identity"
+    ;;
+esac
+assert_equal "$(db_query "$H_PHOTO" "SELECT committed_offset FROM meta")" 4002 \
+  "photo transaction did not advance the offset"
+assert_equal "$(db_query "$H_PHOTO" "SELECT kind, state, failure_detail FROM media_intake WHERE update_id=4001")" \
+  "photo|received|" "captain photo was not recorded as received"
+write_result "$photo_out"
+assert_equal "$(FM_HOME="$H_PHOTO" "$ADAPTER" classify "$RESULT_FILE")" message \
+  "pending photo notice did not classify"
+photo_json=$(FM_HOME="$H_PHOTO" "$ADAPTER" messages "$RESULT_FILE")
+assert_contains "$photo_json" '"kind":"photo"' "photo payload lost its kind"
+assert_contains "$photo_json" '"file_id":"large-id"' "photo payload did not keep the largest file"
+assert_contains "$photo_json" "SECRET-CAPTION-DO-NOT-LEAK" "photo payload dropped the caption"
+assert_contains "$photo_json" '"from_id":909' "photo payload lost sender identity"
+photo_calls_before=$(wc -l < "$CURL_CALLS" | tr -d ' ')
+photo_repeat=$(poll_once "$H_PHOTO" "$PHOTO_ENV" "$FIXTURES/next-photo.json")
+assert_equal "$photo_repeat" "$photo_out" "pre-ack photo retry did not emit the same stable notice"
+photo_calls_after=$(wc -l < "$CURL_CALLS" | tr -d ' ')
+assert_equal "$photo_calls_after" "$photo_calls_before" "a pending photo notice allowed another irreversible poll"
+photo_doctor=$(FM_HOME="$H_PHOTO" "$ADAPTER" doctor)
+assert_contains "$photo_doctor" "media_count=1" "doctor lost the received photo"
+assert_contains "$photo_doctor" "media_received=1" "doctor did not count received media"
+assert_contains "$photo_doctor" "media_refused=0" "doctor invented refused media"
+assert_contains "$photo_doctor" "media_unknown=0" "doctor invented unknown media"
+case "$photo_doctor" in
+  *"SECRET-CAPTION-DO-NOT-LEAK"*|*"large-id"*|*"small-id"*)
+    fail "doctor leaked caption or file identity"
+    ;;
+esac
+ack_out=$(FM_HOME="$H_PHOTO" "$ADAPTER" ack "$RESULT_FILE")
+assert_contains "$ack_out" "acknowledged:" "photo notice acknowledgement failed"
+assert_equal "$(FM_HOME="$H_PHOTO" "$ADAPTER" classify "$RESULT_FILE")" none \
+  "an acknowledged photo capture could authorize the message twice"
+clear_curl_calls
+photo_reply=$(printf 'got the photo\n' | CURL_STUB_SEND_ECHO_TEXT=1 \
+  FM_HOME="$H_PHOTO" FM_TELEGRAM_ENV_FILE="$PHOTO_ENV" "$ADAPTER" reply 4001)
+assert_contains "$photo_reply" "sent: update_id=4001" "inbound-linked reply to a photo failed"
+pass "an authenticated photo wakes, records received intake, and still accepts a bound reply"
+
+H_PHOTO_OMITTED="$TMP_ROOT/photo-omitted-file-size"
+PHOTO_OMITTED_ENV="$TMP_ROOT/photo-omitted-file-size.env"
+arm_home "$H_PHOTO_OMITTED" "$PHOTO_OMITTED_ENV"
+omitted_out=$(poll_once "$H_PHOTO_OMITTED" "$PHOTO_OMITTED_ENV" "$FIXTURES/photo-omitted-file-size.json")
+assert_contains "$omitted_out" "message: 1 notice=" \
+  "a photo whose largest size omitted file_size did not wake"
+case "$omitted_out" in
+  *"thumb-id"*|*"full-id"*|*"thumb-uniq"*|*"full-uniq"*)
+    fail "omitted-file-size photo notice leaked file identity"
+    ;;
+esac
+assert_equal "$(db_query "$H_PHOTO_OMITTED" "SELECT kind, state, failure_detail FROM media_intake WHERE update_id=4501")" \
+  "photo|received|" "omitted-file-size photo was not recorded as received"
+write_result "$omitted_out"
+omitted_json=$(FM_HOME="$H_PHOTO_OMITTED" "$ADAPTER" messages "$RESULT_FILE")
+assert_contains "$omitted_json" '"file_id":"full-id"' \
+  "omitted-file-size photo payload did not keep the largest usable file"
+case "$omitted_json" in
+  *"thumb-id"*) fail "omitted-file-size photo payload kept the thumbnail file identity" ;;
+esac
+omitted_doctor=$(FM_HOME="$H_PHOTO_OMITTED" "$ADAPTER" doctor)
+assert_contains "$omitted_doctor" "media_received=1" "doctor lost omitted-file-size photo intake"
+case "$omitted_doctor" in
+  *"thumb-id"*|*"full-id"*|*"thumb-uniq"*|*"full-uniq"*)
+    fail "doctor leaked omitted-file-size photo file identity"
+    ;;
+esac
+pass "a large PhotoSize with omitted file_size still beats a thumbnail"
+
+H_VOICE="$TMP_ROOT/voice"
+VOICE_ENV="$TMP_ROOT/voice.env"
+arm_home "$H_VOICE" "$VOICE_ENV"
+voice_out=$(poll_once "$H_VOICE" "$VOICE_ENV" "$FIXTURES/one-voice.json")
+assert_contains "$voice_out" "message: 1 notice=" "captain voice did not create a stable notice"
+case "$voice_out" in
+  *"voice-id"*|*"audio/ogg"*) fail "voice notice leaked file identity" ;;
+esac
+assert_equal "$(db_query "$H_VOICE" "SELECT committed_offset FROM meta")" 4003 \
+  "voice transaction did not advance the offset"
+assert_equal "$(db_query "$H_VOICE" "SELECT kind, state FROM media_intake WHERE update_id=4002")" \
+  "voice|received" "captain voice was not recorded as received"
+write_result "$voice_out"
+voice_json=$(FM_HOME="$H_VOICE" "$ADAPTER" messages "$RESULT_FILE")
+assert_contains "$voice_json" '"kind":"voice"' "voice payload lost its kind"
+assert_contains "$voice_json" '"file_id":"voice-id"' "voice payload lost its file identity"
+voice_doctor=$(FM_HOME="$H_VOICE" "$ADAPTER" doctor)
+assert_contains "$voice_doctor" "media_received=1" "doctor did not count received voice"
+case "$voice_doctor" in
+  *"voice-id"*|*"audio/ogg"*) fail "doctor leaked voice file identity" ;;
+esac
+FM_HOME="$H_VOICE" "$ADAPTER" ack "$RESULT_FILE" >/dev/null
+pass "an authenticated voice wakes and records received intake"
+
+for media_refused_case in untrusted-photo:4102:unauthenticated:photo \
+  wrong-chat-photo:4103:wrong-chat:photo \
+  no-sender-photo:4104:unauthenticated:photo \
+  untrusted-voice:4105:unauthenticated:voice
+do
+  media_name=${media_refused_case%%:*}
+  rest=${media_refused_case#*:}
+  media_offset=${rest%%:*}
+  rest=${rest#*:}
+  media_detail=${rest%%:*}
+  media_kind=${rest##*:}
+  home="$TMP_ROOT/$media_name"
+  env_file="$TMP_ROOT/$media_name.env"
+  arm_home "$home" "$env_file"
+  refused_status=0
+  refused_out=$(poll_once "$home" "$env_file" "$FIXTURES/$media_name.json") \
+    || refused_status=$?
+  [ "$refused_status" -ne 0 ] || fail "$media_name woke firstmate as the captain"
+  assert_equal "$refused_out" "" "$media_name produced a captured result"
+  assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" "$media_offset" \
+    "$media_name was not safely consumed"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM messages")" 0 \
+    "$media_name created a captain message"
+  assert_equal "$(db_query "$home" "SELECT kind, state, failure_detail FROM media_intake")" \
+    "$media_kind|refused|$media_detail" "$media_name was not recorded as refused media"
+  refused_doctor=$(FM_HOME="$home" "$ADAPTER" doctor)
+  assert_contains "$refused_doctor" "media_refused=1" \
+    "$media_name doctor lost refused media"
+  assert_contains "$refused_doctor" "detail=$media_detail" \
+    "$media_name doctor hid the refusal reason"
+  case "$refused_doctor" in
+    *"untrusted-photo"*|*"foreign-photo"*|*"anon-photo"*|*"untrusted-voice"*)
+      fail "$media_name doctor leaked file identity"
+      ;;
+  esac
+done
+# The doctor line uses update_id, not the fixture name. Check exact rows:
+assert_contains "$(FM_HOME="$TMP_ROOT/untrusted-photo" "$ADAPTER" doctor)" \
+  "media.4101=refused kind=photo detail=unauthenticated" \
+  "untrusted photo doctor row was wrong"
+assert_contains "$(FM_HOME="$TMP_ROOT/wrong-chat-photo" "$ADAPTER" doctor)" \
+  "media.4102=refused kind=photo detail=wrong-chat" \
+  "wrong-chat photo doctor row was wrong"
+assert_contains "$(FM_HOME="$TMP_ROOT/no-sender-photo" "$ADAPTER" doctor)" \
+  "media.4103=refused kind=photo detail=unauthenticated" \
+  "no-sender photo doctor row was wrong"
+assert_contains "$(FM_HOME="$TMP_ROOT/untrusted-voice" "$ADAPTER" doctor)" \
+  "media.4104=refused kind=voice detail=unauthenticated" \
+  "untrusted voice doctor row was wrong"
+pass "unauthenticated or wrong-chat media is refused without a captain wake"
+
+H_UNKNOWN_PHOTO="$TMP_ROOT/unknown-photo"
+UNKNOWN_PHOTO_ENV="$TMP_ROOT/unknown-photo.env"
+arm_home "$H_UNKNOWN_PHOTO" "$UNKNOWN_PHOTO_ENV"
+unknown_photo_out=$(poll_once "$H_UNKNOWN_PHOTO" "$UNKNOWN_PHOTO_ENV" "$FIXTURES/unknown-photo.json")
+assert_contains "$unknown_photo_out" "message: 1 notice=" \
+  "a captain photo missing file identity did not wake"
+assert_equal "$(db_query "$H_UNKNOWN_PHOTO" "SELECT committed_offset FROM meta")" 4202 \
+  "unknown photo intake advanced into silent loss or stalled"
+assert_equal "$(db_query "$H_UNKNOWN_PHOTO" "SELECT kind, state, failure_detail FROM media_intake WHERE update_id=4201")" \
+  "photo|unknown|missing-file-id" "unknown photo was not recorded"
+write_result "$unknown_photo_out"
+unknown_photo_json=$(FM_HOME="$H_UNKNOWN_PHOTO" "$ADAPTER" messages "$RESULT_FILE")
+assert_contains "$unknown_photo_json" '"kind":"photo"' "unknown photo payload lost its kind"
+case "$unknown_photo_json" in
+  *'"file_id"'*) fail "unknown photo payload invented a file identity" ;;
+esac
+unknown_photo_doctor=$(FM_HOME="$H_UNKNOWN_PHOTO" "$ADAPTER" doctor)
+assert_contains "$unknown_photo_doctor" "media_unknown=1" "doctor lost unknown photo intake"
+assert_contains "$unknown_photo_doctor" "media.4201=unknown kind=photo detail=missing-file-id" \
+  "doctor hid unknown photo intake"
+FM_HOME="$H_UNKNOWN_PHOTO" "$ADAPTER" ack "$RESULT_FILE" >/dev/null
+
+H_UNKNOWN_VOICE="$TMP_ROOT/unknown-voice"
+UNKNOWN_VOICE_ENV="$TMP_ROOT/unknown-voice.env"
+arm_home "$H_UNKNOWN_VOICE" "$UNKNOWN_VOICE_ENV"
+unknown_voice_out=$(poll_once "$H_UNKNOWN_VOICE" "$UNKNOWN_VOICE_ENV" "$FIXTURES/unknown-voice.json")
+assert_contains "$unknown_voice_out" "message: 1 notice=" \
+  "a captain voice missing file identity did not wake"
+assert_equal "$(db_query "$H_UNKNOWN_VOICE" "SELECT kind, state FROM media_intake WHERE update_id=4202")" \
+  "voice|unknown" "unknown voice was not recorded"
+unknown_voice_doctor=$(FM_HOME="$H_UNKNOWN_VOICE" "$ADAPTER" doctor)
+assert_contains "$unknown_voice_doctor" "media.4202=unknown kind=voice detail=missing-file-id" \
+  "doctor hid unknown voice intake"
+pass "captain media that cannot prove its file identity is unknown, durable, and visible"
+
+H_MEDIA_MIXED="$TMP_ROOT/media-mixed"
+MEDIA_MIXED_ENV="$TMP_ROOT/media-mixed.env"
+arm_home "$H_MEDIA_MIXED" "$MEDIA_MIXED_ENV"
+mixed_out=$(poll_once "$H_MEDIA_MIXED" "$MEDIA_MIXED_ENV" "$FIXTURES/photo-and-text.json")
+assert_contains "$mixed_out" "message: 2 notice=" \
+  "a mixed photo and text batch did not wake for both captain payloads"
+assert_equal "$(db_query "$H_MEDIA_MIXED" "SELECT committed_offset FROM meta")" 4303 \
+  "a mixed photo and text batch stalled or skipped an identifier"
+assert_equal "$(db_query "$H_MEDIA_MIXED" "SELECT count(*) FROM messages")" 2 \
+  "a mixed photo and text batch dropped a captain payload"
+assert_equal "$(db_query "$H_MEDIA_MIXED" "SELECT kind FROM media_intake")" photo \
+  "a mixed photo and text batch lost photo intake"
+write_result "$mixed_out"
+mixed_json=$(FM_HOME="$H_MEDIA_MIXED" "$ADAPTER" messages "$RESULT_FILE")
+assert_contains "$mixed_json" '"kind":"photo"' "mixed batch omitted the photo payload"
+assert_contains "$mixed_json" "captain text beside a photo" "mixed batch omitted the text payload"
+FM_HOME="$H_MEDIA_MIXED" "$ADAPTER" ack "$RESULT_FILE" >/dev/null
+pass "text intake still commits in the same batch as a photo"
+
+H_PHOTO_STICKER="$TMP_ROOT/photo-sticker"
+PHOTO_STICKER_ENV="$TMP_ROOT/photo-sticker.env"
+arm_home "$H_PHOTO_STICKER" "$PHOTO_STICKER_ENV"
+sticker_batch=$(poll_once "$H_PHOTO_STICKER" "$PHOTO_STICKER_ENV" "$FIXTURES/photo-and-sticker.json")
+assert_contains "$sticker_batch" "message: 1 notice=" \
+  "a photo beside a sticker did not wake for the photo"
+assert_equal "$(db_query "$H_PHOTO_STICKER" "SELECT committed_offset FROM meta")" 4305 \
+  "a sticker in a photo batch stalled the irreversible offset"
+assert_equal "$(db_query "$H_PHOTO_STICKER" "SELECT count(*) FROM messages")" 1 \
+  "a skipped sticker became a captain message or dropped the photo"
+pass "unsupported non-text shapes stay skipped while photo intake still wakes"
+
+MEDIA_PRECOMMIT_FAILPOINTS=(after_validate after_begin after_notice after_message after_media after_offset before_commit)
+for point in "${MEDIA_PRECOMMIT_FAILPOINTS[@]}"; do
+  home="$TMP_ROOT/media-crash-$point"
+  env_file="$TMP_ROOT/media-crash-$point.env"
+  arm_home "$home" "$env_file"
+  crash_out=$(FM_TELEGRAM_FAILPOINT="$point" poll_once \
+    "$home" "$env_file" "$FIXTURES/one-photo.json")
+  assert_contains "$crash_out" "blocked: local-state" \
+    "photo failpoint $point did not surface the injected child crash"
+  assert_equal "$(db_query "$home" "SELECT committed_offset FROM meta")" 0 \
+    "photo failpoint $point exposed an advanced offset before commit"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM media_intake")" 0 \
+    "photo failpoint $point stored media intake before commit"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM messages")" 0 \
+    "photo failpoint $point stored a photo payload before commit"
+  recovered=$(poll_once "$home" "$env_file" "$FIXTURES/one-photo.json")
+  assert_contains "$recovered" "message: 1 notice=" \
+    "photo failpoint $point could not replay the same update"
+  assert_equal "$(db_query "$home" "SELECT committed_offset, (SELECT count(*) FROM messages), (SELECT state FROM media_intake WHERE update_id=4001) FROM meta")" \
+    "4002|1|received" "photo failpoint $point replay did not commit one complete media transaction"
+done
+
+for point in after_commit before_output after_output; do
+  home="$TMP_ROOT/media-postcommit-$point"
+  env_file="$TMP_ROOT/media-postcommit-$point.env"
+  arm_home "$home" "$env_file"
+  crash_status=0
+  crash_out=$(FM_TELEGRAM_FAILPOINT="$point" poll_once \
+    "$home" "$env_file" "$FIXTURES/one-photo.json") || crash_status=$?
+  [ "$crash_status" -eq 0 ] || fail "photo failpoint $point left the wrapper non-capturable"
+  assert_equal "$(db_query "$home" "SELECT committed_offset, (SELECT count(*) FROM media_intake), (SELECT count(*) FROM notices WHERE acknowledged_at IS NULL) FROM meta")" \
+    "4002|1|1" "photo failpoint $point did not preserve the complete committed transaction"
+  calls_before=$(wc -l < "$CURL_CALLS" | tr -d ' ')
+  recovered=$(poll_once "$home" "$env_file" "$FIXTURES/next-photo.json")
+  assert_contains "$recovered" "message: 1" \
+    "photo failpoint $point did not re-emit the committed notice"
+  calls_after=$(wc -l < "$CURL_CALLS" | tr -d ' ')
+  assert_equal "$calls_after" "$calls_before" \
+    "photo failpoint $point recovery polled past a pending notice"
+  assert_equal "$(db_query "$home" "SELECT count(*) FROM media_intake")" 1 \
+    "photo failpoint $point recovery duplicated or dropped media intake"
+done
+pass "photo crash boundaries expose only complete transactions and remain replayable"
+
+H_UNPROVABLE="$TMP_ROOT/unprovable-media"
+UNPROVABLE_ENV="$TMP_ROOT/unprovable-media.env"
+arm_home "$H_UNPROVABLE" "$UNPROVABLE_ENV"
+poll_once "$H_UNPROVABLE" "$UNPROVABLE_ENV" "$FIXTURES/one-text.json" >/dev/null
+seed_result=$(poll_once "$H_UNPROVABLE" "$UNPROVABLE_ENV" "$FIXTURES/empty.json")
+write_result "$seed_result"
+FM_HOME="$H_UNPROVABLE" "$ADAPTER" ack "$RESULT_FILE" >/dev/null
+db_exec "$H_UNPROVABLE" \
+  "INSERT INTO media_intake (update_id, kind, state, created_at, updated_at, failure_detail) VALUES (1001, 'photo', 'received', 1, 1, NULL);"
+unprovable_status=0
+unprovable_out=$(FM_HOME="$H_UNPROVABLE" "$ADAPTER" doctor 2>/dev/null) || unprovable_status=$?
+[ "$unprovable_status" -ne 0 ] || fail "an older text row was treated as received media"
+assert_contains "$unprovable_out" "blocked: local-state fingerprint=" \
+  "unprovable media evidence did not refuse loudly"
+assert_contains "$unprovable_out" "media-evidence" \
+  "unprovable media evidence did not name the missing media fields"
+unprovable_poll=$(poll_once "$H_UNPROVABLE" "$UNPROVABLE_ENV" "$FIXTURES/next-text.json")
+assert_contains "$unprovable_poll" "blocked: local-state fingerprint=" \
+  "unprovable media evidence allowed later intake"
+assert_equal "$(db_query "$H_UNPROVABLE" "SELECT committed_offset FROM meta")" 1002 \
+  "unprovable media evidence advanced the offset past the older text row"
+pass "an older record that cannot prove media fields is refused loudly"
 
 PATH="$ORIGINAL_PATH"
 printf 'all fm-procevent-telegram tests passed\n'
