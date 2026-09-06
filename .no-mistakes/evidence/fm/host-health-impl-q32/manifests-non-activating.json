@@ -1,0 +1,32 @@
+{
+  "lalo-dev.json": {
+    "activation.permitted": false,
+    "baseline_sha256": "912f99b4433cef07522c81b874e50c7b82b5560d1777495cf53ae20043e7a668",
+    "canary_order": 1,
+    "candidate_sha256": null,
+    "host": "lalo-dev",
+    "prohibitions": [
+      "no live action from this manifest",
+      "no scheduler edit",
+      "no credential or route change",
+      "no service, process, worker, swap, or monitoring-scope change",
+      "no state rollback without separate destructive approval",
+      "stop before worker-1 on any first-canary failure"
+    ]
+  },
+  "worker-1.json": {
+    "activation.permitted": false,
+    "baseline_sha256": "912f99b4433cef07522c81b874e50c7b82b5560d1777495cf53ae20043e7a668",
+    "canary_order": 2,
+    "candidate_sha256": null,
+    "host": "worker-1",
+    "prohibitions": [
+      "no live action from this manifest",
+      "no worker-1 action before accepted lalo-dev evidence and separate approval",
+      "no scheduler edit",
+      "no credential or route change",
+      "no service, process, worker, swap, or monitoring-scope change",
+      "no state rollback without separate destructive approval"
+    ]
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "actual_steps": 18089427,
+  "algorithm": "deterministic lexical itertools.product; no random sampling",
+  "counts": {
+    "boundary_cases": 4800,
+    "boundary_invalid_pair_refusals": 3456,
+    "boundary_steps": 1344,
+    "boundary_valid_transition_cases": 1344,
+    "full_threshold_steps": 135,
+    "observation_steps": 18087948,
+    "observation_traces": 2359287,
+    "total_steps": 18089427,
+    "traces_per_seed_sender": 87381
+  },
+  "event_order": [
+    "H",
+    "A",
+    "B",
+    "X"
+  ],
+  "hard_step_limit": 25000000,
+  "intentionally_unreachable_defensive_branches": [
+    "OPEN_ANNOUNCED carrying initial or recovery pending intent is rejected by strict state validation"
+  ],
+  "invariant_accounting": {
+    "clause_ids": [
+      "INV-01-input-partition",
+      "INV-02-unknown-non-action",
+      "INV-03-raw-healthy-recovery-witness",
+      "INV-04-episode-transport-separation",
+      "INV-05-delivery-and-rate-anchors",
+      "INV-06-pending-change-continuity",
+      "INV-07-restart-field-closure",
+      "INV-08-corruption-safe-reentry",
+      "INV-09-single-writer-boundary",
+      "INV-10-closed-state-hygiene"
+    ],
+    "derived_successful_reaches_per_clause": {
+      "INV-01-input-partition": 18089427,
+      "INV-02-unknown-non-action": 18089427,
+      "INV-03-raw-healthy-recovery-witness": 18089427,
+      "INV-04-episode-transport-separation": 18089427,
+      "INV-05-delivery-and-rate-anchors": 18089427,
+      "INV-06-pending-change-continuity": 18089427,
+      "INV-07-restart-field-closure": 18089427,
+      "INV-08-corruption-safe-reentry": 18089427,
+      "INV-09-single-writer-boundary": 18089427,
+      "INV-10-closed-state-hygiene": 18089427
+    },
+    "method": "static call-site accounting: every successful step returned through the single unconditional _assert_transition_invariants call; no independent per-clause instrumentation",
+    "unconditional_bundle_calls": 18089427
+  },
+  "runtime_seconds": 417.442,
+  "schema_version": 1,
+  "seed_names": [
+    "uncertain",
+    "closed-empty",
+    "closed-all-threshold-minus-one",
+    "open-unannounced-no-attempt",
+    "open-unannounced-failed-14:59",
+    "open-announced-reminder-5:59:59",
+    "open-announced-pending-B-one",
+    "open-announced-material-14:59",
+    "recovery-pending-failed-14:59"
+  ],
+  "sender_scripts": [
+    "all_success",
+    "first_fail_then_success",
+    "all_fail"
+  ],
+  "trace_sha256": "a725dd97bd7e0c625ca428244c30238547b34a653d018be22b2ccd99def09e1f",
+  "transition_coverage": {
+    "defined": 40,
+    "hit": 40,
+    "missing": [],
+    "percent": 100.0,
+    "unexpected": []
+  },
+  "transition_id_hits": {
+    "T-CL-H": 1425217,
+    "T-CL-U-ACCUMULATE": 2670294,
+    "T-CL-U-INITIAL-FAILED": 119138,
+    "T-CL-U-INITIAL-OK": 61073,
+    "T-CL-X": 1425217,
+    "T-OA-H-RECOVERY-FAILED": 198671,
+    "T-OA-H-RECOVERY-OK": 167014,
+    "T-OA-H-WAIT": 1677135,
+    "T-OA-U-CANCEL-STALE-CHANGE": 18235,
+    "T-OA-U-CANCEL-STALE-REMINDER": 14081,
+    "T-OA-U-CHANGE-CONTINUE": 160665,
+    "T-OA-U-CHANGE-FAILED": 54875,
+    "T-OA-U-CHANGE-FLOOR-WAIT": 74388,
+    "T-OA-U-CHANGE-OK": 31402,
+    "T-OA-U-CHANGE-RETRY-FAILED": 20,
+    "T-OA-U-CHANGE-RETRY-OK": 20,
+    "T-OA-U-CHANGE-RETRY-WAIT": 18259,
+    "T-OA-U-CHANGE-START": 20835,
+    "T-OA-U-REMINDER-FAILED": 50280,
+    "T-OA-U-REMINDER-OK": 25436,
+    "T-OA-U-REMINDER-RETRY-FAILED": 20,
+    "T-OA-U-REMINDER-RETRY-OK": 20,
+    "T-OA-U-REMINDER-RETRY-WAIT": 44921,
+    "T-OA-U-SAME-DEDUP": 662746,
+    "T-OA-U-UNQUALIFIED": 3381094,
+    "T-OA-X": 2042820,
+    "T-OU-H-CLOSE-SILENT": 151662,
+    "T-OU-H-WAIT": 675834,
+    "T-OU-U-INITIAL-FAILED": 309056,
+    "T-OU-U-INITIAL-OK": 154538,
+    "T-OU-U-RETRY-WAIT": 1191334,
+    "T-OU-X": 827496,
+    "T-RP-H-RECOVERY-FAILED": 10942,
+    "T-RP-H-RECOVERY-OK": 5481,
+    "T-RP-H-RETRY-WAIT": 123043,
+    "T-RP-U-CANCEL": 278868,
+    "T-RP-X-CANCEL": 139466,
+    "T-UC-H": 87436,
+    "T-UC-U": 174808,
+    "T-UC-X": 87436
+  },
+  "verdict": "pass"
+}

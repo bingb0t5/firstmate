@@ -1,0 +1,67 @@
+{
+  "verdict": "pass",
+  "score": "12/12",
+  "oracle_sha256": "5b8251cb8a0618f47cb276c3b3a1626ed4eb1b4a5b13fba27857bd016585d5a8",
+  "mutants": [
+    {
+      "number": 1,
+      "name": "recovery-from-empty-qualified-set",
+      "status": "KILLED"
+    },
+    {
+      "number": 2,
+      "name": "unknown-preserves-or-advances-healthy-run",
+      "status": "KILLED"
+    },
+    {
+      "number": 3,
+      "name": "unknown-preserves-pending-material-count",
+      "status": "KILLED"
+    },
+    {
+      "number": 4,
+      "name": "sender-failure-recorded-as-delivery",
+      "status": "KILLED"
+    },
+    {
+      "number": 5,
+      "name": "episode-existence-tied-to-delivery-success",
+      "status": "KILLED"
+    },
+    {
+      "number": 6,
+      "name": "reminder-anchored-to-stale-delivery",
+      "status": "KILLED"
+    },
+    {
+      "number": 7,
+      "name": "immediate-material-change",
+      "status": "KILLED"
+    },
+    {
+      "number": 8,
+      "name": "no-fifteen-minute-failed-send-floor",
+      "status": "KILLED"
+    },
+    {
+      "number": 9,
+      "name": "truthy-string-boolean-migration",
+      "status": "KILLED"
+    },
+    {
+      "number": 10,
+      "name": "unreadable-state-permanent-latch",
+      "status": "KILLED"
+    },
+    {
+      "number": 11,
+      "name": "restart-drops-reminder-dedup-state",
+      "status": "KILLED"
+    },
+    {
+      "number": 12,
+      "name": "losing-lock-contender-enters-effects",
+      "status": "KILLED"
+    }
+  ]
+}

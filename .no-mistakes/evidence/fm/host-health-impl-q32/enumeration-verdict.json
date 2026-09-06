@@ -1,0 +1,13 @@
+{
+  "verdict": "pass",
+  "actual_steps": 18089427,
+  "transition_coverage": {
+    "defined": 40,
+    "hit": 40,
+    "missing": [],
+    "percent": 100.0,
+    "unexpected": []
+  },
+  "runtime_seconds": 417.442,
+  "trace_sha256": "a725dd97bd7e0c625ca428244c30238547b34a653d018be22b2ccd99def09e1f"
+}

@@ -1,0 +1,35 @@
+=== runtime module-load of oracle (reload under tracking __import__) ===
+  import '__future__' fromlist=('annotations',) level=0
+  import 'dataclasses' fromlist=('dataclass', 'fields', 'replace') level=0
+  import 'datetime' fromlist=('datetime', 'timezone') level=0
+  import 'enum' fromlist=('Enum',) level=0
+  import 'json' fromlist=None level=0
+  import 'math' fromlist=None level=0
+  import 're' fromlist=None level=0
+  import 'typing' fromlist=('Any', 'Callable', 'Mapping') level=0
+loaded_top_level: ['__future__', 'dataclasses', 'datetime', 'enum', 'json', 'math', 're', 'typing']
+subset_of_stdlib_allowlist: True
+disjoint_from_effect_modules: True
+oracle.step parameters: ('state', 'observation', 'now', 'sender_result_if_attempted')
+
+=== parser-bound public API ===
+oversized JSON integer -> ModelError: malformed JSON
+oversized schema_version via load_or_migrate_text -> phase=Phase.UNCERTAIN
+decoder-depth array -> ModelError: ModelError: malformed JSON
+decoder-depth via load_or_migrate_text -> phase=Phase.UNCERTAIN
+duplicate object keys -> ModelError: duplicate JSON object key
+duplicate keys via load_or_migrate_text -> phase=Phase.UNCERTAIN
+oversized metric 10**5000 -> ObservationKind.UNKNOWN
+
+=== public step(): closed -> initial announcement ===
+  t=0 phase=Phase.CLOSED intents=[] announced=None
+  t=60 phase=Phase.CLOSED intents=[] announced=None
+  t=120 phase=Phase.CLOSED intents=[] announced=None
+  t=180 phase=Phase.CLOSED intents=[] announced=None
+  t=240 phase=Phase.OPEN_ANNOUNCED intents=['INITIAL'] announced=('load',)
+  t=300 phase=Phase.OPEN_ANNOUNCED intents=[] announced=('load',)
+  t=360 phase=Phase.OPEN_ANNOUNCED intents=[] announced=('load',)
+
+=== non-activating manifests ===
+lalo-dev.json: host=lalo-dev activation.permitted=False candidate_sha256=None baseline_sha256=912f99b4433cef07522c81b874e50c7b82b5560d1777495cf53ae20043e7a668
+worker-1.json: host=worker-1 activation.permitted=False candidate_sha256=None baseline_sha256=912f99b4433cef07522c81b874e50c7b82b5560d1777495cf53ae20043e7a668

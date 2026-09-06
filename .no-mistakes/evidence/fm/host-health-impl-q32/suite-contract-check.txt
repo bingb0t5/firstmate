@@ -1,0 +1,18 @@
+mutation: verdict=pass score=12/12 oracle_unchanged=True
+mutants:
+  01 KILLED recovery-from-empty-qualified-set
+  02 KILLED unknown-preserves-or-advances-healthy-run
+  03 KILLED unknown-preserves-pending-material-count
+  04 KILLED sender-failure-recorded-as-delivery
+  05 KILLED episode-existence-tied-to-delivery-success
+  06 KILLED reminder-anchored-to-stale-delivery
+  07 KILLED immediate-material-change
+  08 KILLED no-fifteen-minute-failed-send-floor
+  09 KILLED truthy-string-boolean-migration
+  10 KILLED unreadable-state-permanent-latch
+  11 KILLED restart-drops-reminder-dedup-state
+  12 KILLED losing-lock-contender-enters-effects
+enumeration: verdict=pass steps=18089427 coverage=40/40 runtime_seconds=417.442
+trace_sha256=a725dd97bd7e0c625ca428244c30238547b34a653d018be22b2ccd99def09e1f
+unit tests: Ran 39 tests ... OK
+SUITE CONTRACT: pass

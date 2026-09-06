@@ -1,0 +1,94 @@
+{
+  "mutants": [
+    {
+      "detail": "open A -> raw U(B) below qualification -> raw U(B): mutant fabricated recovery",
+      "killing_trace": "q25 raw-unhealthy after reset",
+      "mutation": "recovery-from-empty-qualified-set",
+      "number": 1,
+      "status": "KILLED"
+    },
+    {
+      "detail": "open A with healthy_run=1 -> X: mutant preserved/advanced recovery evidence",
+      "killing_trace": "open healthy_run one then unknown",
+      "mutation": "unknown-preserves-or-advances-healthy-run",
+      "number": 2,
+      "status": "KILLED"
+    },
+    {
+      "detail": "open A pending B(1) -> X: mutant retained material proof",
+      "killing_trace": "open A pending B one then unknown",
+      "mutation": "unknown-preserves-pending-material-count",
+      "number": 3,
+      "status": "KILLED"
+    },
+    {
+      "detail": "threshold initial with FAILED sender: mutant recorded successful delivery",
+      "killing_trace": "failed threshold initial",
+      "mutation": "sender-failure-recorded-as-delivery",
+      "number": 4,
+      "status": "KILLED"
+    },
+    {
+      "detail": "failed initial: mutant closed the episode instead of OPEN_UNANNOUNCED",
+      "killing_trace": "failed initial remains open-unannounced",
+      "mutation": "episode-existence-tied-to-delivery-success",
+      "number": 5,
+      "status": "KILLED"
+    },
+    {
+      "detail": "successful material with stale incident anchor: strict anchor invariant rejected mutant",
+      "killing_trace": "reminder/material/same-next-minute",
+      "mutation": "reminder-anchored-to-stale-delivery",
+      "number": 6,
+      "status": "KILLED"
+    },
+    {
+      "detail": "open A with swap threshold-minus-one -> first qualified B: mutant sent immediately",
+      "killing_trace": "first qualified B observation",
+      "mutation": "immediate-material-change",
+      "number": 7,
+      "status": "KILLED"
+    },
+    {
+      "detail": "failed initial -> valid unhealthy at 14:59: mutant retried before 15:00",
+      "killing_trace": "failed initial at 14:59",
+      "mutation": "no-fifteen-minute-failed-send-floor",
+      "number": 8,
+      "status": "KILLED"
+    },
+    {
+      "detail": "baseline alerted=\"false\" with firing load: mutant truthiness fabricated announced episode",
+      "killing_trace": "string false legacy state",
+      "mutation": "truthy-string-boolean-migration",
+      "number": 9,
+      "status": "KILLED"
+    },
+    {
+      "detail": "unreadable -> valid H: mutant remained permanently UNCERTAIN",
+      "killing_trace": "unreadable state then valid healthy",
+      "mutation": "unreadable-state-permanent-latch",
+      "number": 10,
+      "status": "KILLED"
+    },
+    {
+      "detail": "restart one minute after delivery: mutant dropped incident anchor and reminded",
+      "killing_trace": "restart one minute after successful delivery",
+      "mutation": "restart-drops-reminder-dedup-state",
+      "number": 11,
+      "status": "KILLED"
+    },
+    {
+      "detail": "lock held by process one: mutant losing contender entered sample/send/migrate/write",
+      "killing_trace": "synchronized held fcntl lock",
+      "mutation": "losing-lock-contender-enters-effects",
+      "number": 12,
+      "status": "KILLED"
+    }
+  ],
+  "oracle_sha256_after": "5b8251cb8a0618f47cb276c3b3a1626ed4eb1b4a5b13fba27857bd016585d5a8",
+  "oracle_sha256_before": "5b8251cb8a0618f47cb276c3b3a1626ed4eb1b4a5b13fba27857bd016585d5a8",
+  "schema_version": 1,
+  "score": "12/12",
+  "temporary_source_replacement_asserted": true,
+  "verdict": "pass"
+}
