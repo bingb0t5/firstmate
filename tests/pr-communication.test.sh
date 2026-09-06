@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Public-interface tests for the vendored CEO-overview PR communication gate.
+# Public-interface tests for the vendored CEO-overview PR communication gate
+# and Firstmate's CEO overview quality overlay.
 #
-# Rules live in scripts/pr-communication/prCommunication.ts (lalo-admin SoT).
+# Shared template completeness lives in scripts/pr-communication/prCommunication.ts
+# (lalo-admin SoT). Firstmate-specific missing/implementation-intent rules live in
+# scripts/pr-communication/firstmateCeoOverview.ts.
 # This file drives the checker and drift entrypoints as executables and never
 # asserts implementation-source bytes.
 set -u
@@ -11,10 +14,13 @@ set -u
 
 DRIFT="$ROOT/scripts/pr-communication/check-drift.mjs"
 CHECK="$ROOT/scripts/check-pr-communication.ts"
+FIRSTMATE_CHECK="$ROOT/scripts/check-firstmate-ceo-overview.ts"
 UNIT="$ROOT/scripts/check-pr-communication.test.ts"
+FIRSTMATE_UNIT="$ROOT/scripts/check-firstmate-ceo-overview.test.ts"
 FETCH_FIXTURE="$ROOT/tests/fixtures/pr-communication-fetch.mjs"
 TEMPLATE="$ROOT/.github/PULL_REQUEST_TEMPLATE.md"
 TRACKED_BODY_DIR="$ROOT/.github/pr-bodies"
+EVIDENCE_BODY_DIR="$ROOT/tests/fixtures/pr-communication/bodies"
 BODY_COMPOSER="$ROOT/bin/fm-pr-body-compose.sh"
 NO_MISTAKES_WORKFLOW="$ROOT/.github/workflows/no-mistakes-required.yml"
 
@@ -411,8 +417,173 @@ test_tracked_pr_bodies_are_accepted() {
   pass "tracked PR body artifacts satisfy the executable communication gate"
 }
 
+test_firstmate_unit_suite() {
+  local out rc
+  set +e
+  out=$(node --experimental-strip-types --test "$FIRSTMATE_UNIT" 2>&1)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "Firstmate CEO overview unit suite"
+  pass "Firstmate CEO overview unit suite passes"
+}
+
+run_communication_check() {
+  local checker=$1 title=$2 body_file=$3
+  PR_TITLE="$title" PR_BODY="$(cat "$body_file")" \
+    node --experimental-strip-types "$checker" 2>&1
+}
+
+test_evidence_bodies_keep_shared_assessor_verdict() {
+  local out rc
+  set +e
+  out=$(run_communication_check "$CHECK" \
+    'Harden wake routing and process-event delivery' \
+    "$EVIDENCE_BODY_DIR/12-implementation-intent.md")
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "shared assessor on PR 12 shape"
+  assert_contains "$out" "CEO overview: What is changing" \
+    "shared assessor no longer required a CEO overview on the PR 12 shape"
+
+  set +e
+  out=$(run_communication_check "$CHECK" \
+    'Gate second implementation attempts on a Sol spec' \
+    "$EVIDENCE_BODY_DIR/17-implementation-intent.md")
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "shared assessor on PR 17 shape"
+  assert_contains "$out" "CEO overview: What is changing" \
+    "shared assessor no longer required a CEO overview on the PR 17 shape"
+
+  set +e
+  out=$(run_communication_check "$CHECK" \
+    'Add prioritized local task pulling' \
+    "$EVIDENCE_BODY_DIR/14-ceo-overview.md")
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "shared assessor on PR 14 shape"
+  assert_contains "$out" "PR communication is complete." \
+    "shared assessor rejected the PR 14 captain-facing overview"
+
+  set +e
+  out=$(run_communication_check "$CHECK" \
+    'Serve authenticated fleet snapshot' \
+    "$EVIDENCE_BODY_DIR/18-ceo-overview.md")
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "shared assessor on PR 18 shape"
+  assert_contains "$out" "PR communication is complete." \
+    "shared assessor rejected the PR 18 captain-facing overview"
+  pass "shared assessor still fails the Intent shape and passes the CEO overview shape"
+}
+
+test_pr12_shape_fails_firstmate_ceo_overview() {
+  local out rc
+  set +e
+  out=$(run_communication_check "$FIRSTMATE_CHECK" \
+    'Harden wake routing and process-event delivery' \
+    "$EVIDENCE_BODY_DIR/12-implementation-intent.md")
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "PR 12 implementation-intent shape"
+  assert_contains "$out" \
+    "CEO overview is missing or incomplete; implementation intent is not an acceptable substitute" \
+    "PR 12 shape did not fail as a missing CEO overview"
+  pass "PR 12 implementation-intent shape fails the Firstmate CEO overview check"
+}
+
+test_pr17_shape_fails_firstmate_ceo_overview() {
+  local out rc
+  set +e
+  out=$(run_communication_check "$FIRSTMATE_CHECK" \
+    'Gate second implementation attempts on a Sol spec' \
+    "$EVIDENCE_BODY_DIR/17-implementation-intent.md")
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "PR 17 implementation-intent shape"
+  assert_contains "$out" \
+    "CEO overview is missing or incomplete; implementation intent is not an acceptable substitute" \
+    "PR 17 shape did not fail as a missing CEO overview"
+  pass "PR 17 implementation-intent shape fails the Firstmate CEO overview check"
+}
+
+test_pr14_shape_passes_firstmate_ceo_overview() {
+  local out rc
+  set +e
+  out=$(run_communication_check "$FIRSTMATE_CHECK" \
+    'Add prioritized local task pulling' \
+    "$EVIDENCE_BODY_DIR/14-ceo-overview.md")
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "PR 14 captain-facing overview"
+  assert_contains "$out" "Firstmate CEO overview is complete." \
+    "PR 14 shape did not pass the Firstmate CEO overview check"
+  pass "PR 14 captain-facing overview passes the Firstmate CEO overview check"
+}
+
+test_pr18_shape_passes_firstmate_ceo_overview() {
+  local out rc
+  set +e
+  out=$(run_communication_check "$FIRSTMATE_CHECK" \
+    'Serve authenticated fleet snapshot' \
+    "$EVIDENCE_BODY_DIR/18-ceo-overview.md")
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "PR 18 captain-facing overview"
+  assert_contains "$out" "Firstmate CEO overview is complete." \
+    "PR 18 shape did not pass the Firstmate CEO overview check"
+  pass "PR 18 captain-facing overview passes the Firstmate CEO overview check"
+}
+
+test_implementation_only_overview_fails_firstmate_ceo_overview() {
+  local out rc
+  set +e
+  out=$(run_communication_check "$CHECK" \
+    'Harden wake routing and process-event delivery' \
+    "$EVIDENCE_BODY_DIR/implementation-only-overview.md")
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "shared assessor on implementation-only overview"
+  assert_contains "$out" "PR communication is complete." \
+    "shared assessor unexpectedly rejected labelled implementation intent"
+
+  set +e
+  out=$(run_communication_check "$FIRSTMATE_CHECK" \
+    'Harden wake routing and process-event delivery' \
+    "$EVIDENCE_BODY_DIR/implementation-only-overview.md")
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "implementation-only CEO overview"
+  assert_contains "$out" \
+    "CEO overview is only implementation intent; tell the captain what is changing, why it matters, impact, risk, and any decision needed" \
+    "implementation-only overview did not fail the Firstmate CEO overview check"
+  pass "implementation-only CEO overview fails Firstmate and still satisfies the shared labels"
+}
+
+test_tracked_pr_bodies_pass_firstmate_ceo_overview() {
+  local body_file found=0 out rc
+  for body_file in "$TRACKED_BODY_DIR"/*.md; do
+    [ -e "$body_file" ] || continue
+    found=1
+    set +e
+    out=$(
+      PR_TITLE='Validate a tracked pull request description' \
+        PR_BODY="$(cat "$body_file")" \
+        node --experimental-strip-types "$FIRSTMATE_CHECK" 2>&1
+    )
+    rc=$?
+    set -e
+    expect_code 0 "$rc" "Firstmate CEO overview for ${body_file#"$ROOT"/}"
+    assert_contains "$out" "Firstmate CEO overview is complete." \
+      "tracked PR body ${body_file#"$ROOT"/} failed the Firstmate CEO overview check"
+  done
+  expect_code 1 "$found" "at least one tracked PR body fixture"
+  pass "tracked PR body artifacts satisfy the Firstmate CEO overview check"
+}
+
 test_missing_remote_token_fails_closed
 test_vendored_unit_suite
+test_firstmate_unit_suite
 test_cli_accepts_description_that_keeps_the_pipeline_section
 test_pr_body_composer_preserves_the_pipeline_attestation
 test_cli_rejects_incomplete_description
@@ -420,6 +591,13 @@ test_cli_rejects_pipeline_generated_description
 test_cli_rejects_untouched_module_boundary_template
 test_cli_accepts_complete_description
 test_tracked_pr_bodies_are_accepted
+test_evidence_bodies_keep_shared_assessor_verdict
+test_pr12_shape_fails_firstmate_ceo_overview
+test_pr17_shape_fails_firstmate_ceo_overview
+test_pr14_shape_passes_firstmate_ceo_overview
+test_pr18_shape_passes_firstmate_ceo_overview
+test_implementation_only_overview_fails_firstmate_ceo_overview
+test_tracked_pr_bodies_pass_firstmate_ceo_overview
 test_transient_remote_failure_uses_local_pin
 test_required_remote_failure_fails_closed
 test_auth_remote_failure_fails_closed

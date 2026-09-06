@@ -1,6 +1,9 @@
 # Trusted source-of-truth verification for the vendored PR communication
 # assessor. This workflow executes only base-branch code and treats the
 # proposed head checkout as untrusted data.
+# After the shared assessor is verified, the trusted Firstmate CEO overview
+# check grades the PR body so a missing or implementation-only overview cannot
+# pass from an old or stripped head.
 
 name: pr-communication-sot
 
@@ -51,3 +54,9 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: node --experimental-strip-types .pr-head/scripts/check-pr-communication.ts
+
+      - name: Assess Firstmate CEO overview with trusted code
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node --experimental-strip-types scripts/check-firstmate-ceo-overview.ts

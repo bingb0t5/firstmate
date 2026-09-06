@@ -3,6 +3,8 @@
 #
 # Assessor is vendored from lalo-admin; the trusted pr-communication-sot
 # workflow verifies pull-request copies against the private source of truth.
+# Firstmate additionally fails a missing CEO overview or one that is only
+# implementation intent (scripts/pr-communication/firstmateCeoOverview.ts).
 # Kept separate from CI so body-only edits do not re-run the full matrix.
 #
 # This repo has no package.json, so Node's built-in type stripping executes the
@@ -47,3 +49,9 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: node --experimental-strip-types scripts/check-pr-communication.ts
+
+      - name: Assess Firstmate CEO overview
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node --experimental-strip-types scripts/check-firstmate-ceo-overview.ts

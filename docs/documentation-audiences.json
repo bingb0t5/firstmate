@@ -423,6 +423,26 @@
     {
       "path": "skills/stow/SKILL.md",
       "audience": "public-product"
+    },
+    {
+      "path": "tests/fixtures/pr-communication/bodies/12-implementation-intent.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/pr-communication/bodies/14-ceo-overview.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/pr-communication/bodies/17-implementation-intent.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/pr-communication/bodies/18-ceo-overview.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/pr-communication/bodies/implementation-only-overview.md",
+      "audience": "maintainer-verification"
     }
   ]
 }
