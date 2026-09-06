@@ -308,6 +308,24 @@ run:
 EOF
 }
 
+run_ci_monitoring_with_stale_failure() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: running
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  pr: "https://github.com/o/r/pull/2"
+  findings: none
+  outcome: failed
+  steps[4]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    review,completed,0,0
+    push,completed,0,0
+    ci,running,0,0
+EOF
+}
+
 run_fixing_ci_running() {  # <branch>
   cat <<EOF
 run:
@@ -441,7 +459,7 @@ test_gate_block_parked_not_superseded() {
   pass "gate block parked run is not flagged superseded"
 }
 
-test_ci_ready_done_log_beats_monitoring_run() {
+test_ci_ready_log_stays_nonterminal_while_monitoring_run_is_live() {
   reset_fakes
   local d; d=$(new_case ci-ready)
   make_repo_on_branch "$d/wt" fm/feat-ci
@@ -450,19 +468,19 @@ test_ci_ready_done_log_beats_monitoring_run() {
   printf 'done: PR https://github.com/o/r/pull/2 checks green\n' > "$d/state/feat-ci.status"
   FM_FAKE_AXI_STATUS="$(run_ci_monitoring fm/feat-ci)"
   local out; out=$(run_crew_state "$d" feat-ci)
-  assert_contains "$out" "state: done" "ci-ready status log -> done"
-  assert_contains "$out" "source: status-log" "ci-ready state comes from the status log"
+  assert_contains "$out" "state: working" "ci-ready status log stays nonterminal"
+  assert_contains "$out" "source: run-step" "live run remains authoritative"
   assert_contains "$out" "checks green" "ci-ready detail preserves the report"
-  assert_not_contains "$out" "state: working" "ci-ready is not hidden by monitoring run"
-  pass "ci-ready status log beats monitoring run"
+  assert_not_contains "$out" "state: done" "live run must not become terminal"
+  pass "ci-ready status log stays nonterminal while monitoring run is live"
 }
 
 # Regression for the PR #252 incident: the crew's own status log never got a
 # "done: ... checks green" line (log_reports_ci_ready above does not apply),
 # but the ci step's log tail shows CI is actually green and only waiting on
-# merge/close. fm-crew-state must surface this as done, not "validating
-# (running)", so a green PR is never silently absorbed as still-in-progress.
-test_ci_monitoring_checks_green_surfaces_done() {
+# merge/close. fm-crew-state must preserve that checks are green while keeping
+# the authoritative live run nonterminal.
+test_ci_monitoring_checks_green_stays_nonterminal() {
   reset_fakes
   local d; d=$(new_case ci-green)
   make_repo_on_branch "$d/wt" fm/feat-cigreen
@@ -476,14 +494,14 @@ all CI checks passed - still monitoring until merged or closed
 EOF
 )
   local out; out=$(run_crew_state "$d" feat-cigreen)
-  assert_contains "$out" "state: done" "green ci-monitor run -> done"
+  assert_contains "$out" "state: working" "green ci-monitor run stays nonterminal"
   assert_contains "$out" "source: run-step" "green ci-monitor -> run-step source"
   assert_contains "$out" "checks green" "green ci-monitor detail mentions checks green"
-  assert_not_contains "$out" "state: working" "green ci-monitor must not read as still validating"
-  pass "ci-monitoring run with checks already green surfaces done"
+  assert_not_contains "$out" "state: done" "green ci-monitor must not become terminal"
+  pass "ci-monitoring run with checks already green stays nonterminal"
 }
 
-test_top_level_ci_checks_green_surfaces_done() {
+test_top_level_ci_checks_green_stays_nonterminal() {
   reset_fakes
   local d; d=$(new_case top-level-ci-green)
   make_repo_on_branch "$d/wt" fm/feat-topcigreen
@@ -492,14 +510,14 @@ test_top_level_ci_checks_green_surfaces_done() {
   FM_FAKE_AXI_STATUS="$(run_top_level_ci fm/feat-topcigreen)"
   FM_FAKE_CI_LOGS="all CI checks passed - still monitoring until merged or closed"
   local out; out=$(run_crew_state "$d" feat-topcigreen)
-  assert_contains "$out" "state: done" "top-level ci with green log -> done"
+  assert_contains "$out" "state: working" "top-level ci with green log stays nonterminal"
   assert_contains "$out" "source: run-step" "top-level ci green -> run-step source"
   assert_contains "$out" "checks green" "top-level ci green detail mentions checks green"
-  assert_not_contains "$out" "state: working" "top-level ci green must not stay working"
-  pass "top-level ci status uses ci log green marker"
+  assert_not_contains "$out" "state: done" "top-level ci green must not become terminal"
+  pass "top-level ci status uses ci log green marker without terminalizing"
 }
 
-test_ci_monitoring_no_checks_terminal_surfaces_done() {
+test_ci_monitoring_no_checks_stays_nonterminal() {
   reset_fakes
   local d; d=$(new_case ci-nochecks)
   make_repo_on_branch "$d/wt" fm/feat-cinochecks
@@ -508,9 +526,10 @@ test_ci_monitoring_no_checks_terminal_surfaces_done() {
   FM_FAKE_AXI_STATUS="$(run_ci_monitoring fm/feat-cinochecks)"
   FM_FAKE_CI_LOGS="no CI checks reported - still monitoring until merged or closed"
   local out; out=$(run_crew_state "$d" feat-cinochecks)
-  assert_contains "$out" "state: done" "terminal no-checks ci-monitor run -> done"
+  assert_contains "$out" "state: working" "live no-checks ci-monitor run stays nonterminal"
   assert_contains "$out" "checks green" "terminal no-checks ci-monitor detail mentions checks green"
-  pass "terminal no-checks ci-monitor marker surfaces done"
+  assert_not_contains "$out" "state: done" "live no-checks ci-monitor must not become terminal"
+  pass "live no-checks ci-monitor marker stays nonterminal"
 }
 
 test_ci_monitoring_green_then_rearm_stays_working() {
@@ -684,6 +703,20 @@ test_terminal_failed() {
   pass "terminal failed run is authoritative"
 }
 
+test_live_ci_status_outranks_stale_failure() {
+  reset_fakes
+  local d; d=$(new_case active-ci-stale-failure)
+  make_repo_on_branch "$d/wt" fm/feat-ci-stale-failure
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-ci-stale-failure.meta" "window=fm:fm-feat-ci-stale-failure" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_ci_monitoring_with_stale_failure fm/feat-ci-stale-failure)"
+  local out; out=$(run_crew_state "$d" feat-ci-stale-failure)
+  assert_contains "$out" "state: working" "live CI status must remain working despite stale failure outcome"
+  assert_contains "$out" "source: run-step" "live CI status remains run-step sourced"
+  assert_not_contains "$out" "state: failed" "live CI status must not become a terminal failure"
+  pass "live CI status outranks stale failure outcome"
+}
+
 # (e) cross-branch attribution: `axi status` returns ANOTHER branch's run (the
 # routine case once more than one crew validates the same underlying repo
 # concurrently - they share ONE no-mistakes repo registration), so the helper
@@ -754,9 +787,9 @@ EOF
 )"
   FM_FAKE_CI_LOGS="CI checks running, waiting for results..."
   local out; out=$(run_crew_state "$d" feat-coarseready)
-  assert_contains "$out" "state: done" "coarse ready status -> done"
-  assert_contains "$out" "source: status-log" "coarse ready status remains status-log sourced"
-  assert_not_contains "$out" "state: working" "coarse ready status must not be suppressed by another branch log"
+  assert_contains "$out" "state: working" "coarse ready status stays nonterminal"
+  assert_contains "$out" "source: run-step" "coarse live run remains authoritative"
+  assert_not_contains "$out" "state: done" "coarse live run must not become terminal"
   pass "coarse run does not probe another branch's ci log"
 }
 
@@ -1443,10 +1476,10 @@ test_stale_blocked_superseded
 test_genuine_parked_not_superseded
 test_scalar_gate_parked_not_superseded
 test_gate_block_parked_not_superseded
-test_ci_ready_done_log_beats_monitoring_run
-test_ci_monitoring_checks_green_surfaces_done
-test_top_level_ci_checks_green_surfaces_done
-test_ci_monitoring_no_checks_terminal_surfaces_done
+test_ci_ready_log_stays_nonterminal_while_monitoring_run_is_live
+test_ci_monitoring_checks_green_stays_nonterminal
+test_top_level_ci_checks_green_stays_nonterminal
+test_ci_monitoring_no_checks_stays_nonterminal
 test_ci_monitoring_green_then_rearm_stays_working
 test_ci_monitoring_no_checks_yet_stays_working
 test_ci_monitoring_still_waiting_stays_working
@@ -1457,6 +1490,7 @@ test_top_level_fixing_ci_running_after_green_stays_working
 test_top_level_fixing_done_log_stays_working
 test_terminal_passed
 test_terminal_failed
+test_live_ci_status_outranks_stale_failure
 test_cross_branch_attribution_via_runs_list
 test_cross_branch_attribution_picks_most_recent_row
 test_coarse_run_does_not_probe_other_branch_ci_log_for_ready_status

@@ -16,9 +16,11 @@
 # Each scan uses an aggregate FM_INACTIVE_RECONCILE_BUDGET_SECS deadline (default
 # 10, valid 1..30) and resumes after its last visited child on the next scan.
 # Homes with at most 25 direct ordinary active due-work obligations are within
-# this bound's capacity; a larger active fleet, or candidate evidence that does
-# not fit its bound, records due-work supervision as unhealthy and surfaces a
-# capacity check until a later scan confirms coverage.
+# this bound's capacity.
+# Candidate evidence is collected per task from a bounded status-log suffix.
+# A task whose suffix is incomplete produces a partial candidate verdict rather
+# than making the whole home's coverage unhealthy; unknown tasks remain in the
+# ordinary resumable sweep and known active tasks still receive priority.
 # A sweep the budget truncated leaves its resume cursor recorded, so the watcher
 # continues it immediately instead of waiting out another poll interval and the
 # bound is per child rather than per scan. State reads share the cadence across
@@ -94,6 +96,12 @@ SCAN_MARKER="$STATE/.inactive-outcome-reconcile"
 SCAN_LOCK="$STATE/.inactive-outcome-reconcile.lock"
 CAPACITY_MARKER="$STATE/.inactive-reconcile-capacity"
 BUDGET_MARKER="$STATE/.inactive-reconcile-budget"
+PARTIAL_MARKER="$STATE/.inactive-reconcile-partial"
+CANDIDATE_FILE="$STATE/.inactive-reconcile-candidates"
+FM_INACTIVE_RECONCILE_CANDIDATE_BYTES=${FM_INACTIVE_RECONCILE_CANDIDATE_BYTES:-65536}
+case "$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES" in
+  ''|*[!0-9]*|0) FM_INACTIVE_RECONCILE_CANDIDATE_BYTES=65536 ;;
+esac
 CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 
 # shellcheck source=bin/fm-wake-lib.sh
@@ -580,20 +588,99 @@ EOF
   return 1
 }
 
-direct_meta_has_active_due_work() { # <meta>
-  local meta=$1 id kind status decisions
-  [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
+# Candidate evidence is deliberately weaker than the full active-management
+# fold. The suffix is enough to prioritize a currently active lane, while its
+# byte bound ensures an old, noisy status log cannot consume the home's scan.
+# A partial result is safe because its task stays in the ordinary pass instead
+# of being treated as proven inactive.
+active_candidate_evidence() { # <meta> -> active|none|partial
+  local meta=$1 id status bytes bytes_after evidence verdict=none partial=0
   id=${meta##*/}; id=${id%.meta}
-  valid_id "$id" || return 1
-  kind=$(meta_field "$meta" kind)
-  [ "$kind" = secondmate ] && return 1
   status="$STATE/$id.status"
-  [ -f "$status" ] && [ -r "$status" ] && [ ! -L "$status" ] || return 1
-  if active_has_decision_event "$status"; then
-    decisions=$(status_open_decisions "$status" 2>/dev/null || true)
-    [ -n "$decisions" ] && return 0
+  [ -f "$status" ] && [ -r "$status" ] && [ ! -L "$status" ] || { printf 'none\n'; return 0; }
+  bytes=$(wc -c < "$status" 2>/dev/null) || { printf 'partial\n'; return 0; }
+  evidence=$(mktemp "$STATE/.inactive-evidence.XXXXXX") || { printf 'partial\n'; return 0; }
+  tail -c "$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES" "$status" > "$evidence" 2>/dev/null || {
+    rm -f "$evidence"
+    printf 'partial\n'
+    return 0
+  }
+  bytes_after=$(wc -c < "$status" 2>/dev/null) || bytes_after=$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES
+  if [ "$bytes" -gt "$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES" ] \
+    || [ "$bytes_after" -gt "$FM_INACTIVE_RECONCILE_CANDIDATE_BYTES" ]; then
+    partial=1
   fi
-  active_has_open_working_phase "$status"
+  if [ "$partial" -eq 1 ]; then
+    # Do not run the full per-line fold on an incomplete suffix.
+    # The latest event is a bounded conservative hint for priority only.
+    case "$(status_line_verb "$(last_status_line "$evidence")")" in
+      working|needs-decision|blocked) verdict=active ;;
+    esac
+  else
+    if active_has_decision_event "$evidence"; then
+      if [ -n "$(status_open_decisions "$evidence" 2>/dev/null || true)" ]; then
+        verdict=active
+      fi
+    fi
+    if [ "$verdict" = none ] && active_has_open_working_phase "$evidence"; then
+      verdict=active
+    fi
+  fi
+  rm -f "$evidence"
+  if [ "$verdict" = active ]; then
+    printf 'active\n'
+  elif [ "$partial" -eq 1 ]; then
+    printf 'partial\n'
+  else
+    printf 'none\n'
+  fi
+}
+
+write_partial_marker() { # <covered> <partial>
+  local covered=$1 partial=$2 tmp
+  if [ "$partial" -eq 0 ]; then
+    rm -f "$PARTIAL_MARKER"
+    return 0
+  fi
+  tmp=$(mktemp "$PARTIAL_MARKER.XXXXXX") || return 1
+  {
+    printf 'schema=fm-inactive-reconcile-partial.v1\n'
+    printf 'coverage=partial\n'
+    printf 'known_active=%s\n' "$covered"
+    printf 'epoch=%s\n' "$(reconcile_now)"
+  } > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 600 "$tmp" 2>/dev/null || true
+  mv -f "$tmp" "$PARTIAL_MARKER"
+}
+
+candidate_verdict() { # <id>
+  awk -F '\t' -v wanted="$1" '$1 == wanted { print $2; exit }' "$CANDIDATE_FILE" 2>/dev/null
+}
+
+scan_active_candidates() { # <deadline> -> ACTIVE_CANDIDATE_COUNT / ACTIVE_CANDIDATE_PARTIAL
+  local deadline=$1 meta id kind verdict count=0 partial=0 direct_count=0
+  : > "$CANDIDATE_FILE" || return 1
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      partial=1
+      break
+    fi
+    id=$(basename "$meta" .meta)
+    valid_id "$id" || continue
+    kind=$(meta_field "$meta" kind)
+    [ "$kind" = secondmate ] && continue
+    direct_count=$((direct_count + 1))
+    verdict=$(active_candidate_evidence "$meta")
+    printf '%s\t%s\n' "$id" "$verdict" >> "$CANDIDATE_FILE" || return 1
+    case "$verdict" in
+      active) count=$((count + 1)) ;;
+      partial) partial=1 ;;
+    esac
+  done
+  ACTIVE_CANDIDATE_COUNT=$count
+  ACTIVE_CANDIDATE_PARTIAL=$partial
+  ACTIVE_CANDIDATE_DIRECT_COUNT=$direct_count
 }
 
 active_oldest_open_progress() { # <status-file> <fallback> -> signature<TAB>epoch<TAB>measured
@@ -601,6 +688,7 @@ active_oldest_open_progress() { # <status-file> <fallback> -> signature<TAB>epoc
   local epoch event_epoch signature measured best_epoch='' best_signature='' best_measured=''
   rows=$(status_open_activities "$status" 2>/dev/null || true)
   while IFS=$'\t' read -r key verb note; do
+    : "${note:-}"
     [ "$verb" = working ] || continue
     working_keys="${working_keys}${working_keys:+$'\n'}$key"
   done <<EOF
@@ -868,7 +956,7 @@ reconcile_direct_child() { # <id> <meta> <secondmate-id-or-empty> <timeout>
 # first visit, such a scan would return 3 having examined no child at all while
 # write_scan_marker had already advanced the cursor past the skipped child.
 scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-or-empty>
-  local cursor=$1 upper=$2 deadline=$3 self=${4:-} skip_active=${5:-0} meta id remaining share rc first target payload queue_rc alert_now
+  local cursor=$1 upper=$2 deadline=$3 self=${4:-} skip_active=${5:-0} meta id candidate remaining share rc first target payload queue_rc alert_now
   local position=$1
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
@@ -876,7 +964,10 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
     valid_id "$id" || continue
     [ -z "$cursor" ] || [[ "$id" > "$cursor" ]] || continue
     if [ -n "$upper" ] && [[ "$id" > "$upper" ]]; then continue; fi
-    [ "$skip_active" -eq 0 ] || ! direct_meta_has_active_due_work "$meta" || continue
+    candidate=$(candidate_verdict "$id")
+    if [ "$skip_active" -eq 1 ] && [ "$candidate" = active ]; then
+      continue
+    fi
     first=0
     if [ "${SCAN_FIRST_VISIT_PENDING:-0}" -eq 1 ]; then
       first=1
@@ -925,15 +1016,15 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
 }
 
 scan_active_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-or-empty> <timeout>
-  local cursor=$1 upper=$2 deadline=$3 self=${4:-} timeout=$5 meta id remaining share rc first target payload queue_rc alert_now
+  local cursor=$1 upper=$2 deadline=$3 self=${4:-} timeout=$5 id candidate meta remaining share rc first target payload queue_rc alert_now
   local position=$1
-  for meta in "$STATE"/*.meta; do
-    [ -f "$meta" ] || continue
-    id=$(basename "$meta" .meta)
+  while IFS=$'\t' read -r id candidate; do
+    [ "$candidate" = active ] || continue
     valid_id "$id" || continue
     [ -z "$cursor" ] || [[ "$id" > "$cursor" ]] || continue
     if [ -n "$upper" ] && [[ "$id" > "$upper" ]]; then continue; fi
-    direct_meta_has_active_due_work "$meta" || continue
+    meta="$STATE/$id.meta"
+    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     first=0
     if [ "${ACTIVE_SCAN_FIRST_VISIT_PENDING:-0}" -eq 1 ]; then
       first=1
@@ -978,7 +1069,7 @@ scan_active_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondm
       [ "$rc" -eq 3 ] && return 3
       return "$rc"
     fi
-  done
+  done < "$CANDIDATE_FILE"
 }
 
 # An incomplete active-management pass must not suppress a status that already
@@ -1015,31 +1106,6 @@ scan_terminal_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secon
   done
 }
 
-scan_direct_child_count() {
-  local meta id kind line count=0
-  for meta in "$STATE"/*.meta; do
-    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
-    id=${meta##*/}; id=${id%.meta}
-    valid_id "$id" || continue
-    kind=''
-    while IFS= read -r line || [ -n "$line" ]; do
-      case "$line" in kind=*) kind=${line#kind=} ;; esac
-    done < "$meta"
-    [ "$kind" = secondmate ] && continue
-    count=$((count + 1))
-  done
-  printf '%s\n' "$count"
-}
-
-scan_active_due_work_count() {
-  local meta count=0
-  for meta in "$STATE"/*.meta; do
-    direct_meta_has_active_due_work "$meta" && count=$((count + 1))
-    [ "$count" -le "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ] || break
-  done
-  printf '%s\n' "$count"
-}
-
 scan_pending() {
   local cursor origin active_cursor
   cursor=$(scan_marker_cursor)
@@ -1056,7 +1122,7 @@ scan_pending() {
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor active_cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0 candidate_rc=0 remaining candidate_timeout terminal_rc=0
+  local startup=${1:-0} self='' cursor active_cursor deadline candidate_deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0 remaining terminal_rc=0
   local resuming=0 wrapping=0 legacy_cursor=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
@@ -1121,28 +1187,19 @@ scan() {
       return 0
     fi
   fi
-  direct_child_count=$(scan_direct_child_count)
   deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
-  candidate_timeout=$((FM_INACTIVE_RECONCILE_BUDGET_SECS / 4))
-  [ "$candidate_timeout" -gt 0 ] || candidate_timeout=1
-  child_count=$(fm_run_timed "$candidate_timeout" env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    FM_INACTIVE_RECONCILE_SECS="$FM_INACTIVE_RECONCILE_SECS" \
-    FM_INACTIVE_RECONCILE_BUDGET_SECS="$FM_INACTIVE_RECONCILE_BUDGET_SECS" \
-    "$0" _active-count) || candidate_rc=$?
-  if [ "$candidate_rc" -eq 124 ]; then
-    if scan_alert_due "$CAPACITY_MARKER" candidate-evidence "$now"; then
-      active_queue_once check inactive-reconcile-capacity \
-        "check: due-work candidate evidence exceeded ${candidate_timeout}s; bounded coverage unavailable" || rc=$?
-      [ "$rc" -ne 2 ] || return 1
-      rc=0
-      scan_alert_record "$CAPACITY_MARKER" candidate-evidence "$now" || return 1
-    fi
-    SCAN_ACTIVE_CURSOR=''
-    write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
-    return 0
+  candidate_deadline=$deadline
+  if [ "$FM_INACTIVE_RECONCILE_BUDGET_SECS" -gt 1 ]; then
+    candidate_deadline=$((deadline - 1))
   fi
-  [ "$candidate_rc" -eq 0 ] || return "$candidate_rc"
-  case "$child_count" in ''|*[!0-9]*) return 1 ;; esac
+  rm -f "$CANDIDATE_FILE"
+  scan_active_candidates "$candidate_deadline" || return 1
+  child_count=$ACTIVE_CANDIDATE_COUNT
+  direct_child_count=$ACTIVE_CANDIDATE_DIRECT_COUNT
+  if [ "$ACTIVE_CANDIDATE_PARTIAL" -eq 1 ]; then
+    direct_child_count=$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN
+  fi
+  write_partial_marker "$child_count" "$ACTIVE_CANDIDATE_PARTIAL" || return 1
   if [ "$child_count" -gt "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then
     if scan_alert_due "$CAPACITY_MARKER" "children=$child_count" "$now"; then
       active_queue_once check inactive-reconcile-capacity \
@@ -1162,18 +1219,6 @@ scan() {
     write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
   fi
   remaining=$((deadline - $(date +%s)))
-  if [ "$child_count" -gt 0 ] && [ "$remaining" -lt 1 ]; then
-    if scan_alert_due "$CAPACITY_MARKER" candidate-evidence "$now"; then
-      active_queue_once check inactive-reconcile-capacity \
-        "check: due-work candidate evidence left no time for bounded coverage" || rc=$?
-      [ "$rc" -ne 2 ] || return 1
-      rc=0
-      scan_alert_record "$CAPACITY_MARKER" candidate-evidence "$now" || return 1
-    fi
-    SCAN_ACTIVE_CURSOR=''
-    write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
-    return 0
-  fi
   active_timeout=$FM_INACTIVE_RECONCILE_BUDGET_SECS
   if [ "$child_count" -gt 0 ]; then
     active_timeout=$((FM_INACTIVE_RECONCILE_SECS / child_count - 2))
@@ -1181,7 +1226,11 @@ scan() {
     if [ "$active_timeout" -gt "$FM_INACTIVE_RECONCILE_BUDGET_SECS" ]; then
       active_timeout=$FM_INACTIVE_RECONCILE_BUDGET_SECS
     fi
-    [ "$active_timeout" -le "$remaining" ] || active_timeout=$remaining
+    if [ "$remaining" -lt 1 ]; then
+      active_timeout=1
+    elif [ "$active_timeout" -gt "$remaining" ]; then
+      active_timeout=$remaining
+    fi
   fi
   if [ "$direct_child_count" -gt 0 ]; then
     SCAN_CHILD_TIMEOUT=$((FM_INACTIVE_RECONCILE_SECS / direct_child_count - 2))
@@ -1192,7 +1241,8 @@ scan() {
   else
     SCAN_CHILD_TIMEOUT=$FM_INACTIVE_RECONCILE_BUDGET_SECS
   fi
-  if [ "$child_count" -gt 0 ] && [ "$child_count" -le "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then
+  if { [ "$child_count" -gt 0 ] || [ "$ACTIVE_CANDIDATE_PARTIAL" -eq 1 ]; } \
+    && [ "$child_count" -le "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then
     regular_skip_active=1
     ACTIVE_SCAN_FIRST_VISIT_PENDING=1
     if [ -n "$SCAN_ACTIVE_CURSOR" ]; then
@@ -1244,6 +1294,21 @@ scan() {
     write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
   elif [ "$rc" -ne 3 ]; then
     return "$rc"
+  else
+    # A regular-pass timeout can happen when candidate evidence was partial or
+    # could not recognize the live work.  Preserve status-declared terminal
+    # outcomes through the same bounded backstop as an active-pass timeout.
+    if [ "$wrapping" -eq 0 ]; then
+      scan_terminal_pass "$cursor" '' "$deadline" "$self" || terminal_rc=$?
+      if [ "$terminal_rc" -eq 0 ] && [ -n "$SCAN_ORIGIN" ]; then
+        cursor=''
+        wrapping=1
+      fi
+    fi
+    if [ "$terminal_rc" -eq 0 ] && [ "$wrapping" -eq 1 ]; then
+      scan_terminal_pass "$cursor" "$SCAN_ORIGIN" "$deadline" "$self" || terminal_rc=$?
+    fi
+    [ "$terminal_rc" -eq 0 ] || [ "$terminal_rc" -eq 3 ] || return "$terminal_rc"
   fi
 }
 
@@ -1300,10 +1365,6 @@ case "$mode" in
     [ -z "$4" ] || valid_id "$4" || exit 2
     case "$5" in ''|*[!0-9]*|0) exit 2 ;; esac
     reconcile_direct_child "$2" "$3" "$4" "$5"
-    ;;
-  _active-count)
-    [ "$#" -eq 1 ] || exit 2
-    scan_active_due_work_count
     ;;
   pending)
     [ "$#" -eq 1 ] || exit 2

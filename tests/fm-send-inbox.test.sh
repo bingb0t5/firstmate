@@ -65,10 +65,19 @@ case "${1:-}" in
     fi
     exit 0 ;;
   display-message)
-    for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
+    for a in "$@"; do
+      case "$a" in
+        *cursor_y*)
+          if [ "${FM_FAKE_TMUX_COMPOSER:-}" = pi-banner ]; then printf '3\n'; else printf '1\n'; fi
+          exit 0
+          ;;
+      esac
+    done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
-    if [ "${FM_FAKE_TMUX_COMPOSER:-}" = pending ]; then
+    if [ "${FM_FAKE_TMUX_COMPOSER:-}" = pi-banner ]; then
+      printf 'transcript\n────────────────────────\nMCP: Failed to refresh mrbeanz: Error POSTing to endpoint: no available server\n\n────────────────────────\n'
+    elif [ "${FM_FAKE_TMUX_COMPOSER:-}" = pending ]; then
       printf '╭──────────────╮\n│ leftover txt │\n╰──────────────╯\n'
     else
       printf '╭────╮\n│    │\n╰────╯\n'
@@ -187,6 +196,16 @@ test_failed_ring_is_still_sent() {
   assert_contains "$(cat "$err")" "watcher will re-ring" \
     "the failed-ring notice should point at the re-ring"
   pass "fm-send inbox: a failed doorbell is still a durably sent steer"
+}
+
+test_pi_status_banner_does_not_skip_doorbell() {
+  local dir err rc
+  dir=$(setup_case pi-banner pi); err="$dir/send.err"
+  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pi-banner -- t1 "ring through the status banner"; rc=$?
+  expect_code 0 "$rc" "a Pi status banner must not make the send fail"
+  assert_contains "$(cat "$dir/send.log")" "Firstmate instruction waiting" \
+    "a Pi status banner must not suppress the doorbell"
+  pass "fm-send inbox: Pi MCP status banners do not look like pending composer text"
 }
 
 test_harness_invocations_stay_typed() {
@@ -368,6 +387,7 @@ test_multiline_steer_is_legal
 test_resend_enqueues_new_sequence
 test_pending_composer_skips_ring_advisorily
 test_failed_ring_is_still_sent
+test_pi_status_banner_does_not_skip_doorbell
 test_harness_invocations_stay_typed
 test_explicit_target_stays_typed
 test_inbox_only_overrides_shape_routing

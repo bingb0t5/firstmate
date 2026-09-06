@@ -18,8 +18,8 @@ When this session owns supervision and away mode is not active:
    No PreToolUse hook denies fleet commands based on watcher status.
    [`watcher-continuity.md`](../watcher-continuity.md) owns the exact session-lock recovery boundary.
 8. The turn-end guard (`bin/fm-turnend-guard.sh --claude`) remains the final backstop.
-   It requires the PID-strict live-watcher and fresh-beacon predicate at the Stop boundary when bounded due-work coverage is available, while the mid-turn pull guard accepts a fresh beacon without a live process under Claude's between-turns auto-arm model.
-   Unavailable due-work coverage blocks regardless of watcher liveness, and otherwise the guard allows the stop when a watcher is healthy or the role-verified auto-arm owns recovery; [`turnend-guard.md`](../turnend-guard.md) owns the capacity condition and fresh-failure progression.
+   It requires the PID-strict live-watcher and fresh-beacon predicate at the Stop boundary when active direct work is within due-work capacity, while the mid-turn pull guard accepts a fresh beacon without a live process under Claude's between-turns auto-arm model.
+   Exceeded due-work capacity blocks regardless of watcher liveness, and otherwise the guard allows the stop when a watcher is healthy or the role-verified auto-arm owns recovery; [`turnend-guard.md`](../turnend-guard.md) owns the capacity condition and fresh-failure progression.
 9. Waiting on the hook-owned cycle is silent: do not send idle progress while the watcher is parked.
 
 The watcher itself remains `bin/fm-watch.sh`, and `bin/fm-watch-arm.sh` remains the verified arm wrapper that the Stop hook foregrounds.

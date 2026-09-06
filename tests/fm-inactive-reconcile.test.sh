@@ -615,7 +615,9 @@ test_cold_cursor_sweep_still_wraps_after_a_truncation() {
   make_world cold-cursor
   write_child "$MAIN" a 'done: green'
   write_child "$MAIN" b 'working: quietly under way'
-  write_child "$MAIN" c 'working: state read will stall'
+  # Keep c outside the priority candidate set so its stalled authoritative
+  # state read exercises the ordinary resumable pass and its terminal backstop.
+  write_child "$MAIN" c 'note: state read will stall'
   write_child "$MAIN" d 'done: green'
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
@@ -631,7 +633,7 @@ SH
 
   FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN"
   grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
-    || fail "the active timeout suppressed the earlier terminal outcome"
+    || fail "the ordinary-pass timeout suppressed the earlier terminal outcome"
   run_reconcile "$MAIN"
   grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
     || fail "the resumed sweep dropped its outstanding wrap segment: $(cat "$MAIN/state/.wake-queue" 2>/dev/null)"
@@ -1352,6 +1354,8 @@ SH
       printf 'working [key=%s]: active due-work\n' "$id"
     } > "$MAIN/state/$id.status"
   done
+  write_child "$MAIN" zpartial 'note: ordinary chatter'
+  printf 'note: %*s\n' 70000 '' | tr ' ' x > "$MAIN/state/zpartial.status"
   now=$(date +%s)
   FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE='done' \
     run_reconcile "$MAIN" --startup
@@ -1434,7 +1438,7 @@ SH
   pass "active due work precedes declared-wait reconciliation"
 }
 
-test_unbounded_candidate_evidence_degrades_supervision() {
+test_unbounded_candidate_evidence_is_partial_and_non_escalating() {
   local i started elapsed
   make_world candidate-evidence-bound
   write_child "$MAIN" paused 'working [key=wait]: preparing dependency'
@@ -1447,14 +1451,38 @@ test_unbounded_candidate_evidence_degrades_supervision() {
   FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN" --startup
   elapsed=$(( $(date +%s) - started ))
   [ "$elapsed" -le 3 ] \
-    || fail "candidate evidence exceeded its reserved budget (${elapsed}s)"
-  [ -f "$MAIN/state/.inactive-reconcile-capacity" ] \
-    || fail "unbounded candidate evidence left supervision healthy"
+    || fail "candidate evidence exceeded its bounded per-task work (${elapsed}s)"
+  [ ! -e "$MAIN/state/.inactive-reconcile-capacity" ] \
+    || fail "partial candidate evidence falsely degraded supervision"
+  [ -f "$MAIN/state/.inactive-reconcile-partial" ] \
+    || fail "partial candidate evidence was not represented durably"
   touch "$MAIN/state/.last-watcher-beat"
-  bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
-    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state" \
-    || fail "candidate-evidence timeout did not degrade supervision"
-  pass "unbounded candidate evidence degrades supervision"
+  if bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
+    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state"; then
+    fail "partial candidate evidence degraded healthy supervision"
+  fi
+  pass "unbounded candidate evidence is partial and non-escalating"
+}
+
+test_partial_candidate_remains_in_resumable_regular_sweep() {
+  make_world partial-candidate-regular-sweep
+  write_child "$MAIN" partial 'working [key=implementation]: active work'
+  {
+    printf 'working [key=implementation]: active work\n'
+    printf 'note: %*s\n' 70000 '' | tr ' ' x
+  } > "$MAIN/state/partial.status"
+  age "$MAIN/state/partial.status"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+printf 'state: unknown · source: fake\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 FM_STATE_READ_LOG="$WORLD/state-reads" \
+    run_reconcile "$MAIN" --startup
+  grep -Fxq partial "$WORLD/state-reads" \
+    || fail "a partial candidate was skipped instead of receiving its resumable state read"
+  pass "partial candidate remains in the resumable regular sweep"
 }
 
 test_empty_active_set_clears_the_continuation() {
@@ -1579,7 +1607,8 @@ test_away_decision_realert_is_not_self_handled
 test_cadence_cap_and_budget_continuation_bound_each_child
 test_declared_waits_do_not_exhaust_due_work_capacity
 test_active_due_work_precedes_declared_wait_reconciliation
-test_unbounded_candidate_evidence_degrades_supervision
+test_unbounded_candidate_evidence_is_partial_and_non_escalating
+test_partial_candidate_remains_in_resumable_regular_sweep
 test_empty_active_set_clears_the_continuation
 test_legacy_hot_cursor_runs_its_wrap_segment
 test_secondmate_active_evidence_reaches_its_owning_actor
