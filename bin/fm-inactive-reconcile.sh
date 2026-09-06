@@ -661,15 +661,20 @@ candidate_verdict() { # <id>
   awk -F '\t' -v wanted="$1" '$1 == wanted { print $2; exit }' "$CANDIDATE_FILE" 2>/dev/null
 }
 
-scan_active_candidates() { # -> ACTIVE_CANDIDATE_COUNT / ACTIVE_CANDIDATE_PARTIAL
-  local meta id kind verdict count=0 partial=0
+scan_active_candidates() { # <deadline> -> ACTIVE_CANDIDATE_COUNT / ACTIVE_CANDIDATE_PARTIAL
+  local deadline=$1 meta id kind verdict count=0 partial=0 direct_count=0
   : > "$CANDIDATE_FILE" || return 1
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      partial=1
+      break
+    fi
     id=$(basename "$meta" .meta)
     valid_id "$id" || continue
     kind=$(meta_field "$meta" kind)
     [ "$kind" = secondmate ] && continue
+    direct_count=$((direct_count + 1))
     verdict=$(active_candidate_evidence "$meta")
     printf '%s\t%s\n' "$id" "$verdict" >> "$CANDIDATE_FILE" || return 1
     case "$verdict" in
@@ -679,6 +684,7 @@ scan_active_candidates() { # -> ACTIVE_CANDIDATE_COUNT / ACTIVE_CANDIDATE_PARTIA
   done
   ACTIVE_CANDIDATE_COUNT=$count
   ACTIVE_CANDIDATE_PARTIAL=$partial
+  ACTIVE_CANDIDATE_DIRECT_COUNT=$direct_count
 }
 
 active_oldest_open_progress() { # <status-file> <fallback> -> signature<TAB>epoch<TAB>measured
@@ -963,8 +969,7 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
     [ -z "$cursor" ] || [[ "$id" > "$cursor" ]] || continue
     if [ -n "$upper" ] && [[ "$id" > "$upper" ]]; then continue; fi
     candidate=$(candidate_verdict "$id")
-    if [ "$skip_active" -eq 1 ] \
-      && { [ "$candidate" = active ] || [ "$candidate" = partial ]; }; then
+    if [ "$skip_active" -eq 1 ] && [ "$candidate" = active ]; then
       continue
     fi
     first=0
@@ -1015,15 +1020,15 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
 }
 
 scan_active_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-or-empty> <timeout>
-  local cursor=$1 upper=$2 deadline=$3 self=${4:-} timeout=$5 meta id remaining share rc first target payload queue_rc alert_now
+  local cursor=$1 upper=$2 deadline=$3 self=${4:-} timeout=$5 id candidate meta remaining share rc first target payload queue_rc alert_now
   local position=$1
-  for meta in "$STATE"/*.meta; do
-    [ -f "$meta" ] || continue
-    id=$(basename "$meta" .meta)
+  while IFS=$'\t' read -r id candidate; do
+    [ "$candidate" = active ] || continue
     valid_id "$id" || continue
     [ -z "$cursor" ] || [[ "$id" > "$cursor" ]] || continue
     if [ -n "$upper" ] && [[ "$id" > "$upper" ]]; then continue; fi
-    [ "$(candidate_verdict "$id")" = active ] || continue
+    meta="$STATE/$id.meta"
+    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     first=0
     if [ "${ACTIVE_SCAN_FIRST_VISIT_PENDING:-0}" -eq 1 ]; then
       first=1
@@ -1068,7 +1073,7 @@ scan_active_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondm
       [ "$rc" -eq 3 ] && return 3
       return "$rc"
     fi
-  done
+  done < "$CANDIDATE_FILE"
 }
 
 # An incomplete active-management pass must not suppress a status that already
@@ -1105,22 +1110,6 @@ scan_terminal_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secon
   done
 }
 
-scan_direct_child_count() {
-  local meta id kind line count=0
-  for meta in "$STATE"/*.meta; do
-    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
-    id=${meta##*/}; id=${id%.meta}
-    valid_id "$id" || continue
-    kind=''
-    while IFS= read -r line || [ -n "$line" ]; do
-      case "$line" in kind=*) kind=${line#kind=} ;; esac
-    done < "$meta"
-    [ "$kind" = secondmate ] && continue
-    count=$((count + 1))
-  done
-  printf '%s\n' "$count"
-}
-
 scan_pending() {
   local cursor origin active_cursor
   cursor=$(scan_marker_cursor)
@@ -1137,7 +1126,7 @@ scan_pending() {
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor active_cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0 remaining terminal_rc=0
+  local startup=${1:-0} self='' cursor active_cursor deadline candidate_deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0 remaining terminal_rc=0
   local resuming=0 wrapping=0 legacy_cursor=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
@@ -1202,11 +1191,18 @@ scan() {
       return 0
     fi
   fi
-  direct_child_count=$(scan_direct_child_count)
   deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
+  candidate_deadline=$deadline
+  if [ "$FM_INACTIVE_RECONCILE_BUDGET_SECS" -gt 1 ]; then
+    candidate_deadline=$((deadline - 1))
+  fi
   rm -f "$CANDIDATE_FILE"
-  scan_active_candidates || return 1
+  scan_active_candidates "$candidate_deadline" || return 1
   child_count=$ACTIVE_CANDIDATE_COUNT
+  direct_child_count=$ACTIVE_CANDIDATE_DIRECT_COUNT
+  if [ "$ACTIVE_CANDIDATE_PARTIAL" -eq 1 ]; then
+    direct_child_count=$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN
+  fi
   write_partial_marker "$child_count" "$ACTIVE_CANDIDATE_PARTIAL" || return 1
   if [ "$ACTIVE_CANDIDATE_PARTIAL" -eq 0 ] \
     && [ "$child_count" -gt "$FM_INACTIVE_RECONCILE_MAX_DIRECT_CHILDREN" ]; then

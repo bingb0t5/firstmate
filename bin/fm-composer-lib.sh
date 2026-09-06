@@ -1222,7 +1222,7 @@ EOF
       if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
          && [ "$cy" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
          && [ "$cy" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
-        _fm_composer_classify_bare_pi_overlap "$screen" "$styled" "$has_identity" "$identity" "$cy"
+        _fm_composer_classify_bare_pi_overlap "$screen" "$styled" "$has_identity" "$identity" "$cy" "$cy"
       else
         _fm_composer_classify_bare_row "$screen" "$styled" "$cy"
       fi
@@ -1243,7 +1243,7 @@ EOF
     if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
        && [ "$cy" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
        && [ "$cy" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
-      _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity"
+      _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity" "$cy"
       return 0
     fi
     if [ "$FM_COMPOSER_SCAN_CURSOR_EDGE" = 1 ]; then
@@ -1264,7 +1264,7 @@ EOF
   fi
   case "$FM_COMPOSER_SELECTED_KIND" in
     pi)
-      _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity"
+      _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity" -1
       ;;
     box)
       _fm_composer_classify_rows "$screen" "$styled" "$FM_COMPOSER_SELECTED_AMBIG" \
@@ -1278,7 +1278,7 @@ EOF
          && [ "$FM_COMPOSER_SCAN_BARE_ROW" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
          && [ "$FM_COMPOSER_SCAN_BARE_ROW" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
         _fm_composer_classify_bare_pi_overlap "$screen" "$styled" "$has_identity" "$identity" \
-          "$FM_COMPOSER_SCAN_BARE_ROW"
+          "$FM_COMPOSER_SCAN_BARE_ROW" -1
       else
         _fm_composer_classify_bare_row "$screen" "$styled" "$FM_COMPOSER_SCAN_BARE_ROW"
       fi
@@ -1337,7 +1337,8 @@ fm_composer_queued_enter_verdict() {  # <composer-state> <busy|idle|unknown>
   fi
 }
 
-_fm_composer_pi_status_row() {  # <trimmed-row>
+_fm_composer_pi_status_row() {  # <trimmed-row> <cursor-row> <row>
+  [ "$2" -ge 0 ] && [ "$2" -ne "$3" ] || return 1
   case "$1" in
     'MCP: Failed to refresh '*': Error POSTing to endpoint: no available server')
       return 0
@@ -1346,14 +1347,14 @@ _fm_composer_pi_status_row() {  # <trimmed-row>
   return 1
 }
 
-_fm_composer_classify_pi_rows() {  # <screen> <styled>
-  local screen=$1 styled=$2 row raw content
+_fm_composer_classify_pi_rows() {  # <screen> <styled> <cursor-row>
+  local screen=$1 styled=$2 cursor=$3 row raw content
   row=$((FM_COMPOSER_SCAN_PI_OPEN + 1))
   while [ "$row" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
     content=$(_fm_composer_row_content "$raw" "$styled")
     fm_composer_normalize_trim_var content
-    _fm_composer_pi_status_row "$content" && {
+    _fm_composer_pi_status_row "$content" "$cursor" "$row" && {
       row=$((row + 1))
       continue
     }
@@ -1366,8 +1367,8 @@ _fm_composer_classify_pi_rows() {  # <screen> <styled>
   printf 'empty'
 }
 
-_fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <identity> <bare-row>
-  local screen=$1 styled=$2 has_identity=$3 identity=$4 row=$5 agent
+_fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <identity> <bare-row> <cursor-row>
+  local screen=$1 styled=$2 has_identity=$3 identity=$4 row=$5 cursor=$6 agent
   if [ "$has_identity" != 1 ]; then
     _fm_composer_classify_bare_row "$screen" "$styled" "$row"
     return 0
@@ -1382,7 +1383,7 @@ _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <i
   fi
   agent=${identity%%$'\t'*}
   if [ "$agent" = pi ]; then
-    _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity"
+    _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity" "$cursor"
   else
     _fm_composer_classify_bare_row "$screen" "$styled" "$row"
   fi
@@ -1397,8 +1398,8 @@ _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <i
 # is drawn above the separator pair, so the composer region looks free while the
 # keys would answer the prompt instead of composing (issue #2797). Structure
 # cannot disprove that, so a blocked pi defers rather than claiming empty.
-_fm_composer_pi_verdict() {  # <screen> <styled> <has_identity> <identity>
-  local screen=$1 styled=$2 has_identity=$3 identity=$4 agent agent_status state
+_fm_composer_pi_verdict() {  # <screen> <styled> <has-identity> <identity> <cursor-row>
+  local screen=$1 styled=$2 has_identity=$3 identity=$4 cursor=${5:--1} agent agent_status state
   if [ "$has_identity" != 1 ]; then
     printf 'unknown'
     return 0
@@ -1417,7 +1418,7 @@ _fm_composer_pi_verdict() {  # <screen> <styled> <has_identity> <identity>
     printf 'unknown'
     return 0
   fi
-  state=$(_fm_composer_classify_pi_rows "$screen" "$styled")
+  state=$(_fm_composer_classify_pi_rows "$screen" "$styled" "$cursor")
   if [ "$state" = pending ]; then
     printf 'pending'
     return 0

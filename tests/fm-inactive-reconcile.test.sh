@@ -1460,6 +1460,27 @@ test_unbounded_candidate_evidence_is_partial_and_non_escalating() {
   pass "unbounded candidate evidence is partial and non-escalating"
 }
 
+test_partial_candidate_remains_in_resumable_regular_sweep() {
+  make_world partial-candidate-regular-sweep
+  write_child "$MAIN" partial 'working [key=implementation]: active work'
+  {
+    printf 'working [key=implementation]: active work\n'
+    printf 'note: %*s\n' 70000 '' | tr ' ' x
+  } > "$MAIN/state/partial.status"
+  age "$MAIN/state/partial.status"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+printf 'state: unknown · source: fake\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 FM_STATE_READ_LOG="$WORLD/state-reads" \
+    run_reconcile "$MAIN" --startup
+  grep -Fxq partial "$WORLD/state-reads" \
+    || fail "a partial candidate was skipped instead of receiving its resumable state read"
+  pass "partial candidate remains in the resumable regular sweep"
+}
+
 test_empty_active_set_clears_the_continuation() {
   local now
   make_world empty-active-continuation
@@ -1583,6 +1604,7 @@ test_cadence_cap_and_budget_continuation_bound_each_child
 test_declared_waits_do_not_exhaust_due_work_capacity
 test_active_due_work_precedes_declared_wait_reconciliation
 test_unbounded_candidate_evidence_is_partial_and_non_escalating
+test_partial_candidate_remains_in_resumable_regular_sweep
 test_empty_active_set_clears_the_continuation
 test_legacy_hot_cursor_runs_its_wrap_segment
 test_secondmate_active_evidence_reaches_its_owning_actor

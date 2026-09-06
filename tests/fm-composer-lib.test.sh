@@ -300,7 +300,7 @@ test_matrix_pi_separated_needs_identity() {
   assert_screen "pi idle with identity" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
   assert_screen "pi idle on tmux with identity" empty "$CAPS_TMUX" "$screen" 2 "$pi_idle"
   screen=$'transcript\n────────────────────────\nMCP: Failed to refresh mrbeanz: Error POSTing to endpoint: no available server\n\n────────────────────────\n footer'
-  assert_screen "pi status banner is not pending input" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+  assert_screen "cursorless pi status banner defers" pending "$CAPS_STYLED" "$screen" '' "$pi_idle"
   assert_screen "pi status banner on tmux is not pending input" empty "$CAPS_TMUX" "$screen" 3 "$pi_idle"
   assert_screen "pi idle on zellij" unknown "$CAPS_STYLED_NOID" "$screen"
   # Identity-capable but unfetched: the adapter is asked to probe lazily.
@@ -309,11 +309,11 @@ test_matrix_pi_separated_needs_identity() {
   # No identity capability (cmux/orca/zellij): the shape is unprovable.
   assert_screen "pi pair without identity capability" unknown "$CAPS_PLAIN" "$screen"
   # A working pi cannot authorize injection into the blank region.
-  assert_screen "working pi defers" unknown "$CAPS_STYLED" "$screen" '' "$pi_working"
+  assert_screen "working pi cursorless status banner stays pending" pending "$CAPS_STYLED" "$screen" '' "$pi_working"
   # A pi parked on an interactive prompt reports `blocked`: it is waiting on a
   # human keystroke, so the blank region is a menu's, not a free composer's.
   # Typing there answers the prompt and the text is discarded (issue #2797).
-  assert_screen "blocked pi defers" unknown "$CAPS_STYLED" "$screen" '' "$pi_blocked"
+  assert_screen "blocked pi cursorless status banner stays pending" pending "$CAPS_STYLED" "$screen" '' "$pi_blocked"
   # The audit's live counterexample: a plain shell running sleep, cursor
   # parked on a blank line between two rules, NO pi process. The permissive
   # rule read this `empty`; identity+structure refuses it.
@@ -321,6 +321,8 @@ test_matrix_pi_separated_needs_identity() {
   assert_screen "absent identity cannot prove blank pi pair" unknown "$CAPS_TMUX" "$screen" 2 probe-absent
   typed=$'────────────────────────\nfix the flaky test\n────────────────────────'
   assert_screen "pi typed" pending "$CAPS_STYLED" "$typed" '' "$pi_idle"
+  typed=$'────────────────────────\nMCP: Failed to refresh mrbeanz: Error POSTing to endpoint: no available server\n────────────────────────'
+  assert_screen "pi typed status-shaped draft on tmux" pending "$CAPS_TMUX" "$typed" 1 "$pi_idle"
   typed=$'────────────────────────\n❯\n────────────────────────'
   assert_screen "pi lone-glyph draft with identity" pending "$CAPS_STYLED" "$typed" '' "$pi_idle"
   assert_screen "pi lone-glyph draft on tmux" pending "$CAPS_TMUX" "$typed" 1 "$pi_idle"
