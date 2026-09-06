@@ -579,6 +579,27 @@ test_local_only_fork_remote_allows() {
   pass "local-only worktree with HEAD on a fork remote is torn down (fix holds)"
 }
 
+test_active_management_symlink_refuses_before_cleanup() {
+  local case_dir rc=0
+  case_dir=$(make_case active-management-symlink)
+  write_meta "$case_dir" local-only ship
+  mkdir -p "$case_dir/outside-active-management"
+  printf 'preserve me\n' > "$case_dir/outside-active-management/task-x1"
+  ln -s "$case_dir/outside-active-management" "$case_dir/state/active-management"
+
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 1 "$rc" "active-management-symlink: teardown should refuse"
+  assert_grep 'active-management state directory is a symlink' "$case_dir/stderr" \
+    "active-management-symlink: teardown did not explain the refusal"
+  assert_grep 'preserve me' "$case_dir/outside-active-management/task-x1" \
+    "active-management-symlink: teardown followed the symlink"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "active-management-symlink: teardown mutated task state before refusing"
+  assert_present "$case_dir/wt" \
+    "active-management-symlink: teardown removed the worktree before refusing"
+  pass "teardown refuses a symlinked active-management state directory"
+}
+
 test_teardown_prompts_tasks_axi_done_when_compatible() {
   local case_dir out
   case_dir=$(make_case tasks-axi-reminder)
@@ -2592,6 +2613,7 @@ EOF
 }
 
 test_local_only_fork_remote_allows
+test_active_management_symlink_refuses_before_cleanup
 test_teardown_prompts_tasks_axi_done_when_compatible
 test_teardown_manual_backend_prompts_hand_edit_even_when_tasks_axi_present
 test_local_only_truly_unpushed_refuses

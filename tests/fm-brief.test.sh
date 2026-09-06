@@ -212,6 +212,8 @@ test_ship_modes_generate_clean_briefs() {
     assert_grep "{TASK}" "$brief" "$id: brief missing the {TASK} placeholder"
     assert_grep "mid-task \`working:\` line (including setup complete) is nonterminal" "$brief" \
       "$id: brief missing nonterminal working:/setup-complete gate protection"
+    assert_grep "echo \"{state} [at=\$(date +%s)]: {one short line}\"" "$brief" \
+      "$id: status protocol omitted its meaningful-event epoch"
     assert_no_grep "EOF" "$brief" "$id: brief leaked a heredoc EOF marker (unterminated heredoc)"
   done
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
@@ -504,9 +506,9 @@ test_secondmate_no_projects_charter() {
     "project-less charter operating model lost the pooled-worktree note"
   assert_no_grep "The projects above are local clones" "$brief" \
     "project-less charter kept the with-projects operating-model line"
-  assert_grep 'working [key=<work-slug>]' "$brief" \
+  assert_grep 'working [key=<work-slug>] [at=<unix-epoch>]' "$brief" \
     "secondmate charter did not key material routed-work phases"
-  assert_grep 'resolved [key=<work-slug>]' "$brief" \
+  assert_grep 'resolved [key=<work-slug>] [at=<unix-epoch>]' "$brief" \
     "secondmate charter did not close a quietly ended routed-work phase"
   assert_grep 'use the same key on its later' "$brief" \
     "secondmate charter did not supersede working phases with later states"
@@ -549,11 +551,11 @@ test_secondmate_marked_request_reporting_contract() {
     "secondmate charter retained the unconditional working opener"
   assert_grep 'When a routed-work phase has a supervisor-actionable material change worth reporting under the rule above' "$brief" \
     "secondmate charter did not limit keyed phases to reportable material changes"
-  assert_grep "If its first reportable event is \`working [key=<work-slug>]: {material phase}\`" "$brief" \
+  assert_grep "If its first reportable event is \`working [key=<work-slug>] [at=<unix-epoch>]: {material phase}\`" "$brief" \
     "secondmate charter lost keyed working syntax for a reportable material phase"
   assert_grep "use the same key on its later \`paused\`, \`done\`, \`failed\`, \`needs-decision\`, or \`blocked\` event" "$brief" \
     "secondmate charter lost same-key closure for a reportable material phase"
-  assert_grep 'resolved [key=<work-slug>]' "$brief" \
+  assert_grep 'resolved [key=<work-slug>] [at=<unix-epoch>]' "$brief" \
     "secondmate charter lost resolved closure for a keyed material phase"
 
   assert_grep 'include that exact token in your parent status reply' "$brief" \

@@ -409,7 +409,7 @@ test_legacy_escalation_closes_default_decision() {
   printf 'done [corr=%s]: delayed legacy reply\n' "$corr" >> "$state/hibit.status"
 
   fm_pending_reply_try_resolve "$state" "$corr" || fail "legacy reply should resolve its record"
-  [ "$(grep -Fc "resolved [key=default]: pending-reply-resolved: task=hibit pending-reply-id=$corr" "$state/hibit.status")" -eq 1 ] \
+  [ "$(grep -Fc "resolved [key=default] [at=4725]: pending-reply-resolved: task=hibit pending-reply-id=$corr" "$state/hibit.status")" -eq 1 ] \
     || fail "legacy escalation did not append one guarded default-key resolution"
   open=$(status_open_decisions "$state/hibit.status")
   [ -z "$open" ] || fail "resolved legacy escalation remained open: $open"
@@ -434,7 +434,7 @@ test_legacy_escalation_does_not_close_taken_default_decision() {
   printf 'done [corr=%s]: delayed legacy reply\n' "$corr" >> "$state/hibit.status"
 
   fm_pending_reply_try_resolve "$state" "$corr" || fail "legacy reply should resolve its record"
-  if grep -Fq 'resolved [key=default]: pending-reply-resolved:' "$state/hibit.status"; then
+  if grep -Fq 'resolved [key=default] ' "$state/hibit.status"; then
     fail "legacy escalation emitted an unsafe default-key resolution"
   fi
   fm_pending_reply_tick "$state" || fail "legacy close retry failed"
@@ -466,7 +466,7 @@ test_foreign_blocker_is_not_selected_as_escalation() {
     "pending-reply closure cleared the foreign release decision"
   assert_not_contains "$open" "pending-reply-$corr" \
     "genuine keyed escalation remained open"
-  assert_no_grep 'resolved [key=release]: pending-reply-resolved:' "$state/hibit.status" \
+  assert_no_grep 'resolved [key=release] ' "$state/hibit.status" \
     "foreign release decision was selected as the pending-reply escalation"
   [ -n "$(fm_pending_reply_get "$rec" escalation_closed_epoch)" ] \
     || fail "genuine keyed escalation closure was not recorded"
@@ -885,6 +885,8 @@ test_helper_report_resolves() {
   fm_pending_reply_mark_delivered "$state" "$corr"
   "$REPORT" "$state/hibit.status" "done" "$corr" "all good" \
     || fail "helper report failed"
+  grep -Fq "done [at=9100] [corr=$corr]: all good (via-helper)" "$state/hibit.status" \
+    || fail "helper report omitted its meaningful-event epoch"
   fm_pending_reply_try_resolve "$state" "$corr" || fail "helper report should resolve"
   [ "$(fm_pending_reply_get "$(fm_pending_reply_path "$state" "$corr")" resolved_via)" = helper ] \
     || fail "resolved_via should be helper"

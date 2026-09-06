@@ -1258,9 +1258,8 @@ declared_wait_class() {  # <kind> <state|source> <alive|dead|unknown>
 # Classify WHY an idle/stale crew might be safely absorbed instead of surfaced.
 # One authoritative read serves both absorb reasons while the exact record remains
 # available to the declared-wait policy above.
-crew_absorb_class() {  # <id>
-  local record state src
-  record=$(crew_supervision_record "$1")
+crew_absorb_class_of_record() {  # <state|source>
+  local record=$1 state src
   state=${record%%|*}
   src=${record#*|}
   if [ "$state" = paused ]; then printf 'paused'; return; fi
@@ -1268,6 +1267,12 @@ crew_absorb_class() {  # <id>
     case "$src" in run-step|pane) printf 'working'; return ;; esac
   fi
   printf 'none'
+}
+
+# The same decision for a caller that already holds a bounded reading, so a
+# consumer never pays a second current-state read to apply the shared rule.
+crew_absorb_class() {  # <id>
+  crew_absorb_class_of_record "$(crew_supervision_record "$1")"
 }
 
 # 0 if crew <id> shows POSITIVE evidence it is still working (crew_absorb_class
@@ -1430,6 +1435,77 @@ stale_is_terminal() {  # <window> <state>
 # catch-all backstop for a captain-relevant status the per-wake path might miss.
 # No dedup is applied here: each consumer dedupes against its own seen-state (the
 # daemon against .subsuper-seen-status-*, the watcher against .seen-* signatures).
+# The state-relative file recording the last captain-relevant status line that
+# was surfaced to firstmate for <task>. Written by bin/fm-push-transition-lib.sh's
+# mark_surfaced on every wake path that enqueues one, and read by the heartbeat
+# backstop and the due-work scan to tell an already-handled fact from one the
+# per-wake path never surfaced. Lives here because that judgement belongs with
+# status_is_captain_relevant, which decides what is worth marking.
+_hb_surfaced_path() {  # <state> <task>
+  printf '%s/.hb-surfaced-%s' "$1" "$(printf '%s' "$2" | tr ':/.' '___')"
+}
+
+# 0 when <status-line> is exactly what was last surfaced to firstmate for <task>.
+status_surfaced_matches() {  # <state> <task> <status-line>
+  [ "$(cat "$(_hb_surfaced_path "$1" "$2")" 2>/dev/null || true)" = "$3" ]
+}
+
+_hb_surfaced_decision_path() {
+  printf '%s/.hb-surfaced-decision-%s' "$1" "$(printf '%s' "$2" | tr ':/. ' '____')"
+}
+
+status_decision_generation() {
+  local status=$1
+  [ -f "$status" ] && [ -r "$status" ] && [ ! -L "$status" ] || return 1
+  if command -v shasum >/dev/null 2>&1; then
+    grep -E '^[[:space:]]*(needs-decision|blocked|resolved|captain-held)([[:space:]]|[[]|:|$)' "$status" 2>/dev/null \
+      | shasum -a 256 | awk '{print substr($1, 1, 32)}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    grep -E '^[[:space:]]*(needs-decision|blocked|resolved|captain-held)([[:space:]]|[[]|:|$)' "$status" 2>/dev/null \
+      | sha256sum | awk '{print substr($1, 1, 32)}'
+  else
+    grep -E '^[[:space:]]*(needs-decision|blocked|resolved|captain-held)([[:space:]]|[[]|:|$)' "$status" 2>/dev/null \
+      | cksum | awk '{printf "%08x%08x", $1, $2}'
+  fi
+}
+
+status_decision_surfaced_matches() {
+  [ "$(cat "$(_hb_surfaced_decision_path "$1" "$2")" 2>/dev/null || true)" = "$3" ]
+}
+
+status_text_signature() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | awk '{print substr($1, 1, 32)}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | awk '{print substr($1, 1, 32)}'
+  else
+    printf '%s' "$1" | cksum | awk '{printf "%08x%08x", $1, $2}'
+  fi
+}
+
+status_mark_decision_surfaced() {
+  local state=$1 task=$2 status=$3 generation
+  generation=$(status_decision_generation "$status") || return 0
+  [ -n "$generation" ] || return 0
+  printf '%s' "$generation" > "$(_hb_surfaced_decision_path "$state" "$task")"
+}
+
+status_mark_surfaced() {  # <state> <task> <status-line>
+  local state=$1 task=$2 line=$3 actor=${4:-main}
+  [ -n "$line" ] || return 0
+  status_is_captain_relevant "$line" || return 0
+  printf '%s' "$line" > "$(_hb_surfaced_path "$state" "$task")"
+  case "$actor" in
+    main) status_mark_decision_surfaced "$state" "$task" "$state/$task.status" ;;
+    away)
+      case "$(status_line_verb "$line")" in
+        needs-decision|blocked) status_mark_decision_surfaced "$state" "$task" "$state/$task.status" ;;
+      esac
+      ;;
+    *) return 2 ;;
+  esac
+}
+
 scan_captain_relevant_statuses() {  # <state>
   local state=$1 f last task
   for f in "$state"/*.status; do

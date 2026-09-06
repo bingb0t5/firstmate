@@ -165,7 +165,8 @@ if [ "$FM_SUP_NEEDED" = false ]; then
   [ -e "$FAILURE_NOTICE" ] || budget_reset
   exit 0
 fi
-if fm_watcher_healthy "$STATE" "$WATCH" "$GRACE" "$FM_HOME"; then
+if [ "$FM_SUP_DUE_WORK_CAPACITY" = false ] \
+  && fm_watcher_healthy "$STATE" "$WATCH" "$GRACE" "$FM_HOME"; then
   [ "$CLAUDE_MODE" -eq 1 ] || exit 0
   fm_failure_episode_reset "$STATE" && exit 0
   exit 2
@@ -173,6 +174,17 @@ fi
 
 block_stop() {
   local afk x_mode reason rule
+  if [ "$FM_SUP_DUE_WORK_CAPACITY" = true ]; then
+    rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+    {
+      printf '●%s\n' "$rule"
+      printf '●  TURN WOULD END WITH DUE-WORK CAPACITY EXCEEDED\n'
+      printf '●  Bounded due-work coverage is unavailable for this home.\n'
+      printf '●  Reduce active direct work or status-log complexity, then let the next due-work scan clear the capacity condition.\n'
+      printf '●%s\n' "$rule"
+    } >&2
+    exit 2
+  fi
   afk=0
   [ -e "$STATE/.afk" ] && afk=1
   x_mode=0
@@ -198,6 +210,10 @@ block_stop() {
   } >&2
   exit 2
 }
+
+if [ "$FM_SUP_DUE_WORK_CAPACITY" = true ]; then
+  block_stop
+fi
 
 if [ "$CLAUDE_MODE" -eq 0 ]; then
   block_stop

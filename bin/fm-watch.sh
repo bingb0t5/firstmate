@@ -74,6 +74,8 @@
 #                          running a check or removing poll artifacts
 #   heartbeat              fleet-scan backstop found an unsurfaced captain-relevant
 #                          status, unless afk is active
+#   stale/signal: active-management bounded due-work reconciliation found
+#                          overdue meaningful progress or an unresolved decision
 #   check: inactive-outcome bounded poll-loop reconciliation found a suspicious
 #                          inactive terminal outcome that still lacks its durable
 #                          upstream receipt
@@ -974,7 +976,7 @@ mark_all_captain_relevant_surfaced() {
   local f task last
   while IFS=$(printf '\t') read -r f task last; do
     [ -n "$f" ] || continue
-    printf '%s' "$last" > "$(_hb_surfaced_path "$task")"
+    printf '%s' "$last" > "$(_hb_surfaced_path "$STATE" "$task")"
   done < <(scan_captain_relevant_statuses "$STATE")
 }
 
@@ -987,11 +989,10 @@ mark_all_captain_relevant_surfaced() {
 # surfaces only a captain-relevant status the per-wake path absorbed by mistake -
 # the fail-safe backstop.
 heartbeat_scan_finds_actionable() {
-  local f task last surfaced
+  local f task last
   while IFS=$(printf '\t') read -r f task last; do
     [ -n "$f" ] || continue
-    surfaced=$(cat "$(_hb_surfaced_path "$task")" 2>/dev/null || true)
-    [ "$surfaced" = "$last" ] && continue
+    status_surfaced_matches "$STATE" "$task" "$last" && continue
     return 0
   done < <(scan_captain_relevant_statuses "$STATE")
   return 1
@@ -1244,17 +1245,35 @@ while :; do
   # generic recovery reason, so give that owner first refusal.
   resurface_after_downtime
 
-  # The existing poll loop also owns the bounded inactive-outcome cadence.
-  # This is mechanical and silent unless a durable terminal-outcome obligation
-  # was created, so quiet cycles never wake firstmate or consume model tokens.
+  # The existing poll loop also owns the bounded active-management and
+  # inactive-outcome cadence. This is mechanical and silent unless a targeted
+  # due-work intervention or durable terminal-outcome obligation was created,
+  # so unchanged healthy cycles never wake firstmate or consume model tokens.
   inactive_out=
+  inactive_reason=
+  inactive_scan_ok=0
+  inactive_scan_pending=0
   if inactive_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    FM_INACTIVE_CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-${FM_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}}" \
     "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
+    inactive_scan_ok=1
     if [ -n "$inactive_out" ]; then
-      wake "check: inactive-outcome"
+      if printf '%s\n' "$inactive_out" | grep -Fq 'inactive terminal outcome'; then
+        wake "check: inactive-outcome"
+      else
+        inactive_reason=$(printf '%s\n' "$inactive_out" \
+          | sed -n 's/^actionable: //p' | grep -E '^(signal:|stale:)' | head -1)
+        if [ -n "$inactive_reason" ]; then
+          wake "$inactive_reason"
+        fi
+      fi
     fi
   else
     triage_log "inactive-outcome reconciliation unavailable"
+  fi
+  if [ "$inactive_scan_ok" -eq 1 ] && FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-inactive-reconcile.sh" pending 2>/dev/null; then
+    inactive_scan_pending=1
   fi
 
   # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
@@ -1370,6 +1389,8 @@ EOF
     # ordering evaluates it ONLY for a non-afk, no-captain-verb signal.
     # shellcheck disable=SC2086  # $files is a space-separated status-path list (ids carry no spaces)
     if afk_present || signal_reason_is_actionable $files || ! signal_crew_provably_working $files; then
+      presentation_actor=main
+      afk_present && presentation_actor=away
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         fm_wake_append signal "$(basename "$f")" "$reason" || exit 1
@@ -1379,7 +1400,7 @@ EOF
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         printf '%s' "$sig" > "$sf"
-        mark_surfaced "$f"
+        mark_surfaced "$f" "$presentation_actor"
       done <<EOF
 $pending
 EOF
@@ -1620,5 +1641,6 @@ EOF
 
   # Terminal wait: a bounded native-event wait for push-capable homes (herdr),
   # else the blind poll sleep. See event_wait_or_sleep.
+  [ "$inactive_scan_pending" -eq 0 ] || continue
   event_wait_or_sleep
 done

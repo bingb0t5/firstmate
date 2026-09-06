@@ -423,7 +423,7 @@ EOF
   pass "Pi actionable close starts one successor before wake delivery settles"
 }
 
-test_pi_branch_offer_owns_actionable_wake() {
+test_pi_check_trigger_keeps_mixed_queue_on_main() {
   local repo home plugin log stop out status
   repo="$TMP_ROOT/pi-branch-offer-root"
   home="$TMP_ROOT/pi-branch-offer-home"
@@ -442,7 +442,7 @@ printf 'arm=%s\n' "$$" >> "${FM_ARM_LOG:?}"
 count=$(grep -c '^arm=' "$FM_ARM_LOG")
 if [ "$count" -eq 1 ]; then
   printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
-  printf 'signal: branch-offer synthetic wake\n'
+  printf 'check: inactive-outcome\n'
   exit 0
 fi
 printf 'watcher: started pid=%s (beacon fresh) recovery-generation=fixture-generation\n' "$$"
@@ -454,10 +454,9 @@ SH
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-// Two independent runs against the SAME dispatcher build: with an accepting
-// branch listener the wake must be owned by the branch (no main follow-up);
-// with a bus but no acceptor the dispatcher must fall back to main. The
-// divergence between the two runs is asserted, so the case cannot go vacuous.
+// Two independent runs against the same dispatcher build prove that a
+// check-triggered mixed queue stays wholly main-owned even when a branch
+// listener is present and willing to accept eligible offers.
 async function runScenario(withAcceptor) {
   writeFileSync(process.env.FM_ARM_LOG, "");
   const offers = [];
@@ -475,8 +474,8 @@ async function runScenario(withAcceptor) {
   };
   if (withAcceptor) {
     bus.on("fm-branch-supervision:dispatch", (offer) => {
-      offers.push({ message: offer.message, projects: offer.projects });
-      offer.accept();
+      offers.push({ message: offer.message, projects: offer.projects, eligible: offer.eligible });
+      if (offer.eligible) offer.accept();
     });
   }
   const pi = {
@@ -494,7 +493,7 @@ async function runScenario(withAcceptor) {
   mod.default(pi);
   await tool.execute("tool-call-branch-offer", {}, undefined, undefined, {});
   for (let i = 0; i < 250; i += 1) {
-    const settled = withAcceptor ? offers.length > 0 : mainPrompt !== "";
+    const settled = mainPrompt !== "";
     if (settled) break;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -503,17 +502,28 @@ async function runScenario(withAcceptor) {
 }
 
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
-writeFileSync(`${process.env.FM_HOME}/state/branch-offer.meta`, "project=/projects/approved\nwindow=fm-branch-offer\n");
-writeFileSync(`${process.env.FM_HOME}/state/.wake-queue`, "1\t1\tsignal\tbranch-offer.status\tsignal: branch-offer synthetic wake\n");
+writeFileSync(
+  `${process.env.FM_HOME}/state/branch-offer.meta`,
+  "project=/projects/approved\nwindow=fm-branch-offer\nterminal=orca:branch-offer-endpoint\n",
+);
+writeFileSync(
+  `${process.env.FM_HOME}/state/.wake-queue`,
+  "1\t1\tcheck\tinactive-outcome:fixture\tcheck: inactive-outcome\n" +
+    "1\t2\tsignal\tbranch-offer.status\tsignal: branch-offer synthetic wake\n" +
+    "1\t3\tstale\torca:branch-offer-endpoint\tstale: orca:branch-offer-endpoint (active work overdue)\n",
+);
 const accepted = await runScenario(true);
 if (accepted.offers.length !== 1) throw new Error(`expected one branch offer, got ${accepted.offers.length}`);
-if (!accepted.offers[0].message.includes("signal: branch-offer synthetic wake")) {
-  throw new Error(`offer missed the wake reason: ${accepted.offers[0].message}`);
+if (!accepted.offers[0].message.includes("check: inactive-outcome")) {
+  throw new Error(`offer missed the main-owned wake reason: ${accepted.offers[0].message}`);
 }
 if (JSON.stringify(accepted.offers[0].projects) !== JSON.stringify(["/projects/approved"])) {
   throw new Error(`offer did not carry the queued task project: ${JSON.stringify(accepted.offers[0].projects)}`);
 }
-if (accepted.mainPrompt !== "") throw new Error(`accepted offer still reached main: ${accepted.mainPrompt}`);
+if (accepted.offers[0].eligible !== false) throw new Error("check-triggered mixed queue was branch-eligible");
+if (!accepted.mainPrompt.includes("FIRSTMATE WATCHER WAKE") || !accepted.mainPrompt.includes("check: inactive-outcome")) {
+  throw new Error(`check-triggered mixed queue did not reach main: ${accepted.mainPrompt}`);
+}
 if (!accepted.rows.some((row) => row.startsWith("confirmed generation=fixture-generation"))) {
   throw new Error(`handling delivery was not confirmed before the branch handoff: ${accepted.rows.join(" | ")}`);
 }
@@ -522,7 +532,7 @@ if (declined.offers.length !== 0) throw new Error("no-acceptor scenario recorded
 if (!declined.mainPrompt.includes("FIRSTMATE WATCHER WAKE")) {
   throw new Error(`unaccepted offer did not fall back to main: ${declined.mainPrompt}`);
 }
-if (!declined.mainPrompt.includes("signal: branch-offer synthetic wake")) {
+if (!declined.mainPrompt.includes("check: inactive-outcome")) {
   throw new Error(`fallback wake lost the reason line: ${declined.mainPrompt}`);
 }
 writeFileSync(process.env.FM_STOP_FILE, "stop\n");
@@ -530,9 +540,9 @@ process.exit(0);
 EOF
   )
   status=$?
-  expect_code 0 "$status" "Pi dispatcher must hand an accepted wake to the branch and fall back to main otherwise"
-  [ -z "$out" ] || fail "Pi branch-offer test printed output: $out"
-  pass "Pi dispatcher branch offer owns accepted wakes and falls back to main"
+  expect_code 0 "$status" "Pi dispatcher must keep a check-triggered mixed queue on main"
+  [ -z "$out" ] || fail "Pi mixed check-trigger test printed output: $out"
+  pass "Pi dispatcher keeps check-triggered mixed queues on main"
 }
 
 test_pi_branch_offer_flags_heartbeat() {
@@ -2758,7 +2768,7 @@ test_pi_tool_returns_agent_tool_result
 test_pi_redundant_tool_call_is_owned_noop
 test_pi_scheduled_retry_call_is_owned_noop
 test_pi_actionable_close_starts_single_successor_before_delivery
-test_pi_branch_offer_owns_actionable_wake
+test_pi_check_trigger_keeps_mixed_queue_on_main
 test_pi_branch_offer_flags_heartbeat
 test_pi_heartbeat_with_main_owned_queue_row_stays_on_main
 test_pi_heartbeat_restoration_failure_stays_on_main

@@ -1057,7 +1057,7 @@ fm_pending_reply_close_escalation() {  # <state-dir> <corr_id>
 
 _fm_pending_reply_close_escalation_locked() {  # <state-dir> <corr_id>
   local state=$1 corr=$2 rec escalated closed parent_status escalation key note
-  local open_line open_key open_note now close_line close_rc
+  local open_line open_key open_note now='' close_line close_rc
   rec=$(fm_pending_reply_path "$state" "$corr")
   [ -f "$rec" ] || return 1
   [ "$(fm_pending_reply_get "$rec" phase)" = resolved ] || return 0
@@ -1083,8 +1083,9 @@ _fm_pending_reply_close_escalation_locked() {  # <state-dir> <corr_id>
       # self-announced append (bin/fm-wake-lib.sh, sourced by this function's
       # wrappers) and does not wake the home that wrote it; the escalation
       # OPEN above stays a plain append because a new blocker must wake.
-      close_line=$(printf 'resolved [key=%s]: pending-reply-resolved: task=%s pending-reply-id=%s via=%s' \
-        "$key" "$(fm_pending_reply_get "$rec" task_id)" "$corr" \
+      now=$(fm_pending_reply_now)
+      close_line=$(printf 'resolved [key=%s] [at=%s]: pending-reply-resolved: task=%s pending-reply-id=%s via=%s' \
+        "$key" "$now" "$(fm_pending_reply_get "$rec" task_id)" "$corr" \
         "$(fm_pending_reply_get "$rec" resolved_via)")
       close_rc=0
       fm_wake_status_append_self_announced "${parent_status%/*}" "$parent_status" "$close_line" \
@@ -1095,7 +1096,7 @@ _fm_pending_reply_close_escalation_locked() {  # <state-dir> <corr_id>
 $(status_open_decisions "$parent_status")
 EOF
   fi
-  now=$(fm_pending_reply_now)
+  [ -n "$now" ] || now=$(fm_pending_reply_now)
   fm_pending_reply_set "$rec" escalation_closed_epoch "$now"
 }
 

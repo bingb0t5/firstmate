@@ -102,11 +102,25 @@ run_reconcile() { # <home> [--startup]
   PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" FM_CONFIG_OVERRIDE="$home/config" \
     FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$crew_state_bin" \
+    FM_PAUSE_RESURFACE_SECS="${FM_PAUSE_RESURFACE_SECS:-3600}" \
     FM_FORGE_LOG="$WORLD/forge.log" "$RECON" scan ${option:+"$option"}
 }
 
 wake_count() { # <home> <key prefix>
   grep -c "$2" "$1/state/.wake-queue" 2>/dev/null || true
+}
+
+scan_cursor() {
+  sed -n 's/^cursor=//p' "$1/state/.inactive-outcome-reconcile" 2>/dev/null | tail -1
+}
+
+scan_active_cursor() {
+  sed -n 's/^active_cursor=//p' "$1/state/.inactive-outcome-reconcile" 2>/dev/null | tail -1
+}
+
+stale_row_count() { # <home>
+  awk -F '\t' '$3 == "stale" { n++ } END { print n + 0 }' "$1/state/.wake-queue" 2>/dev/null \
+    || printf '0\n'
 }
 
 outcome_count() { # <home> <suffix>
@@ -120,6 +134,17 @@ prime_seen() { # <state> <status>
 }
 
 reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
+
+ack_wakes() { # <home>
+  local home=$1 err seq generation
+  err="$WORLD/drain.err"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$DRAIN" >/dev/null 2> "$err" || return 1
+  seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
+  [ -n "$seq" ] && [ -n "$generation" ] || return 1
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$DRAIN" \
+    --ack-through "$seq" --recovery-generation "$generation"
+}
 
 # The main retains a terminal presentation receipt until the corresponding wake
 # is handled and acknowledged.
@@ -376,7 +401,10 @@ test_watcher_hook_and_idle_secondmate_exemption() {
 test_stalled_state_read_is_bounded_and_scan_progresses() {
   local started elapsed
   make_world bounded
-  write_child "$MAIN" a 'working: state read will stall'
+  write_child "$MAIN" a 'needs-decision [key=state-read]: state read will stall'
+  printf 'working [key=implementation]: independent work remains active\n' \
+    >> "$MAIN/state/a.status"
+  age "$MAIN/state/a.meta" "$MAIN/state/a.status" "$MAIN/state/a.turn-ended"
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = a ]; then
@@ -391,12 +419,78 @@ SH
   FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
   elapsed=$(( $(date +%s) - started ))
   [ "$elapsed" -le 3 ] || fail "stalled state read exceeded aggregate scan budget (${elapsed}s)"
+  [ "$(wake_count "$MAIN" 'a.status')" = 1 ] \
+    || fail "a stalled terminal-state read skipped the local decision backstop"
 
   write_child "$MAIN" b 'done: green'
   FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
   grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
     || fail "next bounded scan did not resume with the following child"
   pass "stalled state reads are bounded without starving later children"
+}
+
+test_complete_child_check_is_bounded() {
+  local holder i
+  make_world bounded-child
+  write_child "$MAIN" child 'working: lock holder blocks the complete check'
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash -c '
+    . "$1"
+    lock=$(fm_meta_lock_path "$2")
+    fm_lock_acquire_wait "$lock"
+    : > "$3"
+    sleep 30
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$MAIN/state/child.meta" "$WORLD/lock-ready" &
+  holder=$!
+  i=0
+  while [ "$i" -lt 30 ] && [ ! -e "$WORLD/lock-ready" ]; do sleep 0.1; i=$((i + 1)); done
+  [ -e "$WORLD/lock-ready" ] || fail "meta lock holder did not start"
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=2 run_reconcile "$MAIN" --startup
+  reap "$holder"
+  awk -F '\t' '$3 == "check" && $4 == "inactive-reconcile-budget" { found = 1 } END { exit(found ? 0 : 1) }' "$MAIN/state/.wake-queue" \
+    || fail "a complete child-check timeout was not routed as a capacity check"
+  [ "$(stale_row_count "$MAIN")" = 0 ] || fail "a complete child-check timeout was routed as a crew wedge"
+  pass "the complete per-child due-work check is process-bounded"
+}
+
+test_short_state_read_defers_instead_of_skipping_a_child() {
+  make_world short-state-read
+  write_child "$MAIN" a 'working: slow but healthy'
+  write_child "$MAIN" b 'working: state read will stall'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  a) sleep 1.1; printf 'state: working · source: fake\n' ;;
+  b) sleep 30 ;;
+esac
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=3 run_reconcile "$MAIN" --startup
+  [ "$(scan_active_cursor "$MAIN")" = a ] \
+    || fail "a short state-read timeout skipped the child: cursor=$(scan_active_cursor "$MAIN")"
+
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=3 run_reconcile "$MAIN" --startup
+  [ "$(scan_active_cursor "$MAIN")" = b ] \
+    || fail "the deferred child was not retried with a full share: cursor=$(scan_active_cursor "$MAIN")"
+  pass "a short state-read timeout defers the child"
+}
+
+test_progress_wake_only_reports_measured_duration() {
+  local now
+  make_world progress-duration
+  write_child "$MAIN" child 'working: running validation'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: unknown · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  grep -Fq 'no meaningful progress since first observation; no timestamped progress event' "$MAIN/state/.wake-queue" \
+    || fail "an untimestamped phase did not state its observation basis"
+  grep -Eq 'no meaningful progress for [0-9]+s' "$MAIN/state/.wake-queue" \
+    && fail "an untimestamped phase reported an unmeasured duration"
+  pass "untimestamped progress does not invent a duration"
 }
 
 test_full_scan_budget_includes_wake_lock_wait() {
@@ -418,7 +512,7 @@ test_full_scan_budget_includes_wake_lock_wait() {
   elapsed=$(( $(date +%s) - started ))
   reap "$holder"
   # The unbounded wake-lock wait is ended by the process-group backstop, which
-  # fires one second after the budget; the bound proves the scan cannot ride
+  # fires two seconds after the budget; the bound proves the scan cannot ride
   # the 30-second lock hold.
   [ "$elapsed" -le 4 ] || fail "wake lock wait exceeded aggregate scan budget (${elapsed}s)"
   pass "aggregate scan budget includes durable wake operations"
@@ -448,6 +542,982 @@ test_notice_recovery_does_not_duplicate_wake() {
   pass "notice recovery remains idempotent across queue acknowledgement"
 }
 
+test_quiet_active_scan_does_not_read_current_state() {
+  local now
+  make_world quiet-active
+  now=$(date +%s)
+  write_child "$MAIN" child "working [at=$now]: implementation is under way"
+  touch "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+printf 'state: working · source: run-step\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW="$now" \
+    FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -s "$WORLD/state-reads" ] || fail "quiet active scan read current state before work was due"
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "quiet active scan woke supervision"
+  pass "quiet active scans use local evidence without a current-state/model read"
+}
+
+# Driven through the real bin/fm-crew-state.sh: a trailing off-contract `note:`
+# line is exactly what makes its verdict inconclusive, so a stubbed verdict here
+# would assert a pairing the production reader never emits for this log.
+test_overdue_active_work_ignores_chatter() {
+  local t0
+  make_world overdue-chatter
+  t0=$(( $(date +%s) - 100 ))
+  write_child "$MAIN" child "working: implementation is under way"
+  mkdir -p "$MAIN/projects/child"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<SH
+#!/usr/bin/env bash
+printf '%s\\n' "\$1" >> "\${FM_STATE_READ_LOG:?}"
+exec "$ROOT/bin/fm-crew-state.sh" "\$@"
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  set_mtime "$t0" "$MAIN/state/child.meta"
+  set_mtime "$t0" "$MAIN/state/child.turn-ended"
+  printf 'note: routine check-in chatter\n' >> "$MAIN/state/child.status"
+  set_mtime $((t0 + 55)) "$MAIN/state/child.status"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW=$((t0 + 70)) \
+    FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  grep -Fq 'active work has no meaningful progress' "$MAIN/state/.wake-queue" \
+    || fail "chatter reset the meaningful-progress due clock"
+  [ "$(grep -c 'child$' "$WORLD/state-reads" 2>/dev/null || true)" = 1 ] \
+    || fail "overdue intervention performed more than one bounded current-state read: $(cat "$WORLD/state-reads" 2>/dev/null || true)"
+
+  pass "overdue active work surfaces through a targeted wake despite chatter"
+}
+
+# A done or failed current-state verdict is a terminal outcome, not work that
+# stopped making progress, so the terminal path owns it and no stale is queued.
+test_terminal_verdict_is_not_surfaced_as_missing_progress() {
+  make_world terminal-verdict
+  write_child "$MAIN" child 'working: implementation is under way'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done · source: run-step\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] \
+    || fail "a terminal verdict was surfaced as missing progress: $(cat "$MAIN/state/.wake-queue")"
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] \
+    || fail "the terminal-outcome path did not own the done verdict"
+  pass "a terminal current-state verdict is left to the terminal-outcome path"
+}
+
+# A cold cursor left by a dead watcher still anchors a rotating sweep. Even when
+# that sweep is truncated before it wraps, the children at or before the cursor
+# must still be reached rather than waiting out another whole interval.
+test_cold_cursor_sweep_still_wraps_after_a_truncation() {
+  make_world cold-cursor
+  write_child "$MAIN" a 'done: green'
+  write_child "$MAIN" b 'working: quietly under way'
+  write_child "$MAIN" c 'working: state read will stall'
+  write_child "$MAIN" d 'done: green'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+[ "$1" != c ] || sleep 30
+case "$1" in
+  a|d) printf 'state: done · source: fake\n' ;;
+  *)   printf 'state: working · source: run-step\n' ;;
+esac
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  printf 'epoch=1\ncursor=b\n' > "$MAIN/state/.inactive-outcome-reconcile"
+  set_mtime "$(( $(date +%s) - 600 ))" "$MAIN/state/.inactive-outcome-reconcile"
+
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN"
+  grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
+    || fail "the active timeout suppressed the earlier terminal outcome"
+  run_reconcile "$MAIN"
+  grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
+    || fail "the resumed sweep dropped its outstanding wrap segment: $(cat "$MAIN/state/.wake-queue" 2>/dev/null)"
+  pass "a truncated cold-cursor sweep still wraps back over its earlier children"
+}
+
+# A terminal-status pass preserves outcomes on both sides of its cursor while
+# retaining the independent active continuation that exhausted the budget.
+test_terminal_pass_preserves_active_continuation() {
+  make_world wrap-at-origin
+  write_child "$MAIN" a 'done: green'
+  write_child "$MAIN" b 'working: state read will stall'
+  write_child "$MAIN" c 'done: green'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+[ "$1" != b ] || sleep 30
+printf 'state: done · source: fake\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  : > "$WORLD/state-reads"
+  # A cold cursor at b anchors the sweep: the after segment covers c, then the
+  # wrap runs a and truncates on b, which is the wrap's own upper bound.
+  printf 'epoch=1\ncursor=b\n' > "$MAIN/state/.inactive-outcome-reconcile"
+  set_mtime "$(( $(date +%s) - 600 ))" "$MAIN/state/.inactive-outcome-reconcile"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=2 run_reconcile "$MAIN"
+  grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
+    || fail "the sweep never reached its wrap segment: $(cat "$MAIN/state/.wake-queue" 2>/dev/null)"
+  [ "$(sed -n 's/^cursor=//p' "$MAIN/state/.inactive-outcome-reconcile")" = b ] \
+    || fail "the wrap did not truncate on the origin child"
+
+  FM_STATE_READ_LOG="$WORLD/state-reads" run_reconcile "$MAIN"
+  [ "$(scan_active_cursor "$MAIN")" = b ] \
+    || fail "the terminal pass lost the active continuation"
+  pass "terminal passes preserve their active continuation"
+}
+
+test_terminal_pass_reaches_a_wrapped_origin() {
+  make_world empty-wrap-cursor
+  write_child "$MAIN" a 'working: state read will stall'
+  write_child "$MAIN" b 'done: green'
+  write_child "$MAIN" c 'working: slow but healthy'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  a) sleep 30 ;;
+  b) printf 'state: done · source: fake\n' ;;
+  c) sleep 1.1; printf 'state: working · source: fake\n' ;;
+esac
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  printf 'epoch=1\ncursor=b\n' > "$MAIN/state/.inactive-outcome-reconcile"
+  set_mtime "$(( $(date +%s) - 600 ))" "$MAIN/state/.inactive-outcome-reconcile"
+
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN"
+  grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
+    || fail "the terminal pass stranded the wrapped origin child"
+  FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$RECON" pending \
+    || fail "the terminal pass lost the active continuation"
+  pass "terminal passes reach wrapped origins without stranding active work"
+}
+
+# `--help` renders this script's own contract block; a truncated render is the
+# defect, and it shows up as output that stops mid-sentence.
+test_help_renders_the_whole_contract_block() {
+  local out last
+  out=$("$RECON" --help) || fail "--help exited non-zero"
+  [ -n "$out" ] || fail "--help printed nothing"
+  last=$(printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -1)
+  case "$last" in
+    *.) : ;;
+    *) fail "--help output stops mid-sentence: $last" ;;
+  esac
+  pass "--help renders a complete contract block"
+}
+
+# A garbled or failed current-state verdict is not evidence either way, so it
+# must be absorbed rather than parsed into a state/source pair and surfaced.
+test_unreadable_current_state_is_absorbed() {
+  make_world garbled-state
+  write_child "$MAIN" child 'working: implementation is under way'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'error: worktree probe failed\n'
+exit 1
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] \
+    || fail "a garbled current-state verdict was surfaced as a wedge: $(cat "$MAIN/state/.wake-queue")"
+  [ "$(outcome_count "$MAIN" pending)" = 0 ] \
+    || fail "a garbled current-state verdict produced a terminal outcome"
+  pass "an unreadable current-state verdict is absorbed instead of parsed"
+}
+
+# A live attributed run or a busy pane is the evidence crew_absorb_class calls
+# provably working. Overdue status evidence alone must not surface it.
+test_provably_working_evidence_is_not_overdue() {
+  local now src
+  for src in run-step pane; do
+    make_world "liveness-$src"
+    write_child "$MAIN" child 'working: implementation is under way'
+    touch "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
+    cat > "$WORLD/fakebin/fm-crew-state.sh" <<SH
+#!/usr/bin/env bash
+printf 'state: working · source: $src\n'
+SH
+    chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+    now=$(date +%s)
+    FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+    FM_INACTIVE_RECONCILE_NOW=$((now + 600)) run_reconcile "$MAIN" --startup
+    [ "$(stale_row_count "$MAIN")" = 0 ] \
+      || fail "source=$src liveness was surfaced as overdue work: $(cat "$MAIN/state/.wake-queue")"
+  done
+  pass "a live run or busy pane is absorbed instead of surfaced as overdue"
+}
+
+test_unresolved_decision_is_routed_once_and_survives_restart() {
+  make_world active-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "unresolved decision was not routed to the owning task"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "restart duplicated an unresolved decision wake"
+  grep -Fq 'unresolved decisions' "$MAIN/state/.wake-queue" \
+    || fail "decision wake omitted its folded-set marker"
+  pass "unresolved decisions route durably without an automatic answer or storm"
+}
+
+test_resolved_decision_reopens_as_a_new_obligation() {
+  local now payload decision
+  make_world decision-reopen
+  now=$(date +%s)
+  write_child "$MAIN" child 'needs-decision [key=api]: choose X'
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue")
+  [ -n "$payload" ] || fail "the initial decision was not routed"
+  ack_wakes "$MAIN" || fail "the initial decision wake could not be acknowledged"
+  printf 'resolved [key=api]: answered\n' >> "$MAIN/state/child.status"
+  decision=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; classify_signal "${2#signal: }" "$3"' _ "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
+  case "$decision" in escalate\|*) fail "a resolved decision was escalated from stale durable state" ;; esac
+  FM_INACTIVE_RECONCILE_NOW=$((now + 1)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  printf 'needs-decision [key=api]: choose X\n' >> "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 2)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "an identical reopened decision was suppressed"
+  pass "resolved decisions clear their alert generation before reopening"
+}
+
+test_open_decision_does_not_suppress_overdue_progress() {
+  make_world decision-and-progress
+  write_child "$MAIN" child 'needs-decision [key=api]: choose the API'
+  printf 'working [key=impl]: implementation continues independently\n' >> "$MAIN/state/child.status"
+  age "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "open decision did not produce its signal"
+  [ "$(stale_row_count "$MAIN")" = 1 ] \
+    || fail "open decision suppressed the independent overdue progress check"
+  pass "decision and progress obligations retain independent alerts"
+}
+
+test_fresh_lane_does_not_hide_an_overdue_independent_lane() {
+  local now old fresh
+  make_world independent-progress-lanes
+  now=$(date +%s)
+  old=$((now - 120))
+  fresh=$((now - 10))
+  write_child "$MAIN" child "working [key=impl] [at=$old]: implementation continues"
+  printf 'working [key=docs] [at=%s]: documentation starts\n' "$fresh" >> "$MAIN/state/child.status"
+  printf 'resolved [key=other] [at=%s]: unrelated decision closed\n' "$fresh" >> "$MAIN/state/child.status"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: unknown · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "a fresh lane hid overdue independent work"
+  grep -Fq 'no meaningful progress for 120s' "$MAIN/state/.wake-queue" \
+    || fail "the stale wake did not use the overdue lane's measured age"
+  pass "fresh independent activity does not reset an overdue lane"
+}
+
+test_fresh_progress_is_not_aged_from_task_creation() {
+  local old now
+  make_world fresh-progress
+  write_child "$MAIN" child 'working [key=old]: earlier phase'
+  old=$(( $(date +%s) - 1000 ))
+  now=$(date +%s)
+  set_mtime "$old" "$MAIN/state/child.meta" "$MAIN/state/child.turn-ended"
+  printf 'working [key=old] [at=%s]: fresh meaningful phase\n' "$now" >> "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] \
+    || fail "fresh progress was aged from task creation"
+  printf 'resolved [key=api] [at=%s]: unrelated decision closed\n' "$((now + 1))" >> "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW="$((now + 1))" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] \
+    || fail "a fresh unrelated resolution aged independent work"
+  pass "fresh progress and bookkeeping resolutions anchor to their event epochs"
+}
+
+test_decision_backstop_commits_the_watcher_generation() {
+  local actor out pid i
+  for actor in main away; do
+    make_world "decision-generation-$actor"
+    write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+    [ "$actor" != away ] || : > "$MAIN/state/.afk"
+    out="$WORLD/first-watch.out"
+    PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+      FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=60 \
+      FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=1 \
+      FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$WATCH" > "$out" 2>&1 &
+    pid=$!
+    i=0
+    while [ "$i" -lt 50 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+    wait "$pid" || fail "$actor decision watcher did not exit through its first wake: $(cat "$out")"
+    grep -Fq 'signal: ' "$out" || fail "$actor decision backstop emitted no signal wake: $(cat "$out")"
+    [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+      || fail "$actor decision backstop did not queue exactly one wake"
+    ack_wakes "$MAIN" || fail "$actor decision wake could not be acknowledged"
+
+    out="$WORLD/second-watch.out"
+    PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+      FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=60 \
+      FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=1 \
+      FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" > "$out" 2>&1 &
+    pid=$!
+    sleep 3
+    kill -0 "$pid" 2>/dev/null \
+      || fail "$actor re-arm duplicated the handled decision: $(cat "$out")"
+    reap "$pid"
+    [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+      || fail "$actor re-arm queued a duplicate handled decision"
+  done
+  pass "decision backstop commits the watcher generation for main and away ownership"
+}
+
+test_decision_realert_preserves_an_independent_turn_end() {
+  local now out pid i
+  make_world decision-independent-turn
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  now=$(date +%s)
+  FM_PAUSE_RESURFACE_SECS=60 FM_INACTIVE_RECONCILE_NOW="$now" \
+    FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  ack_wakes "$MAIN" || fail "initial decision wake could not be acknowledged"
+  prime_seen "$MAIN/state" "$MAIN/state/child.turn-ended"
+  printf 'finished another execution turn\n' >> "$MAIN/state/child.turn-ended"
+  FM_PAUSE_RESURFACE_SECS=60 FM_INACTIVE_RECONCILE_NOW=$((now + 60)) \
+    FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  ack_wakes "$MAIN" || fail "decision re-alert could not be acknowledged"
+
+  out="$WORLD/watch.out"
+  PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+    FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=60 \
+    FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=30 \
+    FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" > "$out" 2>&1 &
+  pid=$!
+  i=0
+  while [ "$i" -lt 50 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+  if kill -0 "$pid" 2>/dev/null; then
+    reap "$pid"
+    fail "decision re-alert consumed the independent turn-end generation: $(cat "$out")"
+  fi
+  wait "$pid" || fail "turn-end watcher failed: $(cat "$out")"
+  grep -Fq 'child.turn-ended' "$out" \
+    || fail "independent turn-end did not retain its faster signal path: $(cat "$out")"
+  pass "decision re-alert leaves independent turn-end signals pending"
+}
+
+test_declared_wait_and_parent_boundary_are_respected() {
+  make_world active-boundaries
+  write_child "$MAIN" child 'paused: waiting for upstream release'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "declared external wait was treated as overdue work"
+  bind_secondmate local
+  write_mate_meta
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -e "$MAIN/state/active-management/mate" ] \
+    || fail "main took active management of a registered secondmate"
+  pass "declared waits and the main/secondmate ownership boundary remain intact"
+}
+
+# The watcher's own stale row and this due-work path name the same task by its
+# backend target, so a task already queued for intervention is never queued a
+# second time for a branch or away drain to act on twice.
+test_active_intervention_does_not_duplicate_an_existing_wake() {
+  local now
+  make_world no-duplicate
+  fm_write_meta "$MAIN/state/child.meta" \
+    'window=firstmate:fm-child' 'backend=orca' 'terminal=orca:child-endpoint' \
+    'endpoint_task_id=child' "worktree=$MAIN/projects/child" 'project=alpha' \
+    'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' 'spawn_gen=s1'
+  printf 'working: implementation is under way\n' > "$MAIN/state/child.status"
+  : > "$MAIN/state/child.turn-ended"
+  age "$MAIN/state/child.meta" "$MAIN/state/child.status" "$MAIN/state/child.turn-ended"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; fm_wake_append stale "$2" "$3"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" 'orca:child-endpoint' 'stale: orca:child-endpoint' \
+    || fail "could not seed the watcher's own stale row"
+
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] \
+    || fail "due-work intervention duplicated a queued stale row: $(cat "$MAIN/state/.wake-queue")"
+
+  rm -f "$MAIN/state/.wake-queue"
+  rm -rf "$MAIN/state/active-management"
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "due-work intervention queued no stale row of its own"
+  awk -F '\t' '$3 == "stale" { print $4 }' "$MAIN/state/.wake-queue" \
+    | grep -Fxq 'orca:child-endpoint' \
+    || fail "due-work stale row was not keyed by the backend target: $(cat "$MAIN/state/.wake-queue")"
+  pass "due-work intervention keys by backend target and never duplicates a queued row"
+}
+
+# A decision the per-wake path already surfaced is a handled fact: the due-work
+# scan starts its re-surface clock instead of waking the captain again, while a
+# decision no wake path ever surfaced is queued on the first scan that sees it.
+test_already_surfaced_decision_is_not_re_alerted_immediately() {
+  local now
+  local FM_PAUSE_RESURFACE_SECS=120
+  make_world surfaced-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3"' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" \
+    "$MAIN/state/child.status" || fail "could not record the per-wake surfaced marker"
+  [ -s "$MAIN/state/.hb-surfaced-child" ] || fail "the surfaced marker was not written"
+
+  : > "$MAIN/state/.wake-queue"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "an already-surfaced decision was immediately re-alerted: $(cat "$MAIN/state/.wake-queue")"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 119)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "the re-surface clock did not hold for its interval"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 120)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "an unresolved decision was suppressed past its re-surface interval"
+
+  # A decision no wake path surfaced has no marker and must not wait.
+  make_world unsurfaced-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "a never-surfaced decision was delayed by the re-surface clock"
+  pass "an already-surfaced decision starts the re-surface clock instead of re-waking"
+}
+
+test_surfaced_decision_stays_deduped_through_chatter() {
+  local now
+  local FM_PAUSE_RESURFACE_SECS=120
+  make_world surfaced-decision-chatter
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3"' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" \
+    "$MAIN/state/child.status" || fail "could not record the surfaced decision"
+  printf 'note: continuing unrelated work\n' >> "$MAIN/state/child.status"
+  : > "$MAIN/state/.wake-queue"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "chatter duplicated an already surfaced decision: $(cat "$MAIN/state/.wake-queue")"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 120)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "the still-open decision did not re-surface on its cadence"
+  pass "decision receipts survive unrelated status chatter"
+}
+
+test_away_completion_does_not_receipt_a_buried_decision() {
+  local now
+  make_world away-completion-buried-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  printf 'done [key=implementation]: delivered independent work\n' >> "$MAIN/state/child.status"
+  : > "$MAIN/state/.afk"
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3" away' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" \
+    "$MAIN/state/child.status" || fail "could not record the away completion"
+
+  FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; fm_wake_append signal "$2" "$3"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" child.status "signal: $MAIN/state/child.status" \
+    || fail "could not enqueue the away completion signal"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "the scan duplicated the still-pending away completion signal"
+  : > "$MAIN/state/.wake-queue"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 1)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "the buried unresolved decision was suppressed after an away completion: $(cat "$MAIN/state/.wake-queue")"
+  pass "away completion does not suppress a buried unresolved decision"
+}
+
+test_main_completion_receipts_a_buried_decision() {
+  local now
+  make_world main-completion-buried-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  printf 'done [key=implementation]: delivered independent work\n' >> "$MAIN/state/child.status"
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; mark_surfaced "$3" main' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" \
+    "$MAIN/state/child.status" || fail "could not record the main completion"
+  FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; fm_wake_append signal "$2" "$3"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" child.status "signal: $MAIN/state/child.status" \
+    || fail "could not enqueue the main completion signal"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  : > "$MAIN/state/.wake-queue"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 1)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "a main-presented buried decision re-alerted after its completion signal: $(cat "$MAIN/state/.wake-queue")"
+  pass "main completion receipts a buried unresolved decision"
+}
+
+test_away_push_transition_does_not_receipt_buried_decision() {
+  local now record
+  make_world away-push-buried-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  printf 'done [key=implementation]: delivered independent work\n' >> "$MAIN/state/child.status"
+  : > "$MAIN/state/.afk"
+  record=$(FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; fm_transition_record "$2" "$3" "$4" "$5" "$6"' _ \
+    "$ROOT/bin/fm-transition-lib.sh" fm-child ignored working blocked codex)
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; wake() { return 0; }; handle_push_transition herdr "$3" "$4"' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" firstmate "$record" \
+    || fail "could not deliver the away push transition"
+  : > "$MAIN/state/.wake-queue"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "an away push transition suppressed a buried unresolved decision: $(cat "$MAIN/state/.wake-queue")"
+  pass "away push transitions do not receipt buried unresolved decisions"
+}
+
+# The durable state/active-management/<task> record, not the live queue, is what
+# holds the alert clock once a drain has acknowledged the row and supervision has
+# restarted - and it must not suppress the obligation past its re-alert interval.
+test_alert_clock_survives_drain_acknowledgement() {
+  local now err seq generation
+  local FM_PAUSE_RESURFACE_SECS=120
+  make_world alert-clock
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "unresolved decision was not routed"
+
+  err="$WORLD/drain.err"
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$DRAIN" >/dev/null 2> "$err"
+  seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
+  FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation"
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] || fail "acknowledgement did not consume the routed row"
+
+  FM_INACTIVE_RECONCILE_NOW=$((now + 60)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "an answered-once decision re-alerted on the scan cadence instead of the re-surface cadence"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 119)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
+    || fail "the durable alert clock did not survive acknowledgement and restart"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 120)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "an unresolved obligation stayed suppressed past its re-surface interval"
+  pass "the decision alert clock survives acknowledgement and re-surfaces on the fleet cadence"
+}
+
+test_progress_alert_clock_uses_resurface_cadence() {
+  local now
+  local FM_PAUSE_RESURFACE_SECS=120
+  make_world progress-alert-clock
+  write_child "$MAIN" child 'working [key=impl]: implementation continues'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: unknown · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "overdue work was not routed"
+  ack_wakes "$MAIN" || fail "the overdue-progress wake could not be acknowledged"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 60)) run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 0 ] || fail "an unchanged lane re-alerted on the scan cadence"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 120)) run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "an unchanged lane stayed suppressed past the re-surface interval"
+  pass "progress alerts use the fleet re-surface cadence"
+}
+
+# An incomplete active-priority check must retain its continuation without
+# delaying an independent terminal outcome.
+test_active_timeout_preserves_terminal_outcome_path() {
+  make_world active-timeout-terminal
+  write_child "$MAIN" a 'working: state read will stall'
+  write_child "$MAIN" b 'done: green'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+if [ "$1" = a ]; then sleep 30; else printf 'state: done · source: fake\n'; fi
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  : > "$WORLD/state-reads"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=1 \
+    run_reconcile "$MAIN" --startup
+  grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
+    || fail "an active-priority timeout suppressed an independent terminal outcome"
+  FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$RECON" pending \
+    || fail "an active-priority timeout lost its continuation"
+  pass "active-priority timeouts preserve independent terminal outcomes"
+}
+
+test_completed_sweep_cadence_is_anchored_to_its_start() {
+  local now marker reads
+  make_world sweep-start-cadence
+  write_child "$MAIN" child 'done: green'
+  : > "$WORLD/state-reads"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+printf 'state: done · source: fake\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  marker="$MAIN/state/.inactive-outcome-reconcile"
+  printf 'epoch=%s\nstarted_epoch=%s\ncursor=\norigin=\n' \
+    "$((now - 1))" "$((now - 60))" > "$marker"
+  set_mtime "$((now - 1))" "$marker"
+  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN"
+  reads=$(wc -l < "$WORLD/state-reads")
+  [ "$reads" -eq 1 ] \
+    || fail "completion time extended the sweep cadence: $(cat "$WORLD/state-reads")"
+  pass "completed sweep cadence remains anchored to the sweep start"
+}
+
+test_mixed_terminal_and_active_output_preserves_terminal_priority() {
+  local out pid i
+  make_world mixed-terminal-active
+  write_child "$MAIN" active 'working: implementation is overdue'
+  write_child "$MAIN" terminal 'done: green'
+  prime_seen "$MAIN/state" "$MAIN/state/active.status"
+  prime_seen "$MAIN/state" "$MAIN/state/terminal.status"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  active) printf 'state: unknown · source: status-log\n' ;;
+  terminal) printf 'state: done · source: fake\n' ;;
+esac
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  out="$WORLD/watch.out"
+  PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+    FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=60 \
+    FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=1 \
+    FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$WATCH" > "$out" 2>&1 &
+  pid=$!
+  i=0
+  while [ "$i" -lt 50 ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+  wait "$pid" || fail "mixed-output watcher failed: $(cat "$out")"
+  grep -Fq 'check: inactive-outcome' "$out" \
+    || fail "mixed output delayed the terminal wake reason: $(cat "$out")"
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "mixed scan lost its active row"
+  [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] || fail "mixed scan lost its terminal row"
+  pass "mixed terminal and active output preserves terminal wake priority"
+}
+
+# status_line_verb ignores leading whitespace when it folds an event, so the
+# cheap pre-fold guards must too: an indented event is a real event.
+test_indented_status_events_are_not_skipped() {
+  local now
+  make_world indented-decision
+  write_child "$MAIN" child '  needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "an indented needs-decision received no due-work check"
+
+  make_world indented-working
+  write_child "$MAIN" child '  working: implementation is under way'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" run_reconcile "$MAIN" --startup
+  [ "$(stale_row_count "$MAIN")" = 1 ] \
+    || fail "an indented working phase received no due-work check"
+  pass "indented status events are folded like any other"
+}
+
+test_decision_wake_is_actionable_to_the_away_classifier() {
+  local payload decision
+  make_world away-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue")
+  [ -n "$payload" ] || fail "unresolved decision queued no signal row"
+  decision=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+    FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; classify_signal "${2#signal: }" "$3"' _ \
+    "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
+  case "$decision" in
+    escalate\|*) : ;;
+    *) fail "away mode self-handled an unresolved decision instead of escalating: $decision" ;;
+  esac
+
+  make_world away-decision-buried
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  printf 'needs-decision [key=release-shape]: choose the release shape\n' \
+    >> "$MAIN/state/child.status"
+  printf 'working [key=impl]: continuing on the rest while blocked on api-shape\n' \
+    >> "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue" 2>/dev/null || true)
+  [ -n "$payload" ] || fail "buried unresolved decision queued no signal row"
+  decision=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+    FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; classify_signal "${2#signal: }" "$3"' _ \
+    "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
+  case "$decision" in
+    escalate\|*2\ unresolved\ decisions*) : ;;
+    *) fail "away mode dropped a buried unresolved decision: $decision" ;;
+  esac
+  pass "decision wakes remain actionable after later status appends"
+}
+
+test_captain_held_key_does_not_mute_other_lanes() {
+  local payload
+  make_world captain-held-lane
+  write_child "$MAIN" child 'needs-decision [key=api]: choose the API shape'
+  printf 'working [key=impl]: implementation continues\n' >> "$MAIN/state/child.status"
+  printf 'captain-held [key=other]: tracked by backlog-9\n' >> "$MAIN/state/child.status"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working · source: status-log\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue" 2>/dev/null || true)
+  case "$payload" in *'unresolved decisions count=1'*) : ;; *) fail "a held key muted an unrelated open decision" ;; esac
+  [ "$(stale_row_count "$MAIN")" = 1 ] || fail "a held key muted an independent overdue working lane"
+  pass "captain holds remain scoped to their own key"
+}
+
+test_away_decision_realert_is_not_self_handled() {
+  local payload decision
+  make_world away-decision-realert
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue" 2>/dev/null || true)
+  [ -n "$payload" ] || fail "unresolved decision queued no signal row"
+  decision=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash -c '
+    . "$1"
+    arg="${2#signal: }"
+    classify_signal "$arg" "$3" >/dev/null
+    mark_escalated_seen signal "$arg" "$3"
+    classify_signal "$arg" "$3"' _ "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
+  case "$decision" in escalate\|*'unresolved decisions'*) : ;; *) fail "away mode self-handled an unresolved decision re-alert" ;; esac
+  pass "away decision re-alerts survive status-line deduplication"
+}
+
+test_cadence_cap_and_budget_continuation_bound_each_child() {
+  local out status pid i reads id now
+  make_world cadence-cap
+  status=0
+  out=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+    FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=601 \
+    FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" "$RECON" scan 2>&1) || status=$?
+  [ "$status" -eq 2 ] || fail "cadence above ten minutes was accepted: status=$status output=$out"
+
+  make_world budget-continuation
+  : > "$WORLD/state-reads"
+  for i in a b c; do
+    write_child "$MAIN" "$i" 'working: bounded state read'
+    prime_seen "$MAIN/state" "$MAIN/state/$i.status"
+    prime_seen "$MAIN/state" "$MAIN/state/$i.turn-ended"
+  done
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+sleep 30
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
+    FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=60 \
+    FM_INACTIVE_RECONCILE_BUDGET_SECS=1 FM_STATE_READ_LOG="$WORLD/state-reads" \
+    FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=30 \
+    FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$WATCH" > "$WORLD/watch.out" 2>&1 &
+  pid=$!
+  i=0
+  reads=0
+  while [ "$i" -lt 80 ]; do
+    reads=$(wc -l < "$WORLD/state-reads")
+    [ "$reads" -ge 3 ] && break
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  reap "$pid"
+  [ "$reads" -ge 3 ] \
+    || fail "truncated sweep slept for the 30-second poll instead of checking every child: $(cat "$WORLD/watch.out")"
+
+  make_world over-capacity
+  write_child "$MAIN" achild 'done: PR https://example.test/owner/repo/pull/1 checks green'
+  for i in $(seq 1 26); do
+    id=$(printf 'child%02d' "$i")
+    fm_write_meta "$MAIN/state/$id.meta" \
+      "window=firstmate:fm-$id" "worktree=$MAIN/projects/$id" 'project=alpha' \
+      'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' "spawn_gen=$i"
+    {
+      printf 'needs-decision [key=gate%s]: historical gate\n' "$id"
+      printf 'resolved [key=gate%s]: closed\n' "$id"
+      printf 'working [key=%s]: active due-work\n' "$id"
+    } > "$MAIN/state/$id.status"
+  done
+  now=$(date +%s)
+  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE='done' \
+    run_reconcile "$MAIN" --startup
+  awk -F '\t' '$3 == "check" && $4 == "inactive-reconcile-capacity" { found = 1 } END { exit(found ? 0 : 1) }' \
+    "$MAIN/state/.wake-queue" \
+    || fail "an over-capacity home silently claimed the ten-minute bound"
+  touch "$MAIN/state/.last-watcher-beat"
+  bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
+    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state" \
+    || fail "an over-capacity home remained supervision-healthy"
+  [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] || fail "an over-capacity home stopped reconciling terminal outcomes"
+  ack_wakes "$MAIN" || fail "the capacity wake could not be acknowledged"
+  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW=$((now + 600)) \
+    run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'inactive-reconcile-capacity')" = 0 ] \
+    || fail "capacity evidence re-alerted on the scan cadence"
+  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW=$((now + 3600)) \
+    run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'inactive-reconcile-capacity')" = 1 ] \
+    || fail "capacity evidence did not re-alert on the unresolved-obligation cadence"
+  rm -f "$MAIN/state/child01.meta" "$MAIN/state/child02.meta"
+  FM_PAUSE_RESURFACE_SECS=3600 FM_INACTIVE_RECONCILE_NOW=$((now + 3601)) \
+    run_reconcile "$MAIN" --startup
+  if bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
+    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state"; then
+    fail "capacity recovery remained supervision-unhealthy"
+  fi
+  pass "ten-minute cadence is capped and truncated sweeps continue immediately"
+}
+
+test_declared_waits_do_not_exhaust_due_work_capacity() {
+  local id out
+  make_world declared-wait-capacity
+  for id in $(seq 1 26); do
+    if [ "$id" -le 13 ]; then
+      write_child "$MAIN" "paused$id" "working [key=wait$id]: preparing dependency"
+      printf 'paused [key=wait%s]: waiting on upstream\n' "$id" >> "$MAIN/state/paused$id.status"
+    else
+      write_child "$MAIN" "held$id" "working [key=hold$id]: preparing backlog transfer"
+      printf 'captain-held [key=hold%s]: tracked by backlog-%s\n' "$id" "$id" >> "$MAIN/state/held$id.status"
+    fi
+  done
+  FM_FAKE_CREW_STATE=unknown run_reconcile "$MAIN" --startup
+  [ ! -e "$MAIN/state/.inactive-reconcile-capacity" ] \
+    || fail "declared waits falsely exhausted due-work capacity"
+  touch "$MAIN/state/.last-watcher-beat"
+  out=$(FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" \
+    FM_SUPERVISION_MODEL=autoarm FM_GUARD_GRACE=300 "$ROOT/bin/fm-guard.sh" 2>&1)
+  [ -z "$out" ] || fail "declared waits degraded healthy supervision: $out"
+  pass "declared waits do not exhaust due-work capacity"
+}
+
+test_active_due_work_precedes_declared_wait_reconciliation() {
+  local id
+  make_world active-priority
+  : > "$WORLD/state-reads"
+  for id in $(seq -w 1 26); do
+    write_child "$MAIN" "paused$id" "working [key=wait$id]: preparing dependency"
+    printf 'paused [key=wait%s]: waiting on upstream\n' "$id" >> "$MAIN/state/paused$id.status"
+  done
+  write_child "$MAIN" zactive 'working [key=impl]: active due-work'
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+if [ "$1" = zactive ]; then
+  printf 'state: unknown · source: fake\n'
+else
+  sleep 30
+fi
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  # Leave time for both bounded phases: candidate evidence reserves one quarter
+  # of this budget and zactive's state read proves the priority pass follows it.
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=8 FM_STATE_READ_LOG="$WORLD/state-reads" \
+    run_reconcile "$MAIN" --startup
+  grep -Fxq zactive "$WORLD/state-reads" \
+    || fail "active due work waited behind declared-wait reconciliation"
+  [ ! -e "$MAIN/state/.inactive-reconcile-capacity" ] \
+    || fail "declared waits exhausted active due-work capacity"
+  pass "active due work precedes declared-wait reconciliation"
+}
+
+test_unbounded_candidate_evidence_degrades_supervision() {
+  local i started elapsed
+  make_world candidate-evidence-bound
+  write_child "$MAIN" paused 'working [key=wait]: preparing dependency'
+  for i in $(seq 1 4000); do
+    printf 'working [key=wait]: historical work %s\n' "$i"
+    printf 'paused [key=wait]: waiting on upstream %s\n' "$i"
+  done > "$MAIN/state/paused.status"
+  write_child "$MAIN" zactive 'working [key=impl]: active due-work'
+  started=$(date +%s)
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN" --startup
+  elapsed=$(( $(date +%s) - started ))
+  [ "$elapsed" -le 3 ] \
+    || fail "candidate evidence exceeded its reserved budget (${elapsed}s)"
+  [ -f "$MAIN/state/.inactive-reconcile-capacity" ] \
+    || fail "unbounded candidate evidence left supervision healthy"
+  touch "$MAIN/state/.last-watcher-beat"
+  bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
+    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state" \
+    || fail "candidate-evidence timeout did not degrade supervision"
+  pass "unbounded candidate evidence degrades supervision"
+}
+
+test_empty_active_set_clears_the_continuation() {
+  local now
+  make_world empty-active-continuation
+  write_child "$MAIN" child 'working [key=implementation]: active work'
+  now=$(date +%s)
+  cat > "$MAIN/state/.inactive-outcome-reconcile" <<EOF
+epoch=$now
+started_epoch=$now
+cursor=
+origin=
+active_cursor=child
+EOF
+  printf 'done [key=implementation]: delivered\n' > "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup
+  if FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$RECON" pending; then
+    fail "an empty active set left the watcher continuation pending"
+  fi
+  pass "an empty active set clears its continuation"
+}
+
+test_legacy_hot_cursor_runs_its_wrap_segment() {
+  local id
+  make_world legacy-hot-cursor
+  : > "$WORLD/state-reads"
+  for id in a b c; do
+    write_child "$MAIN" "$id" 'done: green'
+  done
+  printf 'epoch=%s\ncursor=b\n' "$(date +%s)" > "$MAIN/state/.inactive-outcome-reconcile"
+  cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$1" >> "${FM_STATE_READ_LOG:?}"
+printf 'state: done · source: fake\n'
+SH
+  chmod +x "$WORLD/fakebin/fm-crew-state.sh"
+  FM_STATE_READ_LOG="$WORLD/state-reads" run_reconcile "$MAIN"
+  for id in a b c; do
+    grep -Fxq "$id" "$WORLD/state-reads" \
+      || fail "legacy hot cursor omitted child $id from its rotating sweep"
+  done
+  pass "legacy hot cursors resume as complete rotating sweeps"
+}
+
+# A secondmate home applies the same bounded pass to its own direct children, so
+# the evidence reaches the actor that owns it instead of being stranded or
+# duplicated by the parent's lane.
+test_secondmate_active_evidence_reaches_its_owning_actor() {
+  make_world routed-active
+  bind_secondmate local
+  write_mate_meta
+  write_child "$MATE" mate-child 'needs-decision [key=scope]: which module first'
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MATE" --startup
+  [ "$(wake_count "$MATE" 'mate-child.status')" = 1 ] \
+    || fail "secondmate evidence never reached its own supervision queue"
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "secondmate evidence was queued into the parent's lane"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MATE" --startup
+  [ "$(wake_count "$MATE" 'mate-child.status')" = 1 ] || fail "a rescan duplicated the routed report"
+  FM_INACTIVE_RECONCILE_NOW=$(date +%s) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ ! -s "$MAIN/state/.wake-queue" ] || fail "the parent duplicated the secondmate's routed report"
+  pass "secondmate active-management evidence routes once to its owning actor"
+}
+
 # Forge command shims fail loudly. A successful scan proves this path never uses
 # them while reconciling a local terminal outcome.
 test_reconciliation_never_calls_forge() {
@@ -471,8 +1541,50 @@ test_nonterminal_and_captain_held_states_do_not_report
 test_post_completion_pause_does_not_report_terminal_outcome
 test_watcher_hook_and_idle_secondmate_exemption
 test_stalled_state_read_is_bounded_and_scan_progresses
+test_complete_child_check_is_bounded
+test_short_state_read_defers_instead_of_skipping_a_child
+test_progress_wake_only_reports_measured_duration
 test_full_scan_budget_includes_wake_lock_wait
 test_notice_recovery_does_not_duplicate_wake
+test_quiet_active_scan_does_not_read_current_state
+test_overdue_active_work_ignores_chatter
+test_provably_working_evidence_is_not_overdue
+test_unreadable_current_state_is_absorbed
+test_terminal_verdict_is_not_surfaced_as_missing_progress
+test_cold_cursor_sweep_still_wraps_after_a_truncation
+test_terminal_pass_preserves_active_continuation
+test_terminal_pass_reaches_a_wrapped_origin
+test_help_renders_the_whole_contract_block
+test_indented_status_events_are_not_skipped
+test_unresolved_decision_is_routed_once_and_survives_restart
+test_resolved_decision_reopens_as_a_new_obligation
+test_open_decision_does_not_suppress_overdue_progress
+test_fresh_lane_does_not_hide_an_overdue_independent_lane
+test_fresh_progress_is_not_aged_from_task_creation
+test_decision_backstop_commits_the_watcher_generation
+test_decision_realert_preserves_an_independent_turn_end
+test_alert_clock_survives_drain_acknowledgement
+test_progress_alert_clock_uses_resurface_cadence
+test_already_surfaced_decision_is_not_re_alerted_immediately
+test_surfaced_decision_stays_deduped_through_chatter
+test_away_completion_does_not_receipt_a_buried_decision
+test_main_completion_receipts_a_buried_decision
+test_away_push_transition_does_not_receipt_buried_decision
+test_active_timeout_preserves_terminal_outcome_path
+test_completed_sweep_cadence_is_anchored_to_its_start
+test_mixed_terminal_and_active_output_preserves_terminal_priority
+test_decision_wake_is_actionable_to_the_away_classifier
+test_captain_held_key_does_not_mute_other_lanes
+test_away_decision_realert_is_not_self_handled
+test_cadence_cap_and_budget_continuation_bound_each_child
+test_declared_waits_do_not_exhaust_due_work_capacity
+test_active_due_work_precedes_declared_wait_reconciliation
+test_unbounded_candidate_evidence_degrades_supervision
+test_empty_active_set_clears_the_continuation
+test_legacy_hot_cursor_runs_its_wrap_segment
+test_secondmate_active_evidence_reaches_its_owning_actor
+test_declared_wait_and_parent_boundary_are_respected
+test_active_intervention_does_not_duplicate_an_existing_wake
 test_reconciliation_never_calls_forge
 
 echo "all inactive reconciliation tests passed"

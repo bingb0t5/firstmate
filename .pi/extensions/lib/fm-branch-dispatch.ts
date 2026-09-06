@@ -90,9 +90,11 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean): UnreadWak
       const fields = readFileSync(`${state}/${name}`, "utf8").split(/\r?\n/);
       const project = fields.find((line) => line.startsWith("project="))?.slice(8) ?? "";
       const window = fields.find((line) => line.startsWith("window="))?.slice(7) ?? "";
+      const terminal = fields.find((line) => line.startsWith("terminal="))?.slice(9) ?? "";
       if (project) {
         metadata.set(task, project);
         if (window) metadata.set(window, project);
+        if (terminal) metadata.set(terminal, project);
       }
     }
   } catch {

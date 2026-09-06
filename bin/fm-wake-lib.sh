@@ -258,6 +258,10 @@ fm_watcher_supervision_verdict() {
   local beat age fresh=false model
   FM_WATCHER_VERDICT_OK=false
   FM_WATCHER_VERDICT_REASON=stale-beacon
+  if [ -f "$state/.inactive-reconcile-capacity" ] && [ ! -L "$state/.inactive-reconcile-capacity" ]; then
+    FM_WATCHER_VERDICT_REASON=due-work-capacity
+    return 0
+  fi
   beat="$state/.last-watcher-beat"
   age=$(fm_path_age "$beat")
   case "$age" in
@@ -1311,6 +1315,15 @@ fm_wake_signal_seen_current() {  # <state> <file>
   sig=$(fm_wake_signal_sig "$2") || return 1
   [ -n "$sig" ] || return 1
   [ "$(cat "$(fm_wake_signal_seen_path "$1" "$2")" 2>/dev/null)" = "$sig" ]
+}
+
+fm_wake_signal_mark_seen_if_current() {  # <state> <file> <expected-signature>
+  local state=$1 file=$2 expected=$3 current marker
+  [ -n "$expected" ] || return 1
+  current=$(fm_wake_signal_sig "$file") || return 1
+  [ "$current" = "$expected" ] || return 1
+  marker=$(fm_wake_signal_seen_path "$state" "$file")
+  printf '%s' "$expected" > "$marker"
 }
 
 # Guarded self-announced status append - the one dedup primitive for a status

@@ -284,6 +284,35 @@ test_hook_silent_with_live_lock_and_fresh_beacon() {
   pass "fm-turnend-guard: silent no-op with a live watcher lock and fresh beacon"
 }
 
+test_hook_blocks_when_due_work_capacity_is_exceeded() {
+  local dir pid identity out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-due-work-capacity")
+  : > "$dir/state/task1.meta"
+  printf 'schema=fm-inactive-reconcile-alert.v1\nsubject=children=26\nepoch=1\n' \
+    > "$dir/state/.inactive-reconcile-capacity"
+  sleep 60 &
+  pid=$!
+  identity=$(watcher_identity "$dir" "$pid") || {
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    fail "could not identify live watcher holder"
+  }
+  record_watcher_lock "$dir" "$pid" "$identity"
+  touch "$dir/state/.last-watcher-beat"
+  out=$(run_hook "$dir" false); status=$?
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  expect_code 2 "$status" "hook must block when due-work capacity exceeds its bound"
+  assert_contains "$out" "DUE-WORK CAPACITY EXCEEDED" "capacity block did not name the actual supervision failure"
+  assert_contains "$out" "Bounded due-work coverage is unavailable" "capacity block did not describe the coverage condition"
+  case "$out" in
+    *'1 direct task(s) exceed bounded due-work coverage capacity.'*)
+      fail "capacity block reported all metadata records as active work"
+      ;;
+  esac
+  pass "fm-turnend-guard: blocks when due-work capacity exceeds its bound"
+}
+
 test_hook_non_claude_health_ignores_claude_budget_contention() {
   local dir home pid identity holder harness payload out status
   dir=$(make_primary_dir "$TMP_ROOT/hook-non-claude-budget-contention")
@@ -777,7 +806,9 @@ test_grok_adapter_missing_jq_and_no_supervision_allow() {
   [ ! -e "$log" ] || fail "missing jq started a resume process"
 
   dir=$(make_primary_dir "$TMP_ROOT/grok-native-no-work")
-  out=$(printf '%s' '{"sessionId":"x","stopHookActive":false}' | GROK_WORKSPACE_ROOT="$dir" bash "$dir/bin/fm-turnend-guard-grok.sh" 2>&1); status=$?
+  out=$(printf '%s' '{"sessionId":"x","stopHookActive":false}' \
+    | env -u FM_HOME -u FM_STATE_OVERRIDE -u FM_ROOT_OVERRIDE \
+      GROK_WORKSPACE_ROOT="$dir" bash "$dir/bin/fm-turnend-guard-grok.sh" 2>&1); status=$?
   expect_code 0 "$status" "healthy no-supervision-needed native stop must allow"
   [ -z "$out" ] || fail "no-supervision-needed native stop produced output: $out"
   pass "fm-turnend-guard-grok: missing jq and no-supervision-needed stops stay silent and bounded"
@@ -1690,6 +1721,7 @@ test_hook_blocks_when_fresh_beacon_has_no_live_lock
 test_hook_blocks_source_only_home
 test_hook_blocks_when_dead_lock_has_fresh_beacon
 test_hook_silent_with_live_lock_and_fresh_beacon
+test_hook_blocks_when_due_work_capacity_is_exceeded
 test_hook_non_claude_health_ignores_claude_budget_contention
 test_hook_blocks_with_live_lock_and_stale_beacon
 test_hook_blocks_when_unhealthy_in_primary
