@@ -307,6 +307,7 @@ SH
     || fail "an empty foreign queue produced a stall notification"
 
   printf '%s\t8\tcheck\thealthy\tcheck: healthy row\n' "$(date +%s)" > "$sub/state/.wake-queue"
+  touch "$sub/state/.last-watcher-beat"
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
     FM_FAKE_TMUX_LOG="$dir/tmux.log" FM_FAKE_TMUX_CAPTURE="$dir/fake-tmux/pane.txt" \
@@ -517,6 +518,145 @@ test_empty_prefix_mate_preserves_other_mate_receipt() {
   cmp -s "$row_before" "$stalled/state/.wake-queue" \
     || fail "overlapping mate receipt checks changed the foreign row"
   pass "empty prefix mate cleanup preserves another mate's stall receipt"
+}
+
+set_mtime() {  # <epoch> <file>
+  local epoch=$1 f=$2 stamp
+  if stamp=$(date -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null); then
+    touch -t "$stamp" "$f"
+  else
+    stamp=$(date -d "@$epoch" +%Y%m%d%H%M.%S)
+    touch -t "$stamp" "$f"
+  fi
+}
+
+write_live_branch_owner() {  # <home>
+  local home=$1 identity
+  identity=$(fm_test_pid_identity $$) || return 1
+  printf '%s\n%s\n%s\n%s\n' fm-branch-eligible-owner-v1 "$$" "$identity" "gen1" \
+    > "$home/state/.branch-eligible-owner"
+}
+
+make_cadence_stall_case() {  # <name> <harness> <age-secs> -> prints dir
+  local name=$1 harness=$2 age=$3 dir state sub
+  dir=$(make_case "$name")
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state" "$dir/fake-tmux"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=%s\nbackend=tmux\nhome=%s\n' \
+    "$harness" "$sub" > "$state/mate.meta"
+  printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - age ))" \
+    > "$sub/state/.wake-queue"
+  printf '%s\n' "$dir"
+}
+
+run_cadence_stall_checkpoint() {  # <dir> <out-name>
+  local dir=$1 out_name=$2
+  mkdir -p "$dir/fake-tmux"
+  env -u FM_SECONDMATE_WAKE_STALL_SECS \
+    PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$dir/state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_FAKE_TMUX_LOG="$dir/tmux.log" FM_FAKE_TMUX_CAPTURE="$dir/fake-tmux/pane.txt" \
+    FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 \
+    > "$dir/$out_name.out" 2> "$dir/$out_name.err" || true
+}
+
+test_grok_notify_wait_is_not_a_stall() {
+  local dir sub
+  dir=$(make_cadence_stall_case grok-notify-wait grok 175)
+  sub="$dir/secondmate"
+  printf 'Waiting for background command\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  run_cadence_stall_checkpoint "$dir" watch
+  ! grep -F 'secondmate wake-loop stalled' "$dir/watch.out" >/dev/null \
+    || fail "a healthy Grok notify wait paged the parent: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  [ ! -s "$dir/state/.wake-queue" ] \
+    || fail "a healthy Grok notify wait published a parent stall row"
+  pass "a Grok background-notify wait inside cadence plus grace stays quiet"
+}
+
+test_grok_notify_wait_pages_after_cadence() {
+  local dir sub
+  dir=$(make_cadence_stall_case grok-notify-over grok 250)
+  sub="$dir/secondmate"
+  printf 'ready>\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  run_cadence_stall_checkpoint "$dir" watch
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$dir/watch.out" >/dev/null \
+    || fail "an over-cadence Grok wait did not page: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  pass "a Grok unclaimed row past cadence plus grace pages the parent"
+}
+
+test_grok_notify_wait_pages_when_beacon_stale() {
+  local dir sub
+  dir=$(make_cadence_stall_case grok-stale-beacon grok 120)
+  sub="$dir/secondmate"
+  printf 'Waiting for background command\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  set_mtime "$(( $(date +%s) - 400 ))" "$sub/state/.last-watcher-beat"
+  run_cadence_stall_checkpoint "$dir" watch
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$dir/watch.out" >/dev/null \
+    || fail "a stale Grok watcher beacon did not page: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  pass "a Grok notify wait with a stale watcher beacon pages the parent"
+}
+
+test_pi_branch_claim_window_is_not_a_stall() {
+  local dir sub
+  dir=$(make_cadence_stall_case pi-claim-wait pi 274)
+  sub="$dir/secondmate"
+  printf 'ready>\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  run_cadence_stall_checkpoint "$dir" watch
+  ! grep -F 'secondmate wake-loop stalled' "$dir/watch.out" >/dev/null \
+    || fail "a Pi branch claim-window wait paged the parent: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  [ ! -s "$dir/state/.wake-queue" ] \
+    || fail "a Pi branch claim-window wait published a parent stall row"
+  pass "a Pi branch actor's unclaimed row inside the claim window stays quiet"
+}
+
+test_pi_branch_claim_window_pages_after_cadence() {
+  local dir sub
+  dir=$(make_cadence_stall_case pi-claim-over pi 400)
+  sub="$dir/secondmate"
+  printf 'Waiting for background command\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  run_cadence_stall_checkpoint "$dir" watch
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$dir/watch.out" >/dev/null \
+    || fail "an over-window Pi wait did not page: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  pass "a Pi unclaimed row past the claim window plus grace pages the parent"
+}
+
+test_pi_branch_claimed_row_is_not_a_stall() {
+  local dir sub
+  dir=$(make_cadence_stall_case pi-claimed-row pi 400)
+  sub="$dir/secondmate"
+  printf 'ready>\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  write_live_branch_owner "$sub" || fail "could not record a live Pi branch grant"
+  printf '7\n' > "$sub/state/.branch-eligible-rows"
+  run_cadence_stall_checkpoint "$dir" watch
+  ! grep -F 'secondmate wake-loop stalled' "$dir/watch.out" >/dev/null \
+    || fail "a live Pi branch claim paged the parent: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  [ ! -s "$dir/state/.wake-queue" ] \
+    || fail "a live Pi branch claim published a parent stall row"
+  pass "a row a live Pi branch actor has claimed stays quiet"
+}
+
+test_pi_branch_dead_claim_does_not_hide_a_stall() {
+  local dir sub
+  dir=$(make_cadence_stall_case pi-dead-claim pi 400)
+  sub="$dir/secondmate"
+  printf 'ready>\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  printf '%s\n%s\n%s\n%s\n' fm-branch-eligible-owner-v1 "1" "dead-identity" "gen1" \
+    > "$sub/state/.branch-eligible-owner"
+  printf '7\n' > "$sub/state/.branch-eligible-rows"
+  run_cadence_stall_checkpoint "$dir" watch
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$dir/watch.out" >/dev/null \
+    || fail "a dead Pi branch grant hid an over-window stall: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  pass "a dead Pi branch grant cannot hide an over-window unclaimed row"
 }
 
 test_drain_asserts_watcher_liveness() {
@@ -1285,6 +1425,13 @@ test_secondmate_parked_pause_rechecks_do_not_flood_parent
 test_secondmate_stall_marker_rejects_symlink
 test_acknowledged_stall_publication_survives_pre_marker_crash
 test_empty_prefix_mate_preserves_other_mate_receipt
+test_grok_notify_wait_is_not_a_stall
+test_grok_notify_wait_pages_after_cadence
+test_grok_notify_wait_pages_when_beacon_stale
+test_pi_branch_claim_window_is_not_a_stall
+test_pi_branch_claim_window_pages_after_cadence
+test_pi_branch_claimed_row_is_not_a_stall
+test_pi_branch_dead_claim_does_not_hide_a_stall
 test_self_announced_append_guards
 test_historical_annotation_skips_announced_status
 test_concurrent_append_and_drain

@@ -80,12 +80,15 @@
 #                          inactive terminal outcome that still lacks its durable
 #                          upstream receipt
 #   check: secondmate wake-loop stalled: mate=<id> row=<seq> age=<seconds>s
-#                          the oldest non-parked row in an endpoint-recorded local
-#                          secondmate home's durable wake queue exceeded
-#                          FM_SECONDMATE_WAKE_STALL_SECS; declared external-wait
-#                          rechecks remain durable for the mate but do not count
-#                          as a stalled wake loop; observation is read-only and
-#                          one parent receipt suppresses repeats for each row
+#                          the oldest unclaimed non-parked row in an endpoint-recorded
+#                          local secondmate home's durable wake queue exceeded that
+#                          mate's recorded wake cadence plus grace, or the mate's
+#                          watcher beacon is stale; declared external-wait rechecks
+#                          remain durable for the mate but do not count as a stalled
+#                          wake loop; rows a live Pi branch or main actor has already
+#                          claimed stay with that actor unless the watcher beacon is
+#                          stale; observation is read-only and one parent receipt
+#                          suppresses repeats for each row
 # For normal supervision, resume the session-start primary-harness protocol
 # after each printed reason. Direct duplicate invocations of this script still
 # no-op through the watcher singleton lock.
@@ -197,9 +200,19 @@ STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provabl
 # turn-ended and resets the age. Set generously above any legitimate interval
 # between completed turns, including long tool calls, builds, or test runs.
 BUSY_TURN_MAX_SECS=${FM_BUSY_TURN_MAX_SECS:-3600}
-# A local secondmate's foreign queue is checked on every poll, but only after this
-# bounded age can it produce a parent notification.
-SECONDMATE_WAKE_STALL_SECS=${FM_SECONDMATE_WAKE_STALL_SECS:-60}
+# A local secondmate's foreign queue is checked on every poll. The parent pages
+# only when the oldest unclaimed non-parked row exceeds that mate's recorded
+# wake cadence plus grace, or when the mate's watcher beacon is stale.
+# FM_SECONDMATE_WAKE_STALL_SECS, when set to a positive integer, overrides the
+# whole threshold (tests and operator pin). Unset uses the recorded harness:
+# grok background-notify, pi/pi-signed branch claim, otherwise 60s.
+SECONDMATE_WAKE_STALL_OVERRIDE=${FM_SECONDMATE_WAKE_STALL_SECS-}
+SECONDMATE_WAKE_STALL_GRACE_SECS=${FM_SECONDMATE_WAKE_STALL_GRACE_SECS:-30}
+GROK_NOTIFY_CADENCE_SECS=${FM_GROK_NOTIFY_CADENCE_SECS:-180}
+PI_BRANCH_CLAIM_CADENCE_SECS=${FM_PI_BRANCH_CLAIM_CADENCE_SECS:-300}
+case "$SECONDMATE_WAKE_STALL_GRACE_SECS" in ''|*[!0-9]*) SECONDMATE_WAKE_STALL_GRACE_SECS=30 ;; esac
+case "$GROK_NOTIFY_CADENCE_SECS" in ''|*[!0-9]*|0) GROK_NOTIFY_CADENCE_SECS=180 ;; esac
+case "$PI_BRANCH_CLAIM_CADENCE_SECS" in ''|*[!0-9]*|0) PI_BRANCH_CLAIM_CADENCE_SECS=300 ;; esac
 # A crew that declared a pause is idling on a known external wait, so its stale
 # pane is absorbed rather than wedge-escalated.
 # A completed or captain-frozen crew whose agent has confidently exited is settled
@@ -391,11 +404,17 @@ recorded_windows() {
 # A declared external-wait recheck is intentionally parked work for the mate's own
 # supervisor, not evidence that the mate's wake loop is stalled. Captain-held
 # rechecks and genuine wedge rows remain eligible for this parent guard.
-secondmate_oldest_queue_row() {  # <queue-path>
-  local queue=$1
+# Optional <claimed-seqs> is a comma-separated list of sequences a live actor in
+# that home has already claimed; those rows stay with that actor.
+secondmate_oldest_queue_row() {  # <queue-path> [<claimed-seqs>]
+  local queue=$1 claimed=${2:-}
   [ -f "$queue" ] && [ ! -L "$queue" ] || return 0
-  awk -F '\t' '
-    NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ \
+  awk -F '\t' -v claimed="$claimed" '
+    BEGIN {
+      n = split(claimed, parts, ",")
+      for (i = 1; i <= n; i++) if (parts[i] != "") skip[parts[i]] = 1
+    }
+    NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && !($2 in skip) \
       && !($3 == "stale" && $5 ~ /^stale: .* \(paused [-0-9]+s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds\)$/) {
       if (!found || $2 < seq) {
         found = 1
@@ -407,14 +426,93 @@ secondmate_oldest_queue_row() {  # <queue-path>
   ' "$queue" 2>/dev/null || true
 }
 
-# Surface one durable parent check for one unchanged non-parked foreign row after
-# its bounded age. The primary marker and queued-key check make repeated watcher
-# cycles converge without a notification storm, while a queue with no eligible
-# row clears only this home's stall bookkeeping so a later row can be observed.
+# Live-grant identity bytes are owned by bin/fm-wake-grant.sh; this is a
+# read-only foreign-home observation of that same record.
+secondmate_branch_grant_live() {  # <home>
+  local home=$1 owner version pid identity generation current
+  owner="$home/state/.branch-eligible-owner"
+  [ -f "$owner" ] && [ ! -L "$owner" ] || return 1
+  exec 8< "$owner" || return 1
+  IFS= read -r version <&8 || { exec 8<&-; return 1; }
+  IFS= read -r pid <&8 || { exec 8<&-; return 1; }
+  IFS= read -r identity <&8 || { exec 8<&-; return 1; }
+  IFS= read -r generation <&8 || { exec 8<&-; return 1; }
+  if IFS= read -r _extra <&8; then exec 8<&-; return 1; fi
+  exec 8<&-
+  [ "$version" = fm-branch-eligible-owner-v1 ] || return 1
+  case "$pid" in ''|*[!0-9]*|1) return 1 ;; esac
+  case "$generation" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  current=$(fm_pid_identity "$pid" 2>/dev/null) || return 1
+  [ -n "$current" ] && [ "$current" = "$identity" ]
+}
+
+secondmate_session_pid_live() {  # <home>
+  local home=$1 pid
+  pid=$(head -n 1 "$home/state/.lock" 2>/dev/null || true)
+  case "$pid" in ''|0|1|*[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2>/dev/null
+}
+
+# Comma-separated sequences a live actor in <home> has already claimed.
+# Branch claims count only while the grant owner record is live; main claims
+# count only while the mate's session lock pid is alive. Dead leftovers stay
+# unclaimed so a crashed actor cannot hide a stall.
+secondmate_claimed_seqs() {  # <home>
+  local home=$1 rows seqs=
+  if secondmate_branch_grant_live "$home"; then
+    rows="$home/state/.branch-eligible-rows"
+    if [ -f "$rows" ] && [ ! -L "$rows" ]; then
+      seqs=$(awk '/^[0-9]+$/ { printf "%s,", $1 }' "$rows" 2>/dev/null || true)
+    fi
+  fi
+  if secondmate_session_pid_live "$home"; then
+    rows="$home/state/.main-eligible-rows"
+    if [ -f "$rows" ] && [ ! -L "$rows" ]; then
+      seqs=$seqs$(awk '/^[0-9]+$/ { printf "%s,", $1 }' "$rows" 2>/dev/null || true)
+    fi
+  fi
+  printf '%s' "$seqs"
+}
+
+secondmate_watcher_beacon_stale() {  # <home>
+  local age
+  age=$(fm_path_age "$1/state/.last-watcher-beat")
+  [ "$age" -ge "$WATCHER_STALE_GRACE" ]
+}
+
+# Threshold comes from recorded supervision state: the parent meta harness=
+# field, or a live Pi branch grant in the mate home. Never from pane text.
+# A set FM_SECONDMATE_WAKE_STALL_SECS overrides the whole threshold.
+secondmate_stall_threshold() {  # <harness> <home>
+  local harness=$1 home=$2 cadence threshold
+  threshold=$SECONDMATE_WAKE_STALL_OVERRIDE
+  case "$threshold" in
+    ''|*[!0-9]*|0)
+      if secondmate_branch_grant_live "$home"; then
+        harness=pi
+      fi
+      case "$harness" in
+        grok) cadence=$GROK_NOTIFY_CADENCE_SECS ;;
+        pi|pi-signed) cadence=$PI_BRANCH_CLAIM_CADENCE_SECS ;;
+        *) cadence=60 ;;
+      esac
+      case "$harness" in
+        grok|pi|pi-signed) threshold=$((cadence + SECONDMATE_WAKE_STALL_GRACE_SECS)) ;;
+        *) threshold=$cadence ;;
+      esac
+      ;;
+  esac
+  printf '%s\n' "$threshold"
+}
+
+# Surface one durable parent check for one unchanged unclaimed non-parked foreign
+# row after its cadence-aware age, or immediately when the mate's watcher beacon
+# is stale. The primary marker and queued-key check make repeated watcher cycles
+# converge without a notification storm, while a queue with no eligible row
+# clears only this home's stall bookkeeping so a later row can be observed.
 secondmate_wake_stall_tick() {
-  local now=$(( $(date +%s) )) threshold=$SECONDMATE_WAKE_STALL_SECS
-  local meta task kind remote_host home queue row epoch seq row_key marker receipt receipt_dir notify_key queued age reason
-  case "$threshold" in ''|*[!0-9]*|0) threshold=60 ;; esac
+  local now=$(( $(date +%s) ))
+  local meta task kind remote_host home queue row epoch seq row_key marker receipt receipt_dir notify_key queued age reason harness threshold claimed beacon_stale
   # Endpoint metadata admits this queue-loop check; secondmate-liveness owns registered mates whose endpoint is missing or dead.
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
@@ -430,9 +528,9 @@ secondmate_wake_stall_tick() {
     [ -f "$home/.fm-secondmate-home" ] && [ ! -L "$home/.fm-secondmate-home" ] || continue
     [ "$(cat "$home/.fm-secondmate-home" 2>/dev/null || true)" = "$task" ] || continue
     queue="$home/state/.wake-queue"
-    row=$(secondmate_oldest_queue_row "$queue")
     marker="$STATE/.secondmate-wake-stall-$task"
     receipt_dir="$STATE/.secondmate-wake-stall-receipts/$task"
+    row=$(secondmate_oldest_queue_row "$queue" "")
     if [ -z "$row" ]; then
       rm -f "$marker"
       if [ -e "$receipt_dir" ] || [ -L "$receipt_dir" ]; then
@@ -441,13 +539,24 @@ secondmate_wake_stall_tick() {
       fi
       continue
     fi
+    harness=$(fm_meta_get "$meta" harness)
+    threshold=$(secondmate_stall_threshold "$harness" "$home")
+    beacon_stale=0
+    secondmate_watcher_beacon_stale "$home" && beacon_stale=1
+    if [ "$beacon_stale" -eq 0 ]; then
+      claimed=$(secondmate_claimed_seqs "$home")
+      row=$(secondmate_oldest_queue_row "$queue" "$claimed")
+      [ -n "$row" ] || continue
+    fi
     IFS=$(printf '\t') read -r epoch seq _row_kind _row_key _row_payload <<EOF
 $row
 EOF
     case "$epoch" in ''|*[!0-9]*) continue ;; esac
     case "$seq" in ''|*[!0-9]*) continue ;; esac
     age=$((now - epoch))
-    [ "$age" -ge "$threshold" ] || continue
+    if [ "$beacon_stale" -eq 0 ]; then
+      [ "$age" -ge "$threshold" ] || continue
+    fi
     row_key="$epoch-$seq"
     receipt="$receipt_dir/$row_key"
     if [ -e "$marker" ] || [ -L "$marker" ]; then
