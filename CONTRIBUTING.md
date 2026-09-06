@@ -42,10 +42,9 @@ This is interim until upstream no-mistakes preserves the author template and app
 6. Run `no-mistakes` to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.
    Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
 7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
-   Before staging, replace any legacy `Intent`, `What Changed`, `Risk Assessment`, or `Testing` description with every completed section from [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
-   The pipeline generates the legacy headings, so this replacement is always needed and is never done for you.
-   Branches that have been through the gate carry the finished replacement text at `.github/pr-bodies/<pr-number>.md`; use `bin/fm-pr-body-compose.sh` to combine that narrative with the current PR body before updating it, and `tests/pr-communication.test.sh` keeps every such file passing the same executable communication checks the PR is graded by.
-   Replace only those narrative sections.
+   `pr-communication` grades that live GitHub body, so author the required shape before publish as specified above.
+   A committed `.github/pr-bodies` sidecar is not what CI reads.
+   If a later description edit is needed, replace only the narrative sections.
    Keep no-mistakes' `## Pipeline` section verbatim, including the `Updates from [git push no-mistakes]` signature line and the `<!-- no-mistakes-pipeline-attestation:v1 ... -->` comment, because `Require no-mistakes` reads both from the body and fails when a rewrite deletes them.
    Repeat that check before every branch synchronization and after later description edits.
 
