@@ -1,0 +1,130 @@
+Firstmate PR communication gate — CEO overview overlay
+======================================================
+
+How a captain / CI job would see this: GitHub Actions sets PR_TITLE and PR_BODY
+and runs the two checkers. The shared Lalo assessor still owns template
+completeness. Firstmate's overlay fails a missing CEO overview or one that is
+only implementation intent.
+
+Evidence PRs used as fixtures only (not fetched live, not mutated):
+  FAIL examples: bingb0t5/firstmate#12, #17 (implementation Intent, no CEO overview)
+  PASS examples: bingb0t5/firstmate#14, #18 (captain-facing CEO overview)
+
+======== FAILING SHAPES (must fail Firstmate overlay) ========
+
+### PR #12 implementation-intent — shared Lalo assessor
+title: Harden wake routing and process-event delivery
+body:  tests/fixtures/pr-communication/bodies/12-implementation-intent.md
+exit:  1
+output:
+Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+::error::Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+verdict: FAIL
+
+### PR #12 implementation-intent — Firstmate CEO overlay
+title: Harden wake routing and process-event delivery
+body:  tests/fixtures/pr-communication/bodies/12-implementation-intent.md
+exit:  1
+output:
+Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)
+::error::Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)
+verdict: FAIL
+
+### PR #17 implementation-intent — shared Lalo assessor
+title: Gate second implementation attempts on a Sol spec
+body:  tests/fixtures/pr-communication/bodies/17-implementation-intent.md
+exit:  1
+output:
+Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+::error::Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+verdict: FAIL
+
+### PR #17 implementation-intent — Firstmate CEO overlay
+title: Gate second implementation attempts on a Sol spec
+body:  tests/fixtures/pr-communication/bodies/17-implementation-intent.md
+exit:  1
+output:
+Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)
+::error::Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)
+verdict: FAIL
+
+======== ACCEPTABLE OVERVIEWS (must pass both) ========
+
+### PR #14 captain-facing CEO overview — shared Lalo assessor
+title: Add prioritized local task pulling
+body:  tests/fixtures/pr-communication/bodies/14-ceo-overview.md
+exit:  0
+output:
+PR communication is complete.
+verdict: PASS
+
+### PR #14 captain-facing CEO overview — Firstmate CEO overlay
+title: Add prioritized local task pulling
+body:  tests/fixtures/pr-communication/bodies/14-ceo-overview.md
+exit:  0
+output:
+Firstmate CEO overview is complete.
+verdict: PASS
+
+### PR #18 captain-facing CEO overview — shared Lalo assessor
+title: Serve authenticated fleet snapshot
+body:  tests/fixtures/pr-communication/bodies/18-ceo-overview.md
+exit:  0
+output:
+Clarity check: The CEO overview may contain technical jargon. Rewrite it in plain language where possible.
+PR communication is complete.
+verdict: PASS
+
+### PR #18 captain-facing CEO overview — Firstmate CEO overlay
+title: Serve authenticated fleet snapshot
+body:  tests/fixtures/pr-communication/bodies/18-ceo-overview.md
+exit:  0
+output:
+Firstmate CEO overview is complete.
+verdict: PASS
+
+======== IMPLEMENTATION-ONLY FILLED OVERVIEW (shared pass, overlay fail) ========
+
+### Implementation-only labelled CEO overview — shared Lalo assessor
+title: Harden wake routing and process-event delivery
+body:  tests/fixtures/pr-communication/bodies/implementation-only-overview.md
+exit:  0
+output:
+PR communication is complete.
+verdict: PASS
+
+### Implementation-only labelled CEO overview — Firstmate CEO overlay
+title: Harden wake routing and process-event delivery
+body:  tests/fixtures/pr-communication/bodies/implementation-only-overview.md
+exit:  1
+output:
+Cannot enter staging until completed: CEO overview is only implementation intent; tell the captain what is changing, why it matters, impact, risk, and any decision needed
+::error::Cannot enter staging until completed: CEO overview is only implementation intent; tell the captain what is changing, why it matters, impact, risk, and any decision needed
+verdict: FAIL
+
+======== OTHER COMMUNICATION CHECKS NOT WEAKENED ========
+
+### Incomplete body (no CEO overview, no Validation) — shared assessor
+exit: 1
+output:
+Clarity check: The PR title is very short. State the user or business outcome.
+Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+::error::Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+verdict: FAIL
+
+### Incomplete body — Firstmate CEO overlay
+exit: 1
+output:
+Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)
+::error::Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)
+verdict: FAIL
+
+======== SUMMARY TABLE ========
+case                                         shared     firstmate   
+-------------------------------------------- ---------- ------------
+PR #12 Intent-only (missing CEO overview)    FAIL       FAIL        
+PR #17 Intent-only (missing CEO overview)    FAIL       FAIL        
+PR #14 captain-facing CEO overview           PASS       PASS        
+PR #18 captain-facing CEO overview           PASS       PASS        
+Filled implementation-only CEO overview      PASS       FAIL        
+Incomplete body (other checks still required) FAIL       FAIL        

@@ -1,0 +1,82 @@
+[
+  {
+    "case": "PR #12",
+    "fixture": "tests/fixtures/pr-communication/bodies/12-implementation-intent.md",
+    "title": "Harden wake routing and process-event delivery",
+    "note": "FAIL expected: implementation Intent, no CEO overview",
+    "shared": {
+      "exit": 1,
+      "verdict": "FAIL",
+      "output": "Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)"
+    },
+    "firstmate": {
+      "exit": 1,
+      "verdict": "FAIL",
+      "output": "Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)"
+    }
+  },
+  {
+    "case": "PR #17",
+    "fixture": "tests/fixtures/pr-communication/bodies/17-implementation-intent.md",
+    "title": "Gate second implementation attempts on a Sol spec",
+    "note": "FAIL expected: implementation Intent, no CEO overview",
+    "shared": {
+      "exit": 1,
+      "verdict": "FAIL",
+      "output": "Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)"
+    },
+    "firstmate": {
+      "exit": 1,
+      "verdict": "FAIL",
+      "output": "Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)"
+    }
+  },
+  {
+    "case": "PR #14",
+    "fixture": "tests/fixtures/pr-communication/bodies/14-ceo-overview.md",
+    "title": "Add prioritized local task pulling",
+    "note": "PASS expected: captain-facing CEO overview",
+    "shared": {
+      "exit": 0,
+      "verdict": "PASS",
+      "output": "PR communication is complete."
+    },
+    "firstmate": {
+      "exit": 0,
+      "verdict": "PASS",
+      "output": "Firstmate CEO overview is complete."
+    }
+  },
+  {
+    "case": "PR #18",
+    "fixture": "tests/fixtures/pr-communication/bodies/18-ceo-overview.md",
+    "title": "Serve authenticated fleet snapshot",
+    "note": "PASS expected: captain-facing CEO overview",
+    "shared": {
+      "exit": 0,
+      "verdict": "PASS",
+      "output": "Clarity check: The CEO overview may contain technical jargon. Rewrite it in plain language where possible.\nPR communication is complete."
+    },
+    "firstmate": {
+      "exit": 0,
+      "verdict": "PASS",
+      "output": "Firstmate CEO overview is complete."
+    }
+  },
+  {
+    "case": "implementation-only labelled overview",
+    "fixture": "tests/fixtures/pr-communication/bodies/implementation-only-overview.md",
+    "title": "Harden wake routing and process-event delivery",
+    "note": "shared PASS / overlay FAIL: labels filled with implementation intent",
+    "shared": {
+      "exit": 0,
+      "verdict": "PASS",
+      "output": "PR communication is complete."
+    },
+    "firstmate": {
+      "exit": 1,
+      "verdict": "FAIL",
+      "output": "Cannot enter staging until completed: CEO overview is only implementation intent; tell the captain what is changing, why it matters, impact, risk, and any decision needed"
+    }
+  }
+]

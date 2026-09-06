@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Firstmate CEO overview gate — fixture verdicts</title>
+<style>
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 24px; background: #0f1419; color: #e7ecf3; }
+  h1 { font-size: 1.4rem; }
+  p, .note { color: #9aa7b5; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #2a3542; padding: 12px; vertical-align: top; }
+  th { background: #1b242e; text-align: left; }
+  .pass { background: #143d24; color: #7dffa0; padding: 2px 8px; border-radius: 4px; font-weight: 700; }
+  .fail { background: #4a1520; color: #ff8fa3; padding: 2px 8px; border-radius: 4px; font-weight: 700; }
+  pre { white-space: pre-wrap; font-size: 12px; color: #c9d4e0; margin: 8px 0 0; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .note { font-size: 12px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<h1>Firstmate CEO overview gate</h1>
+<p>Public CLI experience of the two GitHub Actions checkers against fixture PR bodies.
+Shared Lalo assessor owns template completeness. Firstmate overlay fails a missing or
+implementation-only CEO overview. Fixtures stand in for PRs #12/#17 (fail) and #14/#18 (pass);
+those PRs were not fetched or mutated.</p>
+<table>
+  <thead>
+    <tr><th>Case</th><th>PR title</th><th>Shared Lalo assessor</th><th>Firstmate CEO overlay</th></tr>
+  </thead>
+  <tbody>
+    
+    <tr>
+      <td><strong>PR #12</strong><div class="note">FAIL expected: implementation Intent, no CEO overview</div></td>
+      <td class="mono">Harden wake routing and process-event delivery</td>
+      <td><span class="fail">FAIL</span><pre>Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)</pre></td>
+      <td><span class="fail">FAIL</span><pre>Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)</pre></td>
+    </tr>
+    <tr>
+      <td><strong>PR #17</strong><div class="note">FAIL expected: implementation Intent, no CEO overview</div></td>
+      <td class="mono">Gate second implementation attempts on a Sol spec</td>
+      <td><span class="fail">FAIL</span><pre>Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)</pre></td>
+      <td><span class="fail">FAIL</span><pre>Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)</pre></td>
+    </tr>
+    <tr>
+      <td><strong>PR #14</strong><div class="note">PASS expected: captain-facing CEO overview</div></td>
+      <td class="mono">Add prioritized local task pulling</td>
+      <td><span class="pass">PASS</span><pre>PR communication is complete.</pre></td>
+      <td><span class="pass">PASS</span><pre>Firstmate CEO overview is complete.</pre></td>
+    </tr>
+    <tr>
+      <td><strong>PR #18</strong><div class="note">PASS expected: captain-facing CEO overview</div></td>
+      <td class="mono">Serve authenticated fleet snapshot</td>
+      <td><span class="pass">PASS</span><pre>Clarity check: The CEO overview may contain technical jargon. Rewrite it in plain language where possible.
+PR communication is complete.</pre></td>
+      <td><span class="pass">PASS</span><pre>Firstmate CEO overview is complete.</pre></td>
+    </tr>
+    <tr>
+      <td><strong>implementation-only labelled overview</strong><div class="note">shared PASS / overlay FAIL: labels filled with implementation intent</div></td>
+      <td class="mono">Harden wake routing and process-event delivery</td>
+      <td><span class="pass">PASS</span><pre>PR communication is complete.</pre></td>
+      <td><span class="fail">FAIL</span><pre>Cannot enter staging until completed: CEO overview is only implementation intent; tell the captain what is changing, why it matters, impact, risk, and any decision needed</pre></td>
+    </tr>
+  </tbody>
+</table>
+</body>
+</html>
