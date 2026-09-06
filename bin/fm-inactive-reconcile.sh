@@ -626,9 +626,16 @@ active_management_locked() { # <id> <meta> <timeout>
   IFS=$'\t' read -r progress_signature progress_epoch progress_measured <<EOF
 $progress_row
 EOF
-  [ -n "$progress_signature" ] || [ -n "$decision_rows" ] || return 0
   record=$(active_record_path "$id")
   active_record_read "$record"
+  if [ -z "$progress_signature" ] && [ -z "$decision_rows" ]; then
+    if [ -n "$ACTIVE_RECORD_SIGNATURE" ] || [ -n "$ACTIVE_RECORD_DECISION_SIGNATURE" ] \
+      || [ -n "$ACTIVE_RECORD_DECISION_ALERT_FINGERPRINT" ] || [ -n "$ACTIVE_RECORD_DECISION_ALERT_EPOCH" ] \
+      || [ -n "$ACTIVE_RECORD_PROGRESS_ALERT_FINGERPRINT" ] || [ -n "$ACTIVE_RECORD_PROGRESS_ALERT_EPOCH" ]; then
+      active_record_write "$id" '' '' '' '' '' '' '' || return 1
+    fi
+    return 0
+  fi
   old_signature=$ACTIVE_RECORD_SIGNATURE
   if [ "$old_signature" = "$progress_signature" ]; then
     case "$ACTIVE_RECORD_PROGRESS_EPOCH" in ''|*[!0-9]*|0) : ;;
@@ -650,7 +657,7 @@ EOF
   if [ -n "$decision_rows" ]; then
     decision_alert_fingerprint="decision|$decision_signature"
     if [ "$ACTIVE_RECORD_DECISION_ALERT_FINGERPRINT" != "$decision_alert_fingerprint" ] \
-      && status_surfaced_matches "$STATE" "$id" "$last_line"; then
+      && fm_wake_signal_seen_current "$STATE" "$status"; then
       # The per-wake path already showed the captain this exact line, so this
       # first observation only starts the re-surface clock. An obligation the
       # per-wake path never surfaced has no matching marker and is queued below

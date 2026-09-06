@@ -710,6 +710,25 @@ test_unresolved_decision_is_routed_once_and_survives_restart() {
   pass "unresolved decisions route durably without an automatic answer or storm"
 }
 
+test_resolved_decision_reopens_as_a_new_obligation() {
+  local now payload decision
+  make_world decision-reopen
+  now=$(date +%s)
+  write_child "$MAIN" child 'needs-decision [key=api]: choose X'
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  payload=$(awk -F '\t' '$3 == "signal" { print $5 }' "$MAIN/state/.wake-queue")
+  [ -n "$payload" ] || fail "the initial decision was not routed"
+  ack_wakes "$MAIN" || fail "the initial decision wake could not be acknowledged"
+  printf 'resolved [key=api]: answered\n' >> "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 1)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  decision=$(PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; classify_signal "${2#signal: }" "$3"' _ "$ROOT/bin/fm-supervise-daemon.sh" "$payload" "$MAIN/state")
+  case "$decision" in escalate\|*) fail "a resolved decision was escalated from stale durable state" ;; esac
+  printf 'needs-decision [key=api]: choose X\n' >> "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW=$((now + 2)) FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] || fail "an identical reopened decision was suppressed"
+  pass "resolved decisions clear their alert generation before reopening"
+}
+
 test_open_decision_does_not_suppress_overdue_progress() {
   make_world decision-and-progress
   write_child "$MAIN" child 'needs-decision [key=api]: choose the API'
@@ -1301,6 +1320,7 @@ test_wrap_truncated_at_the_origin_completes_the_sweep
 test_help_renders_the_whole_contract_block
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
+test_resolved_decision_reopens_as_a_new_obligation
 test_open_decision_does_not_suppress_overdue_progress
 test_fresh_lane_does_not_hide_an_overdue_independent_lane
 test_fresh_progress_is_not_aged_from_task_creation
