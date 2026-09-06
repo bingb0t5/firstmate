@@ -1,0 +1,1 @@
+check: secondmate wake-loop stalled: mate=mate row=7 age=408s

@@ -1,0 +1,179 @@
+Cadence-aware stall detector — operator-facing checkpoint demo
+production entry: /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1VWRW19NBCC4MZXWF26HS6J/bin/fm-watch-checkpoint.sh
+started: 2026-09-06T17:54:46Z
+
+Defaults: Grok notify cadence 180s + 30s grace = 210s
+          Pi branch claim cadence 300s + 30s grace = 330s
+          Page on cadence+grace exceeded OR stale watcher beacon
+          Detection from recorded harness=/live branch grant, never pane text
+
+========================================================================
+CASE 01-grok-175s-waiting-quiet
+Healthy Grok Waiting notify cycle (175s, infra-ops 110-175s band)
+why: Grok cadence 180s + 30s grace = 210s. 175s must stay silent.
+recorded harness=grok  row_age=175s  beacon_age=0s  claimed=None
+pane text: 'Waiting for background command'
+foreign wake-queue before: '1788717111\t7\tcheck\trouted\tcheck: routed row\n'
+checkpoint exit=124
+--- stdout ---
+checkpoint: no actionable wake within 2s
+--- stderr ---
+(empty)
+--- parent wake-queue ---
+(empty)
+foreign queue byte-stable: True
+observed: quiet (no page)  expected: quiet  => PASS
+
+========================================================================
+CASE 02-grok-175s-ready-quiet
+Same Grok 175s wait with pane text 'ready>' (not Waiting)
+why: If detection guessed pane text, ready> might look stalled. Recorded harness=grok keeps it quiet.
+recorded harness=grok  row_age=175s  beacon_age=0s  claimed=None
+pane text: 'ready>'
+foreign wake-queue before: '1788717111\t7\tcheck\trouted\tcheck: routed row\n'
+checkpoint exit=124
+--- stdout ---
+checkpoint: no actionable wake within 2s
+--- stderr ---
+(empty)
+--- parent wake-queue ---
+(empty)
+foreign queue byte-stable: True
+observed: quiet (no page)  expected: quiet  => PASS
+
+========================================================================
+CASE 03-grok-250s-ready-page
+Grok unclaimed row past cadence+grace (250s > 210s)
+why: Cadence+grace exceeded. Pages even though pane is not Waiting.
+recorded harness=grok  row_age=250s  beacon_age=0s  claimed=None
+pane text: 'ready>'
+foreign wake-queue before: '1788717036\t7\tcheck\trouted\tcheck: routed row\n'
+checkpoint exit=0
+--- stdout ---
+check: secondmate wake-loop stalled: mate=mate row=7 age=255s
+--- stderr ---
+(empty)
+--- parent wake-queue ---
+1788717291	1	check	secondmate-wake-loop-mate-1788717036-7	check: secondmate wake-loop stalled: mate=mate row=7 age=255s
+foreign queue byte-stable: True
+observed: PAGED parent  expected: PAGE  => PASS
+
+========================================================================
+CASE 04-grok-120s-stale-beacon-page
+Grok 120s wait with stale watcher beacon (400s old)
+why: Inside Grok cadence, but stale beacon pages immediately.
+recorded harness=grok  row_age=120s  beacon_age=400s  claimed=None
+pane text: 'Waiting for background command'
+foreign wake-queue before: '1788717166\t7\tcheck\trouted\tcheck: routed row\n'
+checkpoint exit=0
+--- stdout ---
+check: secondmate wake-loop stalled: mate=mate row=7 age=125s
+--- stderr ---
+(empty)
+--- parent wake-queue ---
+1788717291	1	check	secondmate-wake-loop-mate-1788717166-7	check: secondmate wake-loop stalled: mate=mate row=7 age=125s
+foreign queue byte-stable: True
+observed: PAGED parent  expected: PAGE  => PASS
+
+========================================================================
+CASE 05-pi-274s-ready-quiet
+Pi branch actor claim window (274s, a few minutes)
+why: Pi cadence 300s + 30s grace = 330s. 274s must stay silent.
+recorded harness=pi  row_age=274s  beacon_age=0s  claimed=None
+pane text: 'ready>'
+foreign wake-queue before: '1788717012\t7\tcheck\trouted\tcheck: routed row\n'
+checkpoint exit=124
+--- stdout ---
+checkpoint: no actionable wake within 2s
+--- stderr ---
+(empty)
+--- parent wake-queue ---
+(empty)
+foreign queue byte-stable: True
+observed: quiet (no page)  expected: quiet  => PASS
+
+========================================================================
+CASE 06-pi-400s-waiting-page
+Pi unclaimed row past claim window (400s > 330s) with Waiting pane
+why: If detection guessed pane Waiting text, this would stay quiet. Recorded harness=pi pages.
+recorded harness=pi  row_age=400s  beacon_age=0s  claimed=None
+pane text: 'Waiting for background command'
+foreign wake-queue before: '1788716886\t7\tcheck\trouted\tcheck: routed row\n'
+checkpoint exit=0
+--- stdout ---
+check: secondmate wake-loop stalled: mate=mate row=7 age=408s
+--- stderr ---
+(empty)
+--- parent wake-queue ---
+1788717294	1	check	secondmate-wake-loop-mate-1788716886-7	check: secondmate wake-loop stalled: mate=mate row=7 age=408s
+foreign queue byte-stable: True
+observed: PAGED parent  expected: PAGE  => PASS
+
+========================================================================
+CASE 07-pi-400s-live-claim-quiet
+Pi over-window row already claimed by a live branch actor
+why: Claimed rows stay with the live Pi actor. Parent does not page.
+recorded harness=pi  row_age=400s  beacon_age=0s  claimed=live
+pane text: 'ready>'
+foreign wake-queue before: '1788716886\t7\tcheck\trouted\tcheck: routed row\n'
+checkpoint exit=0
+--- stdout ---
+check: secondmate wake-loop stalled: mate=mate row=7 age=409s
+--- stderr ---
+(empty)
+--- parent wake-queue ---
+1788717295	1	check	secondmate-wake-loop-mate-1788716886-7	check: secondmate wake-loop stalled: mate=mate row=7 age=409s
+foreign queue byte-stable: True
+observed: PAGED parent  expected: quiet  => FAIL
+
+========================================================================
+CASE 08-pi-400s-dead-claim-page
+Pi over-window row with a dead branch grant leftover
+why: Dead leftovers cannot hide a stall.
+recorded harness=pi  row_age=400s  beacon_age=0s  claimed=dead
+pane text: 'ready>'
+foreign wake-queue before: '1788716886\t7\tcheck\trouted\tcheck: routed row\n'
+checkpoint exit=0
+--- stdout ---
+check: secondmate wake-loop stalled: mate=mate row=7 age=409s
+--- stderr ---
+(empty)
+--- parent wake-queue ---
+1788717295	1	check	secondmate-wake-loop-mate-1788716886-7	check: secondmate wake-loop stalled: mate=mate row=7 age=409s
+foreign queue byte-stable: True
+observed: PAGED parent  expected: PAGE  => PASS
+
+========================================================================
+CASE 09-lease-steer-no-regression
+Keep lease and steer: branch grant cannot swallow a main-owned row
+grant activate exit=0 err=''
+grant publish 2 3 exit=0 err=''
+--- branch drain stdout ---
+1788717295	2	signal	task-a.status	signal: task-a
+1788717296	3	stale	fm-window	stale: fm-window
+--- branch drain stderr ---
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 3 --recovery-generation 2168658.1788717295.eseEOC
+branch ack exit=0
+--- queue after branch ack ---
+1788717295	1	check	some-poll.check.sh	check: some-poll.check.sh: merged
+branch saw signal=True stale=True swallowed_main=False main_survived_ack=True
+observed: lease/grant intact  expected: branch cannot swallow main row  => PASS
+========================================================================
+DEMO RESULT: FAILURES PRESENT
+
+========================================================================
+CASE 07 CORRECTION (live Pi claim, matching pid+identity like production grant)
+The first 07 run used a Python pid with a bash-subprocess identity, so the
+grant looked dead and paged. Re-ran with write_live_branch_owner semantics
+(fm-branch-eligible-owner-v1 + $$ + fm_pid_identity $$ + gen1).
+
+--- stdout ---
+checkpoint: no actionable wake within 2s
+--- stderr ---
+(empty)
+--- parent wake-queue ---
+(empty)
+foreign queue byte-stable: yes
+observed: quiet (no page)  expected: quiet  => PASS
+
+DEMO RESULT: ALL PASS (after live-claim fixture identity match)

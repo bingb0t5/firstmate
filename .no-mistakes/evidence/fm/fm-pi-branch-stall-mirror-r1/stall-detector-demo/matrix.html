@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Stall detector checkpoint matrix</title>
+<style>
+body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 2rem; background:#0b1220; color:#e5e7eb; }
+h1 { font-size: 1.4rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #334155; padding: 8px 10px; text-align: left; font-size: 13px; }
+th { background: #1e293b; }
+tr.pass { background:#14532d; color:#dcfce7; }
+code { background:#111827; padding: 1px 4px; }
+.note { color:#94a3b8; max-width: 70rem; }
+.page { font-family: ui-monospace, monospace; background:#111827; padding: 8px 12px; border-radius: 6px; }
+</style></head>
+<body>
+<h1>Cadence-aware stall detector — parent checkpoint</h1>
+<p class="note">End-user surface: <code>bin/fm-watch-checkpoint.sh</code> either prints
+<code>check: secondmate wake-loop stalled: mate=… row=…</code> or stays quiet.
+Grok healthy Waiting cycles (175s) and Pi claim-window waits (274s) must not page.
+Page only past cadence+grace or when the watcher beacon is stale. Pane text is not consulted.</p>
+<table>
+<thead><tr><th>Case</th><th>Recorded state</th><th>Pane</th><th>Age</th><th>Expected</th><th>Observed</th><th>Result</th></tr></thead>
+<tbody>
+<tr class="pass"><td>01-grok-175s-waiting-quiet</td><td>harness=grok</td><td><code>Waiting for background command</code></td><td>175s</td><td>quiet</td><td>quiet (no page)</td><td><b>PASS</b></td></tr>
+<tr class="pass"><td>02-grok-175s-ready-quiet</td><td>harness=grok</td><td><code>ready&gt;</code></td><td>175s</td><td>quiet</td><td>quiet (no page)</td><td><b>PASS</b></td></tr>
+<tr class="pass"><td>03-grok-250s-ready-page</td><td>harness=grok</td><td><code>ready&gt;</code></td><td>250s</td><td>PAGE</td><td>PAGED parent</td><td><b>PASS</b></td></tr>
+<tr class="pass"><td>04-grok-120s-stale-beacon-page</td><td>harness=grok, stale beacon</td><td><code>Waiting for background command</code></td><td>120s</td><td>PAGE</td><td>PAGED parent</td><td><b>PASS</b></td></tr>
+<tr class="pass"><td>05-pi-274s-ready-quiet</td><td>harness=pi</td><td><code>ready&gt;</code></td><td>274s</td><td>quiet</td><td>quiet (no page)</td><td><b>PASS</b></td></tr>
+<tr class="pass"><td>06-pi-400s-waiting-page</td><td>harness=pi</td><td><code>Waiting for background command</code></td><td>400s</td><td>PAGE</td><td>PAGED parent</td><td><b>PASS</b></td></tr>
+<tr class="pass"><td>07-pi-400s-live-claim-quiet</td><td>harness=pi, live branch grant seq 7</td><td><code>ready&gt;</code></td><td>400s</td><td>quiet</td><td>quiet (no page)</td><td><b>PASS</b></td></tr>
+<tr class="pass"><td>08-pi-400s-dead-claim-page</td><td>harness=pi, dead grant leftover</td><td><code>ready&gt;</code></td><td>400s</td><td>PAGE</td><td>PAGED parent</td><td><b>PASS</b></td></tr>
+<tr class="pass"><td>09-lease-steer-no-regression</td><td>branch grant seq 2-3; main owns seq 1</td><td>n/a</td><td>n/a</td><td>main row survives</td><td>lease/grant intact</td><td><b>PASS</b></td></tr>
+</tbody></table>
+<p class="page">Paged example (Grok 250s):<br>check: secondmate wake-loop stalled: mate=mate row=7 age=255s</p>
+<p class="page">Quiet example (Grok 175s Waiting):<br>checkpoint: no actionable wake within 2s</p>
+<p class="note">Foreign mate queues stayed byte-stable (read-only observation). Live Pi claims stay with the actor; dead grants cannot hide a stall.</p>
+</body></html>

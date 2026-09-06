@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -u
+if [ "${1:-}" = "list-windows" ]; then
+  printf "%s\n" "${FM_FAKE_TMUX_WINDOW#*:}"
+  exit 0
+fi
+if [ "${1:-}" = "capture-pane" ]; then
+  cat "$FM_FAKE_TMUX_CAPTURE"
+  exit 0
+fi
+if [ "${1:-}" = "display-message" ]; then
+  printf "0\n"
+  exit 0
+fi
+exit 0

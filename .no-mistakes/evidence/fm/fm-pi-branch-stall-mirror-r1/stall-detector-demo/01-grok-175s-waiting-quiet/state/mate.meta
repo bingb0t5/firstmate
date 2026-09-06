@@ -1,0 +1,5 @@
+window=firstmate:fm-mate
+kind=secondmate
+harness=grok
+backend=tmux
+home=/home/rich/.no-mistakes/evidence/01M1VWRW19NBCC4MZXWF26HS6J/stall-detector-demo/01-grok-175s-waiting-quiet/secondmate

@@ -1,0 +1,5 @@
+window=firstmate:fm-mate
+kind=secondmate
+harness=pi
+backend=tmux
+home=/home/rich/.no-mistakes/evidence/01M1VWRW19NBCC4MZXWF26HS6J/stall-detector-demo/08-pi-400s-dead-claim-page/secondmate
