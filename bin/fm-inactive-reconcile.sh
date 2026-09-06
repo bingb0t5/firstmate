@@ -1294,6 +1294,21 @@ scan() {
     write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
   elif [ "$rc" -ne 3 ]; then
     return "$rc"
+  else
+    # A regular-pass timeout can happen when candidate evidence was partial or
+    # could not recognize the live work.  Preserve status-declared terminal
+    # outcomes through the same bounded backstop as an active-pass timeout.
+    if [ "$wrapping" -eq 0 ]; then
+      scan_terminal_pass "$cursor" '' "$deadline" "$self" || terminal_rc=$?
+      if [ "$terminal_rc" -eq 0 ] && [ -n "$SCAN_ORIGIN" ]; then
+        cursor=''
+        wrapping=1
+      fi
+    fi
+    if [ "$terminal_rc" -eq 0 ] && [ "$wrapping" -eq 1 ]; then
+      scan_terminal_pass "$cursor" "$SCAN_ORIGIN" "$deadline" "$self" || terminal_rc=$?
+    fi
+    [ "$terminal_rc" -eq 0 ] || [ "$terminal_rc" -eq 3 ] || return "$terminal_rc"
   fi
 }
 

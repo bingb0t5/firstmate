@@ -615,7 +615,9 @@ test_cold_cursor_sweep_still_wraps_after_a_truncation() {
   make_world cold-cursor
   write_child "$MAIN" a 'done: green'
   write_child "$MAIN" b 'working: quietly under way'
-  write_child "$MAIN" c 'working: state read will stall'
+  # Keep c outside the priority candidate set so its stalled authoritative
+  # state read exercises the ordinary resumable pass and its terminal backstop.
+  write_child "$MAIN" c 'note: state read will stall'
   write_child "$MAIN" d 'done: green'
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
 #!/usr/bin/env bash
@@ -631,7 +633,7 @@ SH
 
   FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN"
   grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
-    || fail "the active timeout suppressed the earlier terminal outcome"
+    || fail "the ordinary-pass timeout suppressed the earlier terminal outcome"
   run_reconcile "$MAIN"
   grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
     || fail "the resumed sweep dropped its outstanding wrap segment: $(cat "$MAIN/state/.wake-queue" 2>/dev/null)"
