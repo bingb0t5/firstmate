@@ -21,6 +21,12 @@ The assessment rules are vendored from `lalo-admin`; the local pin always guards
 Firstmate also fails a missing CEO overview or one that is only implementation intent; that extra check is owned by `scripts/pr-communication/firstmateCeoOverview.ts` and does not replace the shared template sections.
 The remote comparison fails closed when the credential is missing or rejected, and only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.
 
+For every no-mistakes run in this repository, author the run intent in the gate-required PR shape before the pipeline publishes the live GitHub body, so the first `github.event.pull_request.body` event already passes `pr-communication`.
+Use the full shared template: `## CEO overview` with What is changing, Why it matters, Customer or business impact, and Risk and rollout; `## What changed technically`; `## Validation` with Checks passed, Checks not run, and Evidence and limitations; `## Module-boundary decision`; and `## Decision needed`.
+The current pipeline can replace the live description with Intent-shaped text.
+Do not rely on a committed `.github/pr-bodies` sidecar because CI grades the live body.
+This is interim until upstream no-mistakes preserves the author template and appends attestation ([kunchenguid/no-mistakes#995](https://github.com/kunchenguid/no-mistakes/issues/995)).
+
 ## Workflow
 
 1. Fork the repo, then clone the parent repo or set your local `origin` back to the parent (`git@github.com:bingb0t5/firstmate.git`).
