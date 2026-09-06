@@ -1,0 +1,21 @@
+# Observable end-to-end verification
+## Live no-mistakes CI remains non-terminal
+state: working · source: run-step · PR https://github.com/o/r/pull/2 checks green · run still monitoring PR
+## Pi MCP banner is an idle composer, so inbox delivery rings
+composer verdict: empty
+typed terminal input:
+Firstmate instruction waiting: list /tmp/fm-send-inbox.sfgoHB/observable-pi/home/state/t1.inbox/*.msg and, in numeric order, read and act on each, then mv each handled file to /tmp/fm-send-inbox.sfgoHB/observable-pi/home/state/t1.inbox/handled/.
+durable inbox record:
+ring through the status banner
+## Large candidate evidence remains visible but non-escalating
+partial coverage marker:
+schema=fm-inactive-reconcile-partial.v1
+coverage=partial
+known_active=1
+epoch=1788694820
+capacity escalation: absent
+
+## Regression counterfactual: pre-change Pi banner would suppress the doorbell
+base-commit composer verdict: pending
+target-commit composer verdict: empty
+normalized regression contrast: base=pending (doorbell skipped), target=empty (doorbell rings)

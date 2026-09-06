@@ -1,0 +1,257 @@
+# Targeted validation transcript
+target=0fe02718f3856811a635014f0241e0d7a9fa9284
+tests/fm-crew-state.test.sh
+ok - active run-step is authoritative
+ok - stale needs-decision over active run is superseded
+ok - stale blocked over active run is superseded
+ok - genuine parked run is not flagged superseded
+ok - scalar gate parked run is not flagged superseded
+ok - gate block parked run is not flagged superseded
+ok - ci-ready status log stays nonterminal while monitoring run is live
+ok - ci-monitoring run with checks already green stays nonterminal
+ok - top-level ci status uses ci log green marker without terminalizing
+ok - live no-checks ci-monitor marker stays nonterminal
+ok - base-advance rearm after green stays working
+ok - pending no-checks ci-monitor marker stays working
+ok - ci-monitoring run with checks not yet green stays working
+ok - a fresh issue after an earlier green reading is not masked
+ok - stale checks-green status log does not mask CI relapse
+ok - ci fixing is not overridden by an earlier green marker
+ok - top-level fixing is not overridden by a stale ci running row
+ok - top-level fixing is not overridden by a stale done log
+ok - terminal passed run is authoritative
+ok - terminal failed run is authoritative
+ok - live CI status outranks stale failure outcome
+ok - cross-branch run is attributed via the real runs list
+ok - cross-branch attribution picks the branch's most recent row
+ok - coarse run does not probe another branch's ci log
+ok - another branch's run is ignored, falls back
+ok - no run + a busy semantic record reads working, attributed to its source
+ok - a converted adapter never reads working from rendered footer text
+ok - grok still reads working through its isolated rendered-tail fallback
+ok - herdr's native busy verdict reads working with no record present
+ok - a mid-tool-call crew stays working because its record outranks herdr's generation state
+ok - an idle record with idle agent_status stays not-busy (no regression for a human-blocked agent)
+ok - no run + idle pane uses the status-log verb
+ok - no run + idle pane parses keyed status syntax
+ok - no run + idle pane on a paused: status reports state: paused with its reason
+ok - status history never silences a current external wait or changes torn-down state
+ok - no run + idle pane honors the configured paused verb
+ok - a trailing resolved: event does not corrupt state render (idle stays idle)
+ok - dead window ignores stale status log
+ok - closed pane still reports a terminal run-step
+ok - closed pane still reports an active run-step
+ok - no timeout command uses perl bound
+ok - scout skips the run lookup
+ok - torn-down worktree is handled gracefully
+ok - fm-crew-state remote: alive endpoint falls through to the routed status log
+ok - fm-crew-state remote: an idle alive endpoint reads alive, never gone or dead
+ok - fm-crew-state remote: an unreachable host reads unknown-remote, never gone or dead
+ok - fm-crew-state remote: the remote host's own dead verdict is reported truthfully
+ok - missing meta is handled gracefully
+ok - crew_is_provably_working absorbs a validating crew found only via the runs-list fallback
+ok - crew_is_provably_working still surfaces a genuinely stopped crew (safety property preserved)
+ok - usage error exits 2
+ok - historical same-branch rewritten head is not attributed as current
+ok - active run with valid descendant fix head remains current
+ok - local work advanced past run head invalidates attribution
+ok - missing run head falls back instead of matching by branch
+all fm-crew-state tests passed
+tests/fm-inactive-reconcile.test.sh
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - main direct terminal presentation has a durable receipt
+ok - secondmate reports its own inactive terminal child
+actionable: inactive terminal outcome needs parent report: child=child state=failed
+ok - relative local parent homes fail closed
+ok - invalid secondmate markers block routing and surface the obligation
+ok - remote parent-replies mirror input is durable and idempotent
+ok - reused task ids retain per-incarnation terminal receipts
+ok - legacy metadata rewrites preserve terminal receipt identity
+ok - relaunch cannot replace metadata during terminal snapshot
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - terminal reconciliation ignores heartbeat backoff state
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - scan marker replaces a symlink without overwriting its target
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - nonterminal and captain-held workers remain outside inactive terminal reporting
+ok - post-completion pauses remain outside inactive terminal reporting
+ok - watcher hook wakes for terminal loss and preserves idle secondmate exemption
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/bounded/main/state/a.status (unresolved decisions count=1 fingerprint=b8978e297105af294d659aaa9b744366 generation=e43a24a537aebfaabd83b7a24926d4b9)
+actionable: inactive terminal outcome awaiting captain presentation: child=b state=done pr=https://example.test/owner/repo/pull/1
+ok - stalled state reads are bounded without starving later children
+actionable: check: bounded due-work check exceeded 2s for firstmate:fm-child
+ok - the complete per-child due-work check is process-bounded
+actionable: stale: firstmate:fm-a (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - a short state-read timeout defers the child
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - untimestamped progress does not invent a duration
+Terminated
+ok - aggregate scan budget includes durable wake operations
+actionable: inactive terminal outcome needs parent report: child=child state=failed
+ok - notice recovery remains idempotent across queue acknowledgement
+ok - quiet active scans use local evidence without a current-state/model read
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - overdue active work surfaces through a targeted wake despite chatter
+ok - a live run or busy pane is absorbed instead of surfaced as overdue
+ok - an unreadable current-state verdict is absorbed instead of parsed
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - a terminal current-state verdict is left to the terminal-outcome path
+actionable: inactive terminal outcome awaiting captain presentation: child=d state=done pr=https://example.test/owner/repo/pull/1
+actionable: inactive terminal outcome awaiting captain presentation: child=a state=done pr=https://example.test/owner/repo/pull/1
+ok - a truncated cold-cursor sweep still wraps back over its earlier children
+actionable: inactive terminal outcome awaiting captain presentation: child=c state=done pr=https://example.test/owner/repo/pull/1
+actionable: inactive terminal outcome awaiting captain presentation: child=a state=done pr=https://example.test/owner/repo/pull/1
+ok - terminal passes preserve their active continuation
+actionable: inactive terminal outcome awaiting captain presentation: child=b state=done pr=https://example.test/owner/repo/pull/1
+ok - terminal passes reach wrapped origins without stranding active work
+ok - --help renders a complete contract block
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/indented-decision/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=5dfd12a038e57f78388762dc2e1531f4)
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - indented status events are folded like any other
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/active-decision/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+ok - unresolved decisions route durably without an automatic answer or storm
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/decision-reopen/main/state/child.status (unresolved decisions count=1 fingerprint=2fb7d433181e77c4b5ae71570abbf265 generation=a0b5535a04539cdde381af105245d168)
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/decision-reopen/main/state/child.status (unresolved decisions count=1 fingerprint=2fb7d433181e77c4b5ae71570abbf265 generation=d6147e83e450e0e0847802a10655fcbf)
+ok - resolved decisions clear their alert generation before reopening
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/decision-and-progress/main/state/child.status (unresolved decisions count=1 fingerprint=b35ceedbbe7a2553122757943f8fb7d6 generation=db8770078962bb5cb92d2339705a3c35)
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - decision and progress obligations retain independent alerts
+actionable: stale: firstmate:fm-child (active work has no meaningful progress for 120s)
+ok - fresh independent activity does not reset an overdue lane
+ok - fresh progress and bookkeeping resolutions anchor to their event epochs
+ok - decision backstop commits the watcher generation for main and away ownership
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/decision-independent-turn/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/decision-independent-turn/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+ok - decision re-alert leaves independent turn-end signals pending
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/alert-clock/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/alert-clock/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+ok - the decision alert clock survives acknowledgement and re-surfaces on the fleet cadence
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - progress alerts use the fleet re-surface cadence
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/surfaced-decision/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/unsurfaced-decision/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+ok - an already-surfaced decision starts the re-surface clock instead of re-waking
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/surfaced-decision-chatter/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+ok - decision receipts survive unrelated status chatter
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/away-completion-buried-decision/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+ok - away completion does not suppress a buried unresolved decision
+ok - main completion receipts a buried unresolved decision
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/away-push-buried-decision/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+ok - away push transitions do not receipt buried unresolved decisions
+actionable: inactive terminal outcome awaiting captain presentation: child=b state=done pr=https://example.test/owner/repo/pull/1
+ok - active-priority timeouts preserve independent terminal outcomes
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - completed sweep cadence remains anchored to the sweep start
+ok - mixed terminal and active output preserves terminal wake priority
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/away-decision/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/away-decision-buried/main/state/child.status (unresolved decisions count=2 fingerprint=0058c5ce4c2ca26161f905354a65d6d8 generation=3fa27c5b1630c6a968f839b2299ffcce)
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - decision wakes remain actionable after later status appends
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/captain-held-lane/main/state/child.status (unresolved decisions count=1 fingerprint=551b92393d7eeffdd63a44b89a459a33 generation=23b5e23d126b4e4ffae67350106340c2)
+actionable: stale: firstmate:fm-child (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - captain holds remain scoped to their own key
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/away-decision-realert/main/state/child.status (unresolved decisions count=1 fingerprint=dd385106e80347d70631056d74299f2f generation=77075ad152baf591277b63a019281827)
+ok - away decision re-alerts survive status-line deduplication
+actionable: check: due-work capacity exceeded (26 active direct children; maximum 25)
+actionable: inactive terminal outcome awaiting captain presentation: child=achild state=done pr=https://example.test/owner/repo/pull/1
+actionable: stale: firstmate:fm-child01 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child02 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child03 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child04 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child05 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child06 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child07 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child08 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child09 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child10 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child11 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child12 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child13 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child14 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child15 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child16 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child17 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child18 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child19 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child20 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child21 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child22 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child23 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child24 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child25 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: stale: firstmate:fm-child26 (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: check: due-work capacity exceeded (26 active direct children; maximum 25)
+ok - ten-minute cadence is capped and truncated sweeps continue immediately
+ok - declared waits do not exhaust due-work capacity
+actionable: stale: firstmate:fm-zactive (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - active due work precedes declared-wait reconciliation
+actionable: stale: firstmate:fm-zactive (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: check: bounded due-work check exceeded 1s for firstmate:fm-paused
+ok - unbounded candidate evidence is partial and non-escalating
+actionable: stale: firstmate:fm-partial (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - partial candidate remains in the resumable regular sweep
+ok - an empty active set clears its continuation
+actionable: inactive terminal outcome awaiting captain presentation: child=c state=done pr=https://example.test/owner/repo/pull/1
+actionable: inactive terminal outcome awaiting captain presentation: child=a state=done pr=https://example.test/owner/repo/pull/1
+actionable: inactive terminal outcome awaiting captain presentation: child=b state=done pr=https://example.test/owner/repo/pull/1
+ok - legacy hot cursors resume as complete rotating sweeps
+actionable: signal: /tmp/fm-inactive-reconcile.FlQdhw/routed-active/mate/state/mate-child.status (unresolved decisions count=1 fingerprint=8dabf55d43f769495d6d8785afb9fcf5 generation=8a42980da0cab0fb2524784ffc552a10)
+ok - secondmate active-management evidence routes once to its owning actor
+ok - declared waits and the main/secondmate ownership boundary remain intact
+actionable: stale: orca:child-endpoint (active work has no meaningful progress since first observation; no timestamped progress event)
+ok - due-work intervention keys by backend target and never duplicates a queued row
+actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
+ok - reconciliation makes zero forge or PR API calls
+all inactive reconciliation tests passed
+tests/fm-composer-lib.test.sh
+ok - fm_composer_classify_content: a bare shell prompt glyph (>/$/%/#) reads unknown, never empty
+ok - fm_composer_classify_content: stripped unbordered content is unknown except verified agent glyphs
+ok - fm_composer_classify_content: a bare shell prompt carrying a command is not empty
+ok - fm_composer_classify_content: a bare prompt glyph inside a bordered composer box reads empty (claude's own idle composer)
+ok - fm_composer_classify_content: agent prompt glyphs (❯ claude, › codex, ⟩ muse) read empty bordered or bare
+ok - fm_composer_classify_content: an empty composer reads empty
+ok - fm_composer_classify_content: idle matching is limited to proven placeholder positions
+ok - fm_composer_classify_content: idle matching preserves the caller's case mode
+ok - fm_composer_classify_content: real unsubmitted text reads pending (including a popup argument-hint fill)
+ok - matrix: claude's ❯+NBSP row reads empty on every profile in both locales (#1988)
+ok - matrix: codex's dim hint is empty when styling proves it, unknown (never pending) when it cannot
+ok - matrix: muse's ⟩ reads empty everywhere and survives losing the styled-glyph signal
+ok - matrix: cursor's reverse-video placeholder remnant reads empty; real typed text stays pending
+ok - matrix: herdr half-block rules bound a bare composer's wrap region
+ok - matrix: pi's separated composer needs identity + structure; the blank row alone never proves it
+ok - matrix: opencode's left-bar composer reads empty everywhere and scans the full active run
+ok - matrix: grok's titled bottom border is tolerated as a title, not read as ambiguity
+ok - matrix: kimi's bordered shell-glyph box reads empty through the shared owner (spawn's fourth copy retired)
+ok - matrix: the real claude-in-zellij --ansi dump reads empty in both locales
+ok - strict posture: blank and unidentified rows are unknown, never injectable empty
+ok - fm_composer_classify_screen: the bare composer's wrap region stays identified; structure breaks it
+ok - fm_composer_classify_screen: a row-leading agent glyph reanchors the live composer
+ok - fm_composer_classify_screen: a lower dead shell invalidates only cursorless stale composers
+ok - fm_composer_classify_screen: cursorless bare wrap regions participate in verdicts
+ok - fm_composer_classify_screen: cursorless containers reject only contiguous unclaimed activity
+ok - fm_composer_classify_screen: the bottom-most candidate wins; stale banners cannot
+ok - fm_composer_classify_screen: incomplete lower structure invalidates stale boxes
+ok - fm_composer_classify_screen: titled bottoms retain full box geometry
+ok - fm_composer_classify_screen: a proven box tolerates a bottom-border cursor
+ok - fm_composer_extract_selected_content: scopes user content and excludes furniture
+ok - fm_composer_queued_enter_verdict: pending + busy returns empty (queued Enter)
+ok - fm_composer_queued_enter_verdict: pending + idle/unknown stays pending
+ok - fm_composer_queued_enter_verdict: only proven pending is converted
+tests/fm-send-inbox.test.sh
+ok - fm-send inbox: the payload is recorded durably and only the doorbell is typed
+ok - fm-send inbox: newlines are legal and the terminal can no longer truncate a steer
+ok - fm-send inbox: a re-send is a new durable record, never a retyped payload
+ok - fm-send inbox: a visibly pending composer skips the ring, and the steer stays durably sent
+ok - fm-send inbox: a failed doorbell is still a durably sent steer
+ok - fm-send inbox: Pi MCP status banners do not look like pending composer text
+ok - fm-send planes: slash and codex $skill invocations stay typed; plain $-text rides the inbox
+ok - fm-send planes: an explicit backend target keeps the typed plane
+ok - fm-send planes: --inbox-only pins slash and codex dollar steers to the durable inbox
+ok - fm-send planes: the --key lifecycle path never touches the inbox
+ok - fm-send inbox: a secondmate steer records marker+corr in the body and is delivered at enqueue
+ok - fm-send inbox: lost reply bookkeeping never invites a resend, and the delivered steer is never duplicated
+ok - fm-send inbox: metadata lock contention fails bounded without enqueue
+ok - fm-send inbox: an unwritable record is a loud local failure that leaves no false expectation
