@@ -980,6 +980,40 @@ scan_active_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondm
   done
 }
 
+# An incomplete active-management pass must not suppress a status that already
+# declares a terminal outcome, but it must also leave the ordinary sweep cursor
+# for its own resumed pass.
+scan_terminal_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-or-empty>
+  local cursor=$1 upper=$2 deadline=$3 self=${4:-} meta id status remaining rc first=1
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    id=$(basename "$meta" .meta)
+    valid_id "$id" || continue
+    [ -z "$cursor" ] || [[ "$id" > "$cursor" ]] || continue
+    if [ -n "$upper" ] && [[ "$id" > "$upper" ]]; then continue; fi
+    status="$STATE/$id.status"
+    case "$(status_line_verb "$(last_status_line "$status")")" in done|failed) ;; *) continue ;; esac
+    remaining=$((deadline - $(date +%s)))
+    if [ "$first" -eq 1 ] && [ "$remaining" -lt 1 ]; then
+      remaining=1
+    fi
+    [ "$remaining" -gt 0 ] || return 3
+    first=0
+    if fm_run_timed $((remaining + 1)) env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+      FM_INACTIVE_RECONCILE_SECS="$FM_INACTIVE_RECONCILE_SECS" \
+      FM_INACTIVE_RECONCILE_BUDGET_SECS="$FM_INACTIVE_RECONCILE_BUDGET_SECS" \
+      FM_INACTIVE_CREW_STATE_BIN="$CREW_STATE_BIN" "$0" _reconcile-child \
+      "$id" "$meta" "$self" "$remaining"; then
+      :
+    else
+      rc=$?
+      [ "$rc" -eq 124 ] && return 3
+      [ "$rc" -eq 3 ] && return 3
+      return "$rc"
+    fi
+  done
+}
+
 scan_direct_child_count() {
   local meta id kind line count=0
   for meta in "$STATE"/*.meta; do
@@ -1021,7 +1055,7 @@ scan_pending() {
 }
 
 scan() {
-  local startup=${1:-0} self='' cursor active_cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0 candidate_rc=0 remaining candidate_timeout
+  local startup=${1:-0} self='' cursor active_cursor deadline rc=0 marker_rc=0 marker_age cadence_age now child_count direct_child_count active_timeout regular_skip_active=0 candidate_rc=0 remaining candidate_timeout terminal_rc=0
   local resuming=0 wrapping=0 legacy_cursor=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
@@ -1174,7 +1208,24 @@ scan() {
       write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
     fi
   fi
-  [ "$rc" -eq 0 ] || { [ "$rc" -eq 3 ] && return 0; return "$rc"; }
+  # Keep an incomplete active pass resumable, but still surface status-declared
+  # terminal outcomes without advancing the ordinary-sweep cursor.
+  if [ "$rc" -eq 3 ]; then
+    if [ "$wrapping" -eq 0 ]; then
+      scan_terminal_pass "$cursor" '' "$deadline" "$self" || terminal_rc=$?
+      if [ "$terminal_rc" -eq 0 ] && [ -n "$SCAN_ORIGIN" ]; then
+        cursor=''
+        wrapping=1
+      fi
+    fi
+    if [ "$terminal_rc" -eq 0 ] && [ "$wrapping" -eq 1 ]; then
+      scan_terminal_pass "$cursor" "$SCAN_ORIGIN" "$deadline" "$self" || terminal_rc=$?
+    fi
+    [ "$terminal_rc" -eq 0 ] || [ "$terminal_rc" -eq 3 ] || return "$terminal_rc"
+    return 0
+  elif [ "$rc" -ne 0 ]; then
+    return "$rc"
+  fi
   SCAN_FIRST_VISIT_PENDING=1
   if [ "$wrapping" -eq 0 ]; then
     scan_pass "$cursor" '' "$deadline" "$self" "$regular_skip_active" || rc=$?

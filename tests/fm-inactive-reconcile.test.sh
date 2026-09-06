@@ -114,6 +114,10 @@ scan_cursor() {
   sed -n 's/^cursor=//p' "$1/state/.inactive-outcome-reconcile" 2>/dev/null | tail -1
 }
 
+scan_active_cursor() {
+  sed -n 's/^active_cursor=//p' "$1/state/.inactive-outcome-reconcile" 2>/dev/null | tail -1
+}
+
 stale_row_count() { # <home>
   awk -F '\t' '$3 == "stale" { n++ } END { print n + 0 }' "$1/state/.wake-queue" 2>/dev/null \
     || printf '0\n'
@@ -462,12 +466,12 @@ SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
 
   FM_INACTIVE_RECONCILE_BUDGET_SECS=3 run_reconcile "$MAIN" --startup
-  [ "$(scan_cursor "$MAIN")" = a ] \
-    || fail "a short state-read timeout skipped the child: cursor=$(scan_cursor "$MAIN")"
+  [ "$(scan_active_cursor "$MAIN")" = a ] \
+    || fail "a short state-read timeout skipped the child: cursor=$(scan_active_cursor "$MAIN")"
 
   FM_INACTIVE_RECONCILE_BUDGET_SECS=3 run_reconcile "$MAIN" --startup
-  [ "$(scan_cursor "$MAIN")" = b ] \
-    || fail "the deferred child was not retried with a full share: cursor=$(scan_cursor "$MAIN")"
+  [ "$(scan_active_cursor "$MAIN")" = b ] \
+    || fail "the deferred child was not retried with a full share: cursor=$(scan_active_cursor "$MAIN")"
   pass "a short state-read timeout defers the child"
 }
 
@@ -626,18 +630,17 @@ SH
   set_mtime "$(( $(date +%s) - 600 ))" "$MAIN/state/.inactive-outcome-reconcile"
 
   FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN"
-  ! grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" 2>/dev/null \
-    || fail "the truncated first pass already wrapped back to the earlier child"
+  grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
+    || fail "the active timeout suppressed the earlier terminal outcome"
   run_reconcile "$MAIN"
   grep -Fq 'child=a state=done' "$MAIN/state/.wake-queue" \
     || fail "the resumed sweep dropped its outstanding wrap segment: $(cat "$MAIN/state/.wake-queue" 2>/dev/null)"
   pass "a truncated cold-cursor sweep still wraps back over its earlier children"
 }
 
-# A wrap segment truncated on its own upper bound has nothing left to visit, so
-# the sweep must terminate and re-arm the cadence rather than restart itself.
-test_wrap_truncated_at_the_origin_completes_the_sweep() {
-  local reads
+# A terminal-status pass preserves outcomes on both sides of its cursor while
+# retaining the independent active continuation that exhausted the budget.
+test_terminal_pass_preserves_active_continuation() {
   make_world wrap-at-origin
   write_child "$MAIN" a 'done: green'
   write_child "$MAIN" b 'working: state read will stall'
@@ -661,16 +664,12 @@ SH
     || fail "the wrap did not truncate on the origin child"
 
   FM_STATE_READ_LOG="$WORLD/state-reads" run_reconcile "$MAIN"
-  [ -z "$(sed -n 's/^cursor=//p' "$MAIN/state/.inactive-outcome-reconcile")" ] \
-    || fail "the sweep restarted instead of completing at its origin"
-  reads=$(wc -l < "$WORLD/state-reads")
-  FM_STATE_READ_LOG="$WORLD/state-reads" run_reconcile "$MAIN"
-  [ "$(wc -l < "$WORLD/state-reads")" = "$reads" ] \
-    || fail "the cadence gate never re-armed: $(cat "$WORLD/state-reads")"
-  pass "a wrap truncated on its origin completes the sweep and re-arms the cadence"
+  [ "$(scan_active_cursor "$MAIN")" = b ] \
+    || fail "the terminal pass lost the active continuation"
+  pass "terminal passes preserve their active continuation"
 }
 
-test_empty_wrap_cursor_resumes_before_the_cadence() {
+test_terminal_pass_reaches_a_wrapped_origin() {
   make_world empty-wrap-cursor
   write_child "$MAIN" a 'working: state read will stall'
   write_child "$MAIN" b 'done: green'
@@ -688,18 +687,11 @@ SH
   set_mtime "$(( $(date +%s) - 600 ))" "$MAIN/state/.inactive-outcome-reconcile"
 
   FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN"
-  [ -z "$(scan_cursor "$MAIN")" ] \
-    || fail "the deferred wrap did not retain its empty cursor"
-  [ "$(sed -n 's/^origin=//p' "$MAIN/state/.inactive-outcome-reconcile")" = b ] \
-    || fail "the deferred wrap lost its origin"
-
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN"
-  [ "$(scan_cursor "$MAIN")" = a ] \
-    || fail "the empty wrap did not resume with its deferred child"
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN"
   grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
-    || fail "the resumed wrap stranded the origin child"
-  pass "an empty wrap cursor resumes before the cadence"
+    || fail "the terminal pass stranded the wrapped origin child"
+  FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$RECON" pending \
+    || fail "the terminal pass lost the active continuation"
+  pass "terminal passes reach wrapped origins without stranding active work"
 }
 
 # `--help` renders this script's own contract block; a truncated render is the
@@ -1135,11 +1127,10 @@ SH
   pass "progress alerts use the fleet re-surface cadence"
 }
 
-# A sweep the aggregate budget truncated resumes on the next ordinary poll
-# instead of waiting out another full interval, so the bound is per child.
-test_budget_truncated_sweep_resumes_on_the_next_poll() {
-  local reads
-  make_world truncated-sweep
+# An incomplete active-priority check must retain its continuation without
+# delaying an independent terminal outcome.
+test_active_timeout_preserves_terminal_outcome_path() {
+  make_world active-timeout-terminal
   write_child "$MAIN" a 'working: state read will stall'
   write_child "$MAIN" b 'done: green'
   cat > "$WORLD/fakebin/fm-crew-state.sh" <<'SH'
@@ -1151,20 +1142,11 @@ SH
   : > "$WORLD/state-reads"
   FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=1 \
     run_reconcile "$MAIN" --startup
-  ! grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" 2>/dev/null \
-    || fail "the truncated sweep already reached the later child"
-  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=1 \
-    run_reconcile "$MAIN"
   grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
-    || fail "a cadence-gated poll refused to resume the truncated sweep"
-  # The completed sweep clears the cursor, so the cadence gate re-arms and the
-  # next poll must not re-probe anything.
-  reads=$(wc -l < "$WORLD/state-reads")
-  FM_STATE_READ_LOG="$WORLD/state-reads" FM_INACTIVE_RECONCILE_BUDGET_SECS=1 \
-    run_reconcile "$MAIN"
-  [ "$(wc -l < "$WORLD/state-reads")" = "$reads" ] \
-    || fail "the resumed sweep never completed, so every poll re-enters the scan: $(cat "$WORLD/state-reads")"
-  pass "a truncated sweep resumes on the next poll and re-arms the cadence once complete"
+    || fail "an active-priority timeout suppressed an independent terminal outcome"
+  FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$RECON" pending \
+    || fail "an active-priority timeout lost its continuation"
+  pass "active-priority timeouts preserve independent terminal outcomes"
 }
 
 test_completed_sweep_cadence_is_anchored_to_its_start() {
@@ -1568,8 +1550,8 @@ test_provably_working_evidence_is_not_overdue
 test_unreadable_current_state_is_absorbed
 test_terminal_verdict_is_not_surfaced_as_missing_progress
 test_cold_cursor_sweep_still_wraps_after_a_truncation
-test_wrap_truncated_at_the_origin_completes_the_sweep
-test_empty_wrap_cursor_resumes_before_the_cadence
+test_terminal_pass_preserves_active_continuation
+test_terminal_pass_reaches_a_wrapped_origin
 test_help_renders_the_whole_contract_block
 test_indented_status_events_are_not_skipped
 test_unresolved_decision_is_routed_once_and_survives_restart
@@ -1586,7 +1568,7 @@ test_surfaced_decision_stays_deduped_through_chatter
 test_away_completion_does_not_receipt_a_buried_decision
 test_main_completion_receipts_a_buried_decision
 test_away_push_transition_does_not_receipt_buried_decision
-test_budget_truncated_sweep_resumes_on_the_next_poll
+test_active_timeout_preserves_terminal_outcome_path
 test_completed_sweep_cadence_is_anchored_to_its_start
 test_mixed_terminal_and_active_output_preserves_terminal_priority
 test_decision_wake_is_actionable_to_the_away_classifier
