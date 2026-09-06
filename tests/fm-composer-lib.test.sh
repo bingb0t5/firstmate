@@ -299,6 +299,9 @@ test_matrix_pi_separated_needs_identity() {
   pi_blocked=$(printf 'pi\tblocked')
   assert_screen "pi idle with identity" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
   assert_screen "pi idle on tmux with identity" empty "$CAPS_TMUX" "$screen" 2 "$pi_idle"
+  screen=$'transcript\n────────────────────────\nMCP: Failed to refresh mrbeanz: Error POSTing to endpoint: no available server\n\n────────────────────────\n footer'
+  assert_screen "pi status banner is not pending input" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+  assert_screen "pi status banner on tmux is not pending input" empty "$CAPS_TMUX" "$screen" 3 "$pi_idle"
   assert_screen "pi idle on zellij" unknown "$CAPS_STYLED_NOID" "$screen"
   # Identity-capable but unfetched: the adapter is asked to probe lazily.
   [ "$(fm_composer_classify_screen "$CAPS_STYLED" "$screen")" = need-identity ] \

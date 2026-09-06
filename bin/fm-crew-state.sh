@@ -494,7 +494,12 @@ if [ "$HAVE_RUN" = 1 ]; then
     has_gate=0
     nm_has_gate && has_gate=1
 
-    if [ -n "$outcome" ]; then
+    # A live top-level status is authoritative over a stale terminal outcome.
+    # The CI monitor can retain an older outcome while its current status is
+    # still running, so never let that stale field turn active work into failed.
+    active_status=0
+    case "$status" in running|fixing|ci) active_status=1 ;; esac
+    if [ -n "$outcome" ] && [ "$active_status" -eq 0 ]; then
       case "$outcome" in
         passed)        RUN_STATE="done"; RUN_DETAIL="run passed: PR merged/closed" ;;
         checks-passed) RUN_STATE="done"; RUN_DETAIL="checks green: PR ready for review" ;;

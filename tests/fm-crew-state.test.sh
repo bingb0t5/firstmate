@@ -308,6 +308,24 @@ run:
 EOF
 }
 
+run_ci_monitoring_with_stale_failure() {  # <branch>
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: running
+  head: "${FM_FAKE_RUN_HEAD:-abc1234}"
+  pr: "https://github.com/o/r/pull/2"
+  findings: none
+  outcome: failed
+  steps[4]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    review,completed,0,0
+    push,completed,0,0
+    ci,running,0,0
+EOF
+}
+
 run_fixing_ci_running() {  # <branch>
   cat <<EOF
 run:
@@ -682,6 +700,20 @@ test_terminal_failed() {
   assert_contains "$out" "state: failed" "failed run -> failed"
   assert_contains "$out" "source: run-step" "failed -> run-step source"
   pass "terminal failed run is authoritative"
+}
+
+test_live_ci_status_outranks_stale_failure() {
+  reset_fakes
+  local d; d=$(new_case active-ci-stale-failure)
+  make_repo_on_branch "$d/wt" fm/feat-ci-stale-failure
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-ci-stale-failure.meta" "window=fm:fm-feat-ci-stale-failure" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS="$(run_ci_monitoring_with_stale_failure fm/feat-ci-stale-failure)"
+  local out; out=$(run_crew_state "$d" feat-ci-stale-failure)
+  assert_contains "$out" "state: working" "live CI status must remain working despite stale failure outcome"
+  assert_contains "$out" "source: run-step" "live CI status remains run-step sourced"
+  assert_not_contains "$out" "state: failed" "live CI status must not become a terminal failure"
+  pass "live CI status outranks stale failure outcome"
 }
 
 # (e) cross-branch attribution: `axi status` returns ANOTHER branch's run (the
@@ -1457,6 +1489,7 @@ test_top_level_fixing_ci_running_after_green_stays_working
 test_top_level_fixing_done_log_stays_working
 test_terminal_passed
 test_terminal_failed
+test_live_ci_status_outranks_stale_failure
 test_cross_branch_attribution_via_runs_list
 test_cross_branch_attribution_picks_most_recent_row
 test_coarse_run_does_not_probe_other_branch_ci_log_for_ready_status

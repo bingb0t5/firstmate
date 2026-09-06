@@ -1434,7 +1434,7 @@ SH
   pass "active due work precedes declared-wait reconciliation"
 }
 
-test_unbounded_candidate_evidence_degrades_supervision() {
+test_unbounded_candidate_evidence_is_partial_and_non_escalating() {
   local i started elapsed
   make_world candidate-evidence-bound
   write_child "$MAIN" paused 'working [key=wait]: preparing dependency'
@@ -1447,14 +1447,17 @@ test_unbounded_candidate_evidence_degrades_supervision() {
   FM_INACTIVE_RECONCILE_BUDGET_SECS=4 run_reconcile "$MAIN" --startup
   elapsed=$(( $(date +%s) - started ))
   [ "$elapsed" -le 3 ] \
-    || fail "candidate evidence exceeded its reserved budget (${elapsed}s)"
-  [ -f "$MAIN/state/.inactive-reconcile-capacity" ] \
-    || fail "unbounded candidate evidence left supervision healthy"
+    || fail "candidate evidence exceeded its bounded per-task work (${elapsed}s)"
+  [ ! -e "$MAIN/state/.inactive-reconcile-capacity" ] \
+    || fail "partial candidate evidence falsely degraded supervision"
+  [ -f "$MAIN/state/.inactive-reconcile-partial" ] \
+    || fail "partial candidate evidence was not represented durably"
   touch "$MAIN/state/.last-watcher-beat"
-  bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
-    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state" \
-    || fail "candidate-evidence timeout did not degrade supervision"
-  pass "unbounded candidate evidence degrades supervision"
+  if bash -c '. "$1"; fm_supervision_unhealthy "$2" 300' _ \
+    "$ROOT/bin/fm-supervision-lib.sh" "$MAIN/state"; then
+    fail "partial candidate evidence degraded healthy supervision"
+  fi
+  pass "unbounded candidate evidence is partial and non-escalating"
 }
 
 test_empty_active_set_clears_the_continuation() {
@@ -1579,7 +1582,7 @@ test_away_decision_realert_is_not_self_handled
 test_cadence_cap_and_budget_continuation_bound_each_child
 test_declared_waits_do_not_exhaust_due_work_capacity
 test_active_due_work_precedes_declared_wait_reconciliation
-test_unbounded_candidate_evidence_degrades_supervision
+test_unbounded_candidate_evidence_is_partial_and_non_escalating
 test_empty_active_set_clears_the_continuation
 test_legacy_hot_cursor_runs_its_wrap_segment
 test_secondmate_active_evidence_reaches_its_owning_actor
