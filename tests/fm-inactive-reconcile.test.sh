@@ -1064,6 +1064,25 @@ test_main_completion_receipts_a_buried_decision() {
   pass "main completion receipts a buried unresolved decision"
 }
 
+test_away_push_transition_does_not_receipt_buried_decision() {
+  local now record
+  make_world away-push-buried-decision
+  write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
+  printf 'done [key=implementation]: delivered independent work\n' >> "$MAIN/state/child.status"
+  : > "$MAIN/state/.afk"
+  record=$(FM_STATE_OVERRIDE="$MAIN/state" bash -c '. "$1"; fm_transition_record "$2" "$3" "$4" "$5" "$6"' _ \
+    "$ROOT/bin/fm-transition-lib.sh" fm-child ignored working blocked codex)
+  STATE="$MAIN/state" bash -c '. "$1"; . "$2"; wake() { return 0; }; handle_push_transition herdr "$3" "$4"' _ \
+    "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-push-transition-lib.sh" firstmate "$record" \
+    || fail "could not deliver the away push transition"
+  : > "$MAIN/state/.wake-queue"
+  now=$(date +%s)
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=working run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'child.status')" = 1 ] \
+    || fail "an away push transition suppressed a buried unresolved decision: $(cat "$MAIN/state/.wake-queue")"
+  pass "away push transitions do not receipt buried unresolved decisions"
+}
+
 # The durable state/active-management/<task> record, not the live queue, is what
 # holds the alert clock once a drain has acknowledged the row and supervision has
 # restarted - and it must not suppress the obligation past its re-alert interval.
@@ -1454,6 +1473,26 @@ test_unbounded_candidate_evidence_degrades_supervision() {
   pass "unbounded candidate evidence degrades supervision"
 }
 
+test_empty_active_set_clears_the_continuation() {
+  local now
+  make_world empty-active-continuation
+  write_child "$MAIN" child 'working [key=implementation]: active work'
+  now=$(date +%s)
+  cat > "$MAIN/state/.inactive-outcome-reconcile" <<EOF
+epoch=$now
+started_epoch=$now
+cursor=
+origin=
+active_cursor=child
+EOF
+  printf 'done [key=implementation]: delivered\n' > "$MAIN/state/child.status"
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=done run_reconcile "$MAIN" --startup
+  if FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$RECON" pending; then
+    fail "an empty active set left the watcher continuation pending"
+  fi
+  pass "an empty active set clears its continuation"
+}
+
 test_legacy_hot_cursor_runs_its_wrap_segment() {
   local id
   make_world legacy-hot-cursor
@@ -1546,6 +1585,7 @@ test_already_surfaced_decision_is_not_re_alerted_immediately
 test_surfaced_decision_stays_deduped_through_chatter
 test_away_completion_does_not_receipt_a_buried_decision
 test_main_completion_receipts_a_buried_decision
+test_away_push_transition_does_not_receipt_buried_decision
 test_budget_truncated_sweep_resumes_on_the_next_poll
 test_completed_sweep_cadence_is_anchored_to_its_start
 test_mixed_terminal_and_active_output_preserves_terminal_priority
@@ -1556,6 +1596,7 @@ test_cadence_cap_and_budget_continuation_bound_each_child
 test_declared_waits_do_not_exhaust_due_work_capacity
 test_active_due_work_precedes_declared_wait_reconciliation
 test_unbounded_candidate_evidence_degrades_supervision
+test_empty_active_set_clears_the_continuation
 test_legacy_hot_cursor_runs_its_wrap_segment
 test_secondmate_active_evidence_reaches_its_owning_actor
 test_declared_wait_and_parent_boundary_are_respected

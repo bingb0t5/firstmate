@@ -118,7 +118,7 @@ mark_surfaced() {  # <status-file>
 
 # Act on a fresh actionable transition from a push-capable backend.
 handle_push_transition() {  # <backend> <session> <record>
-  local backend=$1 session=$2 record=$3 pane_id to window task reason
+  local backend=$1 session=$2 record=$3 pane_id to window task reason presentation_actor=main
   pane_id=$(fm_transition_pane_id "$record")
   to=$(fm_transition_to_status "$record")
   [ -n "$pane_id" ] || { sleep 1; return; }
@@ -136,6 +136,7 @@ handle_push_transition() {  # <backend> <session> <record>
   reason="stale: $window (herdr: agent $to - waiting on human, escalated immediately, not via wedge timer)"
   fm_wake_append stale "$window" "$reason" || exit 1
   fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
-  mark_surfaced "$STATE/$task.status"
+  [ ! -e "$STATE/.afk" ] || presentation_actor=away
+  mark_surfaced "$STATE/$task.status" "$presentation_actor"
   wake "$reason"
 }

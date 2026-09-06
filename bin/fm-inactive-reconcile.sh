@@ -1097,7 +1097,7 @@ scan() {
   if [ "$candidate_rc" -eq 124 ]; then
     if scan_alert_due "$CAPACITY_MARKER" candidate-evidence "$now"; then
       active_queue_once check inactive-reconcile-capacity \
-        "check: due-work candidate evidence exceeded ${FM_INACTIVE_RECONCILE_BUDGET_SECS}s; bounded coverage unavailable" || rc=$?
+        "check: due-work candidate evidence exceeded ${candidate_timeout}s; bounded coverage unavailable" || rc=$?
       [ "$rc" -ne 2 ] || return 1
       rc=0
       scan_alert_record "$CAPACITY_MARKER" candidate-evidence "$now" || return 1
@@ -1121,6 +1121,10 @@ scan() {
   elif [ -e "$CAPACITY_MARKER" ] || [ -L "$CAPACITY_MARKER" ]; then
     [ ! -d "$CAPACITY_MARKER" ] || return 1
     rm -f "$CAPACITY_MARKER" || return 1
+  fi
+  if [ "$child_count" -eq 0 ]; then
+    SCAN_ACTIVE_CURSOR=''
+    write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
   fi
   remaining=$((deadline - $(date +%s)))
   if [ "$child_count" -gt 0 ] && [ "$remaining" -lt 1 ]; then
