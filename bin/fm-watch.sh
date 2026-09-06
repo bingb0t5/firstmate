@@ -1254,6 +1254,7 @@ while :; do
   inactive_scan_ok=0
   inactive_scan_pending=0
   if inactive_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    FM_INACTIVE_CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-${FM_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}}" \
     "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
     inactive_scan_ok=1
     if [ -n "$inactive_out" ]; then

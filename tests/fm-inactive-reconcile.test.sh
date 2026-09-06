@@ -1423,7 +1423,9 @@ else
 fi
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 FM_STATE_READ_LOG="$WORLD/state-reads" \
+  # Leave time for both bounded phases: candidate evidence reserves one quarter
+  # of this budget and zactive's state read proves the priority pass follows it.
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=8 FM_STATE_READ_LOG="$WORLD/state-reads" \
     run_reconcile "$MAIN" --startup
   grep -Fxq zactive "$WORLD/state-reads" \
     || fail "active due work waited behind declared-wait reconciliation"
