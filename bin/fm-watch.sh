@@ -86,8 +86,9 @@
 #                          watcher beacon is stale; declared external-wait rechecks
 #                          remain durable for the mate but do not count as a stalled
 #                          wake loop; rows a live Pi branch or main actor has already
-#                          claimed stay with that actor; observation is read-only and
-#                          one parent receipt suppresses repeats for each row
+#                          claimed stay with that actor unless the watcher beacon is
+#                          stale; observation is read-only and one parent receipt
+#                          suppresses repeats for each row
 # For normal supervision, resume the session-start primary-harness protocol
 # after each printed reason. Direct duplicate invocations of this script still
 # no-op through the watcher singleton lock.
