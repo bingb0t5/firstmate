@@ -533,7 +533,7 @@ active_queue_once() { # <kind> <key> <payload>
 }
 
 scan_alert_due() { # <marker> <subject> <now>
-  local marker=$1 subject=$2 now=$3 line recorded_subject= recorded_epoch=
+  local marker=$1 subject=$2 now=$3 line recorded_subject='' recorded_epoch=''
   [ -f "$marker" ] && [ ! -L "$marker" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
@@ -598,7 +598,7 @@ direct_meta_has_active_due_work() { # <meta>
 
 active_oldest_open_progress() { # <status-file> <fallback> -> signature<TAB>epoch<TAB>measured
   local status=$1 fallback=$2 rows key verb note line line_key working_keys='' latest=''
-  local epoch event_epoch signature measured best_epoch= best_signature= best_measured=
+  local epoch event_epoch signature measured best_epoch='' best_signature='' best_measured=''
   rows=$(status_open_activities "$status" 2>/dev/null || true)
   while IFS=$'\t' read -r key verb note; do
     [ "$verb" = working ] || continue

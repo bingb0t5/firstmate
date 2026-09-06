@@ -212,7 +212,7 @@ test_ship_modes_generate_clean_briefs() {
     assert_grep "{TASK}" "$brief" "$id: brief missing the {TASK} placeholder"
     assert_grep "mid-task \`working:\` line (including setup complete) is nonterminal" "$brief" \
       "$id: brief missing nonterminal working:/setup-complete gate protection"
-    assert_grep 'echo "{state} [at=$(date +%s)]: {one short line}"' "$brief" \
+    assert_grep "echo \"{state} [at=\$(date +%s)]: {one short line}\"" "$brief" \
       "$id: status protocol omitted its meaningful-event epoch"
     assert_no_grep "EOF" "$brief" "$id: brief leaked a heredoc EOF marker (unterminated heredoc)"
   done

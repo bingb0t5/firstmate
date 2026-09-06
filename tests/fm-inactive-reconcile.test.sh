@@ -1468,7 +1468,7 @@ origin=
 active_cursor=child
 EOF
   printf 'done [key=implementation]: delivered\n' > "$MAIN/state/child.status"
-  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE=done run_reconcile "$MAIN" --startup
+  FM_INACTIVE_RECONCILE_NOW="$now" FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup
   if FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$RECON" pending; then
     fail "an empty active set left the watcher continuation pending"
   fi
