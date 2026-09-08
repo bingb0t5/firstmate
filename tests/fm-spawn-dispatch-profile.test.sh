@@ -960,6 +960,7 @@ test_codex_secondmate_launch_uses_home_supervision_classification() {
   mkdir -p "$sm/.codex" "$CASE_DIR/engine"
   cp "$ROOT/.codex/hooks.json" "$sm/.codex/hooks.json"
   cp "$(command -v bash)" "$CASE_DIR/engine/codex"
+  # shellcheck disable=SC2016 # PATH expands when the child shell reads BASH_ENV.
   printf 'export PATH=%q:"$PATH"\n' "$FAKEBIN_DIR" > "$CASE_DIR/bash-env"
   cat > "$FAKEBIN_DIR/codex" <<'SH'
 #!/usr/bin/env bash

@@ -164,6 +164,7 @@ fm_supervision_model() {
   case "$harness" in
     claude|cursor) printf 'autoarm\n' ;;
     codex)
+      # shellcheck source=bin/fm-primary-scope-lib.sh
       . "$FM_WAKE_LIB_DIR/fm-primary-scope-lib.sh"
       if fm_root_is_secondmate_home "$home" && [ ! -e "$state/.afk" ]; then
         printf 'autoarm\n'

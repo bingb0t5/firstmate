@@ -756,6 +756,7 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
   mkdir -p "$dir/.codex"
   cp "$ROOT/.codex/hooks.json" "$dir/.codex/hooks.json"
   cp "$(command -v bash)" "$dir/codex"
+  # shellcheck disable=SC2016 # PATH expands when the child shell reads BASH_ENV.
   printf 'export PATH=%q:"$PATH"\n' "$dir/fakebin" > "$dir/bash-env"
   ln -s "$ROOT/bin" "$dir/bin"
   : > "$dir/AGENTS.md"
@@ -764,6 +765,7 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
   for cycle in 1 2; do
     (
       cd "$dir" || exit 1
+      # shellcheck disable=SC2016 # The child shell evaluates this program's variables.
       FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
         BASH_ENV="$dir/bash-env" FM_BACKEND=tmux FM_CONFIG_OVERRIDE="$dir/config" FM_POLL=1 FM_SIGNAL_GRACE=0 \
         FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
@@ -779,8 +781,10 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
       [ -f "$state/.watch.lock/pid-identity" ] && [ -e "$state/.last-watcher-beat" ] && break
       sleep 0.1
     done
-    [ -f "$state/.watch.lock/pid-identity" ] && kill -0 "$pid" 2>/dev/null \
-      || { kill "$pid" 2>/dev/null; fail "registered Codex Stop did not arm idle home supervision: $(cat "$dir/stop.err")"; }
+    if ! [ -f "$state/.watch.lock/pid-identity" ] || ! kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null
+      fail "registered Codex Stop did not arm idle home supervision: $(cat "$dir/stop.err")"
+    fi
     [ ! -e "$state/mate.turn-ended" ] || fail "primary Stop published a child marker"
     append_wake "$state" check "home-row-$cycle" "check: idle home row $cycle"
     wait_for_exit "$pid" 40 || fail "registered Stop did not return a home wake"
@@ -790,6 +794,7 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
       || fail "Stop feedback omitted the queued home wake notification: $(cat "$dir/stop.err")"
     [ -s "$state/.wake-queue" ] || fail "Stop consumed the wake before handling acknowledgement"
     printf 'kind=ship\n' > "$state/child.meta"
+    # shellcheck disable=SC2016 # The child shell evaluates the command and exit status.
     env -u FM_SUPERVISION_MODEL -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
       FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
       "$dir/codex" -c '"$1"; rc=$?; exit "$rc"' _ "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err"
@@ -800,12 +805,14 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
     [ ! -s "$state/.wake-queue" ] || fail "acknowledged home wake remained queued"
   done
   set_mtime "$(( $(date +%s) - 400 ))" "$state/.last-watcher-beat"
+  # shellcheck disable=SC2016 # The child shell evaluates the command and exit status.
   env -u FM_SUPERVISION_MODEL -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
     FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
     "$dir/codex" -c '"$1"; rc=$?; exit "$rc"' _ "$DRAIN" > "$dir/stale.out" 2> "$dir/stale.err"
   grep -qF 'WATCHER DOWN' "$dir/stale.err" || fail "marked Codex home hid a stale beacon"
   touch "$state/.last-watcher-beat"
   mv "$dir/.fm-secondmate-home" "$dir/marker.saved"
+  # shellcheck disable=SC2016 # The child shell evaluates the command and exit status.
   env -u FM_SUPERVISION_MODEL -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
     FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
     "$dir/codex" -c '"$1"; rc=$?; exit "$rc"' _ "$DRAIN" > "$dir/unmarked.out" 2> "$dir/unmarked.err"
@@ -822,6 +829,7 @@ make_codex_stop_case() {
   cp "$(command -v bash)" "$dir/codex"
   : > "$dir/AGENTS.md"
   printf 'mate\n' > "$dir/.fm-secondmate-home"
+  # shellcheck disable=SC2016 # PATH expands when the child shell reads BASH_ENV.
   printf 'export PATH=%q:"$PATH"\n' "$dir/fakebin" > "$dir/bash-env"
   printf '%s\n' "$dir"
 }
@@ -831,6 +839,7 @@ run_codex_stop_case() {
   stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$dir/.codex/hooks.json")
   (
     cd "$dir" || exit 1
+    # shellcheck disable=SC2016 # The child shell evaluates this program's variables.
     env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
       FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
       FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" FM_ARM_CONFIRM_TIMEOUT=1 \
