@@ -60,14 +60,10 @@ fi
 grep -Eq '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" || exit 0
 home_ready || exit 0
 [ -s "$FM_WAKE_QUEUE" ] || exit 0
-if ! "$SCRIPT_DIR/fm-wake-drain.sh" > "$OUT" 2>&1; then
-  cat "$OUT" >&2
-  exit 1
-fi
-awk -F '\t' 'NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { found=1 } END { exit !found }' "$OUT" || exit 0
-MESSAGE="$(tr '\t\r\n' '   ' < "$OUT") Handle these queued wakes, then run the exact WAKE_ACK_REQUIRED acknowledgement command."
+MESSAGE="Queued home wakes are waiting. Run bin/fm-wake-drain.sh first, handle the queued wakes and unread status context, then run the exact WAKE_ACK_REQUIRED acknowledgement command printed by the drain."
 fm_operational_input_encode watcher "$MESSAGE" ENCODED || exit 1
 home_ready || exit 0
+[ -s "$FM_WAKE_QUEUE" ] || exit 0
 VERDICT=$(fm_backend_send_text_submit "$BACKEND" "$TARGET" "$ENCODED" 3 0.2 0.2) || VERDICT=unknown
 [ "$VERDICT" = empty ] && exit 0
 printf 'home wake: submit unconfirmed; durable wakes remain unacknowledged\n' >&2

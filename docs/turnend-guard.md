@@ -57,7 +57,8 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 - Claude registers two `Stop` hooks in `.claude/settings.json`, both anchored through `CLAUDE_PROJECT_DIR`: `bin/fm-turnend-guard.sh --claude`, and `bin/fm-claude-stop-autoarm.sh` with `asyncRewake: true` and `timeout: 28800`.
 - Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and passes the original payload to the shared guard with `--codex`.
   `fm-spawn.sh` gives Codex secondmates a home-scoped CLI `notify` callback through `bin/fm-home-wake.sh`, bound to the launched backend endpoint.
-  With queued home wakes, a lock-owning idle session runs a bounded watcher checkpoint and drain before submitting the wake through the backend; acknowledgement remains with the handling turn.
+  With queued home wakes, a lock-owning idle session runs a bounded watcher checkpoint before submitting a handling notification through the backend.
+  The handling turn owns the normal drain and acknowledgement; the callback leaves queued rows and unread status presentation untouched even when submission fails or the composer becomes occupied.
   The callback stays silent for an empty queue, leaves an existing watcher in charge, and defers busy or occupied composers and away mode.
   It never publishes a child-task signal; ordinary Codex crew notifications retain their task markers.
   In a marked secondmate home, the lock-owning session foregrounds `fm-watch-arm.sh` inside the Stop process tree, including when only queued home wakes remain or the home is idle.

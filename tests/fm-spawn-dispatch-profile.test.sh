@@ -1003,7 +1003,7 @@ SH
 
 test_codex_secondmate_notify_delivers_home_queue() {
   local rec id sm out status entry scenario
-  for scenario in empty queued busy pending unconfirmed away handled; do
+  for scenario in empty queued busy pending late-pending unconfirmed away handled; do
     id="codex-home-notify-$scenario"
     rec=$(make_spawn_case "$id" codex "$id")
     read_case_record "$rec"
@@ -1013,21 +1013,6 @@ test_codex_secondmate_notify_delivers_home_queue() {
     status=$?
     expect_code 0 "$status" "Codex notify spawn failed: $out"
     for entry in "$ROOT/bin/"*; do ln -s "$entry" "$sm/bin/${entry##*/}"; done
-    if [ "$scenario" = handled ]; then
-      rm "$sm/bin/fm-wake-drain.sh"
-      cat > "$sm/bin/fm-wake-drain.sh" <<'SH'
-#!/usr/bin/env bash
-if [ ! -e "$FM_HOME/handled-elsewhere" ]; then
-  "$FM_TEST_SOURCE_ROOT/bin/fm-wake-drain.sh" > "$FM_HOME/other.out" 2> "$FM_HOME/other.err" || exit 1
-  ack=$(sed -n 's/^WAKE_ACK_REQUIRED: after handling completes run //p' "$FM_HOME/other.err")
-  [ -n "$ack" ] || exit 1
-  : > "$FM_HOME/handled-elsewhere"
-  bash -c "$ack" || exit 1
-fi
-exec "$FM_TEST_SOURCE_ROOT/bin/fm-wake-drain.sh" "$@"
-SH
-      chmod +x "$sm/bin/fm-wake-drain.sh"
-    fi
     mkdir -p "$CASE_DIR/engine"
     cp "$(command -v bash)" "$CASE_DIR/engine/codex"
     cat > "$FAKEBIN_DIR/codex" <<'SH'
@@ -1041,6 +1026,24 @@ case "$1" in
   display-message)
     case "$*" in *cursor_y*) printf '1\n' ;; *) printf 'codex\n' ;; esac ;;
   capture-pane)
+    case "$*" in
+      *'-S -40'*)
+        count=$(( $(cat "$FM_HOME/captures" 2>/dev/null || echo 0) + 1 ))
+        printf '%s\n' "$count" > "$FM_HOME/captures"
+        if [ "$count" -eq 3 ]; then
+          case "$FM_TEST_NOTIFY_SCENARIO" in
+            late-pending) printf 'captain draft\n' > "$FM_HOME/pending" ;;
+            handled)
+              "$FM_TEST_SOURCE_ROOT/bin/fm-wake-drain.sh" > "$FM_HOME/other.out" 2> "$FM_HOME/other.err" || exit 1
+              ack=$(sed -n 's/^WAKE_ACK_REQUIRED: after handling completes run //p' "$FM_HOME/other.err")
+              [ -n "$ack" ] || exit 1
+              bash -c "$ack" || exit 1
+              : > "$FM_HOME/handled-elsewhere"
+              ;;
+          esac
+        fi
+        ;;
+    esac
     printf '╭────╮\n│ %s   │\n╰────╯\n' "$(cat "$FM_HOME/pending" 2>/dev/null)"
     [ "$FM_TEST_NOTIFY_SCENARIO" != busy ] || printf 'esc to interrupt\n'
     ;;
@@ -1074,12 +1077,31 @@ case "$FM_TEST_NOTIFY_SCENARIO" in
   empty) ;;
   *) fm_wake_append check notify-row 'check: queued idle home work' || exit 11 ;;
 esac
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  empty|handled) ;;
+  *)
+    printf 'kind=ship\n' > "$STATE/child.meta"
+    printf 'note: unread child context for the handling turn\n' > "$STATE/child.status"
+    fm_wake_signal_mark_seen_if_current "$STATE" "$STATE/child.status" "$(fm_wake_signal_sig "$STATE/child.status")" || exit 21
+    ;;
+esac
 [ "$FM_TEST_NOTIFY_SCENARIO" != pending ] || printf 'captain draft\n' > "$FM_HOME/pending"
 [ "$FM_TEST_NOTIFY_SCENARIO" != away ] || : > "$STATE/.afk"
 [ ! -s "$FM_WAKE_QUEUE" ] || cp "$FM_WAKE_QUEUE" "$FM_HOME/queue-before"
 rc=0
 "${callback[@]}" '{"type":"agent-turn-complete"}' > "$FM_HOME/notify.out" 2> "$FM_HOME/notify.err" || rc=$?
 printf '%s\n' "$rc" > "$FM_HOME/notify.rc"
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  empty|handled) ;;
+  *)
+    [ ! -e "$STATE/.status-presentation-cursor" ] || exit 22
+    cmp "$FM_HOME/queue-before" "$FM_WAKE_QUEUE" || exit 15
+    "$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/drain.out" 2> "$FM_HOME/drain.err" || exit 16
+    grep -qF 'unread child context for the handling turn' "$FM_HOME/drain.out" || exit 23
+    "$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/repeat.out" 2> "$FM_HOME/repeat.err" || exit 24
+    if grep -qF 'unread child context for the handling turn' "$FM_HOME/repeat.out"; then exit 25; fi
+    ;;
+esac
 case "$FM_TEST_NOTIFY_SCENARIO" in
   empty)
     "$FM_HOME/bin/fm-watch.sh" > "$FM_HOME/watch.out" 2> "$FM_HOME/watch.err" &
@@ -1095,8 +1117,6 @@ case "$FM_TEST_NOTIFY_SCENARIO" in
     kill -0 "$pid" 2>/dev/null || exit 14
     ;;
   queued)
-    cmp "$FM_HOME/queue-before" "$FM_WAKE_QUEUE" || exit 15
-    "$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/drain.out" 2> "$FM_HOME/drain.err" || exit 16
     ack=$(sed -n 's/^WAKE_ACK_REQUIRED: after handling completes run //p' "$FM_HOME/drain.err")
     [ -n "$ack" ] || exit 17
     bash -c "$ack" || exit 18
@@ -1127,7 +1147,7 @@ SH
     fi
     case "$scenario" in
       queued)
-        assert_grep 'queued idle home work' "$sm/submissions" "queued row did not reach backend submit"
+        assert_grep 'Run bin/fm-wake-drain.sh first' "$sm/submissions" "submitted notification did not direct the handling turn to drain"
         assert_grep 'WAKE_ACK_REQUIRED' "$sm/submissions" "submitted wake omitted handling acknowledgement"
         assert_grep "firstmate:fm-$id" "$sm/targets" "notify submitted to the wrong endpoint"
         assert_grep 'confirmed' "$sm/confirms" "backend never confirmed submission"
@@ -1136,7 +1156,19 @@ SH
         assert_present "$sm/state/.last-watcher-beat" "notification bypassed watcher liveness"
         ;;
       unconfirmed) assert_absent "$sm/confirms" "unconfirmed submit was marked confirmed" ;;
+      late-pending)
+        assert_absent "$sm/submissions" "late composer input was overwritten by a home wake"
+        assert_grep 'captain draft' "$sm/pending" "late composer input was changed"
+        ;;
+      handled)
+        assert_present "$sm/handled-elsewhere" "competing handler did not acknowledge the queue"
+        assert_absent "$sm/submissions" "already handled work triggered a notification"
+        ;;
       *) assert_absent "$sm/submissions" "$scenario notification submitted a wake" ;;
+    esac
+    case "$scenario" in
+      empty|handled) ;;
+      *) assert_grep 'unread child context for the handling turn' "$sm/drain.out" "callback consumed unread status context" ;;
     esac
     if [ "$scenario" = empty ]; then
       [ ! -s "$sm/state/.wake-queue" ] && [ ! -s "$sm/watch.out" ] || fail "empty notify produced an actionable wake"
