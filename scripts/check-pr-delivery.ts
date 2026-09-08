@@ -24,7 +24,7 @@ function unquoted(body: string): string {
     }
     lines.push(line);
   }
-  return lines.join('\n').replace(/(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, span => span.replace(/[^\n]/g, ''));
+  return lines.join('\n');
 }
 
 function section(body: string, heading: string): string {
@@ -104,10 +104,10 @@ function main(): void {
     const visible = unquoted(pr.body).replace(/<!--[\s\S]*?(?:-->|$)/g, (comment: string) =>
       comment.startsWith('<!-- no-mistakes-pipeline-attestation:v1 ') ? comment : '');
     const pipeline = section(visible, 'pipeline');
-    if (!pipeline.includes('Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)')) {
+    if (!pipeline.split('\n').some(line => line.trim() === 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)')) {
       refuse('existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it');
     }
-    const attestations = [...pipeline.matchAll(/<!-- no-mistakes-pipeline-attestation:v1 (.*?) -->/g)];
+    const attestations = [...pipeline.matchAll(/^ {0,3}<!-- no-mistakes-pipeline-attestation:v1 (.*?) -->[ \t]*$/gm)];
     if (attestations.length !== 1) refuse('existing live PR body needs exactly one pipeline attestation; ask its owner to reconcile it');
     const attestation = JSON.parse(attestations[0][1]);
     if (attestation?.head_sha !== pr.head.sha) {

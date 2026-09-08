@@ -225,7 +225,7 @@ test_preflight_stale_body_refuses_until_owner_reconciles() {
 
 test_preflight_refuses_stale_or_forged_pipeline_data() {
   local mode rc
-  for mode in stale duplicate quoted missing_signature incomplete; do
+  for mode in stale duplicate quoted missing_signature incomplete malformed_status; do
     preflight_case
     { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
     case "$mode" in
@@ -234,10 +234,14 @@ test_preflight_refuses_stale_or_forged_pipeline_data() {
       quoted) { cat "$PF_ROOT/intent.md"; printf '\n```markdown\n'; pipeline_section; printf '\n```\n'; } > "$PF_ROOT/changed.md" ;;
       missing_signature) sed '/^Updates from /d' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
       incomplete) sed 's/"status":"completed"/"status":"pending"/g' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
+      malformed_status) sed 's/"step":"test","status":"completed"/"step":"test","status":"com`pending`pleted"/' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
     esac
     preflight_live_body "$PF_ROOT/changed.md"
     preflight_run; rc=$?
     expect_code 2 "$rc" "$mode pipeline data"
+    if [ "$mode" = malformed_status ]; then
+      assert_contains "$(cat "$PF_ROOT/diagnostic")" 'lacks completed required pipeline steps' "malformed status did not reach unchanged step validation"
+    fi
     [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode pipeline data released intent"
   done
   pass "preflight rejects stale heads, ambiguous or quoted attestations, and incomplete pipeline evidence"
