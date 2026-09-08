@@ -37,7 +37,7 @@ Incomplete per-task candidate evidence is recorded separately as partial coverag
 When that marker is absent, the turn-end guard calls `fm_watcher_healthy <state-dir> <watch-path> [grace-seconds] [home]` from `bin/fm-wake-lib.sh`, the same PID-strict identity-matched lock and fresh-beacon check used by `bin/fm-watch-arm.sh`: a stale beacon blocks even when a watcher pid is live, and a fresh leftover beacon blocks when the lock is missing, dead, or identity-mismatched.
 The turn-end guard needs that strict check because it fires at the turn boundary, where the auto-arm is bringing a fresh watcher up for the upcoming idle period, and it cooperates with that arm rather than trusting a beacon left by the cycle that just ended.
 `bin/fm-guard.sh`, the pull warning, instead uses the model-aware `fm_watcher_supervision_verdict` from the same library, because it fires mid-turn when the auto-arm model runs no watcher at all.
-When active direct work is within due-work capacity, the Claude Stop auto-arm model treats a beacon fresh within grace as healthy even with no live watcher process, and only a beacon stale beyond grace (or absent) alarms.
+When active direct work is within due-work capacity, the Claude and Cursor auto-arm model, also used by marked Codex secondmate homes outside away mode, treats a beacon fresh within grace as healthy even with no live watcher process, and only a beacon stale beyond grace (or absent) alarms.
 When active direct work is within due-work capacity, the Pi extension model treats a live identity-matched watcher as the ordinary healthy state, but a genuinely unheld lock with a beacon fresh within grace is also healthy while a live Pi session provably owns continuity, because `.pi/extensions/fm-primary-pi-watch.ts` tears the watcher down on every actionable wake and spawns the replacement itself.
 A lock is genuinely unheld only when the lock directory or its symlinked owner directory is absent, or when the existing lock records no pid at all.
 Any lock with a recorded pid remains down when its pid, home, watcher path, or process identity fails the strict watcher health check.
@@ -57,8 +57,12 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 - Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and passes the original payload to the shared guard with `--codex`.
   In a marked secondmate home, the lock-owning session foregrounds `fm-watch-arm.sh` inside the Stop process tree, including when only queued home wakes remain or the home is idle.
   An actionable close returns exit 2 with the durable wake and handling instruction, and the next Stop owns re-arming without publishing any child-task marker.
-  Away mode leaves supervision with its daemon.
-  Productive wakes may continue across Stops; arm failures retain the shared one-continuation repair bound.
+  Away mode skips normal arming and retains the shared strict watcher health check and daemon-specific recovery instruction.
+  Each Stop retries a failed arm at most twice, including in queued-only homes.
+  The existing `state/.watch-cycle-exits.log` distinguishes a productive wake from a failed repair: a failed cycle permits one repair continuation, while another failed Stop after that continuation ends with an explicit attended-recovery warning.
+  A real user turn permits a new bounded repair; an actionable wake restores productive continuation handling.
+  If no cycle outcome can be recorded after a continuation, the hook reports exhausted recovery rather than starting an unbounded repair loop.
+  No separate Codex failure ledger is created.
 - OpenCode listens for `session.idle` in `.opencode/plugins/fm-primary-turnend-guard.js`, lets the watcher coordinator act first, and calls `client.session.promptAsync` once when the guard returns 2.
 - Pi listens for `agent_settled` in `.pi/extensions/fm-primary-turnend-guard.ts`, runs once per logical agent run, and calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` once when the guard returns 2.
 - Cursor registers a `stop` hook in `.cursor/hooks.json` and delegates the whole turn boundary to `bin/fm-turnend-guard-cursor.sh`, the park described below.

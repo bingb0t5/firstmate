@@ -149,19 +149,44 @@ fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
   . "$SCRIPT_DIR/fm-session-lock-lib.sh"
   fm_session_lock_owned_by_self "$STATE" || exit 0
-  [ -e "$STATE/.afk" ] && exit 0
-  OUT=$(mktemp "$STATE/.codex-stop-output.XXXXXX") || exit 1
-  trap 'rm -f "$OUT"' EXIT
-  "$SCRIPT_DIR/fm-watch-arm.sh" > "$OUT" 2>&1
-  ARM_RC=$?
-  [ -e "$STATE/.afk" ] && exit 0
-  fm_session_lock_owned_by_self "$STATE" || exit 0
-  if [ "$ARM_RC" -eq 0 ] && grep -Eq '^(signal:|stale:|check:|heartbeat($|:))' "$OUT"; then
-    grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >&2
-    printf '%s\n' 'Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.' >&2
-    exit 2
+  if [ ! -e "$STATE/.afk" ]; then
+    PREVIOUS_CYCLE=$(tail -n 1 "$STATE/.watch-cycle-exits.log" 2>/dev/null || true)
+    PREVIOUS_REASON=$(printf '%s\n' "$PREVIOUS_CYCLE" | awk -F '\t' '{for (i=1; i<=NF; i++) if ($i ~ /^reason=/) print substr($i,8)}')
+    PREVIOUS_FAILED=0
+    case "$PREVIOUS_REASON" in
+      nonzero-exit|signal-exit|confirmation-timeout|unexpected-clean-exit|attached-cycle-ended|handling-handoff-failed) PREVIOUS_FAILED=1 ;;
+    esac
+    OUT=$(mktemp "$STATE/.codex-stop-output.XXXXXX") || OUT=
+    trap '[ -z "$OUT" ] || rm -f "$OUT"' EXIT
+    ARM_ATTEMPT=0
+    while [ "$ARM_ATTEMPT" -lt 2 ]; do
+      ARM_ATTEMPT=$((ARM_ATTEMPT + 1))
+      if [ -n "$OUT" ]; then
+        "$SCRIPT_DIR/fm-watch-arm.sh" > "$OUT" 2>&1
+        ARM_RC=$?
+      else
+        "$SCRIPT_DIR/fm-watch-arm.sh" >&2
+        ARM_RC=$?
+      fi
+      fm_session_lock_owned_by_self "$STATE" || exit 0
+      [ -e "$STATE/.afk" ] && break
+      if [ "$ARM_RC" -eq 0 ] && [ -n "$OUT" ] && grep -Eq '^(signal:|stale:|check:|heartbeat($|:))' "$OUT"; then
+        grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >&2
+        printf '%s\n' 'Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.' >&2
+        exit 2
+      fi
+      [ -z "$OUT" ] || cat "$OUT" >&2
+    done
+    if [ ! -e "$STATE/.afk" ]; then
+      CURRENT_CYCLE=$(tail -n 1 "$STATE/.watch-cycle-exits.log" 2>/dev/null || true)
+      if [ "$STOP_HOOK_ACTIVE" = true ] && { [ "$PREVIOUS_FAILED" -eq 1 ] || [ "$CURRENT_CYCLE" = "$PREVIOUS_CYCLE" ]; }; then
+        printf '%s\n' 'SUPERVISION RECOVERY EXHAUSTED: Stop-owned watcher startup still fails after bounded retries. Queued wakes remain unacknowledged. Keep this session attended and diagnose watcher startup before relying on unattended supervision.' >&2
+        exit 0
+      fi
+      printf '%s\n' 'SUPERVISION RECOVERY REQUIRED: Stop-owned watcher startup failed after two attempts. Run bin/fm-wake-drain.sh, handle and acknowledge queued wakes, and diagnose watcher startup before ending this repair turn. The next Stop runs the final bounded recovery cycle.' >&2
+      exit 2
+    fi
   fi
-  cat "$OUT" >&2
 fi
 
 if [ "$CLAUDE_MODE" -eq 0 ] && [ "$STOP_HOOK_ACTIVE" = "true" ]; then

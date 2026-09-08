@@ -789,13 +789,128 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
     grep -qF 'check: rearm-resurface' "$dir/stop.err" \
       || fail "Stop feedback omitted the queued home wake notification: $(cat "$dir/stop.err")"
     [ -s "$state/.wake-queue" ] || fail "Stop consumed the wake before handling acknowledgement"
-    FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err"
+    printf 'kind=ship\n' > "$state/child.meta"
+    env -u FM_SUPERVISION_MODEL -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+      FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
+      "$dir/codex" -c '"$1"; rc=$?; exit "$rc"' _ "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err"
+    ! grep -qF 'WATCHER DOWN' "$dir/drain.err" || fail "successful Stop wake falsely paged watcher-down with active child work"
     grep -qF "check: idle home row $cycle" "$dir/drain.out" \
       || fail "home wake did not reach the handling interface"
     ack_drain_err "$state" "$dir/drain.err" || fail "home wake acknowledgement failed"
     [ ! -s "$state/.wake-queue" ] || fail "acknowledged home wake remained queued"
   done
-  pass "registered Codex Stop arms idle home supervision and returns durable self-wakes across turns"
+  set_mtime "$(( $(date +%s) - 400 ))" "$state/.last-watcher-beat"
+  env -u FM_SUPERVISION_MODEL -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+    FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
+    "$dir/codex" -c '"$1"; rc=$?; exit "$rc"' _ "$DRAIN" > "$dir/stale.out" 2> "$dir/stale.err"
+  grep -qF 'WATCHER DOWN' "$dir/stale.err" || fail "marked Codex home hid a stale beacon"
+  touch "$state/.last-watcher-beat"
+  mv "$dir/.fm-secondmate-home" "$dir/marker.saved"
+  env -u FM_SUPERVISION_MODEL -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+    FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
+    "$dir/codex" -c '"$1"; rc=$?; exit "$rc"' _ "$DRAIN" > "$dir/unmarked.out" 2> "$dir/unmarked.err"
+  grep -qF 'WATCHER DOWN' "$dir/unmarked.err" || fail "unmarked Codex home lost its persistent watcher requirement"
+  pass "Codex Stop self-wakes remain healthy with active work, while stale and unmarked homes still alarm"
+}
+
+make_codex_stop_case() {
+  local dir entry
+  dir=$(make_case "$1")
+  mkdir -p "$dir/bin" "$dir/.codex"
+  for entry in "$ROOT/bin/"*; do ln -s "$entry" "$dir/bin/${entry##*/}"; done
+  cp "$ROOT/.codex/hooks.json" "$dir/.codex/hooks.json"
+  cp "$(command -v bash)" "$dir/codex"
+  : > "$dir/AGENTS.md"
+  printf 'mate\n' > "$dir/.fm-secondmate-home"
+  printf 'export PATH=%q:"$PATH"\n' "$dir/fakebin" > "$dir/bash-env"
+  printf '%s\n' "$dir"
+}
+
+run_codex_stop_case() {
+  local dir=$1 active=$2 stop
+  stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$dir/.codex/hooks.json")
+  (
+    cd "$dir" || exit 1
+    env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+      FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
+      FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" FM_ARM_CONFIRM_TIMEOUT=1 \
+      "$dir/codex" -c '
+        printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+        printf "{\"stop_hook_active\":%s}" "$2" | bash -c "$1"
+        rc=$?
+        exit "$rc"
+      ' _ "$stop" "$active"
+  ) > "$dir/stop.out" 2> "$dir/stop.err"
+}
+
+test_codex_stop_failure_recovery_is_bounded() {
+  local dir state rc before
+  dir=$(make_codex_stop_case codex-stop-failure)
+  state="$dir/state"
+  rm "$dir/bin/fm-watch.sh"
+  cat > "$dir/bin/fm-watch.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'attempt\n' >> "$FM_HOME/attempts"
+if [ -e "$FM_HOME/fail-watch" ]; then
+  printf 'watcher: FAILED - injected startup failure\n'
+  exit 3
+fi
+printf 'check: completed productive cycle\n'
+SH
+  chmod +x "$dir/bin/fm-watch.sh"
+  append_wake "$state" check pending 'check: pending home work'
+  cp "$state/.wake-queue" "$dir/queue.before"
+  run_codex_stop_case "$dir" false; rc=$?
+  [ "$rc" -eq 2 ] || fail "productive first Stop did not continue"
+  run_codex_stop_case "$dir" true; rc=$?
+  [ "$rc" -eq 2 ] || fail "productive continuation consumed the repair bound"
+  : > "$dir/fail-watch"
+  before=$(wc -l < "$dir/attempts")
+  run_codex_stop_case "$dir" true; rc=$?
+  [ "$rc" -eq 2 ] || fail "queued-only startup failure after productive continuation did not request repair"
+  [ "$(( $(wc -l < "$dir/attempts") - before ))" -eq 2 ] || fail "startup recovery did not perform two bounded attempts"
+  grep -qF 'SUPERVISION RECOVERY REQUIRED' "$dir/stop.err" || fail "repair continuation omitted actionable failure guidance"
+  run_codex_stop_case "$dir" true; rc=$?
+  [ "$rc" -eq 0 ] || fail "failed repair continuation created an unbounded Stop loop"
+  grep -qF 'SUPERVISION RECOVERY EXHAUSTED' "$dir/stop.err" || fail "exhausted recovery silently allowed a blind stop"
+  run_codex_stop_case "$dir" false; rc=$?
+  [ "$rc" -eq 2 ] || fail "a new user turn could not request bounded recovery"
+  rm "$dir/fail-watch"
+  run_codex_stop_case "$dir" true; rc=$?
+  [ "$rc" -eq 2 ] || fail "successful recovery did not resume productive wakes"
+  : > "$dir/fail-watch"
+  run_codex_stop_case "$dir" true; rc=$?
+  [ "$rc" -eq 2 ] || fail "a productive recovery did not restore the repair continuation"
+  cmp -s "$dir/queue.before" "$state/.wake-queue" || fail "arm failures consumed or changed queued-only work"
+  pass "Codex queued-only failures retry, request one repair after productive wakes, and exhaust loudly"
+}
+
+test_codex_stop_away_keeps_shared_guard() {
+  local dir state rc pid i
+  dir=$(make_codex_stop_case codex-stop-away)
+  state="$dir/state"
+  printf 'kind=ship\n' > "$state/child.meta"
+  : > "$state/.afk"
+  touch "$state/.last-watcher-beat"
+  run_codex_stop_case "$dir" false; rc=$?
+  [ "$rc" -eq 2 ] || fail "away mode allowed a blind Stop with active work"
+  grep -qF 'Away mode owns watcher supervision' "$dir/stop.err" || fail "away recovery lost daemon-specific guidance"
+  [ ! -e "$state/.watch-cycle-exits.log" ] || fail "away mode started normal Stop-owned supervision"
+  run_codex_stop_case "$dir" true; rc=$?
+  [ "$rc" -eq 0 ] || fail "away mode lost its existing one-continuation bound"
+  PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
+    FM_CONFIG_OVERRIDE="$dir/config" FM_POLL=1 FM_HEARTBEAT=999999 FM_CHECK_INTERVAL=999999 \
+    "$dir/bin/fm-watch.sh" > "$dir/away-watch.out" 2> "$dir/away-watch.err" &
+  pid=$!
+  for i in $(seq 1 100); do
+    [ -e "$state/.watch.lock/pid-identity" ] && break
+    sleep 0.1
+  done
+  run_codex_stop_case "$dir" false; rc=$?
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  [ "$rc" -eq 0 ] || fail "away mode rejected an existing healthy watcher: $(cat "$dir/stop.err")"
+  [ ! -e "$state/.watch-cycle-exits.log" ] || fail "healthy away supervision started a duplicate normal arm"
+  pass "Codex away Stops retain strict watcher health, daemon recovery guidance, and the existing bound"
 }
 
 test_grok_notify_wait_is_not_a_stall() {
@@ -1657,6 +1772,8 @@ test_historical_annotation_skips_announced_status() {
 run_secondmate_review_tests() {
   test_watch_env_rejects_arithmetic_execution
   test_codex_secondmate_stop_arms_and_self_wakes
+  test_codex_stop_failure_recovery_is_bounded
+  test_codex_stop_away_keeps_shared_guard
   test_busy_grok_pi_and_live_branch_keep_their_cadence
   test_grok_notify_wait_is_not_a_stall
   test_grok_notify_wait_pages_after_cadence
