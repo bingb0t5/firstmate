@@ -18,13 +18,22 @@ function unquoted(body: string): string {
       if (match && match[1][0] === fence.marker && match[1].length >= fence.length && !match[2].trim()) fence = undefined;
       continue;
     }
-    if (match && !(match[1][0] === '`' && match[2].includes('`'))) {
-      fence = { marker: match[1][0], length: match[1].length };
+    const opening = line.match(/^ {0,3}(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/);
+    if (opening && !(opening[1][0] === '`' && opening[2].includes('`'))) {
+      fence = { marker: opening[1][0], length: opening[1].length };
       continue;
     }
     lines.push(line);
   }
   return lines.join('\n');
+}
+
+function insideInlineCode(body: string, offset: number): boolean {
+  for (const span of body.matchAll(/<!--[\s\S]*?(?:-->|$)|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)) {
+    if (span.index > offset) return false;
+    if (span[1] && offset < span.index + span[0].length) return true;
+  }
+  return false;
 }
 
 function section(body: string, heading: string): string {
@@ -108,7 +117,8 @@ function main(): void {
       refuse('existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it');
     }
     const originalAttestation = pr.body.match(/<!-- no-mistakes-pipeline-attestation:v1 ([\s\S]*?) -->/);
-    if (!originalAttestation || !pipeline.split('\n').some(line => line.trim() === originalAttestation[0])) {
+    if (!originalAttestation || insideInlineCode(pr.body, originalAttestation.index) ||
+        !pipeline.split('\n').some(line => line.trim() === originalAttestation[0])) {
       refuse('existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it');
     }
     const attestation = JSON.parse(originalAttestation[1]);

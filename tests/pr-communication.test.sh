@@ -328,6 +328,48 @@ test_preflight_rejects_quoted_pipeline_evidence() {
   pass "quoted signatures or attestations cannot authorize delivery; inline prose code remains supported"
 }
 
+test_preflight_checks_original_quoting_context() {
+  local mode rc
+  for mode in canonical list_fence ordered_fence multiline_inline multiline_double closed_examples inline_json; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    node - "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+let body = fs.readFileSync(file, 'utf8');
+const start = body.indexOf('\n## Pipeline');
+if (mode === 'list_fence' || mode === 'ordered_fence') {
+  const marker = mode === 'list_fence' ? '-' : '1.';
+  const indent = mode === 'list_fence' ? '  ' : '   ';
+  body = body.slice(0, start) + '\n' + marker + ' ```\n' +
+    body.slice(start + 1).split('\n').map(line => indent + line).join('\n') + '\n' + indent + '```\n';
+} else if (mode === 'multiline_inline' || mode === 'multiline_double') {
+  const marker = mode === 'multiline_inline' ? '`' : '``';
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment => marker + '\n' + comment + '\n' + marker);
+} else if (mode === 'closed_examples') {
+  body = body.slice(0, start) + '\n- ```\n  Example code\n  ```\n\n`\nInline example\n`\n' + body.slice(start);
+} else if (mode === 'inline_json') {
+  body = body.replace('"head_sha":', '"note":"literal `value`", "head_sha":');
+}
+fs.writeFileSync(file, body);
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    case "$mode" in
+      canonical|closed_examples|inline_json)
+        expect_code 0 "$rc" "$mode original-context control"
+        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
+        ;;
+      *)
+        expect_code 2 "$rc" "$mode quoted attestation"
+        [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode quoted attestation released intent"
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "$mode refusal did not identify live evidence"
+        ;;
+    esac
+  done
+  pass "original list-fence and multiline inline-code context cannot authorize quoted attestations"
+}
+
 test_preflight_pins_github_against_ambient_host() {
   local rc
   preflight_case
@@ -863,6 +905,7 @@ test_preflight_stale_body_refuses_until_owner_reconciles
 test_preflight_refuses_stale_or_forged_pipeline_data
 test_preflight_preserves_comment_boundaries_and_step_types
 test_preflight_rejects_quoted_pipeline_evidence
+test_preflight_checks_original_quoting_context
 test_preflight_pins_github_against_ambient_host
 test_preflight_forge_failures_never_mean_no_existing_pr
 test_missing_remote_token_fails_closed
