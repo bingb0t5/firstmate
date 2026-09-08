@@ -842,9 +842,21 @@ test_fresh_progress_is_not_aged_from_task_creation() {
 }
 
 test_decision_backstop_commits_the_watcher_generation() {
-  local actor out pid i
+  local actor out pid i captures
   for actor in main away; do
     make_world "decision-generation-$actor"
+    # Keep pane-staleness independent of decision-generation deduplication.
+    # A static idle pane legitimately wakes the away watcher after two polls.
+    cat > "$WORLD/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  display-message) printf '%%1\n' ;;
+  capture-pane)
+    printf 'capture\n' >> "${FM_HOME:?}/captures"
+    printf 'independent output %s\n> \n' "$(wc -l < "$FM_HOME/captures")"
+    ;;
+esac
+SH
     write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
     # Count completed polling opportunities instead of depending on how many
     # watcher cycles this machine happens to squeeze into a three-second sleep.
@@ -885,18 +897,17 @@ SH
       FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" > "$out" 2>&1 &
     pid=$!
     i=0
-    while [ "$i" -lt 200 ] && kill -0 "$pid" 2>/dev/null; do
-      [ "$(wc -l < "$MAIN/captures")" -ge 4 ] && break
+    captures=0
+    while [ "$i" -lt 100 ] && kill -0 "$pid" 2>/dev/null; do
+      captures=$(wc -l < "$MAIN/captures")
+      [ "$captures" -ge 4 ] && break
       sleep 0.1
       i=$((i + 1))
     done
-    if ! kill -0 "$pid" 2>/dev/null; then
-      wait "$pid" || true
-      fail "$actor re-arm duplicated the handled decision: $(cat "$out")"
-    fi
+    kill -0 "$pid" 2>/dev/null \
+      || fail "$actor re-arm duplicated the handled decision: $(cat "$out")"
     reap "$pid"
-    [ "$(wc -l < "$MAIN/captures")" -ge 4 ] \
-      || fail "$actor re-arm did not complete repeated polling cycles: $(cat "$out")"
+    [ "$captures" -ge 4 ] || fail "$actor re-arm did not reach its fourth pane capture"
     [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
       || fail "$actor re-arm queued a duplicate handled decision"
   done
