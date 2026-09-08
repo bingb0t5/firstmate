@@ -23,6 +23,8 @@ Agent endpoint liveness and queue-consumption liveness are separate: on each pol
 A declared external-wait recheck is expected parked work for the secondmate's own supervisor, so it remains durable and never counts as a stalled wake-loop row for the parent; a mate busy elsewhere can therefore accumulate them without false alerts.
 The parent pages only when the oldest unclaimed non-parked row exceeds that mate's recorded wake cadence plus grace, or when the mate's watcher beacon is stale.
 Cadence comes from recorded supervision state: the parent `harness=` field, or a live Pi branch grant in the mate home, never from pane text.
+A fresh native backend busy state keeps a secondmate's queued row quiet while its beacon is fresh, while an idle or unknown state uses a 600-second cadence plus grace.
+Codex secondmates bind their launch-time notify turn-end marker to the secondmate home's own state, so the home watcher receives each between-turn transition instead of relying on the parent task's state.
 A Grok background-notify wait and a Pi branch claim window are therefore silent while the beacon stays fresh; `FM_SECONDMATE_WAKE_STALL_SECS` remains the whole-threshold override when set.
 Rows a live Pi branch or main actor has already claimed stay with that actor unless the mate's watcher beacon is stale; parent receipts plus queued-key deduplication suppress repeats for the same row across watcher and handling crashes, while empty and younger queues remain silent.
 Endpointless registered mates remain outside this scan because startup secondmate-liveness owns dead or missing endpoint recovery, and remote homes retain their host-local supervision boundary.

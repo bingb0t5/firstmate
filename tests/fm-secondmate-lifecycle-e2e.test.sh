@@ -127,8 +127,9 @@ phase_spawn() {
   assert_grep 'FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE=' "$LOG" "launch did not clear operational overrides"
   assert_grep 'FM_CONFIG_OVERRIDE=' "$LOG" "launch did not clear the config override"
   assert_grep "$SUB_ABS/data/charter.md" "$LOG" "launch did not use the persistent charter"
-  assert_no_grep 'notify=' "$LOG" "secondmate codex launch included the parent turn-end notify hook"
-  assert_no_grep 'turn-ended' "$LOG" "secondmate codex launch referenced a parent turn-ended signal"
+  assert_grep 'notify=' "$LOG" "secondmate codex launch omitted its turn-end notify hook"
+  assert_grep "$SUB_ABS/state/design.turn-ended" "$LOG" \
+    "secondmate codex launch did not bind turn-end notification to the secondmate home"
   assert_no_grep 'treehouse get' "$LOG" "secondmate spawn ran a project treehouse get"
   pass "spawn: launches in the subhome with persistent charter, records routing meta"
 }

@@ -537,15 +537,15 @@ write_live_branch_owner() {  # <home>
     > "$home/state/.branch-eligible-owner"
 }
 
-make_cadence_stall_case() {  # <name> <harness> <age-secs> -> prints dir
-  local name=$1 harness=$2 age=$3 dir state sub
+make_cadence_stall_case() {  # <name> <harness> <age-secs> [<backend> <target>] -> prints dir
+  local name=$1 harness=$2 age=$3 backend=${4:-tmux} target=${5:-firstmate:fm-mate} dir state sub
   dir=$(make_case "$name")
   state="$dir/state"
   sub="$dir/secondmate"
   mkdir -p "$sub/state" "$dir/fake-tmux"
   printf 'mate\n' > "$sub/.fm-secondmate-home"
-  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=%s\nbackend=tmux\nhome=%s\n' \
-    "$harness" "$sub" > "$state/mate.meta"
+  printf 'window=%s\nkind=secondmate\nharness=%s\nbackend=%s\nhome=%s\n' \
+    "$target" "$harness" "$backend" "$sub" > "$state/mate.meta"
   printf '%s\t7\tcheck\trouted\tcheck: routed row\n' "$(( $(date +%s) - age ))" \
     > "$sub/state/.wake-queue"
   printf '%s\n' "$dir"
@@ -561,6 +561,135 @@ run_cadence_stall_checkpoint() {  # <dir> <out-name>
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 \
     > "$dir/$out_name.out" 2> "$dir/$out_name.err" || true
+}
+
+run_cadence_stall_checkpoint_override() {  # <dir> <out-name> <override>
+  local dir=$1 out_name=$2 override=$3
+  mkdir -p "$dir/fake-tmux"
+  FM_SECONDMATE_WAKE_STALL_SECS=$override \
+    PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$dir/state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_FAKE_TMUX_LOG="$dir/tmux.log" FM_FAKE_TMUX_CAPTURE="$dir/fake-tmux/pane.txt" \
+    FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch-checkpoint.sh" --seconds 2 \
+    > "$dir/$out_name.out" 2> "$dir/$out_name.err" || true
+}
+
+make_fake_herdr_agent_state() {  # <dir>
+  local dir=$1
+  cat > "$dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ -n "${FM_FAKE_TMUX_LOG:-}" ]; then
+  {
+    printf 'herdr'
+    for arg in "$@"; do printf '\x1f%s' "$arg"; done
+    printf '\n'
+  } >> "$FM_FAKE_TMUX_LOG"
+fi
+case "${1:-} ${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.8.2","protocol":19},"server":{"running":true}}'
+    ;;
+  'agent get')
+    printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "${FM_FAKE_HERDR_AGENT_STATUS:-idle}"
+    ;;
+  *)
+    :
+    ;;
+esac
+SH
+  chmod +x "$dir/fakebin/herdr"
+}
+
+test_codex_busy_secondmate_row_stays_quiet() {
+  local dir sub
+  dir=$(make_cadence_stall_case codex-busy-row codex 900 herdr default:w1:p2)
+  sub="$dir/secondmate"
+  make_fake_herdr_agent_state "$dir"
+  printf 'Ctrl+c:cancel\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  export FM_FAKE_HERDR_AGENT_STATUS=working
+  run_cadence_stall_checkpoint "$dir" watch
+  unset FM_FAKE_HERDR_AGENT_STATUS
+  ! grep -F 'secondmate wake-loop stalled' "$dir/watch.out" >/dev/null \
+    || fail "a busy Codex secondmate row paged the parent: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  [ ! -s "$dir/state/.wake-queue" ] \
+    || fail "a busy Codex secondmate row published a parent stall"
+  grep -F $'agent\x1fget\x1fw1:p2' "$dir/tmux.log" >/dev/null 2>&1 \
+    || fail "the busy Codex case did not use the recorded Herdr backend-state path: $(cat "$dir/tmux.log" 2>/dev/null)"
+  pass "a busy Codex secondmate keeps an aged row quiet while its beacon is fresh"
+}
+
+test_codex_busy_stale_beacon_still_pages() {
+  local dir sub
+  dir=$(make_cadence_stall_case codex-busy-stale codex 1 herdr default:w1:p2)
+  sub="$dir/secondmate"
+  make_fake_herdr_agent_state "$dir"
+  printf 'Ctrl+c:cancel\n' > "$dir/fake-tmux/pane.txt"
+  export FM_FAKE_HERDR_AGENT_STATUS=working
+  run_cadence_stall_checkpoint "$dir" stale
+  unset FM_FAKE_HERDR_AGENT_STATUS
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$dir/stale.out" >/dev/null \
+    || fail "a stale-beacon busy Codex row did not page immediately: $(cat "$dir/stale.out"); err=$(cat "$dir/stale.err")"
+  pass "a stale beacon still pages immediately even when the recorded Codex state is busy"
+}
+
+test_codex_idle_secondmate_uses_idle_cadence_plus_grace() {
+  local dir sub
+  dir=$(make_cadence_stall_case codex-idle-under codex 620 herdr default:w1:p2)
+  sub="$dir/secondmate"
+  make_fake_herdr_agent_state "$dir"
+  printf 'Ctrl+c:cancel\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  run_cadence_stall_checkpoint "$dir" under
+  ! grep -F 'secondmate wake-loop stalled' "$dir/under.out" >/dev/null \
+    || fail "an idle Codex row paged before the 600-second cadence plus grace"
+  [ ! -s "$dir/state/.wake-queue" ] \
+    || fail "an idle Codex row published a parent stall before the cadence plus grace"
+
+  dir=$(make_cadence_stall_case codex-idle-over codex 640 herdr default:w1:p2)
+  sub="$dir/secondmate"
+  make_fake_herdr_agent_state "$dir"
+  printf 'Ctrl+c:cancel\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  run_cadence_stall_checkpoint "$dir" over
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$dir/over.out" >/dev/null \
+    || fail "an idle Codex row did not page after the 600-second cadence plus grace: $(cat "$dir/over.out"); err=$(cat "$dir/over.err")"
+  pass "an idle Codex secondmate pages only after the 600-second cadence plus grace"
+}
+
+test_secondmate_stall_override_precedes_busy_state() {
+  local dir sub
+  dir=$(make_cadence_stall_case codex-override codex 120 herdr default:w1:p2)
+  sub="$dir/secondmate"
+  make_fake_herdr_agent_state "$dir"
+  mkdir -p "$dir/config"
+  printf '# file defaults must not override an explicit environment value\nFM_SECONDMATE_WAKE_STALL_SECS=999\n' > "$dir/config/watch.env"
+  printf 'Ctrl+c:cancel\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  export FM_FAKE_HERDR_AGENT_STATUS=working
+  run_cadence_stall_checkpoint_override "$dir" watch 1
+  unset FM_FAKE_HERDR_AGENT_STATUS
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$dir/watch.out" >/dev/null \
+    || fail "the explicit stall override was suppressed by a busy backend state: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  pass "the explicit secondmate stall override retains precedence over busy state"
+}
+
+test_secondmate_watch_env_default_is_loaded_safely() {
+  local dir sub
+  dir=$(make_cadence_stall_case codex-watch-env codex 120 herdr default:w1:p2)
+  sub="$dir/secondmate"
+  make_fake_herdr_agent_state "$dir"
+  mkdir -p "$dir/config"
+  printf "FM_SECONDMATE_WAKE_STALL_SECS=1\nFM_EVIL=\$(touch %s/ran)\n" "$dir" > "$dir/config/watch.env"
+  printf 'Ctrl+c:cancel\n' > "$dir/fake-tmux/pane.txt"
+  touch "$sub/state/.last-watcher-beat"
+  run_cadence_stall_checkpoint "$dir" watch
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$dir/watch.out" >/dev/null \
+    || fail "watch.env did not provide the watcher default: $(cat "$dir/watch.out"); err=$(cat "$dir/watch.err")"
+  [ ! -e "$dir/ran" ] || fail "watch.env was executed as shell instead of parsed as data"
+  pass "watch.env supplies safe watcher defaults while explicit environment values retain precedence"
 }
 
 test_grok_notify_wait_is_not_a_stall() {
@@ -1432,6 +1561,11 @@ test_pi_branch_claim_window_is_not_a_stall
 test_pi_branch_claim_window_pages_after_cadence
 test_pi_branch_claimed_row_is_not_a_stall
 test_pi_branch_dead_claim_does_not_hide_a_stall
+test_codex_busy_secondmate_row_stays_quiet
+test_codex_busy_stale_beacon_still_pages
+test_codex_idle_secondmate_uses_idle_cadence_plus_grace
+test_secondmate_stall_override_precedes_busy_state
+test_secondmate_watch_env_default_is_loaded_safely
 test_self_announced_append_guards
 test_historical_annotation_skips_announced_status
 test_concurrent_append_and_drain
