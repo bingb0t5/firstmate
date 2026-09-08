@@ -357,8 +357,7 @@ jobs:
 
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
-    # macOS runners bill at 10x; keep the stock Bash snapshot on main pushes
-    # and manual reruns only, never on every PR synchronize.
+    # Keep costly stock Bash compatibility coverage off repeated PR updates.
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     # The full stock Bash 3.2 compatibility suite, retaining the 14 x 180 KB

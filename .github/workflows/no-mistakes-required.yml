@@ -10,8 +10,7 @@ on:
 permissions:
   contents: read
 
-# One lightweight check per PR: superseded pushes cancel the prior run instead
-# of stacking four workflows on every no-mistakes fix round.
+# Coalesce PR events to avoid redundant compliance work on superseded bodies.
 concurrency:
   group: no-mistakes-required-${{ github.event.pull_request.number }}
   cancel-in-progress: true

@@ -10,16 +10,16 @@ We require this to reduce the maintainer's burden of reviewing and merging contr
 Pushing through it runs an AI-driven review/test/lint pipeline in an isolated worktree, forwards the push upstream only after every check passes, and opens a clean PR automatically.
 
 A GitHub Actions check (`Require no-mistakes`) runs on PRs targeting `main` and fails if the body is missing the deterministic signature that no-mistakes writes.
-It evaluates every PR opening and body edit independently, so a later edit cannot replace an earlier pending compliance check.
+It runs on PR openings, body edits, pushes, and reopenings; newer events for the same PR supersede pending checks and cancel an in-progress check.
 GitHub Actions and Dependabot are exempt so their automation keeps working, but regular contributor PRs without the signature will not be reviewed or merged.
 
 A second check (`pr-communication`) enforces the pull request communication structure shared with the Lalo repos.
 Use [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) verbatim for the required CEO overview, validation, module-boundary decision, and decision-needed sections.
 Legacy `Intent`, `Risk Assessment`, and `Testing` headings do not satisfy the communication check.
 The two checks read the same body and are satisfied together: the communication check ignores no-mistakes' own `## Pipeline` section, so never drop that section to satisfy it.
-The assessment rules are vendored from `lalo-admin`; the local pin always guards that copy against unreviewed changes, and the companion `pr-communication-sot` check compares it with that remote source of truth using only `PR_COMMUNICATION_SOT_TOKEN`.
+The assessment rules are vendored from `lalo-admin`; `pr-communication` runs the checked-out assessor without a separate trusted source-of-truth workflow.
 Firstmate also fails a missing CEO overview or one that is only implementation intent; that extra check is owned by `scripts/pr-communication/firstmateCeoOverview.ts` and does not replace the shared template sections.
-The remote comparison fails closed when the credential is missing or rejected, and only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.
+For manual source verification, [`scripts/pr-communication/check-drift.mjs`](scripts/pr-communication/check-drift.mjs) owns the pin checks, required credential, and fail-closed remote-comparison and fallback rules; the PR workflow does not invoke it.
 
 For every no-mistakes run in this repository, author the run intent in the gate-required PR shape before the pipeline publishes the live GitHub body, so the first `github.event.pull_request.body` event already passes `pr-communication`.
 Complete [the shared template](.github/PULL_REQUEST_TEMPLATE.md), retaining every task requirement in the technical section and describing only checks actually performed in Validation.
@@ -133,7 +133,9 @@ Its header and `--help` own the flags, family labels, lanes, and changed-file ma
 Portable shard balance evidence lives in `docs/fm-test-portable-shards.md`.
 Local no-mistakes Test stays intent-targeted and must not wire `commands.test` to `--all` or a `tests/*.test.sh` walk.
 Family selection is the ordinary local path; `--all` is deliberate full regression only.
-CI owns broad regression across required portable parallel shards, the portable serial lane's separate-runner shards, the Herdr lane, lint, invariants, the coverage guard, and stock macOS Bash compatibility in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI owns broad regression across required portable parallel shards, the portable serial lane's separate-runner shards, the Herdr lane, lint, invariants, and the coverage guard in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+Stock macOS Bash snapshot compatibility runs on pushes to `main` and manual workflow dispatches, and is skipped on pull requests.
+Newer CI runs for the same PR or branch cancel superseded runs to avoid redundant matrix work.
 Use `bin/fm-test-run.sh --list-lanes` for exact lane names and `--help` for `--jobs` rules and required gate-skip flags when reproducing a lane locally.
 Discover tests by listing `tests/*.test.sh`: each is a self-contained bash script named `<subject>.test.sh`, and its header comment describes what it covers, so pass one to `bin/fm-test-run.sh` to focus on a subject with canonical timing output.
 A fixture may shorten a production timeout to keep a failure path prompt, but never below what the real work inside that window costs on a loaded machine: a fork, an exec, a lock acquisition, a beacon publication, or a first-poll check.
