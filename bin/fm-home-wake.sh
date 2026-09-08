@@ -18,6 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/fm-composer-lib.sh"
 # shellcheck source=bin/fm-operational-input.sh
 . "$SCRIPT_DIR/fm-operational-input.sh"
+# shellcheck source=bin/fm-watch-config-lib.sh
+. "$SCRIPT_DIR/fm-watch-config-lib.sh"
 
 [ "$#" -ge 2 ] || { printf 'usage: fm-home-wake.sh <backend> <target> [notify-json]\n' >&2; exit 2; }
 BACKEND=$1
@@ -40,7 +42,12 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
-fm_pid_alive "$(cat "$STATE/.watch.lock/pid" 2>/dev/null || true)" && exit 0
+fm_watch_config_load "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/watch.env"
+if ! fm_watcher_lock_unheld "$STATE"; then
+  fm_watcher_healthy "$STATE" "$SCRIPT_DIR/fm-watch.sh" "${FM_GUARD_GRACE:-300}" "$FM_HOME" && exit 0
+  printf 'home wake: watcher ownership unhealthy; durable wakes remain unacknowledged\n' >&2
+  exit 1
+fi
 
 home_ready() {
   local pane

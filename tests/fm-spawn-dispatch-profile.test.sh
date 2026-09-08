@@ -1003,7 +1003,7 @@ SH
 
 test_codex_secondmate_notify_delivers_home_queue() {
   local rec id sm out status entry scenario
-  for scenario in empty queued busy pending late-pending unconfirmed away handled; do
+  for scenario in empty queued busy pending late-pending unconfirmed away handled watcher-reused watcher-stale watcher-healthy watcher-grace watcher-override; do
     id="codex-home-notify-$scenario"
     rec=$(make_spawn_case "$id" codex "$id")
     read_case_record "$rec"
@@ -1087,10 +1087,40 @@ case "$FM_TEST_NOTIFY_SCENARIO" in
 esac
 [ "$FM_TEST_NOTIFY_SCENARIO" != pending ] || printf 'captain draft\n' > "$FM_HOME/pending"
 [ "$FM_TEST_NOTIFY_SCENARIO" != away ] || : > "$STATE/.afk"
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  watcher-*)
+    unset FM_GUARD_GRACE
+    mkdir -p "$STATE/.watch.lock"
+    printf '%s\n' "$$" > "$STATE/.watch.lock/pid"
+    printf '%s\n' "$FM_HOME" > "$STATE/.watch.lock/fm-home"
+    printf '%s\n' "$FM_HOME/bin/fm-watch.sh" > "$STATE/.watch.lock/watcher-path"
+    fm_pid_identity "$$" > "$STATE/.watch.lock/pid-identity"
+    touch "$STATE/.last-watcher-beat"
+    case "$FM_TEST_NOTIFY_SCENARIO" in
+      watcher-reused) printf 'previous process identity\n' > "$STATE/.watch.lock/pid-identity" ;;
+      watcher-stale|watcher-grace|watcher-override)
+        perl -e 'utime time-600, time-600, $ARGV[0]' "$STATE/.last-watcher-beat"
+        printf 'FM_GUARD_GRACE=900\n' > "$FM_HOME/config/watch.env"
+        case "$FM_TEST_NOTIFY_SCENARIO" in
+          watcher-stale) printf 'FM_GUARD_GRACE=30\n' > "$FM_HOME/config/watch.env" ;;
+          watcher-override) export FM_GUARD_GRACE=30 ;;
+        esac
+        ;;
+    esac
+    cp "$STATE/.watch.lock/pid-identity" "$FM_HOME/watcher-identity-before"
+    ;;
+esac
 [ ! -s "$FM_WAKE_QUEUE" ] || cp "$FM_WAKE_QUEUE" "$FM_HOME/queue-before"
 rc=0
 "${callback[@]}" '{"type":"agent-turn-complete"}' > "$FM_HOME/notify.out" 2> "$FM_HOME/notify.err" || rc=$?
 printf '%s\n' "$rc" > "$FM_HOME/notify.rc"
+[ ! -e "$STATE/.home-wake.lock" ] || exit 26
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  watcher-*)
+    cmp "$FM_HOME/watcher-identity-before" "$STATE/.watch.lock/pid-identity" || exit 27
+    [ "$(cat "$STATE/.watch.lock/pid")" = "$$" ] || exit 28
+    ;;
+esac
 case "$FM_TEST_NOTIFY_SCENARIO" in
   empty|handled) ;;
   *)
@@ -1141,6 +1171,9 @@ SH
       expect_code 1 "$(cat "$sm/notify.rc")" "unconfirmed submit must fail"
       assert_grep 'submit unconfirmed' "$sm/notify.err" "unconfirmed delivery was silently accepted"
       [ "$(wc -l < "$sm/submissions")" -eq 1 ] || fail "submit retries retyped the home wake"
+    elif [[ "$scenario" = watcher-reused || "$scenario" = watcher-stale || "$scenario" = watcher-override ]]; then
+      expect_code 1 "$(cat "$sm/notify.rc")" "unhealthy watcher ownership must fail the handoff"
+      assert_grep 'watcher ownership unhealthy' "$sm/notify.err" "unhealthy ownership was silently accepted"
     else
       expect_code 0 "$(cat "$sm/notify.rc")" "notify $scenario failed"
       [ ! -s "$sm/notify.out" ] && [ ! -s "$sm/notify.err" ] || fail "notify $scenario was noisy"
