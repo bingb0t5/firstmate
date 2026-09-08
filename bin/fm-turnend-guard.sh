@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Turn-end guard for any firstmate PRIMARY session: the main home OR a
-# secondmate's own home. A secondmate runs its own primary firstmate session and
-# is guarded exactly like the main primary; only child crew/scout worktrees are
-# exempt (see the scoping block below and docs/turnend-guard.md).
+# secondmate's own home. A secondmate runs its own primary firstmate session;
+# only child crew/scout worktrees are exempt (see the scoping block below and
+# docs/turnend-guard.md).
 #
 # fm-guard.sh (bin/fm-guard.sh) is pull-based: it only warns when some other
 # supervision script happens to run. A primary session that ends a turn without

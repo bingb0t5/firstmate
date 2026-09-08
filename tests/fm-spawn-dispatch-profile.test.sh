@@ -1002,7 +1002,7 @@ SH
 }
 
 test_codex_secondmate_notify_delivers_home_queue() {
-  local rec id sm out status entry scenario
+  local rec id sm out status entry scenario evidence_file
   for scenario in empty queued busy pending late-pending unconfirmed away handled watcher-reused watcher-stale watcher-healthy watcher-grace watcher-override; do
     id="codex-home-notify-$scenario"
     rec=$(make_spawn_case "$id" codex "$id")
@@ -1205,6 +1205,20 @@ SH
     esac
     if [ "$scenario" = empty ]; then
       [ ! -s "$sm/state/.wake-queue" ] && [ ! -s "$sm/watch.out" ] || fail "empty notify produced an actionable wake"
+    fi
+    if [ -n "${FM_TEST_EVIDENCE_DIR:-}" ]; then
+      mkdir -p "$FM_TEST_EVIDENCE_DIR"
+      {
+        printf 'Generated Codex launch callback scenario: %s\nBackend: simulated tmux; production spawn, callback, watcher, drain and acknowledgement.\n' "$scenario"
+        for evidence_file in notify.rc notify.out notify.err queue-before submissions confirms pending drain.out drain.err other.out other.err watch.out state/.wake-queue; do
+          printf '\n[%s]\n' "$evidence_file"
+          if [ -f "$sm/$evidence_file" ]; then
+            cat "$sm/$evidence_file"
+          else
+            printf '(absent)\n'
+          fi
+        done
+      } > "$FM_TEST_EVIDENCE_DIR/codex-home-notify-$scenario.txt"
     fi
     pass "generated Codex home notify: $scenario"
   done
