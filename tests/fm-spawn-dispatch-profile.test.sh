@@ -946,6 +946,67 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
   pass "active crew-dispatch profile does not block secondmate launches"
 }
 
+test_codex_secondmate_launch_uses_home_supervision_classification() {
+  local rec id sm out status entry
+  id=codex-secondmate-supervision
+  rec=$(make_spawn_case codex-secondmate-supervision codex "$id")
+  read_case_record "$rec"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$id"
+  out=$(FM_SUPERVISION_MODEL=persistent run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
+  status=$?
+  expect_code 0 "$status" "Codex secondmate spawn failed: $out"
+  for entry in "$ROOT/bin/"*; do ln -s "$entry" "$sm/bin/${entry##*/}"; done
+  mkdir -p "$sm/.codex" "$CASE_DIR/engine"
+  cp "$ROOT/.codex/hooks.json" "$sm/.codex/hooks.json"
+  cp "$(command -v bash)" "$CASE_DIR/engine/codex"
+  printf 'export PATH=%q:"$PATH"\n' "$FAKEBIN_DIR" > "$CASE_DIR/bash-env"
+  cat > "$FAKEBIN_DIR/codex" <<'SH'
+#!/usr/bin/env bash
+exec "$FM_TEST_CODEX_ENGINE" "$FM_TEST_CODEX_PROBE"
+SH
+  chmod +x "$FAKEBIN_DIR/codex"
+  cat > "$CASE_DIR/probe.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$$" > "$FM_HOME/state/.lock"
+printf 'kind=ship\n' > "$FM_HOME/state/child.meta"
+: > "$FM_HOME/state/.inactive-outcome-reconcile"
+. "$FM_HOME/bin/fm-wake-lib.sh"
+fm_wake_append check launch-row 'check: launched secondmate work' || exit 1
+stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$FM_HOME/.codex/hooks.json")
+printf '{"stop_hook_active":false}' | bash -c "$stop" > "$FM_HOME/stop.out" 2> "$FM_HOME/stop.err"
+rc=$?
+[ "$rc" -eq 2 ] || exit 10
+"$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/awake.out" 2> "$FM_HOME/awake.err" || exit 11
+: > "$FM_HOME/state/.afk"
+"$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/away.out" 2> "$FM_HOME/away.err" || exit 12
+SH
+  (
+    cd "$sm" || exit 1
+    env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+      FM_SUPERVISION_MODEL=persistent FM_HOME="$HOME_DIR" \
+      FM_TEST_CODEX_ENGINE="$CASE_DIR/engine/codex" FM_TEST_CODEX_PROBE="$CASE_DIR/probe.sh" \
+      BASH_ENV="$CASE_DIR/bash-env" PATH="$FAKEBIN_DIR:$PATH" FM_BACKEND=tmux \
+      FM_POLL=1 FM_SIGNAL_GRACE=0 FM_HEARTBEAT=999999 FM_CHECK_INTERVAL=999999 \
+      bash "$LAUNCH_LOG"
+  ) > "$CASE_DIR/launch.out" 2> "$CASE_DIR/launch.err"
+  status=$?
+  expect_code 0 "$status" "generated Codex launch failed to complete a Stop wake: $(cat "$CASE_DIR/launch.err") $(cat "$sm/stop.err" 2>/dev/null)"
+  assert_grep 'check: launched secondmate work' "$sm/awake.out" "spawned secondmate did not deliver its queued home wake"
+  assert_no_grep 'WATCHER DOWN' "$sm/awake.err" "actual Codex launch falsely paged after a successful Stop wake with active child work"
+  assert_grep 'WATCHER DOWN' "$sm/away.err" "actual Codex launch hid missing away-mode supervision"
+  assert_grep 'Away mode owns watcher supervision' "$sm/away.err" "actual Codex launch lost away-mode repair guidance"
+  pass "generated Codex secondmate launch clears inherited classification pins and preserves away-mode health checks"
+}
+
+if [ "${1:-}" = --codex-secondmate ]; then
+  test_codex_secondmate_launch_uses_home_supervision_classification
+  exit
+fi
+
+test_codex_secondmate_launch_uses_home_supervision_classification
+
 test_launch_env_resolution_survives_bash_and_optional_fish_functions
 test_cursor_launch_env_resolution_survives_bash_and_optional_fish_functions
 test_no_profile_keeps_claude_profile_defaults
