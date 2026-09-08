@@ -12,6 +12,7 @@ function unquoted(body: string): string {
   const lines: string[] = [];
   let fence: { marker: string; length: number } | undefined;
   for (const line of body.split(/\r?\n/)) {
+    lines.push('');
     if (/^(?: {0,3}>| {4}| {0,3}\t)/.test(line)) continue;
     const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
@@ -23,13 +24,16 @@ function unquoted(body: string): string {
       fence = { marker: opening[1][0], length: opening[1].length };
       continue;
     }
-    lines.push(line);
+    lines[lines.length - 1] = line;
   }
   return lines.join('\n');
 }
 
-function insideInlineCode(body: string, offset: number): boolean {
-  for (const span of body.matchAll(/<!--[\s\S]*?(?:-->|$)|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)) {
+function insideInlineCode(body: string, evidence: string): boolean {
+  const block = unquoted(body).split(/\n[ \t]*\n/).find(part => part.includes(evidence));
+  if (block === undefined) return false;
+  const offset = block.indexOf(evidence);
+  for (const span of block.matchAll(/<!--[\s\S]*?(?:-->|$)|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)) {
     if (span.index > offset) return false;
     if (span[1] && offset < span.index + span[0].length) return true;
   }
@@ -117,7 +121,7 @@ function main(): void {
       refuse('existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it');
     }
     const originalAttestation = pr.body.match(/<!-- no-mistakes-pipeline-attestation:v1 ([\s\S]*?) -->/);
-    if (!originalAttestation || insideInlineCode(pr.body, originalAttestation.index) ||
+    if (!originalAttestation || insideInlineCode(pr.body, originalAttestation[0]) ||
         !pipeline.split('\n').some(line => line.trim() === originalAttestation[0])) {
       refuse('existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it');
     }

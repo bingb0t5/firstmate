@@ -330,7 +330,7 @@ test_preflight_rejects_quoted_pipeline_evidence() {
 
 test_preflight_checks_original_quoting_context() {
   local mode rc
-  for mode in canonical list_fence ordered_fence multiline_inline multiline_double closed_examples inline_json; do
+  for mode in canonical list_fence ordered_fence multiline_inline multiline_double closed_examples inline_json closed_tilde combined_tilde closed_adjacent combined_adjacent; do
     preflight_case
     { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
     node - "$PF_ROOT/live.md" "$mode" <<'JS'
@@ -350,13 +350,19 @@ if (mode === 'list_fence' || mode === 'ordered_fence') {
   body = body.slice(0, start) + '\n- ```\n  Example code\n  ```\n\n`\nInline example\n`\n' + body.slice(start);
 } else if (mode === 'inline_json') {
   body = body.replace('"head_sha":', '"note":"literal `value`", "head_sha":');
+} else if (['closed_tilde', 'combined_tilde', 'closed_adjacent', 'combined_adjacent'].includes(mode)) {
+  const example = '\n~~~\n`\n~~~\n';
+  if (mode.endsWith('_tilde')) body = body.slice(0, start) + example + body.slice(start);
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment =>
+    (mode.endsWith('_adjacent') ? example : '') +
+    (mode.startsWith('combined_') ? '`\n' + comment + '\n`' : comment));
 }
 fs.writeFileSync(file, body);
 JS
     preflight_live_body "$PF_ROOT/live.md"
     preflight_run; rc=$?
     case "$mode" in
-      canonical|closed_examples|inline_json)
+      canonical|closed_examples|inline_json|closed_tilde|closed_adjacent)
         expect_code 0 "$rc" "$mode original-context control"
         cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
         ;;
