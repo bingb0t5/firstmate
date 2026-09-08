@@ -860,7 +860,7 @@ run_codex_stop_case() {
     # shellcheck disable=SC2016 # The child shell evaluates this program's variables.
     env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
       FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
-      FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" FM_ARM_CONFIRM_TIMEOUT=1 \
+      FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" \
       "$dir/codex" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
         printf "{\"stop_hook_active\":%s}" "$2" | bash -c "$1"

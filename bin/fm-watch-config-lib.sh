@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # fm-watch-config-lib.sh - safe optional watcher defaults from a home-local file.
 #
-# config/watch.env is a non-executable, gitignored defaults file for watcher
-# numeric watcher pins. It is parsed as KEY=VALUE data, never sourced as
+# config/watch.env is a non-executable, gitignored defaults file for numeric
+# watcher pins. It is parsed as KEY=VALUE data, never sourced as
 # shell, so a malformed or hostile line cannot run code in the watcher.
 # Environment variables already present in the caller win over file values.
 

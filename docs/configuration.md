@@ -745,7 +745,7 @@ The two read files are parsed differently: `config/voice-read-scope` must hold t
 
 ### Optional watcher defaults (`config/watch.env`)
 
-An optional home-local `config/watch.env` file supplies default numeric watcher values to `bin/fm-watch-arm.sh` and `bin/fm-watch.sh`.
+An optional home-local `config/watch.env` file supplies default numeric watcher values to the watcher, arm wrapper, and supervision guards, including the Claude auto-arm and Cursor park entrypoints.
 The file must be a regular non-symlink file and is parsed as `KEY=VALUE` data; whole-line comments and optional `export` prefixes are accepted, unknown keys and malformed values are ignored, and shell text is never executed.
 Accepted keys are the watcher timing, grace, cadence, escalation, event-failure, and cycle-log limits enumerated by `bin/fm-watch-config-lib.sh`.
 Integers use canonical unsigned decimal notation up to nine digits; `FM_ARM_ATTACH_POLL` also accepts up to six fractional digits.
