@@ -1,0 +1,3 @@
+not ok - run PR must match merge evidence: https://github.com/o/r/pull/2 (missing: 'PR merge unverified')
+--- output ---
+state: done · source: run-step · run passed: PR merged/closed

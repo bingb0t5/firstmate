@@ -1,0 +1,27 @@
+ok - passed run with open PR is refused as unlanded
+Identical fixture: stopped worker, completed/passed run, forge says OPEN, unlanded feature.txt.
+
+$ .phase-test-tmp/base/bin/fm-crew-state.sh task-x1
+state: done · source: run-step · run passed: PR merged/closed
+
+$ bin/fm-crew-state.sh task-x1
+state: done · source: run-step · run passed: PR merge unverified
+
+$ bin/fm-teardown.sh task-x1
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1ZJZVFE09G2MBAEPW0BRKHQ/.phase-test-tmp/fm-teardown-tests.TOdz5u/nm-passed-open-pr/wt has work not on any remote and not landed.
+unpushed commits:
+1df7b5f open PR work
+Push the branch, land its PR, or get the captain's explicit OK to discard, then --force.
+
+Exit status: 1 (REFUSED)
+
+Preserved branch: fm/task-x1
+Preserved feature.txt contents: hello
+Task metadata remains present; no worktree-return or run-abort command was invoked.

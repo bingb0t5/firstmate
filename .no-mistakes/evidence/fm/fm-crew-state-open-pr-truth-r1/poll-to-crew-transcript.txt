@@ -1,0 +1,32 @@
+Real poll -> owned watcher marker -> crew-state, with controlled read-only forge responses and a stopped worker.
+
+Forge response: OPEN (unmerged)
+$ registered fm-pr-poll.sh
+stdout: <>
+$ bin/fm-crew-state.sh task-a
+state: done · source: run-step · run passed: PR merge unverified
+
+Forge response: CLOSED (unmerged)
+$ registered fm-pr-poll.sh
+stdout: <>
+$ bin/fm-crew-state.sh task-a
+state: done · source: run-step · run passed: PR merge unverified
+
+Forge response: MERGED
+$ bin/fm-watch.sh (bounded fixture cycle)
+check: /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1ZJZVFE09G2MBAEPW0BRKHQ/.phase-test-tmp/fm-pr-check-security.L7hflW/evidence/home/state/task-a.check.sh: merged
+
+Persisted state/task-a.pr-poll-merge-notified:
+fm-pr-poll-merge-notified-v1
+github
+github.com
+o/r
+1
+
+$ bin/fm-crew-state.sh task-a
+state: done · source: run-step · run passed: PR merged/closed
+
+Forge commands observed (all answered by local fake):
+pr view https://github.com/o/r/pull/1 --json state -q .state
+pr view https://github.com/o/r/pull/1 --json state -q .state
+pr view https://github.com/o/r/pull/1 --json state -q .state

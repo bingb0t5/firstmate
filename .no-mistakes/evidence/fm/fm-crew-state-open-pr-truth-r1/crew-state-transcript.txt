@@ -1,0 +1,35 @@
+Public crew-state interface with real isolated git repositories and controlled no-mistakes/endpoint responses. No live forge calls.
+
+BASE: stopped worker, completed/passed run, open PR without merge evidence
+$ bin/fm-crew-state.sh evidence
+state: done · source: run-step · run passed: PR merged/closed
+
+TARGET: identical stopped-worker fixture
+$ bin/fm-crew-state.sh evidence
+state: done · source: run-step · run passed: PR merge unverified
+
+TARGET: active CI with stale passed outcome preserves active precedence
+$ bin/fm-crew-state.sh evidence
+state: working · source: run-step · PR https://github.com/o/r/pull/1 checks green · run still monitoring PR
+
+TARGET: open PR, terminal checks-passed outcome
+$ bin/fm-crew-state.sh evidence
+state: done · source: run-step · checks green: PR ready for review
+
+TARGET: only counterfactual is matching owned merge evidence
+$ bin/fm-crew-state.sh evidence
+state: done · source: run-step · run passed: PR merged/closed
+
+BEFORE R1: same branch/head, run PR #2, metadata and merge marker still PR #1
+$ bin/fm-crew-state.sh evidence
+state: done · source: run-step · run passed: PR merged/closed
+
+TARGET: identical conflicting current-run PR fixture
+$ bin/fm-crew-state.sh evidence
+state: done · source: run-step · run passed: PR merge unverified
+
+TARGET: matching identity but untrusted marker permissions
+$ bin/fm-crew-state.sh evidence
+state: done · source: run-step · run passed: PR merge unverified
+
+All comparisons asserted against actual public script output.

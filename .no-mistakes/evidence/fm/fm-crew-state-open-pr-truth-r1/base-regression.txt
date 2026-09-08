@@ -1,0 +1,3 @@
+not ok - an open or unknown PR is reported as merge-unverified (missing: 'PR merge unverified')
+--- output ---
+state: done · source: run-step · run passed: PR merged/closed
