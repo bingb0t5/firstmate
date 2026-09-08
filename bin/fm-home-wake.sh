@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-primary-scope-lib.sh
+. "$SCRIPT_DIR/fm-primary-scope-lib.sh"
+# shellcheck source=bin/fm-session-lock-lib.sh
+. "$SCRIPT_DIR/fm-session-lock-lib.sh"
+# shellcheck source=bin/fm-backend.sh
+. "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-composer-lib.sh
+. "$SCRIPT_DIR/fm-composer-lib.sh"
+# shellcheck source=bin/fm-operational-input.sh
+. "$SCRIPT_DIR/fm-operational-input.sh"
+
+[ "$#" -ge 2 ] || { printf 'usage: fm-home-wake.sh <backend> <target> [notify-json]\n' >&2; exit 2; }
+BACKEND=$1
+TARGET=$2
+if [ -n "${3:-}" ]; then
+  printf '%s' "$3" | jq -e '.type == "agent-turn-complete"' >/dev/null 2>&1 || exit 0
+fi
+fm_root_is_secondmate_home "$FM_HOME" || exit 0
+fm_session_lock_owned_by_self "$STATE" || exit 0
+[ ! -e "$STATE/.afk" ] || exit 0
+[ -s "$FM_WAKE_QUEUE" ] && [ ! -L "$FM_WAKE_QUEUE" ] || exit 0
+
+LOCK="$STATE/.home-wake.lock"
+fm_lock_try_acquire "$LOCK" || exit 0
+OUT=
+cleanup() {
+  [ -z "$OUT" ] || rm -f "$OUT"
+  fm_lock_release "$LOCK"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+fm_pid_alive "$(cat "$STATE/.watch.lock/pid" 2>/dev/null || true)" && exit 0
+
+home_ready() {
+  local pane
+  fm_session_lock_owned_by_self "$STATE" || return 1
+  [ ! -e "$STATE/.afk" ] || return 1
+  fm_backend_target_exists "$BACKEND" "$TARGET" || return 1
+  [ "$(fm_backend_busy_state "$BACKEND" "$TARGET" 2>/dev/null)" != busy ] || return 1
+  pane=$(fm_backend_capture "$BACKEND" "$TARGET" 40 2>/dev/null) || return 1
+  if printf '%s' "$pane" | grep -v '^[[:space:]]*$' | tail -12 | fm_busy_lines_match codex; then
+    return 1
+  fi
+  [ "$(fm_backend_composer_state "$BACKEND" "$TARGET" 2>/dev/null)" = empty ]
+}
+
+home_ready || exit 0
+OUT=$(mktemp "$STATE/.home-wake-output.XXXXXX") || exit 1
+if ! "$SCRIPT_DIR/fm-watch-checkpoint.sh" --seconds 30 > "$OUT" 2>&1; then
+  [ -s "$FM_WAKE_QUEUE" ] || exit 0
+  cat "$OUT" >&2
+  exit 1
+fi
+grep -Eq '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" || exit 0
+home_ready || exit 0
+[ -s "$FM_WAKE_QUEUE" ] || exit 0
+if ! "$SCRIPT_DIR/fm-wake-drain.sh" > "$OUT" 2>&1; then
+  cat "$OUT" >&2
+  exit 1
+fi
+awk -F '\t' 'NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { found=1 } END { exit !found }' "$OUT" || exit 0
+MESSAGE="$(tr '\t\r\n' '   ' < "$OUT") Handle these queued wakes, then run the exact WAKE_ACK_REQUIRED acknowledgement command."
+fm_operational_input_encode watcher "$MESSAGE" ENCODED || exit 1
+home_ready || exit 0
+VERDICT=$(fm_backend_send_text_submit "$BACKEND" "$TARGET" "$ENCODED" 3 0.2 0.2) || VERDICT=unknown
+[ "$VERDICT" = empty ] && exit 0
+printf 'home wake: submit unconfirmed; durable wakes remain unacknowledged\n' >&2
+exit 1

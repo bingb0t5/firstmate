@@ -1001,11 +1001,157 @@ SH
   pass "generated Codex secondmate launch clears inherited classification pins and preserves away-mode health checks"
 }
 
+test_codex_secondmate_notify_delivers_home_queue() {
+  local rec id sm out status entry scenario
+  for scenario in empty queued busy pending unconfirmed away handled; do
+    id="codex-home-notify-$scenario"
+    rec=$(make_spawn_case "$id" codex "$id")
+    read_case_record "$rec"
+    sm="$CASE_DIR/secondmate home"
+    make_seeded_secondmate_home "$sm" "$id"
+    out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
+    status=$?
+    expect_code 0 "$status" "Codex notify spawn failed: $out"
+    for entry in "$ROOT/bin/"*; do ln -s "$entry" "$sm/bin/${entry##*/}"; done
+    if [ "$scenario" = handled ]; then
+      rm "$sm/bin/fm-wake-drain.sh"
+      cat > "$sm/bin/fm-wake-drain.sh" <<'SH'
+#!/usr/bin/env bash
+if [ ! -e "$FM_HOME/handled-elsewhere" ]; then
+  "$FM_TEST_SOURCE_ROOT/bin/fm-wake-drain.sh" > "$FM_HOME/other.out" 2> "$FM_HOME/other.err" || exit 1
+  ack=$(sed -n 's/^WAKE_ACK_REQUIRED: after handling completes run //p' "$FM_HOME/other.err")
+  [ -n "$ack" ] || exit 1
+  : > "$FM_HOME/handled-elsewhere"
+  bash -c "$ack" || exit 1
+fi
+exec "$FM_TEST_SOURCE_ROOT/bin/fm-wake-drain.sh" "$@"
+SH
+      chmod +x "$sm/bin/fm-wake-drain.sh"
+    fi
+    mkdir -p "$CASE_DIR/engine"
+    cp "$(command -v bash)" "$CASE_DIR/engine/codex"
+    cat > "$FAKEBIN_DIR/codex" <<'SH'
+#!/usr/bin/env bash
+exec "$FM_TEST_CODEX_ENGINE" "$FM_TEST_CODEX_PROBE" "$@"
+SH
+    cat > "$FAKEBIN_DIR/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$1" in
+  display-message)
+    case "$*" in *cursor_y*) printf '1\n' ;; *) printf 'codex\n' ;; esac ;;
+  capture-pane)
+    printf '╭────╮\n│ %s   │\n╰────╯\n' "$(cat "$FM_HOME/pending" 2>/dev/null)"
+    [ "$FM_TEST_NOTIFY_SCENARIO" != busy ] || printf 'esc to interrupt\n'
+    ;;
+  send-keys)
+    if [ "${4:-}" = -l ]; then
+      printf '%s\n' "$5" > "$FM_HOME/pending"
+      printf '%s\n' "$5" >> "$FM_HOME/submissions"
+      printf '%s\n' "$3" >> "$FM_HOME/targets"
+    elif [ "${4:-}" = Enter ] && [ "$FM_TEST_NOTIFY_SCENARIO" != unconfirmed ]; then
+      : > "$FM_HOME/pending"
+      printf 'confirmed\n' >> "$FM_HOME/confirms"
+    fi ;;
+esac
+exit 0
+SH
+    chmod +x "$FAKEBIN_DIR/codex" "$FAKEBIN_DIR/tmux"
+    cat > "$CASE_DIR/notify-probe.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+notify=
+for arg in "$@"; do
+  case "$arg" in notify=*) notify=${arg#notify=} ;; esac
+done
+[ -n "$notify" ] || exit 10
+callback=()
+while IFS= read -r arg; do callback+=("$arg"); done < <(printf '%s' "$notify" | jq -r '.[]')
+printf '%s\n' "$$" > "$FM_HOME/state/.lock"
+: > "$FM_HOME/state/.inactive-outcome-reconcile"
+. "$FM_HOME/bin/fm-wake-lib.sh"
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  empty) ;;
+  *) fm_wake_append check notify-row 'check: queued idle home work' || exit 11 ;;
+esac
+[ "$FM_TEST_NOTIFY_SCENARIO" != pending ] || printf 'captain draft\n' > "$FM_HOME/pending"
+[ "$FM_TEST_NOTIFY_SCENARIO" != away ] || : > "$STATE/.afk"
+[ ! -s "$FM_WAKE_QUEUE" ] || cp "$FM_WAKE_QUEUE" "$FM_HOME/queue-before"
+rc=0
+"${callback[@]}" '{"type":"agent-turn-complete"}' > "$FM_HOME/notify.out" 2> "$FM_HOME/notify.err" || rc=$?
+printf '%s\n' "$rc" > "$FM_HOME/notify.rc"
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  empty)
+    "$FM_HOME/bin/fm-watch.sh" > "$FM_HOME/watch.out" 2> "$FM_HOME/watch.err" &
+    pid=$!
+    trap 'kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true' EXIT
+    for i in $(seq 1 100); do
+      [ -e "$STATE/.last-watcher-beat" ] && break
+      kill -0 "$pid" 2>/dev/null || exit 12
+      sleep 0.1
+    done
+    [ -e "$STATE/.last-watcher-beat" ] || exit 13
+    sleep 3
+    kill -0 "$pid" 2>/dev/null || exit 14
+    ;;
+  queued)
+    cmp "$FM_HOME/queue-before" "$FM_WAKE_QUEUE" || exit 15
+    "$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/drain.out" 2> "$FM_HOME/drain.err" || exit 16
+    ack=$(sed -n 's/^WAKE_ACK_REQUIRED: after handling completes run //p' "$FM_HOME/drain.err")
+    [ -n "$ack" ] || exit 17
+    bash -c "$ack" || exit 18
+    ;;
+  handled) [ ! -s "$FM_WAKE_QUEUE" ] || exit 20 ;;
+  *) cmp "$FM_HOME/queue-before" "$FM_WAKE_QUEUE" || exit 19 ;;
+esac
+SH
+    (
+      cd "$sm" || exit 1
+      env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+        FM_TEST_CODEX_ENGINE="$CASE_DIR/engine/codex" FM_TEST_CODEX_PROBE="$CASE_DIR/notify-probe.sh" \
+        FM_TEST_SOURCE_ROOT="$ROOT" FM_TEST_NOTIFY_SCENARIO="$scenario" PATH="$FAKEBIN_DIR:$PATH" FM_BACKEND=tmux \
+        FM_POLL=1 FM_SIGNAL_GRACE=0 FM_HEARTBEAT=99999999 FM_CHECK_INTERVAL=99999999 \
+        bash "$LAUNCH_LOG"
+    ) > "$CASE_DIR/launch.out" 2> "$CASE_DIR/launch.err"
+    status=$?
+    expect_code 0 "$status" "generated notify $scenario failed: $(cat "$CASE_DIR/launch.err") $(cat "$sm/notify.err" 2>/dev/null)"
+    assert_absent "$sm/state/$id.turn-ended" "home callback published a child-task marker"
+    assert_absent "$HOME_DIR/state/$id.turn-ended" "home callback signaled its parent"
+    if [ "$scenario" = unconfirmed ]; then
+      expect_code 1 "$(cat "$sm/notify.rc")" "unconfirmed submit must fail"
+      assert_grep 'submit unconfirmed' "$sm/notify.err" "unconfirmed delivery was silently accepted"
+      [ "$(wc -l < "$sm/submissions")" -eq 1 ] || fail "submit retries retyped the home wake"
+    else
+      expect_code 0 "$(cat "$sm/notify.rc")" "notify $scenario failed"
+      [ ! -s "$sm/notify.out" ] && [ ! -s "$sm/notify.err" ] || fail "notify $scenario was noisy"
+    fi
+    case "$scenario" in
+      queued)
+        assert_grep 'queued idle home work' "$sm/submissions" "queued row did not reach backend submit"
+        assert_grep 'WAKE_ACK_REQUIRED' "$sm/submissions" "submitted wake omitted handling acknowledgement"
+        assert_grep "firstmate:fm-$id" "$sm/targets" "notify submitted to the wrong endpoint"
+        assert_grep 'confirmed' "$sm/confirms" "backend never confirmed submission"
+        assert_grep 'queued idle home work' "$sm/drain.out" "handling turn lost the durable row"
+        [ ! -s "$sm/state/.wake-queue" ] || fail "acknowledged row remained queued"
+        assert_present "$sm/state/.last-watcher-beat" "notification bypassed watcher liveness"
+        ;;
+      unconfirmed) assert_absent "$sm/confirms" "unconfirmed submit was marked confirmed" ;;
+      *) assert_absent "$sm/submissions" "$scenario notification submitted a wake" ;;
+    esac
+    if [ "$scenario" = empty ]; then
+      [ ! -s "$sm/state/.wake-queue" ] && [ ! -s "$sm/watch.out" ] || fail "empty notify produced an actionable wake"
+    fi
+    pass "generated Codex home notify: $scenario"
+  done
+}
+
 if [ "${1:-}" = --codex-secondmate ]; then
+  test_codex_secondmate_notify_delivers_home_queue
   test_codex_secondmate_launch_uses_home_supervision_classification
   exit
 fi
 
+test_codex_secondmate_notify_delivers_home_queue
 test_codex_secondmate_launch_uses_home_supervision_classification
 
 test_launch_env_resolution_survives_bash_and_optional_fish_functions

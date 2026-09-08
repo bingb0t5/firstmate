@@ -74,6 +74,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-procevent-when.sh`   | Fire a trust-bound deterministic action at most once when its registered condition holds, then wake with the outcome |
 | `fm-gate-refuse-lib.sh`  | Shared no-mistakes gate-context refusal for fleet lifecycle entrypoints               |
 | `fm-watch-arm.sh`        | Verified home-scoped watcher arm wrapper with loud cycle endings and bounded lifecycle ledger |
+| `fm-home-wake.sh`        | Deliver queued Codex secondmate home wakes through a bounded watcher checkpoint and confirmed backend submit |
 | `fm-watch-config-lib.sh` | Parse optional home-local `config/watch.env` watcher defaults without executing shell      |
 | `fm-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |
 | `fm-watch.sh`            | Singleton-safe watcher: absorb benign wakes, page a cadence-aware local-secondmate wake-queue stall, and exit on actionable ones |
