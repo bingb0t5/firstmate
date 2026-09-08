@@ -335,6 +335,19 @@ def kill_process_group(process: subprocess.Popen[bytes]) -> None:
         pass
 
 
+@contextlib.contextmanager
+def client_process(command: list[str], env: dict[str, str]) -> Iterator[subprocess.Popen[bytes]]:
+    """Own all descendants until the call finishes, including successful calls."""
+    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, env=env, start_new_session=True)
+    try:
+        yield process
+    finally:
+        kill_process_group(process)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=CLEANUP_TIMEOUT)
+
+
 def command_run(args: argparse.Namespace) -> int:
     manifest_path = Path(args.manifest).resolve()
     try:
@@ -374,14 +387,7 @@ def command_run(args: argparse.Namespace) -> int:
             command = [str(client), *args.client_arg]
             started = time.monotonic()
             try:
-                process = subprocess.Popen(
-                    command,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    env=env,
-                    start_new_session=True,
-                )
+                process = stack.enter_context(client_process(command, env))
             except OSError as exc:
                 return die(f"client adapter failed to start: {exc}", EXIT_CLIENT)
             try:

@@ -31,7 +31,7 @@ The manifest uses `schema: 1` and contains these fields.
 - `desktop.viewer` identifies the authenticated observation and takeover method.
 - `desktop.browser_profile` is the dedicated guest browser profile used by visual and DOM/CDP tools.
 - `lifecycle.owner` identifies the team that starts, stops, diagnoses, and recovers the VM.
-- `readiness.marker` identifies the durable readiness evidence or command result.
+- `readiness.marker` identifies the current readiness evidence or command result.
 - `readiness.state` is `ready` only when the guest can accept the platform smoke test.
 - `readiness.astra_identifier` is the model or client identifier verified by the installed guest account surface.
 - `components.cua_repl` identifies the maintained CUA REPL component available in the guest.
@@ -78,7 +78,10 @@ Validate the manifest with the platform helper.
 bin/fm-astra-guest.sh check --manifest /guest/path/readiness.json
 ```
 
-The command prints only non-secret identity and readiness fields.
+The command validates manifest structure and prints only non-secret identity and readiness fields.
+
+It does not inspect the published component paths or run an account/desktop probe.
+The maintained adapter and readiness publisher below perform those checks inside the guest.
 
 If readiness is incomplete, the command reports the exact missing interface fields and exits without starting a client.
 
@@ -150,6 +153,8 @@ Handoff status remains readable while a client call holds the input lock, while 
 
 A timed-out client process is killed as a process group and the input lock is released in the same cleanup path.
 
+The helper also kills remaining descendants after a successful client exit, before releasing the input lock.
+
 A process crash also releases the kernel lock, while the durable handoff state remains inspectable.
 
 The lock is not a security sandbox for arbitrary code, and a timeout does not make guest code safe.
@@ -205,12 +210,88 @@ The adapter must require confirmation before purchases, data transmission, destr
 
 The platform reports actual client execution and observable timings separately from the presence of an installed package.
 
+## Maintained Linux guest adapter
+
+[`bin/fm-codex-client.py`](../bin/fm-codex-client.py) installs as `/home/astra/.local/bin/fm-codex-client`.
+It targets the commissioned non-root `astra` user, display `:1`, profile `/home/astra/.config/chromium-astra`, and shared state `/home/astra/.local/state/firstmate/astra`.
+It invokes Codex CLI 0.153.4's public experimental `app-server --listen stdio://` interface with `gpt-6-astra`, a read-only shell sandbox, and `on-request` approval.
+It starts no daemon or private Desktop bridge, does not change Codex configuration files, and keeps descendants in the helper's existing process group.
+Version changes fail closed until the protocol is revalidated.
+The CLI's `exec` mode cannot serve this adapter because its noninteractive approval policy refuses the CUA tool approval request.
+
+The maintained CUA launcher, Node REPL, Node runtime, and `codex-code-mode-host` companion must already be installed at the paths returned by the adapter's `components()` function.
+The adapter does not install or replace those upstream components.
+It does not launch or close Chrome or change its profile.
+The guest desktop and browser session persist across calls; the Codex thread and JavaScript variables do not.
+Native Linux coordinate control is supported; this adapter does not expose DOM/CDP, accessibility trees, crop operations, arbitrary JavaScript, or free-form prompt execution.
+It does not read credential stores or provide a credential handoff.
+Current supported scope is native desktop control, not completion of the broader commissioning acceptance suite.
+
+Use a protocol-1 request file with `operation` equal to `observe`, `smoke`, or `actions`.
+The helper supplies `request_id`; direct calls without its environment and process-group context are refused.
+`observe` obtains a screenshot and requires a current readiness marker.
+`smoke` performs the same read-only observation without requiring that marker, allowing the publisher to commission a pending guest without fabricating readiness.
+An optional `model` must be exactly `gpt-6-astra`.
+Nonempty `prompt` requests are refused with `unsupported_prompt_use_actions`; the adapter does not silently interpret natural-language requests as authorization.
+
+`actions` accepts at most twelve explicit native actions per request.
+Every nonempty action list requires `confirm_actions: true`, including clicks, keys, typing, scrolling, movement, drag, and waits.
+The caller must obtain confirmation of the exact action group before setting that field, especially for submission, purchases, deletion, transmission, or other consequential actions.
+Do not put credentials or sensitive text in action requests.
+The adapter returns `confirmation_required` before starting Codex when confirmation is absent; it does not retain a pending approval or create another handoff lock.
+
+| Action `type` | Fields |
+| --- | --- |
+| `click` | Integer `x`, `y`; optional `mouse_button` (`left`, `right`, `middle`) and `click_count` (1 or 2). |
+| `move` | Integer `x`, `y`. |
+| `drag` | `path`: 2-32 objects with integer `x`, `y`. |
+| `scroll` | `direction` (`up`, `down`, `left`, `right`), integer `pixels` (1-4096), optional paired `x`, `y`. |
+| `press_key` | `key`: a keysym-style chord, for example `Control_L+a`. |
+| `type_text` | `text`: 1-8192 Unicode characters, including Vietnamese. |
+| `wait` | Integer `milliseconds` (1-1000). |
+
+Coordinates are native desktop screenshot coordinates; the adapter does not rescale or guess them.
+Observe first, use a short coherent action group, and inspect the guest display after uncertain changes before authorizing another group.
+A group ends with one screenshot returned as image content to Astra.
+The adapter approves only the fixed CUA initialization call followed by the exact generated action/screenshot call, and refuses additional or altered calls; it never retries a partially executed group.
+An error may follow partial input and does not imply rollback.
+The read-only Codex shell sandbox does not constrain confirmed desktop input, and neither the schema nor timeout is an operating-system security sandbox.
+Keep production data and unrelated credentials out of the isolated guest.
+
+The single JSON response contains fixed non-secret metadata: `ok`, exact `model`, `actions_completed`, `screenshot_observed`, display/profile identity, and the unsupported DOM/CDP flag.
+It does not echo typed text, model prose, raw tool results, images, or upstream diagnostics.
+Images are available to Astra within the guest turn; operators observe the desktop through Infra's existing authenticated viewer.
+Failures return a fixed error code in JSON and a constant diagnostic on stderr, exiting 5.
+Missing auth, model mismatch, unknown approval forms, tool failures, malformed UTF-8/JSON, and timeouts all refuse success.
+
+## Installation and readiness publication
+
+[`bin/fm-astra-install.sh`](../bin/fm-astra-install.sh) owns the exact installation commands and paths; read its header or `--help` before applying it inside the VM as `astra` or guest root.
+Transfer that script with its four named sibling artifacts from the same reviewed revision.
+It installs the adapter, readiness publisher, and helper as `astra:astra`, executable mode `0755`, and restricts the guest artifact/state directories and manifest to their owner.
+When run as root it also creates `/run/astra` as `astra:astra`, mode `0700`; otherwise it prints Infra's exact prerequisite command if that directory is absent.
+The install joins the existing helper input lock and removes stale readiness.
+It neither signs in nor publishes readiness.
+The runtime directory is volatile; Infra must recreate it after reboot before refreshing readiness.
+
+[`bin/fm-astra-ready.py`](../bin/fm-astra-ready.py) owns the guest `refresh` and `remove` commands, installed as `/home/astra/.local/bin/fm-astra-ready`.
+Run it as `astra`, using the commands in its header or usage output.
+It uses `/home/astra/.local/share/codex/readiness.json` and the helper's existing lock and process-group cleanup.
+Refresh first removes `/run/astra/ready`, records pending state, checks every published component path, executable adapter ownership/mode, authenticated guest account status, and matching guest identities.
+It then executes a fresh authorized read-only `gpt-6-astra` screenshot smoke and publishes a mode-`0600` marker only after that turn succeeds.
+The marker records the exact model, timestamp, adapter SHA-256, smoke request ID, and native-only scope.
+An existing marker, bundled model catalog, package installation, or caller-supplied smoke receipt cannot satisfy this gate.
+Normal adapter calls check the marker and its adapter digest, and recheck account status before each turn.
+Refresh failures leave readiness pending with a named condition; `remove` withdraws the marker and records `operator_removed`.
+The manifest and marker contain only non-secret state; the marker is the final publication authority if an interrupted write leaves their states different.
+
 ## Acceptance tests
 
 The offline test covers the protocol and safety contract without a guest.
 
 ```sh
 tests/fm-astra-guest.test.sh
+tests/fm-codex-client.test.sh
 ```
 
 The test uses a temporary fixture outside production repositories and proves form text including Vietnamese, scrolling, shortcut and drag, asynchronous control, stale-click recovery, screenshot coordinate alignment, state across calls, serialized concurrent calls, timed-out input release, and a targeted rich-text edit that preserves unrelated content.
@@ -229,7 +310,9 @@ tests/fm-astra-guest.test.sh
 
 The live fixture is disposable and must not be the live JD or another production document.
 
-The env-gated test validates the published manifest, Vietnamese form text, and a screenshot response.
+The env-gated fixture test validates the published manifest, Vietnamese form text, and a screenshot response using a fixture-specific client protocol.
+It is not the maintained native adapter's request schema and must not be cited as live proof of that adapter.
+Use the readiness publisher for its exact-model native screenshot smoke, then separately commission the remaining native workflows with explicit confirmed action lists on disposable fixtures.
 
 Complete live acceptance still requires the remaining operations named above through the real MCP/client integration and guest adapter.
 
