@@ -1,0 +1,43 @@
+Executable integration fixtures: real Firstmate scripts; simulated terminal/backend and Codex engine.
+
+$ observed codex-secondmate-supervision/launch.log
+FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_PUBLIC_FOLLOWUP_PRIMARY_HOME='/tmp/fm-local-test.lWvDl8/fm-spawn-dispatch-profile.enMNhS/codex-secondmate-supervision/home' FM_HOME='/tmp/fm-local-test.lWvDl8/fm-spawn-dispatch-profile.enMNhS/codex-secondmate-supervision/secondmate-home' FM_TRACE_CONTEXT=off FM_SUPERVISION_MODEL= command env -u CURSOR_AGENT -u CURSOR_INVOKED_AS codex --dangerously-bypass-approvals-and-sandbox "$('/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M207MRXNF2QK6WE33CX9F1JE/bin/fm-operational-input.sh' encode launch-brief < '/tmp/fm-local-test.lWvDl8/fm-spawn-dispatch-profile.enMNhS/codex-secondmate-supervision/secondmate-home/data/charter.md')"
+
+
+$ observed codex-secondmate-supervision/secondmate-home/awake.err
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 1544238.1788872939.nQyWsK
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+
+
+$ observed codex-secondmate-supervision/secondmate-home/awake.out
+1788872939	1	check	launch-row	check: launched secondmate work
+
+
+$ observed codex-secondmate-supervision/secondmate-home/away.err
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 1544238.1788872939.nQyWsK
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 3s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  Away mode owns watcher supervision; load /afk and ensure the daemon is running instead of starting normal supervision directly.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+
+
+$ observed codex-secondmate-supervision/secondmate-home/away.out
+1788872939	1	check	launch-row	check: launched secondmate work
+
+
+$ observed codex-secondmate-supervision/secondmate-home/state/.wake-queue
+1788872939	1	check	launch-row	check: launched secondmate work
+
+
+$ observed codex-secondmate-supervision/secondmate-home/state/.watch-cycle-exits.log
+arm_pid=1545076	watcher_pid=1545129	origin=started	started_at=1788872940	ended_at=1788872940	exit_code=0	signal=none	reason=actionable-check	beacon_age=1	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+
+
+$ observed codex-secondmate-supervision/secondmate-home/stop.err
+check: rearm-resurface
+Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.
+

@@ -1,0 +1,290 @@
+Executable integration fixtures: real Firstmate scripts; simulated terminal/backend and Codex engine.
+
+$ observed busy-cadence-codex/secondmate/state/.wake-queue
+1788872556	7	check	routed	check: routed row
+
+
+$ observed busy-cadence-codex/state/.wake-queue
+1788872956	1	check	secondmate-wake-loop-mate-1788872556-7	check: secondmate wake-loop stalled: mate=mate row=7 age=400s
+
+
+$ observed busy-cadence-codex/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=400s
+
+
+$ observed busy-cadence-grok/secondmate/state/.wake-queue
+1788872553	7	check	routed	check: routed row
+
+
+$ observed busy-cadence-grok/state/.wake-queue
+1788872954	1	check	secondmate-wake-loop-mate-1788872553-7	check: secondmate wake-loop stalled: mate=mate row=7 age=401s
+
+
+$ observed busy-cadence-grok/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=401s
+
+
+$ observed busy-cadence-pi/secondmate/state/.wake-queue
+1788872554	7	check	routed	check: routed row
+
+
+$ observed busy-cadence-pi/state/.wake-queue
+1788872955	1	check	secondmate-wake-loop-mate-1788872554-7	check: secondmate wake-loop stalled: mate=mate row=7 age=401s
+
+
+$ observed busy-cadence-pi/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=401s
+
+
+$ observed busy-cadence-pi-signed/secondmate/state/.wake-queue
+1788872555	7	check	routed	check: routed row
+
+
+$ observed busy-cadence-pi-signed/state/.wake-queue
+1788872955	1	check	secondmate-wake-loop-mate-1788872555-7	check: secondmate wake-loop stalled: mate=mate row=7 age=400s
+
+
+$ observed busy-cadence-pi-signed/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=400s
+
+
+$ observed codex-busy-row/secondmate/state/.wake-queue
+1788872066	7	check	routed	check: routed row
+
+
+$ observed codex-busy-row/tmux.log
+herdrstatus--json--sessiondefault
+herdragentgetw1:p2--sessiondefault
+herdrstatus--json--sessiondefault
+herdragentgetw1:p2--sessiondefault
+
+
+$ observed codex-busy-row/watch.out
+checkpoint: no actionable wake within 2s
+
+
+$ observed codex-busy-stale/secondmate/state/.wake-queue
+1788872967	7	check	routed	check: routed row
+
+
+$ observed codex-busy-stale/stale.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=2s
+
+
+$ observed codex-busy-stale/state/.wake-queue
+1788872969	1	check	secondmate-wake-loop-mate-1788872967-7	check: secondmate wake-loop stalled: mate=mate row=7 age=2s
+
+
+$ observed codex-idle-over/over.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=641s
+
+
+$ observed codex-idle-over/secondmate/state/.wake-queue
+1788872331	7	check	routed	check: routed row
+
+
+$ observed codex-idle-over/state/.wake-queue
+1788872972	1	check	secondmate-wake-loop-mate-1788872331-7	check: secondmate wake-loop stalled: mate=mate row=7 age=641s
+
+
+$ observed codex-idle-over/tmux.log
+herdrstatus--json--sessiondefault
+herdragentgetw1:p2--sessiondefault
+
+
+$ observed codex-idle-under/secondmate/state/.wake-queue
+1788872349	7	check	routed	check: routed row
+
+
+$ observed codex-idle-under/tmux.log
+herdrstatus--json--sessiondefault
+herdragentgetw1:p2--sessiondefault
+
+
+$ observed codex-idle-under/under.out
+checkpoint: no actionable wake within 2s
+
+
+$ observed codex-override/secondmate/state/.wake-queue
+1788872852	7	check	routed	check: routed row
+
+
+$ observed codex-override/state/.wake-queue
+1788872973	1	check	secondmate-wake-loop-mate-1788872852-7	check: secondmate wake-loop stalled: mate=mate row=7 age=121s
+
+
+$ observed codex-override/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=121s
+
+
+$ observed codex-secondmate-stop/drain.err
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 1526886.1788872925.JYIHHg
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+
+
+$ observed codex-secondmate-stop/drain.out
+1788872925	2	check	home-row-2	check: idle home row 2
+
+
+$ observed codex-secondmate-stop/stale.err
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: 400s ago, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+$ observed codex-secondmate-stop/state/.watch-cycle-exits.log
+arm_pid=1518816	watcher_pid=1518842	origin=started	started_at=1788872919	ended_at=1788872921	exit_code=0	signal=none	reason=actionable-check	beacon_age=0	lock_before=pid:1518842|identity:linux-starttime=148671025 cmdline-hex=62617368002f686f6d652f726963682f2e6e6f2d6d697374616b65732f776f726b74726565732f3763653035343062373566342f30314d3230374d52584e4632514b365745333343583946314a452f2e746573742d70686173652d746d702f666d2d77616b652d74657374732e6f6b475557482f636f6465782d7365636f6e646d6174652d73746f702f62696e2f666d2d77617463682e736800	lock_after=pid:none|identity:none	successor=none
+arm_pid=1525803	watcher_pid=1525824	origin=started	started_at=1788872924	ended_at=1788872926	exit_code=0	signal=none	reason=actionable-check	beacon_age=0	lock_before=pid:1525824|identity:linux-starttime=148671539 cmdline-hex=62617368002f686f6d652f726963682f2e6e6f2d6d697374616b65732f776f726b74726565732f3763653035343062373566342f30314d3230374d52584e4632514b365745333343583946314a452f2e746573742d70686173652d746d702f666d2d77616b652d74657374732e6f6b475557482f636f6465782d7365636f6e646d6174652d73746f702f62696e2f666d2d77617463682e736800	lock_after=pid:none|identity:none	successor=none
+
+
+$ observed codex-secondmate-stop/stop.err
+check: rearm-resurface
+Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.
+
+
+$ observed codex-secondmate-stop/stop.rc
+2
+
+
+$ observed codex-secondmate-stop/unmarked.err
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+$ observed codex-stop-failure/state/.wake-queue
+1788872933	1	check	pending	check: pending home work
+
+
+$ observed codex-stop-failure/state/.watch-cycle-exits.log
+arm_pid=1538221	watcher_pid=1538253	origin=started	started_at=1788872934	ended_at=1788872934	exit_code=0	signal=none	reason=actionable-check	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1539980	watcher_pid=1540010	origin=started	started_at=1788872936	ended_at=1788872936	exit_code=0	signal=none	reason=actionable-check	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1542341	watcher_pid=1542384	origin=started	started_at=1788872937	ended_at=1788872937	exit_code=3	signal=none	reason=nonzero-exit	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1543541	watcher_pid=1543569	origin=started	started_at=1788872938	ended_at=1788872938	exit_code=3	signal=none	reason=nonzero-exit	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1545790	watcher_pid=1545837	origin=started	started_at=1788872940	ended_at=1788872940	exit_code=3	signal=none	reason=nonzero-exit	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1547040	watcher_pid=1547079	origin=started	started_at=1788872941	ended_at=1788872941	exit_code=3	signal=none	reason=nonzero-exit	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1549011	watcher_pid=1549031	origin=started	started_at=1788872943	ended_at=1788872943	exit_code=3	signal=none	reason=nonzero-exit	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1549949	watcher_pid=1549978	origin=started	started_at=1788872944	ended_at=1788872944	exit_code=3	signal=none	reason=nonzero-exit	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1551719	watcher_pid=1551749	origin=started	started_at=1788872945	ended_at=1788872945	exit_code=0	signal=none	reason=actionable-check	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1553562	watcher_pid=1553619	origin=started	started_at=1788872947	ended_at=1788872947	exit_code=3	signal=none	reason=nonzero-exit	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=1554825	watcher_pid=1554868	origin=started	started_at=1788872948	ended_at=1788872948	exit_code=3	signal=none	reason=nonzero-exit	beacon_age=999999	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+
+
+$ observed codex-stop-failure/stop.err
+watcher: FAILED - injected startup failure
+watcher: FAILED - injected startup failure
+SUPERVISION RECOVERY REQUIRED: Stop-owned watcher startup failed after two attempts. Run bin/fm-wake-drain.sh, handle and acknowledge queued wakes, and diagnose watcher startup before ending this repair turn. The next Stop runs the final bounded recovery cycle.
+
+
+$ observed codex-watch-env/secondmate/state/.wake-queue
+1788872853	7	check	routed	check: routed row
+
+
+$ observed codex-watch-env/state/.wake-queue
+1788872974	1	check	secondmate-wake-loop-mate-1788872853-7	check: secondmate wake-loop stalled: mate=mate row=7 age=121s
+
+
+$ observed codex-watch-env/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=121s
+
+
+$ observed grok-notify-over/secondmate/state/.wake-queue
+1788872709	7	check	routed	check: routed row
+
+
+$ observed grok-notify-over/state/.wake-queue
+1788872959	1	check	secondmate-wake-loop-mate-1788872709-7	check: secondmate wake-loop stalled: mate=mate row=7 age=250s
+
+
+$ observed grok-notify-over/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=250s
+
+
+$ observed grok-notify-wait/secondmate/state/.wake-queue
+1788872782	7	check	routed	check: routed row
+
+
+$ observed grok-notify-wait/watch.out
+checkpoint: no actionable wake within 2s
+
+
+$ observed grok-stale-beacon/secondmate/state/.wake-queue
+1788872840	7	check	routed	check: routed row
+
+
+$ observed grok-stale-beacon/state/.wake-queue
+1788872960	1	check	secondmate-wake-loop-mate-1788872840-7	check: secondmate wake-loop stalled: mate=mate row=7 age=120s
+
+
+$ observed grok-stale-beacon/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=120s
+
+
+$ observed pi-claim-over/secondmate/state/.wake-queue
+1788872563	7	check	routed	check: routed row
+
+
+$ observed pi-claim-over/state/.wake-queue
+1788872963	1	check	secondmate-wake-loop-mate-1788872563-7	check: secondmate wake-loop stalled: mate=mate row=7 age=400s
+
+
+$ observed pi-claim-over/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=400s
+
+
+$ observed pi-claim-wait/secondmate/state/.wake-queue
+1788872686	7	check	routed	check: routed row
+
+
+$ observed pi-claim-wait/watch.out
+checkpoint: no actionable wake within 2s
+
+
+$ observed pi-claimed-row/secondmate/state/.wake-queue
+1788872563	7	check	routed	check: routed row
+
+
+$ observed pi-claimed-row/watch.out
+checkpoint: no actionable wake within 2s
+
+
+$ observed pi-dead-claim/secondmate/state/.wake-queue
+1788872566	7	check	routed	check: routed row
+
+
+$ observed pi-dead-claim/state/.wake-queue
+1788872966	1	check	secondmate-wake-loop-mate-1788872566-7	check: secondmate wake-loop stalled: mate=mate row=7 age=400s
+
+
+$ observed pi-dead-claim/watch.out
+check: secondmate wake-loop stalled: mate=mate row=7 age=400s
+
+
+$ observed watch-env-arithmetic/arm.out
+watcher: started pid=1511067 (beacon fresh)
+check: rearm-resurface
+
+
+$ observed watch-env-arithmetic/drain.err
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 1514669.1788872916.v0pC2r
+
+
+$ observed watch-env-arithmetic/drain.out
+1788872916	1	check	numeric-safe	check: numeric defaults safely consumed
+
+
+$ observed watch-env-arithmetic/state/.wake-queue
+1788872916	1	check	numeric-safe	check: numeric defaults safely consumed
+
+
+$ observed watch-env-arithmetic/state/.watch-cycle-exits.log
+arm_pid=1511020	watcher_pid=1511067	origin=started	started_at=1788872914	ended_at=1788872917	exit_code=0	signal=none	reason=actionable-check	beacon_age=0	lock_before=pid:1511067|identity:linux-starttime=148670459 cmdline-hex=62617368002f686f6d652f726963682f2e6e6f2d6d697374616b65732f776f726b74726565732f3763653035343062373566342f30314d3230374d52584e4632514b365745333343583946314a452f62696e2f666d2d77617463682e736800	lock_after=pid:none|identity:none	successor=none
+

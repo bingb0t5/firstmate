@@ -1,0 +1,17 @@
+ok - real arm and watcher reject executable numeric defaults and preserve supported decimal pins
+ok - Codex Stop self-wakes remain healthy with active work, while stale and unmarked homes still alarm
+ok - Codex queued-only failures retry, request one repair after productive wakes, and exhaust loudly
+ok - Codex away Stops retain strict watcher health, daemon recovery guidance, and the existing bound
+ok - busy Grok, Pi, pi-signed, and live branch grants retain their cadence
+ok - a Grok background-notify wait inside cadence plus grace stays quiet
+ok - a Grok unclaimed row past cadence plus grace pages the parent
+ok - a Grok notify wait with a stale watcher beacon pages the parent
+ok - a Pi branch actor's unclaimed row inside the claim window stays quiet
+ok - a Pi unclaimed row past the claim window plus grace pages the parent
+ok - a row a live Pi branch actor has claimed stays quiet
+ok - a dead Pi branch grant cannot hide an over-window unclaimed row
+ok - a busy Codex secondmate keeps an aged row quiet while its beacon is fresh
+ok - a stale beacon still pages immediately even when the recorded Codex state is busy
+ok - an idle Codex secondmate pages only after the 600-second cadence plus grace
+ok - the explicit secondmate stall override retains precedence over busy state
+ok - watch.env supplies safe watcher defaults while explicit environment values retain precedence
