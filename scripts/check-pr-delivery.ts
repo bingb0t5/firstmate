@@ -107,13 +107,19 @@ function main(): void {
     if (!pipeline.split('\n').some(line => line.trim() === 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)')) {
       refuse('existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it');
     }
-    const attestations = [...pipeline.matchAll(/^ {0,3}<!-- no-mistakes-pipeline-attestation:v1 (.*?) -->[ \t]*$/gm)];
-    if (attestations.length !== 1) refuse('existing live PR body needs exactly one pipeline attestation; ask its owner to reconcile it');
-    const attestation = JSON.parse(attestations[0][1]);
+    const originalAttestation = pr.body.match(/<!-- no-mistakes-pipeline-attestation:v1 ([\s\S]*?) -->/);
+    if (!originalAttestation || !pipeline.split('\n').some(line => line.trim() === originalAttestation[0])) {
+      refuse('existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it');
+    }
+    const attestation = JSON.parse(originalAttestation[1]);
     if (attestation?.head_sha !== pr.head.sha) {
       refuse('existing live PR body has a stale pipeline head; ask its owner to reconcile it before another push');
     }
-    if (!Array.isArray(attestation.steps) || ['review', 'test', 'document'].some(step => {
+    if (!Array.isArray(attestation.steps) ||
+        attestation.steps.some((entry: unknown) => entry === null || typeof entry !== 'object' || Array.isArray(entry))) {
+      refuse('existing live PR body has invalid pipeline step entries; return to its pipeline owner');
+    }
+    if (['review', 'test', 'document'].some(step => {
       const entries = attestation.steps.filter((entry: { step?: string; status?: string }) => entry?.step === step);
       return entries.length !== 1 || entries[0].status !== 'completed';
     })) refuse('existing live PR body lacks completed required pipeline steps; return to its pipeline owner');

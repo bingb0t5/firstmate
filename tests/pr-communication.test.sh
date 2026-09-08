@@ -247,6 +247,42 @@ test_preflight_refuses_stale_or_forged_pipeline_data() {
   pass "preflight rejects stale heads, ambiguous or quoted attestations, and incomplete pipeline evidence"
 }
 
+test_preflight_preserves_comment_boundaries_and_step_types() {
+  local mode rc out
+  for mode in embedded_comments early_terminator numeric_step string_step boolean_step null_step array_step; do
+    preflight_case
+    node - "$PF_ROOT/intent.md" "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const mode = process.argv[4];
+const steps = ['review', 'test', 'document'].map(step => ({ step, status: 'completed' }));
+const attestation = { head_sha: '0'.repeat(40), steps };
+if (mode === 'embedded_comments' || mode === 'early_terminator') {
+  attestation.note = ' -->';
+  if (mode === 'embedded_comments') steps[1].status = 'com<!--pending-->pleted';
+} else {
+  const entries = { numeric_step: 0, string_step: 'test', boolean_step: false, null_step: null, array_step: [] };
+  steps.unshift(entries[mode]);
+}
+const json = JSON.stringify(attestation, ['note', 'head_sha', 'steps', 'step', 'status']);
+fs.writeFileSync(process.argv[3], fs.readFileSync(process.argv[2], 'utf8') +
+  '\n## Pipeline\n\nUpdates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)\n\n' +
+  '<!-- no-mistakes-pipeline-attestation:v1 ' + json + ' -->\n');
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    expect_code 2 "$rc" "$mode pipeline evidence"
+    [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode pipeline evidence released intent"
+    case "$mode" in
+      null_step) ;;
+      *)
+        out=$(PR_BODY="$(cat "$PF_ROOT/live.md")" PR_AUTHOR='fixture' PR_NUMBER=0 run_no_mistakes_requirement 2>&1); rc=$?
+        [ "$rc" -ne 0 ] || fail "hosted consumer unexpectedly accepted $mode: $out"
+        ;;
+    esac
+  done
+  pass "original comment boundaries and object-only steps prevent malformed evidence from authorizing delivery"
+}
+
 test_preflight_rejects_quoted_pipeline_evidence() {
   local style evidence prefix suffix rc
   for style in blockquote nested_blockquote indented tab_indented mixed_tab single_backtick double_backtick triple_backtick mixed_backticks; do
@@ -825,6 +861,7 @@ test_preflight_fresh_intent_survives_generated_body
 test_preflight_rejects_bad_intent_before_forge_read
 test_preflight_stale_body_refuses_until_owner_reconciles
 test_preflight_refuses_stale_or_forged_pipeline_data
+test_preflight_preserves_comment_boundaries_and_step_types
 test_preflight_rejects_quoted_pipeline_evidence
 test_preflight_pins_github_against_ambient_host
 test_preflight_forge_failures_never_mean_no_existing_pr
