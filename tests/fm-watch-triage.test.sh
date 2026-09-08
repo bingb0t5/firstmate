@@ -163,7 +163,25 @@ record_pi_busy() {  # <state-dir> <id>
     --source pi-ext --event agent-start
 }
 
-reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
+# Cleanup must not wait for a watcher's long wedge cadence if TERM is ignored.
+# HUP gives its EXIT handler another chance to persist recovery state before
+# the final KILL fallback, which is restricted to this test-owned child.
+reap() {
+  local pid=$1 signal i
+  for signal in TERM HUP; do
+    kill -s "$signal" "$pid" 2>/dev/null || true
+    i=0
+    while is_live_non_zombie "$pid" && [ "$i" -lt 50 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+    is_live_non_zombie "$pid" || break
+  done
+  if is_live_non_zombie "$pid"; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || true
+}
 
 # --- pure classifier predicates (fm-classify-lib.sh) ------------------------
 
@@ -2420,11 +2438,12 @@ test_terminal_first_sight_drops_a_finished_write_deferral_chain() {
 
   # First sight of this hash, absorbed because the active run outranks the stale
   # captain-relevant line. The absorb opens a new idle window, so the finished chain
-  # must go with it.
+  # must go with it. Inherit ignored TERM to exercise the alternate graceful
+  # cleanup signal and prove that recovery acknowledgement still works.
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
     FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 bash -c 'trap "" TERM; exec "$1"' _ "$WATCH" > "$out" &
   pid=$!
   if ! wait_poll_cycle "$state" "$pid"; then
     reap "$pid"; fail "the overridden terminal status was not absorbed on first sight: $(cat "$out")"
