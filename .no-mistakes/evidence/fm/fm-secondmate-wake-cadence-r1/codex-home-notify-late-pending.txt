@@ -1,0 +1,42 @@
+Generated Codex launch callback scenario: late-pending
+Backend: simulated tmux; production spawn, callback, watcher, drain and acknowledgement.
+
+[notify.rc]
+0
+
+[notify.out]
+
+[notify.err]
+
+[queue-before]
+1788890281	1	check	notify-row	check: queued idle home work
+
+[submissions]
+(absent)
+
+[confirms]
+(absent)
+
+[pending]
+captain draft
+
+[drain.out]
+1788890281	1	check	notify-row	check: queued idle home work
+UNREAD STATUS (new since last drain, not re-printed after this presentation):
+child note: unread child context for the handling turn
+
+[drain.err]
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3206579.1788890281.ytzRNO
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+
+[other.out]
+(absent)
+
+[other.err]
+(absent)
+
+[watch.out]
+(absent)
+
+[state/.wake-queue]
+1788890281	1	check	notify-row	check: queued idle home work

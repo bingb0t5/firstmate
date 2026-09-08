@@ -1,0 +1,43 @@
+Generated Codex launch callback scenario: unconfirmed
+Backend: simulated tmux; production spawn, callback, watcher, drain and acknowledgement.
+
+[notify.rc]
+1
+
+[notify.out]
+
+[notify.err]
+home wake: submit unconfirmed; durable wakes remain unacknowledged
+
+[queue-before]
+1788890287	1	check	notify-row	check: queued idle home work
+
+[submissions]
+⁣FIRSTMATE_OP: v1 watcher: Queued home wakes are waiting. Run bin/fm-wake-drain.sh first, handle the queued wakes and unread status context, then run the exact WAKE_ACK_REQUIRED acknowledgement command printed by the drain.
+
+[confirms]
+(absent)
+
+[pending]
+⁣FIRSTMATE_OP: v1 watcher: Queued home wakes are waiting. Run bin/fm-wake-drain.sh first, handle the queued wakes and unread status context, then run the exact WAKE_ACK_REQUIRED acknowledgement command printed by the drain.
+
+[drain.out]
+1788890287	1	check	notify-row	check: queued idle home work
+UNREAD STATUS (new since last drain, not re-printed after this presentation):
+child note: unread child context for the handling turn
+
+[drain.err]
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 3216114.1788890287.C0q5Yv
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+
+[other.out]
+(absent)
+
+[other.err]
+(absent)
+
+[watch.out]
+(absent)
+
+[state/.wake-queue]
+1788890287	1	check	notify-row	check: queued idle home work
