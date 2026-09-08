@@ -762,6 +762,24 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
   : > "$dir/AGENTS.md"
   printf 'mate\n' > "$dir/.fm-secondmate-home"
   stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$dir/.codex/hooks.json")
+  # End-user reproduction: a row can already be aged in the secondmate home's
+  # queue when Codex reaches its turn boundary. The Stop-owned arm must wake the
+  # idle home from that durable row before any parent-side stall observation is
+  # involved.
+  append_wake "$state" check preexisting-home-row 'check: pre-existing idle home row' \
+    || fail "could not seed the secondmate home's pre-existing queue row"
+  run_codex_stop_case "$dir" false
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "an idle Codex secondmate did not wake for its pre-existing home row: rc=$rc $(cat "$dir/stop.err")"
+  grep -qF 'check: rearm-resurface' "$dir/stop.err" \
+    || fail "the pre-existing home row did not traverse the Stop-owned arm: $(cat "$dir/stop.err")"
+  FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/prequeue-drain.out" 2> "$dir/prequeue-drain.err" \
+    || fail "could not drain the pre-existing secondmate home row"
+  grep -qF 'check: pre-existing idle home row' "$dir/prequeue-drain.out" \
+    || fail "the pre-existing home row did not reach the handling interface"
+  ack_drain_err "$state" "$dir/prequeue-drain.err" \
+    || fail "could not acknowledge the pre-existing secondmate home row"
+  [ ! -s "$state/.wake-queue" ] || fail "the pre-existing home row remained after acknowledgement"
   for cycle in 1 2; do
     (
       cd "$dir" || exit 1
