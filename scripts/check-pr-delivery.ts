@@ -24,7 +24,7 @@ function unquoted(body: string): string {
     }
     lines.push(line);
   }
-  return lines.join('\n');
+  return lines.join('\n').replace(/(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g, span => span.replace(/[^\n]/g, ''));
 }
 
 function section(body: string, heading: string): string {

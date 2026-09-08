@@ -244,23 +244,28 @@ test_preflight_refuses_stale_or_forged_pipeline_data() {
 }
 
 test_preflight_rejects_quoted_pipeline_evidence() {
-  local style evidence prefix rc
-  for style in blockquote nested_blockquote indented tab_indented mixed_tab; do
+  local style evidence prefix suffix rc
+  for style in blockquote nested_blockquote indented tab_indented mixed_tab single_backtick double_backtick triple_backtick mixed_backticks; do
+    suffix=''
     case "$style" in
       blockquote) prefix='> ' ;;
       nested_blockquote) prefix='   > > ' ;;
       indented) prefix='    ' ;;
       tab_indented) prefix=$(printf '\t') ;;
       mixed_tab) prefix=$(printf '  \t') ;;
+      single_backtick) prefix='`'; suffix='`' ;;
+      double_backtick) prefix='``'; suffix='``' ;;
+      triple_backtick) prefix='```'; suffix='```' ;;
+      mixed_backticks) prefix='``example ` '; suffix='``' ;;
     esac
     for evidence in signature attestation both; do
       preflight_case
       {
         cat "$PF_ROOT/intent.md"
         case "$evidence" in
-          signature) pipeline_section | sed "/^Updates from /s/^/$prefix/" ;;
-          attestation) pipeline_section | sed "/^<!-- no-mistakes-pipeline-attestation:/s/^/$prefix/" ;;
-          both) pipeline_section | sed "/^Updates from /s/^/$prefix/; /^<!-- no-mistakes-pipeline-attestation:/s/^/$prefix/" ;;
+          signature) pipeline_section | sed "/^Updates from /s/.*/$prefix&$suffix/" ;;
+          attestation) pipeline_section | sed "/^<!-- no-mistakes-pipeline-attestation:/s/.*/$prefix&$suffix/" ;;
+          both) pipeline_section | sed "/^Updates from /s/.*/$prefix&$suffix/; /^<!-- no-mistakes-pipeline-attestation:/s/.*/$prefix&$suffix/" ;;
         esac
       } > "$PF_ROOT/live.md"
       preflight_live_body "$PF_ROOT/live.md"
@@ -270,7 +275,17 @@ test_preflight_rejects_quoted_pipeline_evidence() {
       [ ! -s "$PF_ROOT/validated.md" ] || fail "$style pipeline $evidence released intent"
     done
   done
-  pass "blockquote and indented signatures or attestations cannot authorize delivery"
+  preflight_case
+  {
+    cat "$PF_ROOT/intent.md"
+    printf '\n%s\n' 'The `request status` label appears on the member page.'
+    pipeline_section
+  } > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "inline prose code with unquoted pipeline evidence"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "inline prose code changed validated intent"
+  pass "quoted signatures or attestations cannot authorize delivery; inline prose code remains supported"
 }
 
 test_preflight_pins_github_against_ambient_host() {
