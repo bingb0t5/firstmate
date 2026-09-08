@@ -698,6 +698,59 @@ test_pi_harness_routes_itself_to_the_extension_model() {
   pass "fm-guard stale banner: Pi and pi-signed primaries route themselves to the extension model"
 }
 
+test_watch_config_grace_in_health_consumers() {
+  local dir home root config script scenario out status expected grace age stamp
+  local -a overrides
+  for script in fm-guard.sh fm-turnend-guard.sh; do
+    for scenario in file stale env-short env-long invalid config-override; do
+      dir=$(make_guard_case "watch-config-$script-$scenario")
+      home=$(case_home "$dir")
+      root=$(case_root "$dir")
+      mkdir -p "$root/bin"
+      : > "$root/AGENTS.md"
+      printf 'sm-guard-test\n' > "$root/.fm-secondmate-home"
+      record_live_watcher "$dir" "$$" || fail "could not record live watcher"
+      config="$home/config"
+      grace=900
+      age=400
+      expected=healthy
+      overrides=()
+      case "$scenario" in
+        stale) age=1000; expected=down ;;
+        env-short) overrides=(FM_GUARD_GRACE=300); expected=down ;;
+        env-long) grace=100; overrides=(FM_GUARD_GRACE=900) ;;
+        invalid) grace=invalid; expected=down ;;
+        config-override)
+          config="$dir/override-config"
+          mkdir -p "$config"
+          printf 'FM_GUARD_GRACE=100\n' > "$home/config/watch.env"
+          overrides=("FM_CONFIG_OVERRIDE=$config")
+          ;;
+      esac
+      printf 'FM_GUARD_GRACE=%s\n' "$grace" > "$config/watch.env"
+      age=$(( $(date +%s) - age ))
+      stamp=$(date -d "@$age" +%Y%m%d%H%M.%S 2>/dev/null || date -r "$age" +%Y%m%d%H%M.%S)
+      touch -t "$stamp" "$home/state/.last-watcher-beat"
+      status=0
+      out=$(printf '{"stop_hook_active":false}' | env -u FM_GUARD_GRACE -u FM_CONFIG_OVERRIDE \
+        -u FM_STATE_OVERRIDE -u FM_WAKE_QUEUE \
+        FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SUPERVISION_MODEL=persistent \
+        "${overrides[@]}" "$ROOT/bin/$script" 2>&1) || status=$?
+      if [ "$expected" = healthy ]; then
+        [ "$status" -eq 0 ] && [ -z "$out" ] || fail "$script $scenario rejected healthy supervision: $out"
+      elif [ "$script" = fm-guard.sh ]; then
+        [ "$status" -eq 0 ] || fail "pull guard must remain advisory"
+        assert_contains "$out" 'WATCHER DOWN' "$script $scenario failed to report stale supervision"
+      else
+        [ "$status" -eq 2 ] || fail "Stop guard $scenario failed to block stale supervision: $out"
+        assert_contains "$out" 'TURN WOULD END BLIND' "$script $scenario lost recovery guidance"
+      fi
+    done
+  done
+  pass "health consumers share watch.env grace, environment precedence, and config overrides"
+}
+
+test_watch_config_grace_in_health_consumers
 test_first_stale_call_prints_full_banner
 test_repeated_same_episode_prints_reminder_only
 test_pi_harness_routes_itself_to_the_extension_model
