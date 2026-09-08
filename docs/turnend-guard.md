@@ -54,7 +54,11 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 ## Harness integrations
 
 - Claude registers two `Stop` hooks in `.claude/settings.json`, both anchored through `CLAUDE_PROJECT_DIR`: `bin/fm-turnend-guard.sh --claude`, and `bin/fm-claude-stop-autoarm.sh` with `asyncRewake: true` and `timeout: 28800`.
-- Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and passes the original payload to the shared guard.
+- Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and passes the original payload to the shared guard with `--codex`.
+  In a marked secondmate home, the lock-owning session foregrounds `fm-watch-arm.sh` inside the Stop process tree, including when only queued home wakes remain or the home is idle.
+  An actionable close returns exit 2 with the durable wake and handling instruction, and the next Stop owns re-arming without publishing any child-task marker.
+  Away mode leaves supervision with its daemon.
+  Productive wakes may continue across Stops; arm failures retain the shared one-continuation repair bound.
 - OpenCode listens for `session.idle` in `.opencode/plugins/fm-primary-turnend-guard.js`, lets the watcher coordinator act first, and calls `client.session.promptAsync` once when the guard returns 2.
 - Pi listens for `agent_settled` in `.pi/extensions/fm-primary-turnend-guard.ts`, runs once per logical agent run, and calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` once when the guard returns 2.
 - Cursor registers a `stop` hook in `.cursor/hooks.json` and delegates the whole turn boundary to `bin/fm-turnend-guard-cursor.sh`, the park described below.
@@ -72,7 +76,7 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 
 Claude and Codex can block a Stop directly with exit status 2 and stderr.
 Both payloads carry `stop_hook_active`.
-In the default Codex mode, a true value lets the second stop finish after one forced continuation.
+Outside the secondmate Stop-owned watcher path, a true value lets the second stop finish after one forced continuation.
 
 Claude runs the guard with `--claude`, which ignores `stop_hook_active` and cooperates with the Stop-owned auto-arm.
 Claude Code sets `stop_hook_active=true` on every stop after any stop-hook continuation, including `asyncRewake` rewakes, which re-opened the 2026-07-21 blind window under the default one-shot behavior.

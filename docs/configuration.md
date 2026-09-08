@@ -746,9 +746,12 @@ The two read files are parsed differently: `config/voice-read-scope` must hold t
 
 ### Optional watcher defaults (`config/watch.env`)
 
-An optional home-local `config/watch.env` file supplies default `FM_*` values to `bin/fm-watch-arm.sh` and `bin/fm-watch.sh`.
-The file is parsed as `KEY=VALUE` data, comments and optional `export` prefixes are accepted, malformed lines are ignored, and shell text is never executed.
+An optional home-local `config/watch.env` file supplies default numeric watcher values to `bin/fm-watch-arm.sh` and `bin/fm-watch.sh`.
+The file is parsed as `KEY=VALUE` data, comments and optional `export` prefixes are accepted, unknown keys and malformed values are ignored, and shell text is never executed.
+Accepted keys are the watcher timing, grace, cadence, escalation, event-failure, and cycle-log limits enumerated by `bin/fm-watch-config-lib.sh`.
+Integers use canonical unsigned decimal notation up to nine digits; `FM_ARM_ATTACH_POLL` also accepts up to six fractional digits.
 An explicitly exported environment variable always wins over a value in this file.
+For example, `FM_SECONDMATE_WAKE_STALL_SECS=900` pins the whole parent-side threshold to 900 seconds, including while the backend is busy; place it in the supervising parent home, while each secondmate home has its own independent watcher settings.
 This file is a local watcher-defaults input and is separate from the generated Relay-specific `config/x-mode.env`.
 
 Runtime tuning via environment variables (defaults shown):
@@ -831,7 +834,7 @@ FM_CLASSIFY_PAUSED_VERB=paused     # leading status verb for a declared external
 FM_STALE_ESCALATE_SECS=240         # idle seconds before a provably-working stale pane escalates; stale panes whose crew is not provably working surface immediately unless they declare the pause verb; the same interval also bounds how long a declared wait's state-and-liveness classification, settlement included, is reused before it is revalidated
 FM_BUSY_TURN_MAX_SECS=3600         # maximum age of a busy pane's latest state/<id>.turn-ended marker, or its state/<id>.meta spawn record before any turn completes, before the same wedge escalation used for a provably-working non-busy stale takes over; inspection-only, never an automatic interrupt or restart; a declared external wait or verified captain-held transfer takes the FM_PAUSE_RESURFACE_SECS recheck below instead
 FM_PAUSE_RESURFACE_SECS=3600       # seconds before the watcher or away-mode daemon re-surfaces a declared external wait or verified captain-held transfer for a recheck, including a live busy pane past FM_BUSY_TURN_MAX_SECS; dead completed or parked ordinary lanes settle under an expiring state-and-liveness classification, confirmed-dead lanes with unreadable current state retain this cadence, and other known nonsettled lanes surface once before retaining it
-FM_SECONDMATE_WAKE_STALL_SECS=   # when set to a positive integer, overrides the whole parent wake-loop-stall threshold for every local secondmate; unset skips a fresh row while the recorded backend state is busy, otherwise uses that mate's recorded cadence plus grace (grok background-notify, pi/pi-signed branch claim, otherwise 600s); zero or invalid values fall through to the cadence path
+FM_SECONDMATE_WAKE_STALL_SECS=   # when set to a positive integer, overrides the whole parent wake-loop-stall threshold for every local secondmate; unset skips a fresh row for non-Grok/non-Pi mates without a live Pi branch grant while the recorded backend state is busy, otherwise uses that mate's recorded cadence plus grace (grok background-notify, pi/pi-signed branch claim, otherwise 600s); zero or invalid values fall through to the cadence path
 FM_SECONDMATE_WAKE_STALL_GRACE_SECS=30   # added to every recorded cadence when FM_SECONDMATE_WAKE_STALL_SECS is unset; invalid values use 30
 FM_GROK_NOTIFY_CADENCE_SECS=180   # Grok background-notify wait the parent treats as a healthy unclaimed-row window; zero or invalid values use 180
 FM_PI_BRANCH_CLAIM_CADENCE_SECS=300   # Pi supervision-branch claim window the parent treats as a healthy unclaimed-row wait; also used while a live branch grant is recorded in the mate home; zero or invalid values use 300

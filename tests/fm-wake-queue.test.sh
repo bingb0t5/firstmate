@@ -692,6 +692,112 @@ test_secondmate_watch_env_default_is_loaded_safely() {
   pass "watch.env supplies safe watcher defaults while explicit environment values retain precedence"
 }
 
+test_watch_env_rejects_arithmetic_execution() {
+  local dir state pid i
+  dir=$(make_case watch-env-arithmetic)
+  state="$dir/state"
+  mkdir -p "$dir/config"
+  printf "FM_ARM_CONFIRM_TIMEOUT='a[\$(touch %s/arm-executed)]'\nFM_HEARTBEAT='a[\$(touch %s/heartbeat-executed)]'\nFM_POLL=1\n" \
+    "$dir" "$dir" > "$dir/config/watch.env"
+  env -u FM_ARM_CONFIRM_TIMEOUT -u FM_HEARTBEAT \
+    PATH="$dir/fakebin:$PATH" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$dir/config" \
+    "$ROOT/bin/fm-watch-arm.sh" > "$dir/arm.out" 2> "$dir/arm.err" &
+  pid=$!
+  for i in $(seq 1 100); do
+    grep -q 'watcher: started' "$dir/arm.out" && break
+    sleep 0.1
+  done
+  grep -q 'watcher: started' "$dir/arm.out" \
+    || { kill "$pid" 2>/dev/null; fail "malformed numeric defaults prevented arm startup: $(cat "$dir/arm.err")"; }
+  sleep 2
+  append_wake "$state" check numeric-safe 'check: numeric defaults safely consumed'
+  wait_for_exit "$pid" 40 || fail "arm failed to deliver after rejecting numeric payloads"
+  [ ! -e "$dir/arm-executed" ] && [ ! -e "$dir/heartbeat-executed" ] \
+    || fail "watch.env numeric input executed through watcher arithmetic"
+  grep -qF 'check: rearm-resurface' "$dir/arm.out" \
+    || fail "arm did not signal the queued wake"
+  FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err"
+  grep -qF 'check: numeric defaults safely consumed' "$dir/drain.out" \
+    || fail "queued wake did not reach the handling interface"
+  printf 'FM_HEARTBEAT=0008\nFM_ARM_ATTACH_POLL=0.25\nFM_BACKEND=herdr\n' > "$dir/config/watch.env"
+  bash -c '
+    . "$1"
+    unset FM_HEARTBEAT FM_ARM_ATTACH_POLL FM_BACKEND
+    fm_watch_config_load "$2"
+    [ "${FM_HEARTBEAT-unset}" = unset ] && [ "$FM_ARM_ATTACH_POLL" = 0.25 ] && [ "${FM_BACKEND-unset}" = unset ]
+  ' _ "$ROOT/bin/fm-watch-config-lib.sh" "$dir/config/watch.env" \
+    || fail "numeric watch defaults accepted octal or an unrelated setting"
+  pass "real arm and watcher reject executable numeric defaults and preserve supported decimal pins"
+}
+
+test_busy_grok_pi_and_live_branch_keep_their_cadence() {
+  local dir sub harness
+  for harness in grok pi pi-signed codex; do
+    dir=$(make_cadence_stall_case "busy-cadence-$harness" "$harness" 400 herdr default:w1:p2)
+    sub="$dir/secondmate"
+    make_fake_herdr_agent_state "$dir"
+    printf 'Ctrl+c:cancel\n' > "$dir/fake-tmux/pane.txt"
+    touch "$sub/state/.last-watcher-beat"
+    if [ "$harness" = codex ]; then
+      write_live_branch_owner "$sub" || fail "could not record live Pi branch ownership"
+    fi
+    FM_FAKE_HERDR_AGENT_STATUS=working run_cadence_stall_checkpoint "$dir" watch
+    grep -F 'check: secondmate wake-loop stalled: mate=mate row=7' "$dir/watch.out" >/dev/null \
+      || fail "busy $harness bypassed its Grok/Pi cadence: $(cat "$dir/watch.out")"
+  done
+  pass "busy Grok, Pi, pi-signed, and live branch grants retain their cadence"
+}
+
+test_codex_secondmate_stop_arms_and_self_wakes() {
+  local dir state stop pid i cycle rc
+  dir=$(make_case codex-secondmate-stop)
+  state="$dir/state"
+  mkdir -p "$dir/.codex"
+  cp "$ROOT/.codex/hooks.json" "$dir/.codex/hooks.json"
+  cp "$(command -v bash)" "$dir/codex"
+  printf 'export PATH=%q:"$PATH"\n' "$dir/fakebin" > "$dir/bash-env"
+  ln -s "$ROOT/bin" "$dir/bin"
+  : > "$dir/AGENTS.md"
+  printf 'mate\n' > "$dir/.fm-secondmate-home"
+  stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$dir/.codex/hooks.json")
+  for cycle in 1 2; do
+    (
+      cd "$dir" || exit 1
+      FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
+        BASH_ENV="$dir/bash-env" FM_BACKEND=tmux FM_CONFIG_OVERRIDE="$dir/config" FM_POLL=1 FM_SIGNAL_GRACE=0 \
+        FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+        "$dir/codex" -c '
+          printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+          printf "{\"stop_hook_active\":true}" | bash -c "$1"
+          rc=$?
+          printf "%s\n" "$rc" > "$FM_HOME/stop.rc"
+        ' _ "$stop"
+    ) > "$dir/stop.out" 2> "$dir/stop.err" &
+    pid=$!
+    for i in $(seq 1 150); do
+      [ -f "$state/.watch.lock/pid-identity" ] && [ -e "$state/.last-watcher-beat" ] && break
+      sleep 0.1
+    done
+    [ -f "$state/.watch.lock/pid-identity" ] && kill -0 "$pid" 2>/dev/null \
+      || { kill "$pid" 2>/dev/null; fail "registered Codex Stop did not arm idle home supervision: $(cat "$dir/stop.err")"; }
+    [ ! -e "$state/mate.turn-ended" ] || fail "primary Stop published a child marker"
+    append_wake "$state" check "home-row-$cycle" "check: idle home row $cycle"
+    wait_for_exit "$pid" 40 || fail "registered Stop did not return a home wake"
+    rc=$(cat "$dir/stop.rc")
+    [ "$rc" = 2 ] || fail "Stop did not request a handling turn: rc=$rc $(cat "$dir/stop.err")"
+    grep -qF 'check: rearm-resurface' "$dir/stop.err" \
+      || fail "Stop feedback omitted the queued home wake notification: $(cat "$dir/stop.err")"
+    [ -s "$state/.wake-queue" ] || fail "Stop consumed the wake before handling acknowledgement"
+    FM_HOME="$dir" FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/drain.out" 2> "$dir/drain.err"
+    grep -qF "check: idle home row $cycle" "$dir/drain.out" \
+      || fail "home wake did not reach the handling interface"
+    ack_drain_err "$state" "$dir/drain.err" || fail "home wake acknowledgement failed"
+    [ ! -s "$state/.wake-queue" ] || fail "acknowledged home wake remained queued"
+  done
+  pass "registered Codex Stop arms idle home supervision and returns durable self-wakes across turns"
+}
+
 test_grok_notify_wait_is_not_a_stall() {
   local dir sub
   dir=$(make_cadence_stall_case grok-notify-wait grok 175)
@@ -1548,24 +1654,36 @@ test_historical_annotation_skips_announced_status() {
   pass "historical annotations replay nothing already announced and keep everything new"
 }
 
+run_secondmate_review_tests() {
+  test_watch_env_rejects_arithmetic_execution
+  test_codex_secondmate_stop_arms_and_self_wakes
+  test_busy_grok_pi_and_live_branch_keep_their_cadence
+  test_grok_notify_wait_is_not_a_stall
+  test_grok_notify_wait_pages_after_cadence
+  test_grok_notify_wait_pages_when_beacon_stale
+  test_pi_branch_claim_window_is_not_a_stall
+  test_pi_branch_claim_window_pages_after_cadence
+  test_pi_branch_claimed_row_is_not_a_stall
+  test_pi_branch_dead_claim_does_not_hide_a_stall
+  test_codex_busy_secondmate_row_stays_quiet
+  test_codex_busy_stale_beacon_still_pages
+  test_codex_idle_secondmate_uses_idle_cadence_plus_grace
+  test_secondmate_stall_override_precedes_busy_state
+  test_secondmate_watch_env_default_is_loaded_safely
+}
+
+if [ "${1:-}" = --secondmate ]; then
+  run_secondmate_review_tests
+  exit
+fi
+
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_secondmate_foreign_queue_stall_is_one_shot_and_read_only
 test_secondmate_parked_pause_rechecks_do_not_flood_parent
 test_secondmate_stall_marker_rejects_symlink
 test_acknowledged_stall_publication_survives_pre_marker_crash
 test_empty_prefix_mate_preserves_other_mate_receipt
-test_grok_notify_wait_is_not_a_stall
-test_grok_notify_wait_pages_after_cadence
-test_grok_notify_wait_pages_when_beacon_stale
-test_pi_branch_claim_window_is_not_a_stall
-test_pi_branch_claim_window_pages_after_cadence
-test_pi_branch_claimed_row_is_not_a_stall
-test_pi_branch_dead_claim_does_not_hide_a_stall
-test_codex_busy_secondmate_row_stays_quiet
-test_codex_busy_stale_beacon_still_pages
-test_codex_idle_secondmate_uses_idle_cadence_plus_grace
-test_secondmate_stall_override_precedes_busy_state
-test_secondmate_watch_env_default_is_loaded_safely
+run_secondmate_review_tests
 test_self_announced_append_guards
 test_historical_annotation_skips_announced_status
 test_concurrent_append_and_drain

@@ -75,6 +75,7 @@ GRACE=${FM_GUARD_GRACE:-300}
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 CLAUDE_MODE=0
 CURSOR_MODE=0
+CODEX_MODE=0
 SYNC_WAIT_MS=${FM_CLAUDE_AUTOARM_SYNC_WAIT_MS:-800}
 EPOCH_FRESH=${FM_CLAUDE_AUTOARM_EPOCH_FRESH:-15}
 BLOCK_BUDGET=${FM_CLAUDE_TURNEND_BLOCK_BUDGET:-3}
@@ -86,7 +87,8 @@ for arg in "$@"; do
   case "$arg" in
     --claude) CLAUDE_MODE=1 ;;
     --cursor) CURSOR_MODE=1 ;;
-    *) echo "usage: $(basename "$0") [--claude|--cursor]" >&2; exit 2 ;;
+    --codex) CODEX_MODE=1 ;;
+    *) echo "usage: $(basename "$0") [--claude|--cursor|--codex]" >&2; exit 2 ;;
   esac
 done
 
@@ -125,9 +127,6 @@ STOP_HOOK_ACTIVE=$(printf '%s' "$PAYLOAD" | jq -r '
   else false
   end
 ' 2>/dev/null) || exit 0
-if [ "$CLAUDE_MODE" -eq 0 ] && [ "$STOP_HOOK_ACTIVE" = "true" ]; then
-  exit 0
-fi
 
 # --- scope precisely to a PRIMARY checkout ----------------------------------
 # A genuinely-marked secondmate home runs its OWN primary firstmate session, so
@@ -146,6 +145,28 @@ fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 # --- the actual predicate ----------------------------------------------------
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+
+if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
+  . "$SCRIPT_DIR/fm-session-lock-lib.sh"
+  fm_session_lock_owned_by_self "$STATE" || exit 0
+  [ -e "$STATE/.afk" ] && exit 0
+  OUT=$(mktemp "$STATE/.codex-stop-output.XXXXXX") || exit 1
+  trap 'rm -f "$OUT"' EXIT
+  "$SCRIPT_DIR/fm-watch-arm.sh" > "$OUT" 2>&1
+  ARM_RC=$?
+  [ -e "$STATE/.afk" ] && exit 0
+  fm_session_lock_owned_by_self "$STATE" || exit 0
+  if [ "$ARM_RC" -eq 0 ] && grep -Eq '^(signal:|stale:|check:|heartbeat($|:))' "$OUT"; then
+    grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >&2
+    printf '%s\n' 'Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.' >&2
+    exit 2
+  fi
+  cat "$OUT" >&2
+fi
+
+if [ "$CLAUDE_MODE" -eq 0 ] && [ "$STOP_HOOK_ACTIVE" = "true" ]; then
+  exit 0
+fi
 
 BUDGET_FILE="$STATE/.turnend-claude-blocks"
 BUDGET_LOCK="$STATE/.turnend-claude-blocks.lock"

@@ -564,7 +564,14 @@ secondmate_wake_stall_tick() {
     if [ "$beacon_stale" -eq 0 ]; then
       case "$SECONDMATE_WAKE_STALL_OVERRIDE" in
         ''|*[!0-9]*|0)
-          secondmate_backend_is_busy "$meta" && continue
+          case "$harness" in
+            grok|pi|pi-signed) ;;
+            *)
+              if ! secondmate_branch_grant_live "$home"; then
+                secondmate_backend_is_busy "$meta" && continue
+              fi
+              ;;
+          esac
           ;;
       esac
     fi
