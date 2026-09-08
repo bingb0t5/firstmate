@@ -347,6 +347,8 @@ nm_effective_ci_step_status() {
 # network call from this deterministic state reader.
 pr_merge_observed() {
   fm_pr_metadata_identity_parse "$META" || return 1
+  fm_pr_url_parse "$(strip_quotes "$(nm_field pr)")" || return 1
+  [ "$FM_PR_URL" = "$FM_PR_META_URL" ] || return 1
   fm_pr_poll_merge_already_notified "$STATE" "$ID" \
     "$FM_PR_META_PROVIDER" "$FM_PR_META_HOST" "$FM_PR_META_PATH" \
     "$FM_PR_META_NUMBER"

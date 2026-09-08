@@ -274,7 +274,7 @@ run:
   branch: $1
   status: completed
   head: "${FM_FAKE_RUN_HEAD:-abc1234}"
-  pr: "https://github.com/o/r/pull/1"
+  pr: "${2-https://github.com/o/r/pull/1}"
   findings: none
 outcome: passed
 EOF
@@ -742,6 +742,32 @@ test_passed_pr_with_mismatched_merge_evidence_stays_unverified() {
   assert_not_contains "$out" "PR merged/closed" \
     "mismatched merge evidence cannot claim a merge"
   pass "mismatched owned merge evidence is rejected"
+}
+
+test_passed_run_with_stale_pr_metadata_stays_unverified() {
+  reset_fakes
+  local d run_pr out
+  d=$(new_case passed-stale-pr-metadata)
+  make_repo_on_branch "$d/wt" fm/feat-stale-pr
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-stale-pr.meta" "window=fm:fm-feat-stale-pr" \
+    "worktree=$d/wt" "kind=ship" "pr=https://github.com/o/r/pull/1"
+  mark_merged_poll "$d/state" feat-stale-pr 1
+  FM_FAKE_TMUX_MISSING=1
+  for run_pr in \
+    https://github.com/o/r/pull/2 \
+    https://github.com/o/other/pull/1 \
+    https://gitlab.com/o/r/-/merge_requests/1 \
+    https://github.com/o/r/pull/1/invalid \
+    ''; do
+    FM_FAKE_AXI_STATUS="$(run_passed fm/feat-stale-pr "$run_pr")"
+    out=$(run_crew_state "$d" feat-stale-pr)
+    assert_contains "$out" "state: done" "stopped run remains complete: $run_pr"
+    assert_contains "$out" "source: run-step" "current run remains attributed: $run_pr"
+    assert_contains "$out" "PR merge unverified" "run PR must match merge evidence: $run_pr"
+    assert_not_contains "$out" "PR merged/closed" "stale metadata cannot prove this run merged: $run_pr"
+  done
+  pass "retained metadata and merge evidence cannot certify another run PR"
 }
 
 test_terminal_passed() {
@@ -1558,6 +1584,7 @@ test_top_level_fixing_done_log_stays_working
 test_passed_open_pr_does_not_claim_merge
 test_passed_pr_with_owned_merge_evidence_claims_merge
 test_passed_pr_with_mismatched_merge_evidence_stays_unverified
+test_passed_run_with_stale_pr_metadata_stays_unverified
 test_terminal_passed
 test_terminal_failed
 test_live_ci_status_outranks_stale_failure
