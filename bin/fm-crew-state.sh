@@ -33,8 +33,10 @@
 #      branch whose head was rewritten or diverged must not be attributed.
 #      A run matches when its head equals the worktree HEAD, or the worktree HEAD
 #      is an ancestor of the run head (pipeline fix commits advanced the run on
-#      the same line of history). Local work that advanced past the run head, or
-#      diverged from it, invalidates attribution.
+#      the same line of history). For an active same-branch run only, a non-empty
+#      pipeline-owned head that cannot be resolved locally is also accepted.
+#      Local work that advanced past a resolvable run head, or diverged from it,
+#      invalidates attribution.
 #      The run-step is AUTHORITATIVE: running/fixing -> working, ci -> working,
 #      awaiting_approval/fix_review -> parked (with gate findings), terminal
 #      passed/checks-passed -> done, failed/cancelled -> failed. EXCEPT: while
@@ -423,6 +425,29 @@ nm_run_head_matches_worktree() {
   fm_nm_head_matches_worktree "$WT" "$run_head"
 }
 
+# 0 when the run names a non-empty commit that this local checkout cannot
+# resolve. Pipeline-owned heads can be valid run identities without being
+# present in the crew worktree; a missing head is still rejected separately.
+nm_run_head_unavailable_locally() {
+  local run_head
+  run_head=$(strip_quotes "$(nm_field head)")
+  [ -n "$run_head" ] || return 1
+  git -C "$WT" rev-parse HEAD >/dev/null 2>&1 || return 1
+  ! git -C "$WT" rev-parse --verify "${run_head}^{commit}" >/dev/null 2>&1
+}
+
+# Only a live run may use the narrow pipeline-owned-head exception. Terminal
+# rows remain subject to the normal local head binding and cannot inherit a
+# historical result by branch name alone.
+nm_run_is_active() {
+  local status
+  status=$(strip_quotes "$(nm_field status)")
+  case "$status" in
+    running|fixing|ci|awaiting_approval|fix_review) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Coarse runs-list rows are "<status> <branch> <short-sha> ...". 0 if the short
 # sha for this branch row matches the worktree head under the same rules as
 # nm_run_head_matches_worktree (equal, or local is ancestor of run tip).
@@ -443,12 +468,29 @@ if [ "$KIND" = ship ] && [ -n "$CREW_BRANCH" ] && command -v no-mistakes >/dev/n
   RUN_OUT=$(nm_run axi status)
   if [ -n "$RUN_OUT" ]; then
     run_branch=$(strip_quotes "$(nm_field branch)")
-    if [ -n "$run_branch" ] && [ "$run_branch" = "$CREW_BRANCH" ] && nm_run_head_matches_worktree; then
-      HAVE_RUN=1
+    if [ -n "$run_branch" ] && [ "$run_branch" = "$CREW_BRANCH" ]; then
+      if nm_run_head_matches_worktree; then
+        HAVE_RUN=1
+      elif nm_run_is_active && nm_run_head_unavailable_locally; then
+        # The proven same-branch path binds an available run head to the local
+        # history. A live same-branch run with a non-local pipeline-owned head
+        # is the one conservative exception: its full axi-status payload is
+        # current, while the coarse fallback can only expose an older terminal
+        # row at the local head. Missing heads and resolvable local divergence
+        # still fall through to that safety-preserving fallback.
+        HAVE_RUN=1
+      else
+        # A terminal row, missing head, or known local divergence is not
+        # current merely because its branch name matches.
+        COARSE_STATUS=$(nm_runs_status_for_branch "$CREW_BRANCH")
+        if [ -n "$COARSE_STATUS" ]; then
+          HAVE_RUN=1
+          RUN_SOURCE=coarse
+        fi
+      fi
     else
-      # The active-or-most-recent run is for another branch, or same branch with
-      # a rewritten/diverged head (the CLI is alive and answered; only the
-      # attribution missed) - try the coarse fallback.
+      # The active-or-most-recent run is for another branch - try the coarse
+      # fallback.
       # Deliberately nested inside `[ -n "$RUN_OUT" ]`: an empty/timed-out
       # primary call means the CLI itself did not respond, so retrying it
       # immediately with a second bounded call would just double the wait
