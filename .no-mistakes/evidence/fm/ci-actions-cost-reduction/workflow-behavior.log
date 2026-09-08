@@ -1,0 +1,110 @@
+LOCAL SEMANTIC EVENT MATRIX (parsed workflow rules, not remote Actions execution)
+PR opened: CI=True, macOS snapshot=False
+PR synchronize: CI=True, macOS snapshot=False
+PR reopened: CI=True, macOS snapshot=False
+PR body edited: CI=False, macOS snapshot=False
+main push: CI=True, macOS snapshot=True
+feature push: CI=False, macOS snapshot=False
+manual main: CI=True, macOS snapshot=True
+manual feature: CI=True, macOS snapshot=True
+PR synchronize workflow registrations: before=4, after=3
+CI: PR37 group=ci-37; cancel prior run=True; PR38 isolated
+Require no-mistakes: PR37 group=no-mistakes-required-37; cancel prior run=True; PR38 isolated
+pr-communication: PR37 group=pr-communication-37; cancel prior run=True; PR38 isolated
+Attestation job: author=contributor, selected=True, timeout=5 minutes
+Attestation job: author=github-actions[bot], selected=False, timeout=5 minutes
+Attestation job: author=dependabot[bot], selected=False, timeout=5 minutes
+Strict unique-key configuration load: agent=[codex]
+
+ACTUAL WORKFLOW SHELL EXECUTION WITH PR BODY FIXTURES
+
+completed pipeline: exit=0
+Found no-mistakes signature in PR #37 body.
+Pipeline step attestation is valid: review, test, and document are completed.
+
+missing signature: exit=1
+::error::This PR was not raised through no-mistakes.
+
+Contributions to this repository must be submitted via 'git push no-mistakes'.
+That pipeline runs the required review/test/lint/CI steps and writes a
+deterministic '## Pipeline' section into the PR body containing:
+
+    Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)
+
+See CONTRIBUTING.md for setup and the full workflow.
+
+PR author: test-author
+
+missing attestation: exit=1
+Found no-mistakes signature in PR #37 body.
+::error::This repository requires no-mistakes >= 1.46.0; structured pipeline step attestation is missing or unparseable.
+
+The no-mistakes signature was found, but this check also requires one
+HTML comment in the PR body:
+
+    <!-- no-mistakes-pipeline-attestation:v1 {"head_sha":"...","steps":[...]} -->
+
+That comment is emitted by no-mistakes >= 1.46.0 (the release that started
+emitting structured step attestation; see https://github.com/kunchenguid/no-mistakes/pull/670).
+An older no-mistakes that writes only the signature line is not enough.
+
+Re-run the pipeline with 'git push no-mistakes' using no-mistakes >= 1.46.0.
+See CONTRIBUTING.md for setup and the full workflow.
+
+PR author: test-author
+
+malformed attestation: exit=1
+Found no-mistakes signature in PR #37 body.
+::error::This repository requires no-mistakes >= 1.46.0; structured pipeline step attestation is missing or unparseable.
+
+The no-mistakes signature was found, but this check also requires one
+HTML comment in the PR body:
+
+    <!-- no-mistakes-pipeline-attestation:v1 {"head_sha":"...","steps":[...]} -->
+
+That comment is emitted by no-mistakes >= 1.46.0 (the release that started
+emitting structured step attestation; see https://github.com/kunchenguid/no-mistakes/pull/670).
+An older no-mistakes that writes only the signature line is not enough.
+
+Re-run the pipeline with 'git push no-mistakes' using no-mistakes >= 1.46.0.
+See CONTRIBUTING.md for setup and the full workflow.
+
+PR author: test-author
+
+skipped test: exit=1
+Found no-mistakes signature in PR #37 body.
+::error::Required no-mistakes pipeline steps are not completed: test=skipped.
+
+This repository requires review, test, and document to each have status
+exactly 'completed'. Quota skips and agent skips are not compliant.
+
+Re-run the pipeline with 'git push no-mistakes' using no-mistakes >= 1.46.0
+so those required steps complete rather than skip.
+See CONTRIBUTING.md for setup and the full workflow.
+
+PR author: test-author
+
+missing document: exit=1
+Found no-mistakes signature in PR #37 body.
+::error::Required no-mistakes pipeline steps are not completed: document=missing.
+
+This repository requires review, test, and document to each have status
+exactly 'completed'. Quota skips and agent skips are not compliant.
+
+Re-run the pipeline with 'git push no-mistakes' using no-mistakes >= 1.46.0
+so those required steps complete rather than skip.
+See CONTRIBUTING.md for setup and the full workflow.
+
+PR author: test-author
+
+ACTUAL REMAINING COMMUNICATION WORKFLOW COMMANDS
+complete overview / Assess PR communication: exit=0
+PR communication is complete.
+complete overview / Assess Firstmate CEO overview: exit=0
+Firstmate CEO overview is complete.
+incomplete description / Assess PR communication: exit=1
+Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+::error::Cannot enter staging until completed: CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found); Decision needed; Module-boundary decision; Validation: Checks passed (no line found); Validation: Checks not run (no line found); Validation: Evidence and limitations (no line found)
+incomplete description / Assess Firstmate CEO overview: exit=1
+Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)
+::error::Cannot enter staging until completed: CEO overview is missing or incomplete; implementation intent is not an acceptable substitute; CEO overview: What is changing (no line found); CEO overview: Why it matters (no line found); CEO overview: Customer or business impact (no line found); CEO overview: Risk and rollout (no line found)

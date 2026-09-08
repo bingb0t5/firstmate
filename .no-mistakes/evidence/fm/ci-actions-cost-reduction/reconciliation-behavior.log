@@ -1,0 +1,27 @@
+actionable: stale: firstmate:fm-zactive (active work has no meaningful progress since first observation; no timestamped progress event)
+actionable: check: bounded due-work check exceeded 1s for firstmate:fm-paused
+RESULT: unbounded candidate evidence is partial and non-escalating
+Measured scan elapsed seconds: 3
+Persisted partial-evidence record:
+schema=fm-inactive-reconcile-partial.v1
+coverage=partial
+known_active=1
+epoch=1788831430
+Capacity degradation record: absent
+actionable: stale: firstmate:fm-partial (active work has no meaningful progress since first observation; no timestamped progress event)
+RESULT: partial candidate remains in the resumable regular sweep
+Measured scan elapsed seconds: not timed by this scenario
+Persisted partial-evidence record:
+schema=fm-inactive-reconcile-partial.v1
+coverage=partial
+known_active=0
+epoch=1788831433
+Capacity degradation record: absent
+Observed child-state reads:
+partial
+actionable: stale: firstmate:fm-zactive (active work has no meaningful progress since first observation; no timestamped progress event)
+RESULT: active due work precedes declared-wait reconciliation
+Measured scan elapsed seconds: not timed by this scenario
+Capacity degradation record: absent
+Observed child-state reads:
+zactive
