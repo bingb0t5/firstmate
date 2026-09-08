@@ -2763,6 +2763,8 @@ if [ "$KIND" = secondmate ]; then
   # Keep this in step with fm_supervision_model (bin/fm-wake-lib.sh): Claude's
   # Stop auto-arm and Cursor's stop-hook park both run the watcher only BETWEEN
   # turns, so a fresh beacon with no live watcher is their healthy mid-turn state.
+  # Codex clears any inherited pin so the shared classifier can switch with the
+  # secondmate home's away-mode state instead of freezing its launch-time model.
   case "$HARNESS" in
     claude|cursor) supervision_model=autoarm ;;
     codex) supervision_model= ;;

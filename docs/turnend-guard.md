@@ -15,7 +15,8 @@ Do not infer this guard's scope, loop safety, or compatibility tradeoffs for tho
 The turn-end guard closes the remaining gap at the primary's own turn boundary.
 When work, a process-event source, or Relay polling needs supervision at that boundary and either active direct work exceeds due-work capacity or no identity-matched watcher has a fresh beacon, the harness integration must either block the turn end or force one bounded follow-up that uses the recovery instruction from the emitted session-start protocol.
 The mid-turn pull warning uses the model-aware supervision verdict described below, while the turn-end guard keeps the PID-strict watcher predicate.
-The guard remains a backstop; [`watcher-continuity.md`](watcher-continuity.md) owns normal continuity.
+The shared predicate remains a backstop; the marked Codex secondmate integration below also owns normal between-turn arming.
+[`watcher-continuity.md`](watcher-continuity.md) routes the other continuity mechanisms.
 
 ## Guard predicates
 
@@ -58,7 +59,7 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
   In a marked secondmate home, the lock-owning session foregrounds `fm-watch-arm.sh` inside the Stop process tree, including when only queued home wakes remain or the home is idle.
   An actionable close returns exit 2 with the durable wake and handling instruction, and the next Stop owns re-arming without publishing any child-task marker.
   Away mode skips normal arming and retains the shared strict watcher health check and daemon-specific recovery instruction.
-  Each Stop retries a failed arm at most twice, including in queued-only homes.
+  Each Stop makes at most two arm attempts, including in queued-only homes.
   The existing `state/.watch-cycle-exits.log` distinguishes a productive wake from a failed repair: a failed cycle permits one repair continuation, while another failed Stop after that continuation ends with an explicit attended-recovery warning.
   A real user turn permits a new bounded repair; an actionable wake restores productive continuation handling.
   If no cycle outcome can be recorded after a continuation, the hook reports exhausted recovery rather than starting an unbounded repair loop.
@@ -80,7 +81,7 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 
 Claude and Codex can block a Stop directly with exit status 2 and stderr.
 Both payloads carry `stop_hook_active`.
-Outside the secondmate Stop-owned watcher path, a true value lets the second stop finish after one forced continuation.
+For Codex outside the normal secondmate Stop-owned watcher path, a true value lets the second stop finish after one forced continuation, including in away mode.
 
 Claude runs the guard with `--claude`, which ignores `stop_hook_active` and cooperates with the Stop-owned auto-arm.
 Claude Code sets `stop_hook_active=true` on every stop after any stop-hook continuation, including `asyncRewake` rewakes, which re-opened the 2026-07-21 blind window under the default one-shot behavior.

@@ -12,7 +12,7 @@ When this session owns supervision and away mode is not active:
    If it is ever shelled anyway, a backgrounded, piped, or bundled anti-pattern is denied automatically by the PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`) registered in `.codex/hooks.json`.
 8. Failure or missing cycle only: drain queued wakes, inspect the failure, then start a fresh foreground checkpoint.
 
-In a marked secondmate home, the primary Stop hook owns the between-turn watcher and returns queued home wakes as Stop feedback; it re-arms at the next turn end.
+For between-turn supervision in a marked secondmate home, follow the Stop feedback under the [Codex hook contract](../turnend-guard.md#harness-integrations).
 
 Codex cannot reason while a foreground tool call is running.
 The bounded checkpoint returns control regularly so user messages and queued wakes can be handled without relying on background-task wake semantics.
