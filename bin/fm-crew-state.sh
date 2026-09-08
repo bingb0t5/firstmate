@@ -12,8 +12,9 @@
 # identity, else the pane busy-signature) and reconciles the possibly-stale log
 # against it.
 #
-# The determinism lives entirely here - only run-step / pane / log reads plus
-# fixed mapping logic, no heuristics and no LLM. Output is one stable, parseable,
+# The determinism lives entirely here - only run-step / pane / log reads and
+# owned PR-poll merge evidence plus fixed mapping logic, no heuristics and no LLM.
+# Output is one stable, parseable,
 # token-tight line firstmate can read every heartbeat:
 #
 #   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|remote-endpoint|none> · <detail>
@@ -42,6 +43,14 @@
 #      checks" from "checks green, waiting on merge" (see nm_ci_checks_state) -
 #      a ci-step log-tail check reports checks green without terminalizing a
 #      live run, so a green PR is never silently read as still-validating.
+#      A terminal passed run is done, but does not itself prove a PR merged.
+#      Its detail claims PR merged/closed only when the run's canonical PR
+#      identity matches task metadata and the owned PR-poll merge-notification
+#      marker validated by fm-pr-lib.sh. With valid PR metadata but missing or
+#      mismatched evidence, detail is "run passed: PR merge unverified";
+#      without valid PR metadata, it is "run passed". This read makes no live
+#      forge query, and done is not permission to tear down unlanded work:
+#      fm-teardown.sh independently owns the landed-work test.
 #   3. Reconcile the status log: if its last line says needs-decision/blocked but
 #      the run-step shows the run moved on, the log is deterministically stale and
 #      is flagged superseded. A genuinely parked run plus a needs-decision log
@@ -325,26 +334,7 @@ nm_effective_ci_step_status() {
   fi
 }
 
-# Root cause of the PR #252 incident (2026-07): for a repo where merge is left
-# to the captain, no-mistakes' ci step (and therefore top-level status/outcome)
-# stays "running" for the ENTIRE CI-monitor phase, including long after GitHub
-# reports every check green - it only reaches outcome=passed once the PR is
-# actually merged (or failed/cancelled if closed). `axi status`'s steps[] table
-# never distinguishes "still waiting on checks" from "checks green, waiting on
-# merge": both read as plain `ci,running,...`. The only place that transition is
-# recorded is the ci step's own log text, e.g. "all CI checks passed - still
-# monitoring until merged or closed" or "no CI checks reported - still
-# monitoring until merged or closed" (verified against 360+ real run logs under
-# ~/.no-mistakes/logs/*/ci.log on the installed v1.32.2 binary, including the
-# actual PR #252 run). Reads the ci step's log tail via `axi logs` and scans it
-# for the MOST RECENT recognized marker (the log is append-only/chronological,
-# so the last match is current): green with nothing red after it means CI is
-# green right now, still only waiting on merge/close.
-# A completed no-mistakes run is not itself merge evidence: stopping a worker
-# after CI concluded can leave outcome=passed while the recorded PR is still
-# open. The owned PR poll writes this identity-bound marker only after a forge
-# read observed MERGED; use it to corroborate a passed run without making a
-# network call from this deterministic state reader.
+# Corroborate merge detail under the header's evidence contract.
 pr_merge_observed() {
   fm_pr_metadata_identity_parse "$META" || return 1
   fm_pr_url_parse "$(strip_quotes "$(nm_field pr)")" || return 1
@@ -354,6 +344,10 @@ pr_merge_observed() {
     "$FM_PR_META_NUMBER"
 }
 
+# During CI monitoring, `axi status`'s steps[] table reports both pending
+# checks and green checks awaiting merge as `ci,running,...`.
+# Read the ci step's append-only log tail via `axi logs`; the most recent
+# recognized marker wins so a later failure or re-arm supersedes earlier green.
 nm_ci_checks_state() {
   local run_id log_tail marker
   run_id=$(strip_quotes "$(nm_field id)")
