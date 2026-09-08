@@ -1429,6 +1429,53 @@ test_active_run_descendant_fix_head_remains_current() {
   pass "active run with valid descendant fix head remains current"
 }
 
+# Head-binding: an active same-branch run may report a pipeline-owned head that
+# is not present in the local worktree. It must remain authoritative rather
+# than falling through to an older terminal row for the local head.
+test_active_same_branch_unavailable_pipeline_head_outranks_historical_failure() {
+  reset_fakes
+  local d local_head out
+  d=$(new_case pipeline-owned-head)
+  make_repo_on_branch "$d/wt" fm/member-billing
+  local_head=$(git -C "$d/wt" rev-parse --short=7 HEAD)
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/member-billing.meta" "window=fm:fm-member-billing" "worktree=$d/wt" "kind=ship"
+  # The active run's head is owned by the pipeline and cannot be resolved in
+  # this local checkout. The runs list also contains an older failed row for
+  # the same branch at the local head, which must not mask the active run.
+  FM_FAKE_RUN_HEAD=44b15c94
+  FM_FAKE_AXI_STATUS="$(run_parked fm/member-billing)"
+  FM_FAKE_RUNS_LIST="failed    fm/member-billing ${local_head}  2026-09-08 10:00"
+  out=$(run_crew_state "$d" member-billing)
+  assert_contains "$out" "state: parked" "active pipeline-owned-head run remains parked"
+  assert_contains "$out" "source: run-step" "active pipeline-owned-head run remains authoritative"
+  assert_not_contains "$out" "state: failed" "historical failed row must not mask active run"
+  pass "active same-branch run with unavailable pipeline head outranks historical failure"
+}
+
+# The pipeline-owned-head exception is deliberately limited to active runs.
+# A terminal row whose head cannot be resolved locally must still fall through
+# to current-state sources instead of being treated as a live run.
+test_terminal_unavailable_pipeline_head_is_not_current() {
+  reset_fakes
+  local d out
+  d=$(new_case terminal-pipeline-owned-head)
+  make_repo_on_branch "$d/wt" fm/member-billing-terminal
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/member-billing-terminal.meta" "window=fm:fm-member-billing-terminal" "worktree=$d/wt" "kind=ship" "harness=claude"
+  printf 'working: current stage still in progress\n' > "$d/state/member-billing-terminal.status"
+  FM_FAKE_RUN_HEAD=44b15c94
+  FM_FAKE_AXI_STATUS="$(run_failed fm/member-billing-terminal)"
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" member-billing-terminal
+  out=$(run_crew_state "$d" member-billing-terminal)
+  assert_not_contains "$out" "source: run-step" "terminal unavailable-head row must not use run-step"
+  assert_contains "$out" "state: working" "terminal unavailable-head row falls back to current log state"
+  assert_contains "$out" "source: status-log" "terminal unavailable-head row uses status-log fallback"
+  pass "terminal unavailable pipeline head is not treated as current"
+}
+
 # Head-binding: local work that advanced past the run head invalidates the run.
 test_local_advanced_past_run_head_invalidates() {
   reset_fakes
@@ -1523,6 +1570,8 @@ test_not_provably_working_when_stopped
 test_usage_error
 test_historical_same_branch_rewritten_head_not_current
 test_active_run_descendant_fix_head_remains_current
+test_active_same_branch_unavailable_pipeline_head_outranks_historical_failure
+test_terminal_unavailable_pipeline_head_is_not_current
 test_local_advanced_past_run_head_invalidates
 test_missing_run_head_falls_back_to_current_state
 
