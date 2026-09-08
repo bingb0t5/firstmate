@@ -108,6 +108,20 @@ preflight_case() {
 set -eu
 printf '%s\n' "$@" >> "$PF_ROOT/calls"
 [ "$1" = api ] && [ "$2" = GET ] && [ "$3" = /repos/o/r/pulls ] || exit 91
+host=${GH_HOST:-github.com}
+shift 3
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --hostname) host=$2; shift ;;
+    --hostname=*) host=${1#--hostname=} ;;
+  esac
+  shift
+done
+printf '%s\n' "$host" >> "$PF_ROOT/hosts"
+if [ "$host" != github.com ]; then
+  printf 'api_response:\n  body: W10=\n  truncated: false\n'
+  exit 0
+fi
 [ "${PF_TRANSPORT:-}" != error ] || exit 22
 if [ "${PF_TRANSPORT:-}" = malformed ]; then
   printf 'api_response:\n  body: W10=\n  truncated: true\n'
@@ -159,7 +173,7 @@ test_preflight_fresh_intent_survives_generated_body() {
 
 test_preflight_rejects_bad_intent_before_forge_read() {
   local mode rc
-  for mode in legacy forged technical quoted oversize; do
+  for mode in legacy forged technical quoted blockquote indented tab_indented oversize; do
     preflight_case
     case "$mode" in
       legacy) pipeline_generated_body > "$PF_ROOT/intent.md" ;;
@@ -169,6 +183,15 @@ test_preflight_rejects_bad_intent_before_forge_read() {
         complete_body > "$PF_ROOT/intent.md"
         # shellcheck disable=SC2016 # Literal Markdown fences, not shell expansion.
         printf '\n```markdown\n## What changed technically\nOnly quoted evidence.\n```\n' >> "$PF_ROOT/intent.md"
+        ;;
+      blockquote|indented|tab_indented)
+        complete_body > "$PF_ROOT/intent.md"
+        printf '\n## What changed technically\n\n' >> "$PF_ROOT/intent.md"
+        case "$mode" in
+          blockquote) printf '> Only quoted evidence.\n' ;;
+          indented) printf '    Only quoted evidence.\n' ;;
+          tab_indented) printf '\tOnly quoted evidence.\n' ;;
+        esac >> "$PF_ROOT/intent.md"
         ;;
       oversize) node -e 'console.log("x".repeat(16001))' >> "$PF_ROOT/intent.md" ;;
     esac
@@ -218,6 +241,56 @@ test_preflight_refuses_stale_or_forged_pipeline_data() {
     [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode pipeline data released intent"
   done
   pass "preflight rejects stale heads, ambiguous or quoted attestations, and incomplete pipeline evidence"
+}
+
+test_preflight_rejects_quoted_pipeline_evidence() {
+  local style evidence prefix rc
+  for style in blockquote nested_blockquote indented tab_indented mixed_tab; do
+    case "$style" in
+      blockquote) prefix='> ' ;;
+      nested_blockquote) prefix='   > > ' ;;
+      indented) prefix='    ' ;;
+      tab_indented) prefix=$(printf '\t') ;;
+      mixed_tab) prefix=$(printf '  \t') ;;
+    esac
+    for evidence in signature attestation both; do
+      preflight_case
+      {
+        cat "$PF_ROOT/intent.md"
+        case "$evidence" in
+          signature) pipeline_section | sed "/^Updates from /s/^/$prefix/" ;;
+          attestation) pipeline_section | sed "/^<!-- no-mistakes-pipeline-attestation:/s/^/$prefix/" ;;
+          both) pipeline_section | sed "/^Updates from /s/^/$prefix/; /^<!-- no-mistakes-pipeline-attestation:/s/^/$prefix/" ;;
+        esac
+      } > "$PF_ROOT/live.md"
+      preflight_live_body "$PF_ROOT/live.md"
+      preflight_run; rc=$?
+      expect_code 2 "$rc" "$style pipeline $evidence"
+      assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "quoted evidence refusal did not identify the live body"
+      [ ! -s "$PF_ROOT/validated.md" ] || fail "$style pipeline $evidence released intent"
+    done
+  done
+  pass "blockquote and indented signatures or attestations cannot authorize delivery"
+}
+
+test_preflight_pins_github_against_ambient_host() {
+  local rc
+  preflight_case
+  GH_HOST=enterprise.example preflight_run; rc=$?
+  expect_code 0 "$rc" "fresh GitHub target with ambient enterprise host"
+  incomplete_body > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  GH_HOST=enterprise.example preflight_run; rc=$?
+  expect_code 2 "$rc" "stale GitHub body hidden by empty enterprise response"
+  assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "ambient host bypassed the GitHub body check"
+  [ ! -s "$PF_ROOT/validated.md" ] || fail "ambient host released intent for a stale GitHub body"
+  { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  GH_HOST=enterprise.example preflight_run; rc=$?
+  expect_code 0 "$rc" "reconciled GitHub body with ambient enterprise host"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "host-bound recovery changed intent"
+  [ "$(grep -cx github.com "$PF_ROOT/hosts")" -eq 3 ] || fail "forge queries did not consistently target GitHub"
+  pass "ambient GH_HOST cannot hide stale GitHub evidence or block valid GitHub intake"
 }
 
 test_preflight_forge_failures_never_mean_no_existing_pr() {
@@ -733,6 +806,8 @@ test_preflight_fresh_intent_survives_generated_body
 test_preflight_rejects_bad_intent_before_forge_read
 test_preflight_stale_body_refuses_until_owner_reconciles
 test_preflight_refuses_stale_or_forged_pipeline_data
+test_preflight_rejects_quoted_pipeline_evidence
+test_preflight_pins_github_against_ambient_host
 test_preflight_forge_failures_never_mean_no_existing_pr
 test_missing_remote_token_fails_closed
 test_vendored_unit_suite

@@ -8,10 +8,11 @@ function refuse(message: string): never {
   throw new Error(message);
 }
 
-function unfenced(body: string): string {
+function unquoted(body: string): string {
   const lines: string[] = [];
   let fence: { marker: string; length: number } | undefined;
   for (const line of body.split(/\r?\n/)) {
+    if (/^(?: {0,3}>| {4}| {0,3}\t)/.test(line)) continue;
     const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
       if (match && match[1][0] === fence.marker && match[1].length >= fence.length && !match[2].trim()) fence = undefined;
@@ -42,7 +43,7 @@ function assess(title: string, body: string, source: string): void {
   }
   // Intake additionally requires the technical section from the shared template.
   // Quoted template text cannot stand in for authored prose; shared rules stay pinned.
-  const visible = unfenced(body.replace(/<!--[\s\S]*?(?:-->|$)/g, ''));
+  const visible = unquoted(body.replace(/<!--[\s\S]*?(?:-->|$)/g, ''));
   const content = section(visible, 'what changed technically');
   if (!content.trim() || /^(?:todo|tbd|pending|none|n\/a)[.!]?$/i.test(content.trim())) {
     refuse(`${source}: complete the What changed technically section outside quoted evidence`);
@@ -81,6 +82,7 @@ function main(): void {
   // terminal instructions. Accept only the complete successful gh-axi envelope.
   const output = execFileSync('gh-axi', [
     'api', 'GET', `/repos/${repo}/pulls`,
+    '--hostname', 'github.com',
     '--field', 'state=open', '--field', `head=${head}`, '--field', 'per_page=2',
     '--jq', '@base64', '--full',
   ], { encoding: 'utf8', timeout: 15000, maxBuffer: 1024 * 1024 });
@@ -99,7 +101,7 @@ function main(): void {
     if ((pr.body.match(/<!-- no-mistakes-pipeline-attestation:/g) || []).length !== 1) {
       refuse('existing live PR body has missing or ambiguous pipeline attestations; ask its owner to reconcile it');
     }
-    const visible = unfenced(pr.body).replace(/<!--[\s\S]*?(?:-->|$)/g, (comment: string) =>
+    const visible = unquoted(pr.body).replace(/<!--[\s\S]*?(?:-->|$)/g, (comment: string) =>
       comment.startsWith('<!-- no-mistakes-pipeline-attestation:v1 ') ? comment : '');
     const pipeline = section(visible, 'pipeline');
     if (!pipeline.includes('Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)')) {
