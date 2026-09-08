@@ -33,6 +33,7 @@ fm_session_lock_owned_by_self "$STATE" || exit 0
 LOCK="$STATE/.home-wake.lock"
 fm_lock_try_acquire "$LOCK" || exit 0
 OUT=
+# shellcheck disable=SC2329 # Registered by the EXIT trap below.
 cleanup() {
   [ -z "$OUT" ] || rm -f "$OUT"
   fm_lock_release "$LOCK"
