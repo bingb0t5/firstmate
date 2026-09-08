@@ -12,19 +12,17 @@
 # Bounded call to `no-mistakes "$@"` in dir $1, timeout $2 seconds. The bounded
 # form preserves stdout, stderr, and exit status; the checked form discards
 # stderr, while fm_nm_run keeps the fail-open query contract for read-only callers.
+# The shared timeout owner also tears down helpers if this caller is killed.
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-timeout-lib.sh"
+
 fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
-  local dir=$1 timeout_secs=$2 have_timeout=none
+  local dir=$1 timeout_secs=$2 previous_dir=$PWD rc=0
   shift 2
-  if command -v timeout >/dev/null 2>&1; then have_timeout=timeout
-  elif command -v gtimeout >/dev/null 2>&1; then have_timeout=gtimeout
-  elif command -v perl >/dev/null 2>&1; then have_timeout=perl
-  fi
-  case "$have_timeout" in
-    timeout)  ( cd "$dir" && timeout "$timeout_secs" no-mistakes "$@" ) ;;
-    gtimeout) ( cd "$dir" && gtimeout "$timeout_secs" no-mistakes "$@" ) ;;
-    perl)     ( cd "$dir" && perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? >> 8)' "$timeout_secs" no-mistakes "$@" ) ;;
-    *)        return 1 ;;
-  esac
+  cd "$dir" || return 1
+  fm_run_timed "$timeout_secs" no-mistakes "$@" || rc=$?
+  cd "$previous_dir" || return "$rc"
+  return "$rc"
 }
 
 fm_nm_run_checked() {  # <dir> <timeout_secs> <args...>
