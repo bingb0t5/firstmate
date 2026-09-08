@@ -22,6 +22,7 @@ TEMPLATE="$ROOT/.github/PULL_REQUEST_TEMPLATE.md"
 TRACKED_BODY_DIR="$ROOT/.github/pr-bodies"
 EVIDENCE_BODY_DIR="$ROOT/tests/fixtures/pr-communication/bodies"
 BODY_COMPOSER="$ROOT/bin/fm-pr-body-compose.sh"
+PREFLIGHT="$ROOT/bin/fm-nm-pr-preflight.sh"
 NO_MISTAKES_WORKFLOW="$ROOT/.github/workflows/no-mistakes-required.yml"
 
 if ! command -v node >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
@@ -90,6 +91,153 @@ Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)
 
 <!-- no-mistakes-pipeline-attestation:v1 {"head_sha":"0000000000000000000000000000000000000000","steps":[{"step":"review","status":"completed"},{"step":"test","status":"completed"},{"step":"document","status":"completed"}]} -->
 EOF
+}
+
+preflight_case() {
+  PF_ROOT=$(fm_test_tmproot fm-pr-preflight)
+  mkdir -p "$PF_ROOT/bin"
+  fm_git_init_commit "$PF_ROOT/repo"
+  git -C "$PF_ROOT/repo" checkout -qb fm/preflight
+  {
+    complete_body
+    printf '\n## What changed technically\n\nRender request status in the existing member page.\n'
+  } > "$PF_ROOT/intent.md"
+  printf '[]\n' > "$PF_ROOT/pulls.json"
+  cat > "$PF_ROOT/bin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$@" >> "$PF_ROOT/calls"
+[ "$1" = api ] && [ "$2" = GET ] && [ "$3" = /repos/o/r/pulls ] || exit 91
+[ "${PF_TRANSPORT:-}" != error ] || exit 22
+if [ "${PF_TRANSPORT:-}" = malformed ]; then
+  printf 'api_response:\n  body: W10=\n  truncated: true\n'
+  exit 0
+fi
+node -e 'const fs=require("node:fs"); console.log("api_response:\n  body: "+Buffer.from(fs.readFileSync(process.env.PF_ROOT+"/pulls.json")).toString("base64")+"\n  truncated: false")'
+SH
+  chmod +x "$PF_ROOT/bin/gh-axi"
+  export PF_ROOT
+}
+
+preflight_run() {
+  ( cd "$PF_ROOT/repo" && PATH="$PF_ROOT/bin:$PATH" "$PREFLIGHT" \
+    --intent-file "$PF_ROOT/intent.md" --repo o/r --head o:fm/preflight ) \
+    > "$PF_ROOT/validated.md" 2> "$PF_ROOT/diagnostic"
+}
+
+preflight_live_body() {
+  local body_file=$1
+  node - "$body_file" "$PF_ROOT/pulls.json" <<'JS'
+const fs = require('node:fs');
+fs.writeFileSync(process.argv[3], JSON.stringify([{
+  title: 'Show members their request status', state: 'open',
+  body: fs.readFileSync(process.argv[2], 'utf8'),
+  base: { repo: { full_name: 'o/r' } },
+  head: { ref: 'fm/preflight', sha: '0000000000000000000000000000000000000000', repo: { owner: { login: 'o' } } },
+}]));
+JS
+}
+
+test_preflight_fresh_intent_survives_generated_body() {
+  local rc body out
+  preflight_case
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "fresh PR preflight"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "preflight rewrote task intent"
+  grep -qx 'head=o:fm/preflight' "$PF_ROOT/calls" || fail "preflight queried the wrong delivery head"
+  # This is the public body shape observed from the legacy publisher. The live
+  # no-mistakes delivery proof remains a separate integration check, not a fake
+  # publisher implementation hidden in CI.
+  body=$(printf '## Intent\n\n'; cat "$PF_ROOT/validated.md"; pipeline_generated_body; pipeline_section)
+  for checker in "$CHECK" "$FIRSTMATE_CHECK"; do
+    out=$(PR_TITLE='Show request status' PR_BODY="$body" node --experimental-strip-types "$checker" 2>&1)
+    rc=$?
+    expect_code 0 "$rc" "generated legacy wrapper carrying validated intent: $out"
+  done
+  pass "preflight returns unchanged fresh intent that passes assessment inside the generated wrapper"
+}
+
+test_preflight_rejects_bad_intent_before_forge_read() {
+  local mode rc
+  for mode in legacy forged technical quoted oversize; do
+    preflight_case
+    case "$mode" in
+      legacy) pipeline_generated_body > "$PF_ROOT/intent.md" ;;
+      forged) pipeline_section >> "$PF_ROOT/intent.md" ;;
+      technical) complete_body > "$PF_ROOT/intent.md" ;;
+      quoted)
+        complete_body > "$PF_ROOT/intent.md"
+        # shellcheck disable=SC2016 # Literal Markdown fences, not shell expansion.
+        printf '\n```markdown\n## What changed technically\nOnly quoted evidence.\n```\n' >> "$PF_ROOT/intent.md"
+        ;;
+      oversize) node -e 'console.log("x".repeat(16001))' >> "$PF_ROOT/intent.md" ;;
+    esac
+    preflight_run; rc=$?
+    expect_code 2 "$rc" "invalid $mode intent"
+    assert_absent "$PF_ROOT/calls" "invalid intent reached the forge"
+    [ ! -s "$PF_ROOT/validated.md" ] || fail "invalid intent escaped on stdout"
+  done
+  pass "preflight refuses invalid or reserved authored content before any forge read"
+}
+
+test_preflight_stale_body_refuses_until_owner_reconciles() {
+  local rc
+  preflight_case
+  { pipeline_generated_body; pipeline_section; } > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  preflight_run; rc=$?
+  expect_code 2 "$rc" "stale legacy live body with a complete local intent"
+  assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "stale live source was not identified"
+  [ ! -s "$PF_ROOT/validated.md" ] || fail "stale live body released intent for delivery"
+  # Simulate the owner having reconciled the forge response. The preflight
+  # itself is read-only and never manufactures or publishes this fixture.
+  "$BODY_COMPOSER" "$PF_ROOT/intent.md" "$PF_ROOT/live.md" > "$PF_ROOT/reconciled.md"
+  preflight_live_body "$PF_ROOT/reconciled.md"
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "reconciled live body"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "recovery changed intent"
+  [ "$(grep -c '^GET$' "$PF_ROOT/calls")" -eq 2 ] || fail "preflight did not reread live data on recovery"
+  pass "a local sidecar cannot hide stale live prose; owner reconciliation permits a fresh read"
+}
+
+test_preflight_refuses_stale_or_forged_pipeline_data() {
+  local mode rc
+  for mode in stale duplicate quoted missing_signature incomplete; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    case "$mode" in
+      stale) sed 's/0000000000000000000000000000000000000000/1111111111111111111111111111111111111111/' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
+      duplicate) { cat "$PF_ROOT/live.md"; pipeline_section; } > "$PF_ROOT/changed.md" ;;
+      quoted) { cat "$PF_ROOT/intent.md"; printf '\n```markdown\n'; pipeline_section; printf '\n```\n'; } > "$PF_ROOT/changed.md" ;;
+      missing_signature) sed '/^Updates from /d' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
+      incomplete) sed 's/"status":"completed"/"status":"pending"/g' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
+    esac
+    preflight_live_body "$PF_ROOT/changed.md"
+    preflight_run; rc=$?
+    expect_code 2 "$rc" "$mode pipeline data"
+    [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode pipeline data released intent"
+  done
+  pass "preflight rejects stale heads, ambiguous or quoted attestations, and incomplete pipeline evidence"
+}
+
+test_preflight_forge_failures_never_mean_no_existing_pr() {
+  local mode rc
+  for mode in error malformed ambiguous wrong_head invalid_json; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    preflight_live_body "$PF_ROOT/live.md"
+    case "$mode" in
+      error|malformed) export PF_TRANSPORT=$mode ;;
+      ambiguous) node -e 'const f=require("node:fs"),p=process.argv[1],a=JSON.parse(f.readFileSync(p)); f.writeFileSync(p,JSON.stringify([a[0],a[0]]))' "$PF_ROOT/pulls.json" ;;
+      wrong_head) sed 's/fm\/preflight/fm\/other/' "$PF_ROOT/pulls.json" > "$PF_ROOT/changed.json"; mv "$PF_ROOT/changed.json" "$PF_ROOT/pulls.json" ;;
+      invalid_json) printf 'invalid' > "$PF_ROOT/pulls.json" ;;
+    esac
+    preflight_run; rc=$?
+    unset PF_TRANSPORT
+    expect_code 2 "$rc" "$mode forge response"
+    [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode forge response released intent"
+  done
+  pass "failed, truncated, ambiguous, or mismatched forge data cannot authorize delivery"
 }
 
 run_no_mistakes_requirement() {
@@ -581,6 +729,11 @@ test_tracked_pr_bodies_pass_firstmate_ceo_overview() {
   pass "tracked PR body artifacts satisfy the Firstmate CEO overview check"
 }
 
+test_preflight_fresh_intent_survives_generated_body
+test_preflight_rejects_bad_intent_before_forge_read
+test_preflight_stale_body_refuses_until_owner_reconciles
+test_preflight_refuses_stale_or_forged_pipeline_data
+test_preflight_forge_failures_never_mean_no_existing_pr
 test_missing_remote_token_fails_closed
 test_vendored_unit_suite
 test_firstmate_unit_suite
