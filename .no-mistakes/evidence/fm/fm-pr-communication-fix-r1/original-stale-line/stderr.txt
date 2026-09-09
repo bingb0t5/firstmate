@@ -1,0 +1,2 @@
+REFUSED: authored intent: Cannot enter staging until completed: CEO overview: What is changing (found line: What is changing: pending)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.

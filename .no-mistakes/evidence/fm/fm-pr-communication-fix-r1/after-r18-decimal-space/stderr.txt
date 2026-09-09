@@ -1,0 +1,2 @@
+REFUSED: authored intent: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.

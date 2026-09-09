@@ -1,0 +1,41 @@
+ok - fresh intent and composed generated Testing details pass both assessors and live preflight
+ok - preflight refuses invalid or reserved authored content before any forge read
+ok - technical sections require prose while retaining thematic breaks and reference links
+ok - a local sidecar cannot hide stale live prose; owner reconciliation permits a fresh read
+ok - preflight rejects stale heads, ambiguous or quoted attestations, and incomplete pipeline evidence
+ok - original comment boundaries and object-only steps prevent malformed evidence from authorizing delivery
+ok - quoted signatures or attestations cannot authorize delivery; inline prose code remains supported
+ok - original list-fence and multiline inline-code context cannot authorize quoted attestations
+ok - underlined headings and earlier occurrences cannot mask quoting at the actual evidence position
+ok - indented continuations preserve quoting while actual paragraph boundaries remain effective
+ok - R11-R14 table preserves machine outcomes while arbitrary HTML wrappers remain inert
+ok - original hosted assessment and positional narrative restrictions must both pass
+ok - HTML and quoted constructs outside labelled bullets do not trigger narrative refusal
+ok - all seven labelled bullets reject HTML, quotes, fences and inline code including continuations
+ok - only an unchanged original pipeline signature authorizes delivery
+ok - ambient GH_HOST cannot hide stale GitHub evidence or block valid GitHub intake
+ok - failed, truncated, ambiguous, or mismatched forge data cannot authorize delivery
+ok - missing remote credential fails closed after verifying the local pin
+ok - vendored pr-communication unit suite passes
+ok - Firstmate CEO overview unit suite passes
+ok - CLI passes a compliant description that keeps the no-mistakes Pipeline section
+ok - PR body composer preserves the no-mistakes Pipeline section
+ok - CLI fails a non-compliant PR description
+ok - CLI rejects a description that keeps only the legacy narrative headings
+ok - CLI rejects untouched module-boundary template guidance
+ok - CLI passes a compliant PR description
+ok - tracked PR body artifacts satisfy the executable communication gate
+ok - shared assessor still fails the Intent shape and passes the CEO overview shape
+ok - PR 12 implementation-intent shape fails the Firstmate CEO overview check
+ok - PR 17 implementation-intent shape fails the Firstmate CEO overview check
+ok - PR 14 captain-facing overview passes the Firstmate CEO overview check
+ok - PR 18 captain-facing overview passes the Firstmate CEO overview check
+ok - implementation-only CEO overview fails Firstmate and still satisfies the shared labels
+ok - tracked PR body artifacts satisfy the Firstmate CEO overview check
+ok - transient remote failures use the local pin
+ok - required remote failures fail closed
+ok - 401, 403, and 404 remote failures fail closed
+ok - invalid token header fails closed
+ok - tampered entrypoint fails closed
+ok - candidate pin cannot authorize a tampered assessor
+ok - remote SoT authorizes a synchronized assessor update

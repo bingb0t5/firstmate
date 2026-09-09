@@ -1,0 +1,1 @@
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.

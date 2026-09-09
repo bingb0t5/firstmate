@@ -1,0 +1,2 @@
+REFUSED: existing live PR body: add ## CEO overview with its exact template bullets
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
