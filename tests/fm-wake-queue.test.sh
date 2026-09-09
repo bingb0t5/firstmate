@@ -750,7 +750,7 @@ test_busy_grok_pi_and_live_branch_keep_their_cadence() {
 }
 
 test_codex_secondmate_stop_arms_and_self_wakes() {
-  local dir state stop pid i cycle rc
+  local dir state cycle rc
   dir=$(make_case codex-secondmate-stop)
   state="$dir/state"
   mkdir -p "$dir/.codex"
@@ -761,7 +761,6 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
   ln -s "$ROOT/bin" "$dir/bin"
   : > "$dir/AGENTS.md"
   printf 'mate\n' > "$dir/.fm-secondmate-home"
-  stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$dir/.codex/hooks.json")
   # End-user reproduction: a row can already be aged in the secondmate home's
   # queue when Codex reaches its turn boundary. The Stop-owned arm must wake the
   # idle home from that durable row before any parent-side stall observation is
@@ -781,33 +780,12 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
     || fail "could not acknowledge the pre-existing secondmate home row"
   [ ! -s "$state/.wake-queue" ] || fail "the pre-existing home row remained after acknowledgement"
   for cycle in 1 2; do
-    (
-      cd "$dir" || exit 1
-      # shellcheck disable=SC2016 # The child shell evaluates this program's variables.
-      FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
-        FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=codex-stop-test \
-        BASH_ENV="$dir/bash-env" FM_BACKEND=tmux FM_CONFIG_OVERRIDE="$dir/config" FM_POLL=1 FM_SIGNAL_GRACE=0 \
-        FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-        "$dir/codex" -c '
-          printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-          printf "{\"stop_hook_active\":true}" | bash -c "$1"
-          rc=$?
-          printf "%s\n" "$rc" > "$FM_HOME/stop.rc"
-        ' _ "$stop"
-    ) > "$dir/stop.out" 2> "$dir/stop.err" &
-    pid=$!
-    for i in $(seq 1 150); do
-      [ -f "$state/.watch.lock/pid-identity" ] && [ -e "$state/.last-watcher-beat" ] && break
-      sleep 0.1
-    done
-    if ! [ -f "$state/.watch.lock/pid-identity" ] || ! kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null
-      fail "registered Codex Stop did not arm idle home supervision: $(cat "$dir/stop.err")"
-    fi
+    append_wake "$state" check "home-row-$cycle" "check: idle home row $cycle" \
+      || fail "could not queue home work before Stop"
+    FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      run_codex_stop_case "$dir" true
+    rc=$?
     [ ! -e "$state/mate.turn-ended" ] || fail "primary Stop published a child marker"
-    append_wake "$state" check "home-row-$cycle" "check: idle home row $cycle"
-    wait_for_exit "$pid" 40 || fail "registered Stop did not return a home wake"
-    rc=$(cat "$dir/stop.rc")
     [ "$rc" = 2 ] || fail "Stop did not request a handling turn: rc=$rc $(cat "$dir/stop.err")"
     grep -qF 'check: rearm-resurface' "$dir/stop.err" \
       || fail "Stop feedback omitted the queued home wake notification: $(cat "$dir/stop.err")"

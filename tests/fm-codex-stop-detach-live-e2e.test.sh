@@ -38,6 +38,7 @@ printf 'codex-stop-live\n' > "$HOME_DIR/.fm-secondmate-home"
 printf 'kind=ship\n' > "$HOME_DIR/state/live.meta"
 git clone -q "$ROOT" "$PROJECT"
 cp -R "$ROOT/bin/." "$PROJECT/bin/"
+codex_stop_install_checkpoint "$PROJECT" || fail "could not install the scratch Stop checkpoint"
 
 run_codex_turn() {
   local home=$1 output=$2 start end rc child
@@ -94,6 +95,9 @@ setsid bash -c '
   printf "%s\\n" "$$" > "$2/state/.lock"
   export FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=detach-live-test
   export FM_HOME="$2" FM_ROOT_OVERRIDE="$1" FM_STATE_OVERRIDE="$2/state" FM_CONFIG_OVERRIDE="$2/config"
+  export FM_CODEX_STOP_CHECKPOINT_HOME="$2"
+  printf "%s\n" "$$" > "$2/session-ready.tmp"
+  mv "$2/session-ready.tmp" "$2/session-ready"
   exec timeout 55s codex exec \
     --dangerously-bypass-hook-trust \
     --dangerously-bypass-approvals-and-sandbox \
@@ -103,19 +107,27 @@ setsid bash -c '
 ' _ "$PROJECT" "$INT_HOME" > "$INT_TRANSCRIPT" 2>&1 &
 interrupt_parent=$!
 CHILD_PIDS="$CHILD_PIDS $interrupt_parent"
-interrupt_pgid=$(ps -o pgid= -p "$interrupt_parent" | tr -d '[:space:]')
-[ "$interrupt_pgid" = "$interrupt_parent" ] || fail "real Codex interrupt probe did not create an isolated parent process group: pid=$interrupt_parent pgid=$interrupt_pgid"
-interrupt_watcher=
-for _ in $(seq 1 600); do
-  interrupt_watcher=$(sed -n '1p' "$INT_HOME/state/.watch.lock/pid" 2>/dev/null || true)
-  if [ -n "$interrupt_watcher" ] && watcher_is_healthy "$INT_HOME"; then
-    break
-  fi
+for _ in $(seq 1 100); do
+  [ -s "$INT_HOME/session-ready" ] && break
+  kill -0 "$interrupt_parent" 2>/dev/null || fail "real Codex interrupt parent exited before session readiness: $(tail -20 "$INT_TRANSCRIPT")"
   sleep 0.1
 done
-if [ -z "$interrupt_watcher" ] || ! watcher_is_healthy "$INT_HOME"; then
-  fail "real Codex interrupt probe did not start a healthy watcher: $(tail -20 "$INT_TRANSCRIPT")"
-fi
+[ -s "$INT_HOME/session-ready" ] || fail "real Codex interrupt parent did not publish session readiness"
+[ "$(cat "$INT_HOME/session-ready")" = "$interrupt_parent" ] || fail "session readiness named a different interrupt parent"
+interrupt_pgid=$(ps -o pgid= -p "$interrupt_parent" | tr -d '[:space:]')
+[ "$interrupt_pgid" = "$interrupt_parent" ] || fail "real Codex interrupt probe did not create an isolated parent process group: pid=$interrupt_parent pgid=$interrupt_pgid"
+for _ in $(seq 1 600); do
+  [ -s "$INT_HOME/stop-checkpoint" ] && break
+  kill -0 "$interrupt_parent" 2>/dev/null || fail "real Codex exited before reaching its Stop checkpoint: $(tail -20 "$INT_TRANSCRIPT")"
+  sleep 0.1
+done
+[ -s "$INT_HOME/stop-checkpoint" ] || fail "real Codex did not reach its bounded Stop checkpoint: $(tail -20 "$INT_TRANSCRIPT")"
+IFS=$'\t' read -r checkpoint_pid checkpoint_rc checkpoint_elapsed < "$INT_HOME/stop-checkpoint"
+[ "$checkpoint_rc" -eq 0 ] || fail "the real Stop hook failed before its interrupt checkpoint: rc=$checkpoint_rc $(tail -20 "$INT_TRANSCRIPT")"
+[ "$checkpoint_elapsed" -lt 5000 ] || fail "the real Stop hook exceeded its startup bound before the interrupt checkpoint: ${checkpoint_elapsed}ms"
+kill -0 "$checkpoint_pid" 2>/dev/null || fail "the scratch hook exited before the interrupt checkpoint was observed"
+interrupt_watcher=$(sed -n '1p' "$INT_HOME/state/.watch.lock/pid" 2>/dev/null || true)
+watcher_is_healthy "$INT_HOME" || fail "real Codex interrupt checkpoint has no healthy watcher"
 kill -0 "$interrupt_parent" 2>/dev/null || fail "real Codex interrupt probe exited before its parent process group could be interrupted"
 kill -TERM -- "-$interrupt_pgid" 2>/dev/null || fail "could not interrupt the real Codex parent process group"
 for _ in $(seq 1 50); do

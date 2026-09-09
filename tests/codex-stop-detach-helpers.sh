@@ -64,3 +64,44 @@ print(f'not ok - test processes did not terminate; retaining {root}', file=sys.s
 sys.exit(1)
 PY
 }
+
+codex_stop_install_checkpoint() {
+  local project=$1 command helper wrapped tmp
+  command=$(jq -er '.hooks.Stop[0].hooks[0].command' "$project/.codex/hooks.json") || return 1
+  helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/codex-stop-detach-helpers.sh"
+  cp "$helper" "$project/.codex/stop-checkpoint.sh" || return 1
+  helper="$project/.codex/stop-checkpoint.sh"
+  printf -v wrapped 'bash %q checkpoint %q' "$helper" "$command"
+  tmp=$(mktemp "$project/.codex/hooks.json.XXXXXX") || return 1
+  if ! jq --arg command "$wrapped" '.hooks.Stop[0].hooks[0].command = $command' "$project/.codex/hooks.json" > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv "$tmp" "$project/.codex/hooks.json"
+}
+
+codex_stop_hook_checkpoint() {
+  local rc start elapsed deadline
+  if [ -z "${FM_CODEX_STOP_CHECKPOINT_HOME:-}" ] || [ "${FM_HOME:-}" != "$FM_CODEX_STOP_CHECKPOINT_HOME" ]; then
+    exec bash -c "$1"
+  fi
+  start=$(codex_stop_milliseconds)
+  bash -c "$1"
+  rc=$?
+  elapsed=$(( $(codex_stop_milliseconds) - start ))
+  printf '%s\t%s\t%s\n' "$$" "$rc" "$elapsed" > "$FM_HOME/stop-checkpoint.tmp" \
+    && mv "$FM_HOME/stop-checkpoint.tmp" "$FM_HOME/stop-checkpoint" || return 125
+  deadline=$((SECONDS + 30))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    [ ! -e "$FM_HOME/stop-checkpoint-release" ] || return "$rc"
+    sleep 0.1
+  done
+  printf '%s\n' 'Stop interrupt checkpoint timed out before release or interruption' >&2
+  return 124
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  [ "${1:-}" = checkpoint ] && [ "$#" -eq 2 ] || exit 2
+  codex_stop_hook_checkpoint "$2"
+  exit $?
+fi
