@@ -234,7 +234,10 @@ test_preflight_refuses_stale_or_forged_pipeline_data() {
       quoted) { cat "$PF_ROOT/intent.md"; printf '\n```markdown\n'; pipeline_section; printf '\n```\n'; } > "$PF_ROOT/changed.md" ;;
       missing_signature) sed '/^Updates from /d' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
       incomplete) sed 's/"status":"completed"/"status":"pending"/g' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
-      malformed_status) sed 's/"step":"test","status":"completed"/"step":"test","status":"com`pending`pleted"/' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
+      malformed_status)
+        # shellcheck disable=SC2016 # Literal backticks intentionally corrupt the JSON status fixture.
+        sed 's/"step":"test","status":"completed"/"step":"test","status":"com`pending`pleted"/' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md"
+        ;;
     esac
     preflight_live_body "$PF_ROOT/changed.md"
     preflight_run; rc=$?
@@ -296,7 +299,10 @@ test_preflight_rejects_quoted_pipeline_evidence() {
       single_backtick) prefix='`'; suffix='`' ;;
       double_backtick) prefix='``'; suffix='``' ;;
       triple_backtick) prefix='```'; suffix='```' ;;
-      mixed_backticks) prefix='``example ` '; suffix='``' ;;
+      mixed_backticks)
+        # shellcheck disable=SC2016 # Literal mixed backticks exercise Markdown quoting.
+        prefix='``example ` '; suffix='``'
+        ;;
     esac
     for evidence in signature attestation both; do
       preflight_case
@@ -318,6 +324,7 @@ test_preflight_rejects_quoted_pipeline_evidence() {
   preflight_case
   {
     cat "$PF_ROOT/intent.md"
+    # shellcheck disable=SC2016 # Literal backticks represent inline Markdown code in prose.
     printf '\n%s\n' 'The `request status` label appears on the member page.'
     pipeline_section
   } > "$PF_ROOT/live.md"
