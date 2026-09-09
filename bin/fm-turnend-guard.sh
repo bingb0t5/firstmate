@@ -148,6 +148,20 @@ STOP_HOOK_ACTIVE=$(printf '%s' "$PAYLOAD" | jq -r '
 # so this exempts them while guarding every real secondmate home.
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
+# A Codex process can keep the pre-PR40 hook command loaded after this checkout
+# has been updated, so a marked secondmate home may arrive without --codex. Only
+# promote that legacy invocation when the hook root and effective home are the
+# same validated marker-bearing checkout and the current process owns its
+# session lock; an unmarked primary or child worktree stays on the generic path,
+# and an ambiguous or lockless invocation fails closed.
+if [ "$CODEX_MODE" -eq 0 ] && [ "$CLAUDE_MODE" -eq 0 ] && [ "$CURSOR_MODE" -eq 0 ] \
+  && [ "$FM_ROOT" = "$FM_HOME" ] \
+  && fm_root_is_secondmate_home "$FM_ROOT"; then
+  # shellcheck source=bin/fm-session-lock-lib.sh
+  . "$SCRIPT_DIR/fm-session-lock-lib.sh"
+  fm_session_lock_owned_by_self "$STATE" && CODEX_MODE=1
+fi
+
 # --- the actual predicate ----------------------------------------------------
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"

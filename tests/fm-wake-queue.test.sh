@@ -838,6 +838,114 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
   pass "Codex Stop self-wakes remain healthy with active work, while stale and unmarked homes still alarm"
 }
 
+make_codex_linked_stale_stop_case() {
+  local name=$1 base dir entry stop stale
+  base=$(make_case "$name-base")
+  dir="$TMP_ROOT/$name-home"
+  fm_git_worktree "$base" "$dir" "fm/$name-home"
+  mkdir -p "$dir/state" "$dir/fakebin" "$dir/bin" "$dir/.codex"
+  cp -R "$base/fakebin/." "$dir/fakebin/"
+  for entry in "$ROOT/bin/"*; do
+    ln -s "$entry" "$dir/bin/${entry##*/}"
+  done
+  cp "$ROOT/.codex/hooks.json" "$dir/.codex/hooks.json"
+  stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$dir/.codex/hooks.json")
+  stale=${stop/ --codex/}
+  [ "$stale" != "$stop" ] || fail "current Codex hook did not carry the explicit mode"
+  if ! jq --arg command "$stale" '.hooks.Stop[0].hooks[0].command = $command' \
+    "$dir/.codex/hooks.json" > "$dir/.codex/hooks.json.tmp" ||
+    ! mv "$dir/.codex/hooks.json.tmp" "$dir/.codex/hooks.json"; then
+    fail "could not install the pre-PR40 Stop command"
+  fi
+  cp "$(command -v bash)" "$dir/codex"
+  # shellcheck disable=SC2016 # PATH expands when the child shell reads BASH_ENV.
+  printf 'export PATH=%q:"$PATH"\n' "$dir/fakebin" > "$dir/bash-env"
+  : > "$dir/AGENTS.md"
+  printf 'mate\n' > "$dir/.fm-secondmate-home"
+  printf '%s\n' "$dir"
+}
+
+test_codex_stale_hook_linked_secondmate_rearms_and_preserves_wake() {
+  local dir state gd gcd rc
+  dir=$(make_codex_linked_stale_stop_case codex-stale-linked)
+  state="$dir/state"
+  gd=$(git -C "$dir" rev-parse --git-dir)
+  gcd=$(git -C "$dir" rev-parse --git-common-dir)
+  [ "$gd" != "$gcd" ] || fail "stale-hook fixture must be a linked worktree"
+  append_wake "$state" check stale-home-row 'check: stale-hook home row' \
+    || fail "could not seed the stale-hook home row"
+
+  run_codex_stop_case "$dir" false
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "stale Codex Stop did not re-arm the linked secondmate home: rc=$rc $(cat "$dir/stop.err")"
+  grep -qF 'check: rearm-resurface' "$dir/stop.err" \
+    || fail "stale Codex Stop did not foreground the home watcher: $(cat "$dir/stop.err")"
+  [ -s "$state/.wake-queue" ] || fail "stale Codex Stop consumed the durable home wake"
+  [ ! -e "$state/mate.turn-ended" ] || fail "stale Codex Stop published a child-task marker"
+  pass "stale Codex Stop command re-arms a linked secondmate home and preserves its durable wake"
+}
+
+test_codex_stale_hook_does_not_add_home_behavior_to_primary_or_child() {
+  local primary child home rc out stop stale
+  primary=$(make_codex_stop_case codex-stale-primary)
+  git init -q "$primary"
+  git -C "$primary" -c user.name=fmtest -c user.email=fmtest@example.invalid \
+    commit -q --allow-empty -m init
+  mv "$primary/.fm-secondmate-home" "$primary/marker.saved"
+  stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$primary/.codex/hooks.json")
+  stale=${stop/ --codex/}
+  if ! jq --arg command "$stale" '.hooks.Stop[0].hooks[0].command = $command' \
+    "$primary/.codex/hooks.json" > "$primary/.codex/hooks.json.tmp" ||
+    ! mv "$primary/.codex/hooks.json.tmp" "$primary/.codex/hooks.json"; then
+    fail "could not install the pre-PR40 primary Stop command"
+  fi
+  printf 'kind=ship\n' > "$primary/state/task.meta"
+  run_codex_stop_case "$primary" false
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "stale hook changed the generic primary guard exit: rc=$rc"
+  ! grep -qF 'check: rearm-resurface' "$primary/stop.err" \
+    || fail "stale hook added home-only re-arm behavior to an unmarked primary"
+  [ ! -e "$primary/state/.watch-cycle-exits.log" ] \
+    || fail "stale hook armed a watcher in an unmarked primary"
+
+  home=$(make_codex_linked_stale_stop_case codex-stale-child-parent)
+  child="$TMP_ROOT/codex-stale-child"
+  git -C "$home" worktree add --quiet -b fm/codex-stale-child "$child"
+  mkdir -p "$child/state" "$child/fakebin" "$child/bin" "$child/.codex"
+  cp -R "$home/fakebin/." "$child/fakebin/"
+  for out in "$ROOT/bin/"*; do
+    ln -s "$out" "$child/bin/${out##*/}"
+  done
+  cp "$home/.codex/hooks.json" "$child/.codex/hooks.json"
+  cp "$(command -v bash)" "$child/codex"
+  : > "$child/AGENTS.md"
+  printf 'kind=ship\n' > "$child/state/task.meta"
+  # shellcheck disable=SC2016 # PATH expands when the child shell reads BASH_ENV.
+  printf 'export PATH=%q:"$PATH"\n' "$child/fakebin" > "$child/bash-env"
+  run_codex_stop_case "$child" false
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "stale hook changed the child-worktree scope exit: rc=$rc $(cat "$child/stop.err")"
+  [ ! -e "$child/state/.watch-cycle-exits.log" ] \
+    || fail "stale hook armed a watcher in a child worktree"
+  pass "stale Codex hook remains generic in an unmarked primary and inert in a child worktree"
+}
+
+test_codex_stale_hook_requires_marked_home_lock() {
+  local dir out rc
+  dir=$(make_codex_linked_stale_stop_case codex-stale-lockless)
+  printf 'kind=ship\n' > "$dir/state/task.meta"
+  out=$(printf '{"stop_hook_active":false}' \
+    | FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
+      bash "$dir/bin/fm-turnend-guard.sh" 2>&1)
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "lockless stale hook did not fail closed through the generic guard: rc=$rc"
+  ! grep -qF 'check: rearm-resurface' <<<"$out" \
+    || fail "lockless stale hook entered home-only recovery"
+  [ ! -e "$dir/state/.watch-cycle-exits.log" ] \
+    || fail "lockless stale hook started a watcher without session ownership"
+  pass "stale Codex hook requires both a valid home marker and session-lock ownership"
+}
+
 make_codex_stop_case() {
   local dir entry
   dir=$(make_case "$1")
@@ -1798,6 +1906,9 @@ test_historical_annotation_skips_announced_status() {
 
 run_secondmate_review_tests() {
   test_watch_env_rejects_arithmetic_execution
+  test_codex_stale_hook_linked_secondmate_rearms_and_preserves_wake
+  test_codex_stale_hook_does_not_add_home_behavior_to_primary_or_child
+  test_codex_stale_hook_requires_marked_home_lock
   test_codex_secondmate_stop_arms_and_self_wakes
   test_codex_stop_failure_recovery_is_bounded
   test_codex_stop_away_keeps_shared_guard
