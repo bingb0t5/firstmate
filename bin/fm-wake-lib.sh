@@ -139,30 +139,28 @@ fm_watcher_healthy() {
 # different, model-aware question:
 
 # fm_supervision_model
-# Print the supervision model of this home's PRIMARY harness:
-#   autoarm     Claude's Stop-hook auto-arm and Cursor's stop-hook park: the
-#               watcher is armed at each turn end and exits on its wake, so it
-#               runs only BETWEEN turns. Mid-turn a fresh beacon with no live
-#               watcher process is the healthy state.
-#   extension   Pi (and pi-signed): .pi/extensions/fm-primary-pi-watch.ts owns
-#               continuity. It tears the watcher down on every actionable wake and
-#               spawns the replacement itself, so a genuinely unheld singleton lock
-#               is healthy during that hand-off only with extension ownership and a
-#               fresh beacon. Any held but unhealthy lock remains down.
-#   persistent  every other harness (codex foreground checkpoint, opencode/grok
-#               background arm, tmux, unknown): the watcher runs as a tracked live
-#               process, so a live identity-matched pid is the real liveness signal.
+# Print this home's PRIMARY supervision model; docs/turnend-guard.md owns the
+# model-specific health contract, including Codex secondmate away-mode handling.
 # FM_SUPERVISION_MODEL overrides detection (tests, and callers that already know
 # the harness). Otherwise bin/fm-harness.sh is the single detection owner, so this
 # stays consistent with the harness-specific repair line the guards already emit.
 fm_supervision_model() {
-  local harness
+  local harness home=${1:-$FM_HOME} state=${2:-$STATE}
   case "${FM_SUPERVISION_MODEL:-}" in
     autoarm|extension|persistent) printf '%s\n' "$FM_SUPERVISION_MODEL"; return 0 ;;
   esac
   harness=$("$FM_WAKE_LIB_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
   case "$harness" in
     claude|cursor) printf 'autoarm\n' ;;
+    codex)
+      # shellcheck source=bin/fm-primary-scope-lib.sh
+      . "$FM_WAKE_LIB_DIR/fm-primary-scope-lib.sh"
+      if fm_root_is_secondmate_home "$home" && [ ! -e "$state/.afk" ]; then
+        printf 'autoarm\n'
+      else
+        printf 'persistent\n'
+      fi
+      ;;
     pi|pi-signed) printf 'extension\n' ;;
     *) printf 'persistent\n' ;;
   esac
@@ -268,7 +266,7 @@ fm_watcher_supervision_verdict() {
     ''|*[!0-9]*) ;;
     *) [ "$age" -lt "$grace" ] && fresh=true ;;
   esac
-  model=$(fm_supervision_model)
+  model=$(fm_supervision_model "$home" "$state")
   if [ "$model" = autoarm ]; then
     [ "$fresh" = true ] && FM_WATCHER_VERDICT_OK=true
     return 0

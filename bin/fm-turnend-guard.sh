@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Turn-end guard for any firstmate PRIMARY session: the main home OR a
-# secondmate's own home. A secondmate runs its own primary firstmate session and
-# is guarded exactly like the main primary; only child crew/scout worktrees are
-# exempt (see the scoping block below and docs/turnend-guard.md).
+# secondmate's own home. A secondmate runs its own primary firstmate session;
+# only child crew/scout worktrees are exempt (see the scoping block below and
+# docs/turnend-guard.md).
 #
 # fm-guard.sh (bin/fm-guard.sh) is pull-based: it only warns when some other
 # supervision script happens to run. A primary session that ends a turn without
@@ -32,7 +32,10 @@
 # primary checkout - the main home or a genuinely marked secondmate home - and
 # stay a silent, fast no-op inside child task worktrees.
 #
-# Loop-guard, codex/Grok (default) mode: never block twice in the same turn.
+# --codex in a marked secondmate home uses the Stop-owned arm and recovery
+# contract in docs/turnend-guard.md outside away mode.
+# Loop-guard, default mode (including Grok and other Codex Stops): never block
+# twice in the same turn.
 # Codex uses stop_hook_active and Grok uses stopHookActive; typed camel-case
 # takes precedence when both spellings are present. A true value means the
 # current stop attempt already follows a block, so this guard always allows it.
@@ -71,10 +74,14 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+# shellcheck source=bin/fm-watch-config-lib.sh
+. "$SCRIPT_DIR/fm-watch-config-lib.sh"
+fm_watch_config_load "$CONFIG/watch.env"
 GRACE=${FM_GUARD_GRACE:-300}
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 CLAUDE_MODE=0
 CURSOR_MODE=0
+CODEX_MODE=0
 SYNC_WAIT_MS=${FM_CLAUDE_AUTOARM_SYNC_WAIT_MS:-800}
 EPOCH_FRESH=${FM_CLAUDE_AUTOARM_EPOCH_FRESH:-15}
 BLOCK_BUDGET=${FM_CLAUDE_TURNEND_BLOCK_BUDGET:-3}
@@ -86,7 +93,8 @@ for arg in "$@"; do
   case "$arg" in
     --claude) CLAUDE_MODE=1 ;;
     --cursor) CURSOR_MODE=1 ;;
-    *) echo "usage: $(basename "$0") [--claude|--cursor]" >&2; exit 2 ;;
+    --codex) CODEX_MODE=1 ;;
+    *) echo "usage: $(basename "$0") [--claude|--cursor|--codex]" >&2; exit 2 ;;
   esac
 done
 
@@ -125,9 +133,6 @@ STOP_HOOK_ACTIVE=$(printf '%s' "$PAYLOAD" | jq -r '
   else false
   end
 ' 2>/dev/null) || exit 0
-if [ "$CLAUDE_MODE" -eq 0 ] && [ "$STOP_HOOK_ACTIVE" = "true" ]; then
-  exit 0
-fi
 
 # --- scope precisely to a PRIMARY checkout ----------------------------------
 # A genuinely-marked secondmate home runs its OWN primary firstmate session, so
@@ -146,6 +151,54 @@ fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 # --- the actual predicate ----------------------------------------------------
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+
+if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
+  # shellcheck source=bin/fm-session-lock-lib.sh
+  . "$SCRIPT_DIR/fm-session-lock-lib.sh"
+  fm_session_lock_owned_by_self "$STATE" || exit 0
+  if [ ! -e "$STATE/.afk" ]; then
+    PREVIOUS_CYCLE=$(tail -n 1 "$STATE/.watch-cycle-exits.log" 2>/dev/null || true)
+    PREVIOUS_REASON=$(printf '%s\n' "$PREVIOUS_CYCLE" | awk -F '\t' '{for (i=1; i<=NF; i++) if ($i ~ /^reason=/) print substr($i,8)}')
+    PREVIOUS_FAILED=0
+    case "$PREVIOUS_REASON" in
+      nonzero-exit|signal-exit|confirmation-timeout|unexpected-clean-exit|attached-cycle-ended|handling-handoff-failed) PREVIOUS_FAILED=1 ;;
+    esac
+    OUT=$(mktemp "$STATE/.codex-stop-output.XXXXXX") || OUT=
+    trap '[ -z "$OUT" ] || rm -f "$OUT"' EXIT
+    ARM_ATTEMPT=0
+    while [ "$ARM_ATTEMPT" -lt 2 ]; do
+      ARM_ATTEMPT=$((ARM_ATTEMPT + 1))
+      if [ -n "$OUT" ]; then
+        "$SCRIPT_DIR/fm-watch-arm.sh" > "$OUT" 2>&1
+        ARM_RC=$?
+      else
+        "$SCRIPT_DIR/fm-watch-arm.sh" >&2
+        ARM_RC=$?
+      fi
+      fm_session_lock_owned_by_self "$STATE" || exit 0
+      [ -e "$STATE/.afk" ] && break
+      if [ "$ARM_RC" -eq 0 ] && [ -n "$OUT" ] && grep -Eq '^(signal:|stale:|check:|heartbeat($|:))' "$OUT"; then
+        grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >&2
+        printf '%s\n' 'Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.' >&2
+        exit 2
+      fi
+      [ -z "$OUT" ] || cat "$OUT" >&2
+    done
+    if [ ! -e "$STATE/.afk" ]; then
+      CURRENT_CYCLE=$(tail -n 1 "$STATE/.watch-cycle-exits.log" 2>/dev/null || true)
+      if [ "$STOP_HOOK_ACTIVE" = true ] && { [ "$PREVIOUS_FAILED" -eq 1 ] || [ "$CURRENT_CYCLE" = "$PREVIOUS_CYCLE" ]; }; then
+        printf '%s\n' 'SUPERVISION RECOVERY EXHAUSTED: Stop-owned watcher startup still fails after bounded retries. Queued wakes remain unacknowledged. Keep this session attended and diagnose watcher startup before relying on unattended supervision.' >&2
+        exit 0
+      fi
+      printf '%s\n' 'SUPERVISION RECOVERY REQUIRED: Stop-owned watcher startup failed after two attempts. Run bin/fm-wake-drain.sh, handle and acknowledge queued wakes, and diagnose watcher startup before ending this repair turn. The next Stop runs the final bounded recovery cycle.' >&2
+      exit 2
+    fi
+  fi
+fi
+
+if [ "$CLAUDE_MODE" -eq 0 ] && [ "$STOP_HOOK_ACTIVE" = "true" ]; then
+  exit 0
+fi
 
 BUDGET_FILE="$STATE/.turnend-claude-blocks"
 BUDGET_LOCK="$STATE/.turnend-claude-blocks.lock"

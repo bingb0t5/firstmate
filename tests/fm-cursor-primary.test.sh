@@ -69,7 +69,7 @@ CLAUDE_STOP_PAYLOAD='{"session_id":"sess-claude","stop_hook_active":false}'
 install_scripts() {
   local dir=$1 f
   mkdir -p "$dir/bin" "$dir/docs"
-  for f in fm-turnend-guard-cursor.sh fm-turnend-guard.sh fm-sessionstart-cursor.sh \
+  for f in fm-watch-config-lib.sh fm-turnend-guard-cursor.sh fm-turnend-guard.sh fm-sessionstart-cursor.sh \
            fm-sessionstart-run.sh fm-sessionstart-nudge.sh fm-arm-pretool-check.sh \
            fm-cd-pretool-check.sh fm-claude-stop-autoarm.sh fm-hook-host-lib.sh \
            fm-primary-scope-lib.sh fm-supervision-lib.sh fm-wake-lib.sh \

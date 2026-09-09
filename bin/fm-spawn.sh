@@ -1129,7 +1129,7 @@ launch_template() {
     claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     codex)
       if [ "$kind" = secondmate ]; then
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c __HOMENOTIFY__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       else
         printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
@@ -2733,6 +2733,12 @@ LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
+if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
+  home_notify=$(jq -cn --arg script "$PROJ_ABS/bin/fm-home-wake.sh" --arg backend "$BACKEND" --arg target "$T" \
+    '["bash", $script, $backend, $target]')
+  sq_home_notify=$(shell_quote "notify=$home_notify")
+  LAUNCH=${LAUNCH//__HOMENOTIFY__/$sq_home_notify}
+fi
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
@@ -2763,8 +2769,11 @@ if [ "$KIND" = secondmate ]; then
   # Keep this in step with fm_supervision_model (bin/fm-wake-lib.sh): Claude's
   # Stop auto-arm and Cursor's stop-hook park both run the watcher only BETWEEN
   # turns, so a fresh beacon with no live watcher is their healthy mid-turn state.
+  # Codex clears any inherited pin so the shared classifier can switch with the
+  # secondmate home's away-mode state instead of freezing its launch-time model.
   case "$HARNESS" in
     claude|cursor) supervision_model=autoarm ;;
+    codex) supervision_model= ;;
     *) supervision_model=persistent ;;
   esac
   # Deliver the primary's EFFECTIVE trace-context decision as a normalized on/off

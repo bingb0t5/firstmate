@@ -98,7 +98,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 mkdir -p "$STATE"
+
+# Optional home-local watcher defaults are data-only and preserve explicit
+# environment values. The loader never evaluates config/watch.env as shell.
+# shellcheck source=bin/fm-watch-config-lib.sh
+. "$SCRIPT_DIR/fm-watch-config-lib.sh"
+fm_watch_config_load "$CONFIG/watch.env"
 
 # The native event fast-path and only its true dependencies have one narrow
 # production owner. The Herdr event-wait smoke test consumes this same owner
@@ -205,11 +212,14 @@ BUSY_TURN_MAX_SECS=${FM_BUSY_TURN_MAX_SECS:-3600}
 # wake cadence plus grace, or when the mate's watcher beacon is stale.
 # FM_SECONDMATE_WAKE_STALL_SECS, when set to a positive integer, overrides the
 # whole threshold (tests and operator pin). Unset uses the recorded harness:
-# grok background-notify, pi/pi-signed branch claim, otherwise 60s.
+# grok background-notify, pi/pi-signed branch claim, or a 600s idle cadence for
+# every other harness. A fresh backend busy state suppresses the row check for
+# those other harnesses; a stale beacon still pages immediately.
 SECONDMATE_WAKE_STALL_OVERRIDE=${FM_SECONDMATE_WAKE_STALL_SECS-}
 SECONDMATE_WAKE_STALL_GRACE_SECS=${FM_SECONDMATE_WAKE_STALL_GRACE_SECS:-30}
 GROK_NOTIFY_CADENCE_SECS=${FM_GROK_NOTIFY_CADENCE_SECS:-180}
 PI_BRANCH_CLAIM_CADENCE_SECS=${FM_PI_BRANCH_CLAIM_CADENCE_SECS:-300}
+SECONDMATE_WAKE_IDLE_CADENCE_SECS=600
 case "$SECONDMATE_WAKE_STALL_GRACE_SECS" in ''|*[!0-9]*) SECONDMATE_WAKE_STALL_GRACE_SECS=30 ;; esac
 case "$GROK_NOTIFY_CADENCE_SECS" in ''|*[!0-9]*|0) GROK_NOTIFY_CADENCE_SECS=180 ;; esac
 case "$PI_BRANCH_CLAIM_CADENCE_SECS" in ''|*[!0-9]*|0) PI_BRANCH_CLAIM_CADENCE_SECS=300 ;; esac
@@ -494,15 +504,24 @@ secondmate_stall_threshold() {  # <harness> <home>
       case "$harness" in
         grok) cadence=$GROK_NOTIFY_CADENCE_SECS ;;
         pi|pi-signed) cadence=$PI_BRANCH_CLAIM_CADENCE_SECS ;;
-        *) cadence=60 ;;
+        *) cadence=$SECONDMATE_WAKE_IDLE_CADENCE_SECS ;;
       esac
-      case "$harness" in
-        grok|pi|pi-signed) threshold=$((cadence + SECONDMATE_WAKE_STALL_GRACE_SECS)) ;;
-        *) threshold=$cadence ;;
-      esac
+      threshold=$((cadence + SECONDMATE_WAKE_STALL_GRACE_SECS))
       ;;
   esac
   printf '%s\n' "$threshold"
+}
+
+# A native backend agent state is the only turn-aware busy signal available to
+# this parent-side observation. Unknown, idle, dead, and unreadable states all
+# take the bounded idle cadence; only an exact busy verdict suppresses a fresh
+# beacon's row check. This deliberately does not inspect pane text.
+secondmate_backend_is_busy() {  # <parent-meta>
+  local meta=$1 backend target
+  backend=$(fm_backend_of_meta "$meta")
+  target=$(fm_backend_target_of_meta "$meta")
+  [ -n "$target" ] || return 1
+  [ "$(fm_backend_busy_state "$backend" "$target" 2>/dev/null || true)" = busy ]
 }
 
 # Surface one durable parent check for one unchanged unclaimed non-parked foreign
@@ -540,9 +559,23 @@ secondmate_wake_stall_tick() {
       continue
     fi
     harness=$(fm_meta_get "$meta" harness)
-    threshold=$(secondmate_stall_threshold "$harness" "$home")
     beacon_stale=0
     secondmate_watcher_beacon_stale "$home" && beacon_stale=1
+    if [ "$beacon_stale" -eq 0 ]; then
+      case "$SECONDMATE_WAKE_STALL_OVERRIDE" in
+        ''|*[!0-9]*|0)
+          case "$harness" in
+            grok|pi|pi-signed) ;;
+            *)
+              if ! secondmate_branch_grant_live "$home"; then
+                secondmate_backend_is_busy "$meta" && continue
+              fi
+              ;;
+          esac
+          ;;
+      esac
+    fi
+    threshold=$(secondmate_stall_threshold "$harness" "$home")
     if [ "$beacon_stale" -eq 0 ]; then
       claimed=$(secondmate_claimed_seqs "$home")
       row=$(secondmate_oldest_queue_row "$queue" "$claimed")

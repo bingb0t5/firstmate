@@ -260,7 +260,6 @@ Pi-family launches adapt the regular-TUI safeguard to the installed CLI's capabi
 Enabled primary-session turn-end guard integrations are tracked as repo-level hook files and documented in [`docs/turnend-guard.md`](turnend-guard.md).
 Kimi remains outside the primary turn-end guard integrations; [`docs/turnend-guard.md`](turnend-guard.md#compatibility-limits) owns its separate captain-approved crew wake hook.
 Primary-session watcher wake protocols are rendered at session start by [`bin/fm-supervision-instructions.sh`](../bin/fm-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
-Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's stop hook parks on the watcher, Grok uses background-notify cycles, Codex uses bounded foreground checkpoints, Pi and pi-signed use the same two tracked primary extensions, and OpenCode uses its TUI plugin.
 `config/crew-harness` is a local, gitignored file containing one adapter name for crewmate and scout launches.
 When pi-signed is selected, Firstmate preserves `FM_PI_HARNESS=pi-signed` and refuses the launch if the selected executable is unavailable rather than falling back to pi; [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns executable resolution and launch mechanics.
 Plain Pi launches set `FM_PI_HARNESS=pi`, so a signed primary's environment cannot relabel a plain Pi worker.
@@ -514,13 +513,13 @@ The dashboard owns account creation, identity linking, bot installation, and tok
 The locked session-start bootstrap step turns the token into local generated state.
 It writes `state/x-watch.check.sh`, a byte-static identity shim for `bin/fm-x-poll.sh`, and `config/x-mode.env`, which exports `FM_CHECK_INTERVAL=30` for watcher processes in that home.
 The watcher accepts the shim only when its bytes match the expected generated content, then invokes the trusted repository poll script directly instead of executing state-file source.
-This section is the single owner of the Relay cadence contract: a Relay instance polls every 30 seconds instead of the default 300, only a Relay instance speeds up because a non-Relay home has no `config/x-mode.env`, and the session-start supervision operating block includes the cadence instruction when that file exists.
+This section is the single owner of the Relay cadence contract: the generated file selects a 30-second poll interval instead of the default 300, and the session-start supervision operating block includes the cadence instruction when that file exists.
 The active primary-harness supervision protocol owns how that sourced cadence reaches the watcher process.
 Because `bin/fm-watch.sh` reads `FM_CHECK_INTERVAL` only at process start, a cadence transition - opt-in while a watcher is already running, or opt-out - is applied by restarting the home-scoped watcher through the emitted harness protocol; bootstrap deliberately never restarts the watcher itself.
 While away mode is active the daemon owns the watcher and its default cadence applies; away-mode Relay cadence is a deferred follow-up.
 When the token is removed or empty, the next locked session-start bootstrap step removes those artifacts.
 Steady-state off is silent and writes nothing.
-Relay remains additive to non-Relay lifecycle behavior: homes without the generated artifacts keep the default watcher cadence and do not run the Relay poll.
+Relay remains additive to non-Relay lifecycle behavior: homes without the generated artifacts do not run the Relay poll, and their cadence follows the [watcher defaults and environment settings](#optional-watcher-defaults-configwatchenv).
 Its request handling remains in Relay-specific `bin/` scripts and the `fmx-respond` skill, while the watcher owns authenticated dispatch from the generated local identity shim.
 
 `bin/fm-x-poll.sh` calls `GET /connector/poll` with `Authorization: Bearer <FMX_PAIRING_TOKEN>`.
@@ -744,6 +743,16 @@ The two read files are parsed differently: `config/voice-read-scope` must hold t
 
 ## Environment variables
 
+### Optional watcher defaults (`config/watch.env`)
+
+An optional home-local `config/watch.env` file supplies default numeric watcher values to the watcher, arm wrapper, and supervision guards, including the Claude auto-arm and Cursor park entrypoints.
+The file must be a regular non-symlink file and is parsed as `KEY=VALUE` data; whole-line comments and optional `export` prefixes are accepted, unknown keys and malformed values are ignored, and shell text is never executed.
+Accepted keys are the watcher timing, grace, cadence, escalation, event-failure, and cycle-log limits enumerated by `bin/fm-watch-config-lib.sh`.
+Integers use canonical unsigned decimal notation up to nine digits; `FM_ARM_ATTACH_POLL` also accepts up to six fractional digits.
+An explicitly exported environment variable always wins over a value in this file.
+For example, `FM_SECONDMATE_WAKE_STALL_SECS=900` pins the whole parent-side threshold to 900 seconds, including while the backend is busy; place it in the supervising parent home, while each secondmate home has its own independent watcher settings.
+This file is a local watcher-defaults input and is separate from the generated Relay-specific `config/x-mode.env`.
+
 Runtime tuning via environment variables (defaults shown):
 
 ```sh
@@ -824,8 +833,8 @@ FM_CLASSIFY_PAUSED_VERB=paused     # leading status verb for a declared external
 FM_STALE_ESCALATE_SECS=240         # idle seconds before a provably-working stale pane escalates; stale panes whose crew is not provably working surface immediately unless they declare the pause verb; the same interval also bounds how long a declared wait's state-and-liveness classification, settlement included, is reused before it is revalidated
 FM_BUSY_TURN_MAX_SECS=3600         # maximum age of a busy pane's latest state/<id>.turn-ended marker, or its state/<id>.meta spawn record before any turn completes, before the same wedge escalation used for a provably-working non-busy stale takes over; inspection-only, never an automatic interrupt or restart; a declared external wait or verified captain-held transfer takes the FM_PAUSE_RESURFACE_SECS recheck below instead
 FM_PAUSE_RESURFACE_SECS=3600       # seconds before the watcher or away-mode daemon re-surfaces a declared external wait or verified captain-held transfer for a recheck, including a live busy pane past FM_BUSY_TURN_MAX_SECS; dead completed or parked ordinary lanes settle under an expiring state-and-liveness classification, confirmed-dead lanes with unreadable current state retain this cadence, and other known nonsettled lanes surface once before retaining it
-FM_SECONDMATE_WAKE_STALL_SECS=   # when set to a positive integer, overrides the whole parent wake-loop-stall threshold for every local secondmate; unset uses that mate's recorded cadence plus grace (grok background-notify, pi/pi-signed branch claim, otherwise 60s); zero or invalid values fall through to the cadence path
-FM_SECONDMATE_WAKE_STALL_GRACE_SECS=30   # added to grok and pi/pi-signed cadences when FM_SECONDMATE_WAKE_STALL_SECS is unset; invalid values use 30
+FM_SECONDMATE_WAKE_STALL_SECS=   # when set to a positive integer, overrides the whole parent wake-loop-stall threshold for every local secondmate; unset skips the row check with a fresh beacon for non-Grok/non-Pi mates without a live Pi branch grant while the recorded backend state is busy, otherwise uses that mate's recorded cadence plus grace (grok background-notify, pi/pi-signed branch claim, otherwise 600s); zero or invalid values fall through to the cadence path
+FM_SECONDMATE_WAKE_STALL_GRACE_SECS=30   # added to every recorded cadence when FM_SECONDMATE_WAKE_STALL_SECS is unset; invalid values use 30
 FM_GROK_NOTIFY_CADENCE_SECS=180   # Grok background-notify wait the parent treats as a healthy unclaimed-row window; zero or invalid values use 180
 FM_PI_BRANCH_CLAIM_CADENCE_SECS=300   # Pi supervision-branch claim window the parent treats as a healthy unclaimed-row wait; also used while a live branch grant is recorded in the mate home; zero or invalid values use 300
 FM_WEDGE_DEMAND_INSPECT_COUNT=3    # consecutive provably-working stale escalations on the same unchanged pane before demand-deep-inspection is added

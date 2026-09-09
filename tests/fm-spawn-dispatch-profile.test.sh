@@ -946,6 +946,293 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
   pass "active crew-dispatch profile does not block secondmate launches"
 }
 
+test_codex_secondmate_launch_uses_home_supervision_classification() {
+  local rec id sm out status entry
+  id=codex-secondmate-supervision
+  rec=$(make_spawn_case codex-secondmate-supervision codex "$id")
+  read_case_record "$rec"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$id"
+  out=$(FM_SUPERVISION_MODEL=persistent run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
+  status=$?
+  expect_code 0 "$status" "Codex secondmate spawn failed: $out"
+  for entry in "$ROOT/bin/"*; do ln -s "$entry" "$sm/bin/${entry##*/}"; done
+  mkdir -p "$sm/.codex" "$CASE_DIR/engine"
+  cp "$ROOT/.codex/hooks.json" "$sm/.codex/hooks.json"
+  cp "$(command -v bash)" "$CASE_DIR/engine/codex"
+  # shellcheck disable=SC2016 # PATH expands when the child shell reads BASH_ENV.
+  printf 'export PATH=%q:"$PATH"\n' "$FAKEBIN_DIR" > "$CASE_DIR/bash-env"
+  cat > "$FAKEBIN_DIR/codex" <<'SH'
+#!/usr/bin/env bash
+exec "$FM_TEST_CODEX_ENGINE" "$FM_TEST_CODEX_PROBE"
+SH
+  chmod +x "$FAKEBIN_DIR/codex"
+  cat > "$CASE_DIR/probe.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$$" > "$FM_HOME/state/.lock"
+printf 'kind=ship\n' > "$FM_HOME/state/child.meta"
+: > "$FM_HOME/state/.inactive-outcome-reconcile"
+. "$FM_HOME/bin/fm-wake-lib.sh"
+fm_wake_append check launch-row 'check: launched secondmate work' || exit 1
+stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$FM_HOME/.codex/hooks.json")
+printf '{"stop_hook_active":false}' | bash -c "$stop" > "$FM_HOME/stop.out" 2> "$FM_HOME/stop.err"
+rc=$?
+[ "$rc" -eq 2 ] || exit 10
+"$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/awake.out" 2> "$FM_HOME/awake.err" || exit 11
+: > "$FM_HOME/state/.afk"
+"$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/away.out" 2> "$FM_HOME/away.err" || exit 12
+SH
+  (
+    cd "$sm" || exit 1
+    env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+      FM_SUPERVISION_MODEL=persistent FM_HOME="$HOME_DIR" \
+      FM_TEST_CODEX_ENGINE="$CASE_DIR/engine/codex" FM_TEST_CODEX_PROBE="$CASE_DIR/probe.sh" \
+      BASH_ENV="$CASE_DIR/bash-env" PATH="$FAKEBIN_DIR:$PATH" FM_BACKEND=tmux \
+      FM_POLL=1 FM_SIGNAL_GRACE=0 FM_HEARTBEAT=999999 FM_CHECK_INTERVAL=999999 \
+      bash "$LAUNCH_LOG"
+  ) > "$CASE_DIR/launch.out" 2> "$CASE_DIR/launch.err"
+  status=$?
+  expect_code 0 "$status" "generated Codex launch failed to complete a Stop wake: $(cat "$CASE_DIR/launch.err") $(cat "$sm/stop.err" 2>/dev/null)"
+  assert_grep 'check: launched secondmate work' "$sm/awake.out" "spawned secondmate did not deliver its queued home wake"
+  assert_no_grep 'WATCHER DOWN' "$sm/awake.err" "actual Codex launch falsely paged after a successful Stop wake with active child work"
+  assert_grep 'WATCHER DOWN' "$sm/away.err" "actual Codex launch hid missing away-mode supervision"
+  assert_grep 'Away mode owns watcher supervision' "$sm/away.err" "actual Codex launch lost away-mode repair guidance"
+  pass "generated Codex secondmate launch clears inherited classification pins and preserves away-mode health checks"
+}
+
+test_codex_secondmate_notify_delivers_home_queue() {
+  local rec id sm out status entry scenario evidence_file
+  for scenario in empty queued busy pending late-pending unconfirmed away handled watcher-reused watcher-stale watcher-healthy watcher-grace watcher-override; do
+    id="codex-home-notify-$scenario"
+    rec=$(make_spawn_case "$id" codex "$id")
+    read_case_record "$rec"
+    sm="$CASE_DIR/secondmate home"
+    make_seeded_secondmate_home "$sm" "$id"
+    out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
+    status=$?
+    expect_code 0 "$status" "Codex notify spawn failed: $out"
+    for entry in "$ROOT/bin/"*; do ln -s "$entry" "$sm/bin/${entry##*/}"; done
+    mkdir -p "$CASE_DIR/engine"
+    cp "$(command -v bash)" "$CASE_DIR/engine/codex"
+    cat > "$FAKEBIN_DIR/codex" <<'SH'
+#!/usr/bin/env bash
+exec "$FM_TEST_CODEX_ENGINE" "$FM_TEST_CODEX_PROBE" "$@"
+SH
+    cat > "$FAKEBIN_DIR/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$1" in
+  display-message)
+    case "$*" in *cursor_y*) printf '1\n' ;; *) printf 'codex\n' ;; esac ;;
+  capture-pane)
+    case "$*" in
+      *'-S -40'*)
+        count=$(( $(cat "$FM_HOME/captures" 2>/dev/null || echo 0) + 1 ))
+        printf '%s\n' "$count" > "$FM_HOME/captures"
+        if [ "$count" -eq 3 ]; then
+          case "$FM_TEST_NOTIFY_SCENARIO" in
+            late-pending) printf 'captain draft\n' > "$FM_HOME/pending" ;;
+            handled)
+              "$FM_TEST_SOURCE_ROOT/bin/fm-wake-drain.sh" > "$FM_HOME/other.out" 2> "$FM_HOME/other.err" || exit 1
+              ack=$(sed -n 's/^WAKE_ACK_REQUIRED: after handling completes run //p' "$FM_HOME/other.err")
+              [ -n "$ack" ] || exit 1
+              bash -c "$ack" || exit 1
+              : > "$FM_HOME/handled-elsewhere"
+              ;;
+          esac
+        fi
+        ;;
+    esac
+    printf '╭────╮\n│ %s   │\n╰────╯\n' "$(cat "$FM_HOME/pending" 2>/dev/null)"
+    [ "$FM_TEST_NOTIFY_SCENARIO" != busy ] || printf 'esc to interrupt\n'
+    ;;
+  send-keys)
+    if [ "${4:-}" = -l ]; then
+      printf '%s\n' "$5" > "$FM_HOME/pending"
+      printf '%s\n' "$5" >> "$FM_HOME/submissions"
+      printf '%s\n' "$3" >> "$FM_HOME/targets"
+    elif [ "${4:-}" = Enter ] && [ "$FM_TEST_NOTIFY_SCENARIO" != unconfirmed ]; then
+      : > "$FM_HOME/pending"
+      printf 'confirmed\n' >> "$FM_HOME/confirms"
+    fi ;;
+esac
+exit 0
+SH
+    chmod +x "$FAKEBIN_DIR/codex" "$FAKEBIN_DIR/tmux"
+    cat > "$CASE_DIR/notify-probe.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+notify=
+for arg in "$@"; do
+  case "$arg" in notify=*) notify=${arg#notify=} ;; esac
+done
+[ -n "$notify" ] || exit 10
+callback=()
+while IFS= read -r arg; do callback+=("$arg"); done < <(printf '%s' "$notify" | jq -r '.[]')
+printf '%s\n' "$$" > "$FM_HOME/state/.lock"
+: > "$FM_HOME/state/.inactive-outcome-reconcile"
+. "$FM_HOME/bin/fm-wake-lib.sh"
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  empty) ;;
+  *) fm_wake_append check notify-row 'check: queued idle home work' || exit 11 ;;
+esac
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  empty|handled) ;;
+  *)
+    printf 'kind=ship\n' > "$STATE/child.meta"
+    printf 'note: unread child context for the handling turn\n' > "$STATE/child.status"
+    fm_wake_signal_mark_seen_if_current "$STATE" "$STATE/child.status" "$(fm_wake_signal_sig "$STATE/child.status")" || exit 21
+    ;;
+esac
+[ "$FM_TEST_NOTIFY_SCENARIO" != pending ] || printf 'captain draft\n' > "$FM_HOME/pending"
+[ "$FM_TEST_NOTIFY_SCENARIO" != away ] || : > "$STATE/.afk"
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  watcher-*)
+    unset FM_GUARD_GRACE
+    mkdir -p "$STATE/.watch.lock"
+    printf '%s\n' "$$" > "$STATE/.watch.lock/pid"
+    printf '%s\n' "$FM_HOME" > "$STATE/.watch.lock/fm-home"
+    printf '%s\n' "$FM_HOME/bin/fm-watch.sh" > "$STATE/.watch.lock/watcher-path"
+    fm_pid_identity "$$" > "$STATE/.watch.lock/pid-identity"
+    touch "$STATE/.last-watcher-beat"
+    case "$FM_TEST_NOTIFY_SCENARIO" in
+      watcher-reused) printf 'previous process identity\n' > "$STATE/.watch.lock/pid-identity" ;;
+      watcher-stale|watcher-grace|watcher-override)
+        perl -e 'utime time-600, time-600, $ARGV[0]' "$STATE/.last-watcher-beat"
+        printf 'FM_GUARD_GRACE=900\n' > "$FM_HOME/config/watch.env"
+        case "$FM_TEST_NOTIFY_SCENARIO" in
+          watcher-stale) printf 'FM_GUARD_GRACE=30\n' > "$FM_HOME/config/watch.env" ;;
+          watcher-override) export FM_GUARD_GRACE=30 ;;
+        esac
+        ;;
+    esac
+    cp "$STATE/.watch.lock/pid-identity" "$FM_HOME/watcher-identity-before"
+    ;;
+esac
+[ ! -s "$FM_WAKE_QUEUE" ] || cp "$FM_WAKE_QUEUE" "$FM_HOME/queue-before"
+rc=0
+"${callback[@]}" '{"type":"agent-turn-complete"}' > "$FM_HOME/notify.out" 2> "$FM_HOME/notify.err" || rc=$?
+printf '%s\n' "$rc" > "$FM_HOME/notify.rc"
+[ ! -e "$STATE/.home-wake.lock" ] || exit 26
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  watcher-*)
+    cmp "$FM_HOME/watcher-identity-before" "$STATE/.watch.lock/pid-identity" || exit 27
+    [ "$(cat "$STATE/.watch.lock/pid")" = "$$" ] || exit 28
+    ;;
+esac
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  empty|handled) ;;
+  *)
+    [ ! -e "$STATE/.status-presentation-cursor" ] || exit 22
+    cmp "$FM_HOME/queue-before" "$FM_WAKE_QUEUE" || exit 15
+    "$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/drain.out" 2> "$FM_HOME/drain.err" || exit 16
+    grep -qF 'unread child context for the handling turn' "$FM_HOME/drain.out" || exit 23
+    "$FM_HOME/bin/fm-wake-drain.sh" > "$FM_HOME/repeat.out" 2> "$FM_HOME/repeat.err" || exit 24
+    if grep -qF 'unread child context for the handling turn' "$FM_HOME/repeat.out"; then exit 25; fi
+    ;;
+esac
+case "$FM_TEST_NOTIFY_SCENARIO" in
+  empty)
+    "$FM_HOME/bin/fm-watch.sh" > "$FM_HOME/watch.out" 2> "$FM_HOME/watch.err" &
+    pid=$!
+    trap 'kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true' EXIT
+    for i in $(seq 1 100); do
+      [ -e "$STATE/.last-watcher-beat" ] && break
+      kill -0 "$pid" 2>/dev/null || exit 12
+      sleep 0.1
+    done
+    [ -e "$STATE/.last-watcher-beat" ] || exit 13
+    sleep 3
+    kill -0 "$pid" 2>/dev/null || exit 14
+    ;;
+  queued)
+    ack=$(sed -n 's/^WAKE_ACK_REQUIRED: after handling completes run //p' "$FM_HOME/drain.err")
+    [ -n "$ack" ] || exit 17
+    bash -c "$ack" || exit 18
+    ;;
+  handled) [ ! -s "$FM_WAKE_QUEUE" ] || exit 20 ;;
+  *) cmp "$FM_HOME/queue-before" "$FM_WAKE_QUEUE" || exit 19 ;;
+esac
+SH
+    (
+      cd "$sm" || exit 1
+      env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+        FM_TEST_CODEX_ENGINE="$CASE_DIR/engine/codex" FM_TEST_CODEX_PROBE="$CASE_DIR/notify-probe.sh" \
+        FM_TEST_SOURCE_ROOT="$ROOT" FM_TEST_NOTIFY_SCENARIO="$scenario" PATH="$FAKEBIN_DIR:$PATH" FM_BACKEND=tmux \
+        FM_POLL=1 FM_SIGNAL_GRACE=0 FM_HEARTBEAT=99999999 FM_CHECK_INTERVAL=99999999 \
+        bash "$LAUNCH_LOG"
+    ) > "$CASE_DIR/launch.out" 2> "$CASE_DIR/launch.err"
+    status=$?
+    expect_code 0 "$status" "generated notify $scenario failed: $(cat "$CASE_DIR/launch.err") $(cat "$sm/notify.err" 2>/dev/null)"
+    assert_absent "$sm/state/$id.turn-ended" "home callback published a child-task marker"
+    assert_absent "$HOME_DIR/state/$id.turn-ended" "home callback signaled its parent"
+    if [ "$scenario" = unconfirmed ]; then
+      expect_code 1 "$(cat "$sm/notify.rc")" "unconfirmed submit must fail"
+      assert_grep 'submit unconfirmed' "$sm/notify.err" "unconfirmed delivery was silently accepted"
+      [ "$(wc -l < "$sm/submissions")" -eq 1 ] || fail "submit retries retyped the home wake"
+    elif [[ "$scenario" = watcher-reused || "$scenario" = watcher-stale || "$scenario" = watcher-override ]]; then
+      expect_code 1 "$(cat "$sm/notify.rc")" "unhealthy watcher ownership must fail the handoff"
+      assert_grep 'watcher ownership unhealthy' "$sm/notify.err" "unhealthy ownership was silently accepted"
+    else
+      expect_code 0 "$(cat "$sm/notify.rc")" "notify $scenario failed"
+      [ ! -s "$sm/notify.out" ] && [ ! -s "$sm/notify.err" ] || fail "notify $scenario was noisy"
+    fi
+    case "$scenario" in
+      queued)
+        assert_grep 'Run bin/fm-wake-drain.sh first' "$sm/submissions" "submitted notification did not direct the handling turn to drain"
+        assert_grep 'WAKE_ACK_REQUIRED' "$sm/submissions" "submitted wake omitted handling acknowledgement"
+        assert_grep "firstmate:fm-$id" "$sm/targets" "notify submitted to the wrong endpoint"
+        assert_grep 'confirmed' "$sm/confirms" "backend never confirmed submission"
+        assert_grep 'queued idle home work' "$sm/drain.out" "handling turn lost the durable row"
+        [ ! -s "$sm/state/.wake-queue" ] || fail "acknowledged row remained queued"
+        assert_present "$sm/state/.last-watcher-beat" "notification bypassed watcher liveness"
+        ;;
+      unconfirmed) assert_absent "$sm/confirms" "unconfirmed submit was marked confirmed" ;;
+      late-pending)
+        assert_absent "$sm/submissions" "late composer input was overwritten by a home wake"
+        assert_grep 'captain draft' "$sm/pending" "late composer input was changed"
+        ;;
+      handled)
+        assert_present "$sm/handled-elsewhere" "competing handler did not acknowledge the queue"
+        assert_absent "$sm/submissions" "already handled work triggered a notification"
+        ;;
+      *) assert_absent "$sm/submissions" "$scenario notification submitted a wake" ;;
+    esac
+    case "$scenario" in
+      empty|handled) ;;
+      *) assert_grep 'unread child context for the handling turn' "$sm/drain.out" "callback consumed unread status context" ;;
+    esac
+    if [ "$scenario" = empty ]; then
+      [ ! -s "$sm/state/.wake-queue" ] && [ ! -s "$sm/watch.out" ] || fail "empty notify produced an actionable wake"
+    fi
+    if [ -n "${FM_TEST_EVIDENCE_DIR:-}" ]; then
+      mkdir -p "$FM_TEST_EVIDENCE_DIR"
+      {
+        printf 'Generated Codex launch callback scenario: %s\nBackend: simulated tmux; production spawn, callback, watcher, drain and acknowledgement.\n' "$scenario"
+        for evidence_file in notify.rc notify.out notify.err queue-before submissions confirms pending drain.out drain.err other.out other.err watch.out state/.wake-queue; do
+          printf '\n[%s]\n' "$evidence_file"
+          if [ -f "$sm/$evidence_file" ]; then
+            cat "$sm/$evidence_file"
+          else
+            printf '(absent)\n'
+          fi
+        done
+      } > "$FM_TEST_EVIDENCE_DIR/codex-home-notify-$scenario.txt"
+    fi
+    pass "generated Codex home notify: $scenario"
+  done
+}
+
+if [ "${1:-}" = --codex-secondmate ]; then
+  test_codex_secondmate_notify_delivers_home_queue
+  test_codex_secondmate_launch_uses_home_supervision_classification
+  exit
+fi
+
+test_codex_secondmate_notify_delivers_home_queue
+test_codex_secondmate_launch_uses_home_supervision_classification
+
 test_launch_env_resolution_survives_bash_and_optional_fish_functions
 test_cursor_launch_env_resolution_survives_bash_and_optional_fish_functions
 test_no_profile_keeps_claude_profile_defaults

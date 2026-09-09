@@ -890,7 +890,7 @@ test_spawn_explicit_harness_uses_explicit_profile_axes() {
 }
 
 test_spawned_secondmate_uses_its_harness_supervision_model() {
-  local harness expected w sm launchlog launch fakebin out
+  local harness w sm launchlog launch fakebin out
   for harness in codex claude; do
     w="$TMP_ROOT/spawn-supervision-model-$harness"
     sm="$w/sm"
@@ -906,26 +906,44 @@ test_spawned_secondmate_uses_its_harness_supervision_model() {
     # happens to be running from. The guard also reports a tangled primary
     # checkout, so without this the branch a contributor is working on decides
     # whether this assertion passes.
-    cat > "$fakebin/$harness" <<SH
+    cat > "$w/guard.sh" <<SH
 #!/usr/bin/env bash
 FM_ROOT_OVERRIDE="$sm" "$ROOT/bin/fm-guard.sh"
 SH
+    # Use a real named process for markerless Codex detection. The generated
+    # launch must clear an inherited model pin; neither the calling agent nor
+    # a fabricated ps response should decide the child's supervision model.
+    mkdir -p "$w/engine"
+    cp "$(command -v bash)" "$w/engine/$harness"
+    cat > "$fakebin/$harness" <<SH
+#!/usr/bin/env bash
+unset CLAUDECODE
+exec "$w/engine/$harness" "$w/guard.sh"
+SH
     chmod +x "$fakebin/$harness"
     launch=$(cat "$launchlog")
-    out=$(PATH="$fakebin:$BASE_PATH" CLAUDECODE=1 bash -c "$launch" 2>&1)
-    case "$harness" in
-      codex)
-        expected='WATCHER DOWN - SUPERVISION IS OFF'
-        assert_contains "$out" "$expected" \
-          "Codex secondmate inherited Claude auto-arm despite its persistent watcher model"
-        ;;
-      claude)
-        [ -z "$out" ] \
-          || fail "Claude secondmate with a fresh beacon should use auto-arm supervision, got: $out"
-        ;;
-    esac
+    out=$(PATH="$fakebin:$BASE_PATH" FM_SUPERVISION_MODEL=persistent bash -c "$launch" 2>&1)
+    [ -z "$out" ] \
+      || fail "$harness secondmate with a fresh beacon should use auto-arm supervision, got: $out"
+
+    touch -t 200001010000 "$sm/state/.last-watcher-beat"
+    out=$(PATH="$fakebin:$BASE_PATH" FM_SUPERVISION_MODEL=persistent bash -c "$launch" 2>&1)
+    assert_contains "$out" 'WATCHER DOWN - SUPERVISION IS OFF' \
+      "$harness secondmate hid a stale watcher beacon"
+    touch "$sm/state/.last-watcher-beat"
+    out=$(PATH="$fakebin:$BASE_PATH" FM_SUPERVISION_MODEL=persistent bash -c "$launch" 2>&1)
+    [ -z "$out" ] || fail "$harness secondmate did not recover after a fresh beacon: $out"
+
+    if [ "$harness" = codex ]; then
+      touch "$sm/state/.afk"
+      out=$(PATH="$fakebin:$BASE_PATH" FM_SUPERVISION_MODEL=persistent bash -c "$launch" 2>&1)
+      assert_contains "$out" 'WATCHER DOWN - SUPERVISION IS OFF' \
+        'Codex secondmate hid a missing away-mode watcher'
+      assert_contains "$out" 'Away mode owns watcher supervision' \
+        'Codex secondmate lost away-mode repair guidance'
+    fi
   done
-  pass "C9 spawn: secondmate launch pins supervision to its own harness"
+  pass "C9 spawn: secondmate launch uses home supervision with stale-beacon and Codex away-mode checks"
 }
 
 # The harness fallback chain (secondmate-harness -> crew-harness -> own) still
@@ -2107,7 +2125,7 @@ SH
 
 test_config_reread_serializes_concurrent_pushes() {
   local w head fakebin marker entered log first_out second_out first_pid first_status second_status
-  local first_instr second_instr first_line second_line
+  local first_instr second_instr first_line second_line release second_pid
   w=$(new_world config-reread-serialized-pushes)
   head=$(git -C "$w/main" rev-parse HEAD)
   add_sm_worktree "$w" sm "$head"
@@ -2119,6 +2137,7 @@ test_config_reread_serializes_concurrent_pushes() {
   mv "$fakebin/tmux" "$fakebin/tmux.real"
   marker="$w/first-send.marker"
   entered="$w/first-send.entered"
+  release="$w/first-send.release"
   log="$w/config-reread-serialized.tmux.log"
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
@@ -2126,7 +2145,11 @@ case "\$*" in
   *send-keys*)
     if (set -o noclobber; : > "$marker") 2>/dev/null; then
       : > "$entered"
-      sleep 1
+      for _ in \$(seq 1 300); do
+        [ -e "$release" ] && break
+        sleep 0.1
+      done
+      [ -e "$release" ] || exit 1
     fi
     ;;
 esac
@@ -2141,20 +2164,36 @@ SH
       "$ROOT/bin/fm-config-push.sh" > "$first_out" 2>&1
   ) &
   first_pid=$!
-  for _ in $(seq 1 100); do
+  for _ in $(seq 1 300); do
     [ -e "$entered" ] && break
-    sleep 0.02
+    kill -0 "$first_pid" 2>/dev/null || break
+    sleep 0.1
   done
-  [ -e "$entered" ] || fail "first config push did not reach pointer delivery"
+  if [ ! -e "$entered" ]; then
+    touch "$release"
+    wait "$first_pid" || true
+    fail "first config push did not reach pointer delivery: $(cat "$first_out")"
+  fi
   first_instr=$(reread_instruction_path "$w/sm") \
     || fail "first concurrent push did not publish its generation"
   printf 'two\n' > "$w/home/config/crew-harness"
   second_out="$w/second-push.out"
   PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
-    "$ROOT/bin/fm-config-push.sh" > "$second_out" 2>&1
-  second_status=$?
+    "$ROOT/bin/fm-config-push.sh" > "$second_out" 2>&1 &
+  second_pid=$!
+  # Hold the first delivery until the second invocation reports the same home.
+  # This establishes overlapping pushes without a scheduler-dependent sleep.
+  for _ in $(seq 1 300); do
+    grep -F 'secondmate sm (' "$second_out" >/dev/null 2>&1 && break
+    kill -0 "$second_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  touch "$release"
   wait "$first_pid"; first_status=$?
+  wait "$second_pid"; second_status=$?
+  assert_contains "$(cat "$second_out")" 'secondmate sm (' \
+    'second config push did not reach the shared home'
   expect_code 0 "$first_status" "first serialized config push failed"
   expect_code 0 "$second_status" "second serialized config push failed"
   second_instr=$(reread_instruction_path "$w/sm") \

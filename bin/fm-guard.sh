@@ -36,6 +36,9 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 WATCH="$SCRIPT_DIR/fm-watch.sh"
+# shellcheck source=bin/fm-watch-config-lib.sh
+. "$SCRIPT_DIR/fm-watch-config-lib.sh"
+fm_watch_config_load "$CONFIG/watch.env"
 GRACE=${FM_GUARD_GRACE:-300}
 queue_pending=false
 READ_ONLY=${FM_GUARD_READ_ONLY:-0}

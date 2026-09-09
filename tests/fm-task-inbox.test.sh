@@ -371,12 +371,12 @@ test_ring_ladder_policy() {
   pass "inbox: the re-ring ladder paces by grace, escalates once, and resets on ack"
 }
 
-setup_watch_case() {  # <name> -> echoes case dir; state in <dir>/state
-  local name=$1 dir
+setup_watch_case() {  # <name> [harness] -> echoes case dir; state in <dir>/state
+  local name=$1 harness=${2:-grok} dir
   dir="$TMP_ROOT/$name"
   mkdir -p "$dir/state"
   make_watch_stubs "$dir" >/dev/null
-  fm_write_meta "$dir/state/t1.meta" "window=sess:fm-t1" "kind=ship" "harness=grok"
+  fm_write_meta "$dir/state/t1.meta" "window=sess:fm-t1" "kind=ship" "harness=$harness"
   printf '%s\n' "$dir"
 }
 
@@ -434,6 +434,34 @@ test_watcher_waits_on_busy_pane() {
   [ ! -s "$log" ] || fail "a busy pane should wait, not ring:"$'\n'"$(cat "$log")"
   [ ! -s "$state/.wake-queue" ] || fail "a busy wait queued a wake:"$'\n'"$(cat "$state/.wake-queue")"
   pass "watcher: a busy pane just waits - the record is durable and no doorbell is typed"
+}
+
+test_watcher_rerings_idle_codex_pane() {
+  local dir state out log pid rec
+  dir=$(setup_watch_case codex-idle-rering codex)
+  state="$dir/state"; out="$dir/watch.out"; log="$dir/send.log"; : > "$log"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "wake the idle Codex mate")
+  age_path "$rec"
+  watch_bg "$state" "$dir/fakebin" "$out" \
+    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_TASK_INBOX_RING_MAX=99
+  pid=$!
+  local i=0
+  while [ "$i" -lt 100 ]; do
+    grep -qF 'Firstmate instruction waiting' "$log" 2>/dev/null && break
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  grep -qF "Firstmate instruction waiting: list $state/t1.inbox/*.msg" "$log" \
+    || { kill "$pid" 2>/dev/null; fail "the idle Codex pane was not rung:"$'\n'"$(cat "$log")"; }
+  kill -0 "$pid" 2>/dev/null \
+    || fail "an idle Codex inbox delivery woke firstmate instead of ringing the pane:"$'\n'"$(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] \
+    || { kill "$pid" 2>/dev/null; fail "an idle Codex inbox delivery queued a wake:"$'\n'"$(cat "$state/.wake-queue")"; }
+  mv "$rec" "$state/t1.inbox/handled/"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  pass "watcher: an idle Codex pane receives its durable inbox row through the doorbell"
 }
 
 test_watcher_quiet_on_healthy_inbox() {
@@ -544,6 +572,7 @@ test_ladder_writes_ignore_vanished_inbox
 test_ring_ladder_policy
 test_watcher_rerings_idle_pane_quietly
 test_watcher_waits_on_busy_pane
+test_watcher_rerings_idle_codex_pane
 test_watcher_quiet_on_healthy_inbox
 test_watcher_ack_silences_unwritable_ladder
 test_watcher_surfaces_unwritable_ladder

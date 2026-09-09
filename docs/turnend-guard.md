@@ -15,7 +15,8 @@ Do not infer this guard's scope, loop safety, or compatibility tradeoffs for tho
 The turn-end guard closes the remaining gap at the primary's own turn boundary.
 When work, a process-event source, or Relay polling needs supervision at that boundary and either active direct work exceeds due-work capacity or no identity-matched watcher has a fresh beacon, the harness integration must either block the turn end or force one bounded follow-up that uses the recovery instruction from the emitted session-start protocol.
 The mid-turn pull warning uses the model-aware supervision verdict described below, while the turn-end guard keeps the PID-strict watcher predicate.
-The guard remains a backstop; [`watcher-continuity.md`](watcher-continuity.md) owns normal continuity.
+The shared predicate remains a backstop; the marked Codex secondmate integration below also owns normal between-turn arming.
+[`watcher-continuity.md`](watcher-continuity.md) routes the other continuity mechanisms.
 
 ## Guard predicates
 
@@ -37,7 +38,7 @@ Incomplete per-task candidate evidence is recorded separately as partial coverag
 When that marker is absent, the turn-end guard calls `fm_watcher_healthy <state-dir> <watch-path> [grace-seconds] [home]` from `bin/fm-wake-lib.sh`, the same PID-strict identity-matched lock and fresh-beacon check used by `bin/fm-watch-arm.sh`: a stale beacon blocks even when a watcher pid is live, and a fresh leftover beacon blocks when the lock is missing, dead, or identity-mismatched.
 The turn-end guard needs that strict check because it fires at the turn boundary, where the auto-arm is bringing a fresh watcher up for the upcoming idle period, and it cooperates with that arm rather than trusting a beacon left by the cycle that just ended.
 `bin/fm-guard.sh`, the pull warning, instead uses the model-aware `fm_watcher_supervision_verdict` from the same library, because it fires mid-turn when the auto-arm model runs no watcher at all.
-When active direct work is within due-work capacity, the Claude Stop auto-arm model treats a beacon fresh within grace as healthy even with no live watcher process, and only a beacon stale beyond grace (or absent) alarms.
+When active direct work is within due-work capacity, the Claude and Cursor auto-arm model, also used by marked Codex secondmate homes outside away mode, treats a beacon fresh within grace as healthy even with no live watcher process, and only a beacon stale beyond grace (or absent) alarms.
 When active direct work is within due-work capacity, the Pi extension model treats a live identity-matched watcher as the ordinary healthy state, but a genuinely unheld lock with a beacon fresh within grace is also healthy while a live Pi session provably owns continuity, because `.pi/extensions/fm-primary-pi-watch.ts` tears the watcher down on every actionable wake and spawns the replacement itself.
 A lock is genuinely unheld only when the lock directory or its symlinked owner directory is absent, or when the existing lock records no pid at all.
 Any lock with a recorded pid remains down when its pid, home, watcher path, or process identity fails the strict watcher health check.
@@ -54,7 +55,20 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 ## Harness integrations
 
 - Claude registers two `Stop` hooks in `.claude/settings.json`, both anchored through `CLAUDE_PROJECT_DIR`: `bin/fm-turnend-guard.sh --claude`, and `bin/fm-claude-stop-autoarm.sh` with `asyncRewake: true` and `timeout: 28800`.
-- Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and passes the original payload to the shared guard.
+- Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and passes the original payload to the shared guard with `--codex`.
+  `fm-spawn.sh` gives Codex secondmates a home-scoped CLI `notify` callback through `bin/fm-home-wake.sh`, bound to the launched backend endpoint.
+  With queued home wakes, a lock-owning idle session runs a bounded watcher checkpoint before submitting a handling notification through the backend.
+  The handling turn owns the normal drain and acknowledgement; the callback leaves queued rows and unread status presentation untouched even when submission fails or the composer becomes occupied.
+  The callback stays silent for an empty queue, leaves an existing watcher in charge, and defers busy or occupied composers and away mode.
+  It never publishes a child-task signal; ordinary Codex crew notifications retain their task markers.
+  In a marked secondmate home, the lock-owning session foregrounds `fm-watch-arm.sh` inside the Stop process tree, including when only queued home wakes remain or the home is idle.
+  An actionable close returns exit 2 with the durable wake and handling instruction, and the next Stop owns re-arming without publishing any child-task marker.
+  Away mode skips normal arming and retains the shared strict watcher health check and daemon-specific recovery instruction.
+  Each Stop makes at most two arm attempts, including in queued-only homes.
+  The existing `state/.watch-cycle-exits.log` distinguishes a productive wake from a failed repair: a failed cycle permits one repair continuation, while another failed Stop after that continuation ends with an explicit attended-recovery warning.
+  A real user turn permits a new bounded repair; an actionable wake restores productive continuation handling.
+  If no cycle outcome can be recorded after a continuation, the hook reports exhausted recovery rather than starting an unbounded repair loop.
+  No separate Codex failure ledger is created.
 - OpenCode listens for `session.idle` in `.opencode/plugins/fm-primary-turnend-guard.js`, lets the watcher coordinator act first, and calls `client.session.promptAsync` once when the guard returns 2.
 - Pi listens for `agent_settled` in `.pi/extensions/fm-primary-turnend-guard.ts`, runs once per logical agent run, and calls `pi.sendUserMessage(..., { deliverAs: "followUp" })` once when the guard returns 2.
 - Cursor registers a `stop` hook in `.cursor/hooks.json` and delegates the whole turn boundary to `bin/fm-turnend-guard-cursor.sh`, the park described below.
@@ -72,7 +86,7 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 
 Claude and Codex can block a Stop directly with exit status 2 and stderr.
 Both payloads carry `stop_hook_active`.
-In the default Codex mode, a true value lets the second stop finish after one forced continuation.
+For Codex outside the normal secondmate Stop-owned watcher path, a true value lets the second stop finish after one forced continuation, including in away mode.
 
 Claude runs the guard with `--claude`, which ignores `stop_hook_active` and cooperates with the Stop-owned auto-arm.
 Claude Code sets `stop_hook_active=true` on every stop after any stop-hook continuation, including `asyncRewake` rewakes, which re-opened the 2026-07-21 blind window under the default one-shot behavior.
@@ -140,7 +154,7 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 ## Compatibility limits
 
 - Child crewmate and scout worktrees are outside scope.
-- A valid secondmate home is in scope; an idle secondmate endpoint with no Relay poll remains healthy because it has no supervision need.
+- A valid secondmate home is in scope; its idle turn-boundary behavior follows the harness integration above.
 - The blocking and bounded-follow-up mechanisms are limited to the primary integrations listed above.
 - OpenCode headless mode and untrusted Grok project hooks remain fail-open at the host boundary.
 - Cursor's `stop` step does not fire in headless `cursor-agent -p`, the same class of limit as OpenCode headless; firstmate primaries run interactive.
@@ -157,6 +171,8 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 
 ## Regression coverage
 
+`tests/fm-wake-queue.test.sh --secondmate` covers Codex Stop-owned home wakes, repeated re-arming, bounded failure recovery, away-mode health checks, parent stall cadence, and safe watcher defaults.
+`tests/fm-spawn-dispatch-profile.test.sh --codex-secondmate` exercises generated Codex launches and notification callbacks, including empty-queue silence, busy and occupied-composer deferral, unconfirmed submission, and preservation of queued rows and unread status context until the handling turn drains them.
 `tests/fm-turnend-guard.test.sh` covers the predicate, main and secondmate primary scope, child-worktree exclusion, `FM_HOME` and `FM_STATE_OVERRIDE` precedence, the live-lock and fresh-beacon guard predicate, the due-work-capacity block, the cooperative `--claude` claim wait, monotonic failed-epoch progression, bounded attended fail-open, post-alarm continuation suppression, positive recovery reset, the abandoned auto-arm claim cases that must block or clear instead of allowing a blind stop, Pi logical-run latching, missing-`jq` behavior, all five primary registrations, Grok native and legacy selection, typed field precedence, malformed input, and exactly-one-path safety.
 `tests/fm-guard-stale-banner.test.sh` covers the pull-guard predicate, including the due-work-capacity alarm, the persistent-model fresh-leftover-beacon negative control, the auto-arm model's healthy fresh-beacon-without-a-watcher case and stale-beacon alarm, and the extension model's live-watcher path, ownership-qualified fresh hand-off, held-lock failures, independently broken ownership signals, stale-beacon alarm, queued-wake warning, and Pi and pi-signed harness routing.
 It also covers true-reason banner wording and reason-keyed episode dedup surviving a beacon mtime change.
