@@ -12,31 +12,42 @@ function blank(text: string): string {
   return text.replace(/[^\r\n]/g, ' ');
 }
 
-function unquoted(body: string): string {
+function headingBoundary(line: string): boolean {
+  return /^ {0,3}#{1,6}(?:[ \t]|\r?$)/.test(line) || /^ {0,3}(?:=+|-+)[ \t]*\r?$/.test(line);
+}
+
+function unquoted(body: string, inlineContext = false): string {
   const lines: string[] = [];
   let fence: { marker: string; length: number; indent: number } | undefined;
+  let paragraph = false;
   for (const line of body.split('\n')) {
     lines.push(blank(line));
     if (fence) {
       const content = line.startsWith(' '.repeat(fence.indent)) ? line.slice(fence.indent) : line;
       const match = content.match(/^ {0,3}(`{3,}|~{3,})(.*)\r?$/);
       if (match && match[1][0] === fence.marker && match[1].length >= fence.length && !match[2].trim()) fence = undefined;
+      paragraph = false;
       continue;
     }
-    if (/^(?: {0,3}>| {4}| {0,3}\t)/.test(line)) continue;
+    if (/^ {0,3}>/.test(line) || (/^(?: {4}| {0,3}\t)/.test(line) && !(inlineContext && paragraph))) {
+      paragraph = false;
+      continue;
+    }
     const opening = line.match(/^( {0,3})((?:[-+*]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)\r?$/);
     if (opening && !(opening[3][0] === '`' && opening[4].includes('`'))) {
       fence = { marker: opening[3][0], length: opening[3].length, indent: opening[2] ? opening[1].length + opening[2].length : 0 };
+      paragraph = false;
       continue;
     }
     lines[lines.length - 1] = line;
+    paragraph = Boolean(line.trim()) && !headingBoundary(line);
   }
   return lines.join('\n');
 }
 
 function insideInlineCode(body: string, offset: number): boolean {
-  const context = unquoted(body).split('\n')
-    .map(line => /^ {0,3}#{1,6}(?:[ \t]|\r?$)/.test(line) || /^ {0,3}(?:=+|-+)[ \t]*\r?$/.test(line) ? blank(line) : line)
+  const context = unquoted(body, true).split('\n')
+    .map(line => headingBoundary(line) ? blank(line) : line)
     .join('\n');
   let start = 0;
   let end = context.length;

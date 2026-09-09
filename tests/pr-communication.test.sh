@@ -425,6 +425,48 @@ JS
   pass "underlined headings and earlier occurrences cannot mask quoting at the actual evidence position"
 }
 
+test_preflight_preserves_original_paragraph_boundaries() {
+  local mode rc
+  for mode in canonical quoted_only indented_continuation tab_continuation indented_continuation_crlf true_blank spaces_blank prior_indented_block indented_close; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    node - "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+let body = fs.readFileSync(file, 'utf8');
+body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment => {
+  switch (mode) {
+    case 'quoted_only': return '`\n' + comment + '\n`';
+    case 'indented_continuation':
+    case 'indented_continuation_crlf': return '`\n    example\n' + comment + '\n`';
+    case 'tab_continuation': return '`\n\texample\n' + comment + '\n`';
+    case 'true_blank': return '`\n\n' + comment + '\n`';
+    case 'spaces_blank': return '`\n    \n' + comment + '\n`';
+    case 'prior_indented_block': return '    example `\n`\n' + comment + '\n`';
+    case 'indented_close': return '`\n    example `\n' + comment;
+    default: return comment;
+  }
+});
+if (mode.endsWith('_crlf')) body = body.replace(/\n/g, '\r\n');
+fs.writeFileSync(file, body);
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    case "$mode" in
+      canonical|true_blank|spaces_blank|indented_close)
+        expect_code 0 "$rc" "$mode original-paragraph control"
+        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
+        ;;
+      *)
+        expect_code 2 "$rc" "$mode quoted attestation"
+        [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode quoted attestation released intent"
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'unquoted pipeline attestation' "$mode did not fail at the evidence context check"
+        ;;
+    esac
+  done
+  pass "indented continuations preserve quoting while actual paragraph boundaries remain effective"
+}
+
 test_preflight_requires_original_pipeline_signature() {
   local rc out
   preflight_case
@@ -981,6 +1023,7 @@ test_preflight_preserves_comment_boundaries_and_step_types
 test_preflight_rejects_quoted_pipeline_evidence
 test_preflight_checks_original_quoting_context
 test_preflight_binds_evidence_to_source_positions
+test_preflight_preserves_original_paragraph_boundaries
 test_preflight_requires_original_pipeline_signature
 test_preflight_pins_github_against_ambient_host
 test_preflight_forge_failures_never_mean_no_existing_pr
