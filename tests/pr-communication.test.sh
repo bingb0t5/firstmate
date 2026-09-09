@@ -467,6 +467,50 @@ JS
   pass "indented continuations preserve quoting while actual paragraph boundaries remain effective"
 }
 
+test_preflight_uses_markdown_structure() {
+  local mode rc
+  for mode in canonical r11_heading r11_signature r12_continuation r13_thematic causal_quote heading_plain thematic_plain; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    node - "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+const signature = 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)';
+let body = fs.readFileSync(file, 'utf8');
+const replacements = {
+  canonical: comment => comment,
+  r11_heading: comment => 'Example `\n---\n`\n' + comment + '\n`',
+  r12_continuation: comment => '`\n    example\n' + comment + '\n`',
+  r13_thematic: comment => 'Example `\n***\n`\n' + comment + '\n`',
+  causal_quote: comment => '`\n' + comment + '\n`',
+  heading_plain: comment => 'Example `\n---\n' + comment,
+  thematic_plain: comment => 'Example `\n***\n' + comment,
+};
+if (mode === 'r11_signature') {
+  body = body.replace(signature, '`\n' + signature + '\n`');
+  body = body.replace('\n## Pipeline', '\nThe publisher emits ' + signature + '.\n\n## Pipeline');
+} else {
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, replacements[mode]);
+}
+fs.writeFileSync(file, body);
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    case "$mode" in
+      canonical|heading_plain|thematic_plain)
+        expect_code 0 "$rc" "$mode structural control"
+        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
+        ;;
+      *)
+        expect_code 2 "$rc" "$mode structural quoting regression"
+        [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode quoted evidence released intent"
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "$mode refusal did not identify live evidence"
+        ;;
+    esac
+  done
+  pass "R11-R13 evidence classification follows Markdown structure and actual occurrences"
+}
+
 test_preflight_requires_original_pipeline_signature() {
   local rc out
   preflight_case
@@ -1024,6 +1068,7 @@ test_preflight_rejects_quoted_pipeline_evidence
 test_preflight_checks_original_quoting_context
 test_preflight_binds_evidence_to_source_positions
 test_preflight_preserves_original_paragraph_boundaries
+test_preflight_uses_markdown_structure
 test_preflight_requires_original_pipeline_signature
 test_preflight_pins_github_against_ambient_host
 test_preflight_forge_failures_never_mean_no_existing_pr

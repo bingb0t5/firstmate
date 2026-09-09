@@ -1,6 +1,7 @@
 /** Read-only Firstmate delivery intake. CLI contract: bin/fm-nm-pr-preflight.sh. */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { fromMarkdown, gfm, gfmFromMarkdown } from './markdown/parser.mjs';
 import { runPrCommunicationCheck } from './check-pr-communication.ts';
 import { runFirstmateCeoOverviewCheck } from './check-firstmate-ceo-overview.ts';
 
@@ -12,61 +13,85 @@ function blank(text: string): string {
   return text.replace(/[^\r\n]/g, ' ');
 }
 
-function headingBoundary(line: string): boolean {
-  return /^ {0,3}#{1,6}(?:[ \t]|\r?$)/.test(line) || /^ {0,3}(?:=+|-+)[ \t]*\r?$/.test(line);
+type MarkdownNode = {
+  type: string;
+  depth?: number;
+  fences?: number;
+  position: { start: { offset: number }; end: { offset: number } };
+  children?: MarkdownNode[];
+};
+
+function parseMarkdown(body: string, inlineContext = false): MarkdownNode {
+  return fromMarkdown(body, {
+    extensions: [gfm(), ...(inlineContext ? [{ disable: { null: ['htmlFlow'] } }] : [])],
+    mdastExtensions: [gfmFromMarkdown(), {
+      enter: {
+        codeFencedFence(this: { stack: MarkdownNode[] }): void {
+          const block = this.stack.findLast(node => node.type === 'code');
+          if (block) block.fences = (block.fences || 0) + 1;
+        },
+      },
+    }],
+  });
 }
 
-function unquoted(body: string, inlineContext = false): string {
-  const lines: string[] = [];
-  let fence: { marker: string; length: number; indent: number } | undefined;
-  let paragraph = false;
-  for (const line of body.split('\n')) {
-    lines.push(blank(line));
-    if (fence) {
-      const content = line.startsWith(' '.repeat(fence.indent)) ? line.slice(fence.indent) : line;
-      const match = content.match(/^ {0,3}(`{3,}|~{3,})(.*)\r?$/);
-      if (match && match[1][0] === fence.marker && match[1].length >= fence.length && !match[2].trim()) fence = undefined;
-      paragraph = false;
-      continue;
-    }
-    if (/^ {0,3}>/.test(line) || (/^(?: {4}| {0,3}\t)/.test(line) && !(inlineContext && paragraph))) {
-      paragraph = false;
-      continue;
-    }
-    const opening = line.match(/^( {0,3})((?:[-+*]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)\r?$/);
-    if (opening && !(opening[3][0] === '`' && opening[4].includes('`'))) {
-      fence = { marker: opening[3][0], length: opening[3].length, indent: opening[2] ? opening[1].length + opening[2].length : 0 };
-      paragraph = false;
-      continue;
-    }
-    lines[lines.length - 1] = line;
-    paragraph = Boolean(line.trim()) && !headingBoundary(line);
+function hasUnclosedFence(node: MarkdownNode, offset: number): boolean {
+  return (node.type === 'code' && node.fences === 1 && node.position.start.offset < offset) ||
+    Boolean(node.children?.some(child => hasUnclosedFence(child, offset)));
+}
+
+function contains(node: MarkdownNode, start: number, end: number): boolean {
+  return node.position.start.offset <= start && node.position.end.offset >= end;
+}
+
+function unquoted(body: string): string {
+  const tree = parseMarkdown(body);
+  const ranges: { start: number; end: number }[] = [];
+  const visit = (node: MarkdownNode): void => {
+    if (['blockquote', 'code', 'html', 'inlineCode'].includes(node.type)) return;
+    if (node.children) node.children.forEach(visit);
+    else ranges.push({ start: node.position.start.offset, end: node.position.end.offset });
+  };
+  for (const node of tree.children || []) {
+    if (node.type === 'heading') ranges.push({ start: node.position.start.offset, end: node.position.end.offset });
+    else visit(node);
   }
-  return lines.join('\n');
-}
-
-function insideInlineCode(body: string, offset: number): boolean {
-  const context = unquoted(body, true).split('\n')
-    .map(line => headingBoundary(line) ? blank(line) : line)
-    .join('\n');
-  let start = 0;
-  let end = context.length;
+  let visible = '';
   let cursor = 0;
-  for (const line of context.split('\n')) {
-    if (!line.trim()) {
-      if (cursor >= offset) {
-        end = cursor;
-        break;
-      }
-      start = cursor + line.length + 1;
+  for (const range of ranges) {
+    visible += blank(body.slice(cursor, range.start)) + body.slice(range.start, range.end);
+    cursor = range.end;
+  }
+  return visible + blank(body.slice(cursor));
+}
+
+function pipelineEvidence(body: string): (offset: number, evidence: string, html?: boolean) => boolean {
+  const tree = parseMarkdown(body);
+  const context = parseMarkdown(body, true);
+  const headings = (tree.children || []).filter(node => node.type === 'heading' && node.depth === 2 &&
+    /^ {0,3}##[ \t]+/.test(body.slice(node.position.start.offset, node.position.end.offset)));
+  const headingIndex = headings.findIndex(node =>
+    /^ {0,3}##[ \t]+Pipeline[ \t]*\r?$/i.test(body.slice(node.position.start.offset, node.position.end.offset)));
+  const pipeline = headings[headingIndex];
+  const end = headings[headingIndex + 1]?.position.start.offset ?? body.length;
+  return (offset, evidence, html = false) => {
+    const evidenceEnd = offset + evidence.length;
+    const lineStart = body.lastIndexOf('\n', offset - 1) + 1;
+    const nextLine = body.indexOf('\n', offset);
+    if (!pipeline || hasUnclosedFence(tree, offset) || offset < pipeline.position.end.offset || evidenceEnd > end ||
+        body.slice(lineStart, nextLine < 0 ? body.length : nextLine).trim() !== evidence) return false;
+    const block = tree.children?.find(node => contains(node, offset, evidenceEnd));
+    const paragraph = context.children?.find(node => contains(node, offset, evidenceEnd));
+    if (!block || block.type !== (html ? 'html' : 'paragraph') || paragraph?.type !== 'paragraph') return false;
+    if (html) {
+      return block.position.start.offset === offset && block.position.end.offset === evidenceEnd &&
+        Boolean(paragraph.children?.some(node => node.type === 'html' &&
+          node.position.start.offset === offset && node.position.end.offset === evidenceEnd));
     }
-    cursor += line.length + 1;
-  }
-  for (const span of context.slice(start, end).matchAll(/<!--[\s\S]*?(?:-->|$)|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)) {
-    if (start + span.index > offset) return false;
-    if (span[1] && offset < start + span.index + span[0].length) return true;
-  }
-  return false;
+    return !paragraph.children?.some(node =>
+      !['text', 'link', 'break'].includes(node.type) &&
+      node.position.start.offset < evidenceEnd && node.position.end.offset > offset);
+  };
 }
 
 function sectionBounds(body: string, heading: string): { start: number; end: number } | undefined {
@@ -88,7 +113,7 @@ function assess(title: string, body: string, source: string): void {
   }
   // Intake additionally requires the technical section from the shared template.
   // Quoted template text cannot stand in for authored prose; shared rules stay pinned.
-  const visible = unquoted(body.replace(/<!--[\s\S]*?(?:-->|$)/g, ''));
+  const visible = unquoted(body);
   const content = section(visible, 'what changed technically');
   if (!content.trim() || /^(?:todo|tbd|pending|none|n\/a)[.!]?$/i.test(content.trim())) {
     refuse(`${source}: complete the What changed technically section outside quoted evidence`);
@@ -146,23 +171,14 @@ function main(): void {
     if ((pr.body.match(/<!-- no-mistakes-pipeline-attestation:/g) || []).length !== 1) {
       refuse('existing live PR body has missing or ambiguous pipeline attestations; ask its owner to reconcile it');
     }
-    const visible = unquoted(pr.body).replace(/<!--[\s\S]*?(?:-->|$)/g, (comment: string) =>
-      comment.startsWith('<!-- no-mistakes-pipeline-attestation:v1 ') ? comment : blank(comment));
-    const pipeline = sectionBounds(visible, 'pipeline');
-    const isEvidence = (offset: number, evidence: string): boolean => {
-      const lineStart = pr.body.lastIndexOf('\n', offset - 1) + 1;
-      const nextLine = pr.body.indexOf('\n', offset);
-      return pipeline !== undefined && offset >= pipeline.start && offset + evidence.length <= pipeline.end &&
-        pr.body.slice(lineStart, nextLine < 0 ? pr.body.length : nextLine).trim() === evidence &&
-        visible.slice(offset, offset + evidence.length) === evidence && !insideInlineCode(pr.body, offset);
-    };
+    const isEvidence = pipelineEvidence(pr.body);
     const signature = 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)';
     const signatureLines = [...pr.body.matchAll(/^[^\n]+/gm)];
     if (!signatureLines.some(line => line[0].trim() === signature && isEvidence(line.index + line[0].indexOf(signature), signature))) {
       refuse('existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it');
     }
     const originalAttestation = pr.body.match(/<!-- no-mistakes-pipeline-attestation:v1 ([\s\S]*?) -->/);
-    if (!originalAttestation || !isEvidence(originalAttestation.index, originalAttestation[0])) {
+    if (!originalAttestation || !isEvidence(originalAttestation.index, originalAttestation[0], true)) {
       refuse('existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it');
     }
     const attestation = JSON.parse(originalAttestation[1]);
