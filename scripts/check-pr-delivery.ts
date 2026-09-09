@@ -49,7 +49,7 @@ function unquoted(body: string): string {
   const tree = parseMarkdown(body);
   const ranges: { start: number; end: number }[] = [];
   const visit = (node: MarkdownNode): void => {
-    if (['blockquote', 'code', 'html', 'inlineCode'].includes(node.type)) return;
+    if (['blockquote', 'code', 'html', 'inlineCode', 'thematicBreak', 'definition'].includes(node.type)) return;
     if (node.children) node.children.forEach(visit);
     else ranges.push({ start: node.position.start.offset, end: node.position.end.offset });
   };

@@ -231,6 +231,48 @@ test_preflight_rejects_bad_intent_before_forge_read() {
   pass "preflight refuses invalid or reserved authored content before any forge read"
 }
 
+test_preflight_requires_technical_prose() {
+  local target mode control rc
+  for target in intent live; do
+    for mode in thematic definition combined; do
+      preflight_case
+      for control in absent prose; do
+        {
+          complete_body
+          printf '\n## What changed technically\n\n'
+          case "$mode" in
+            thematic) printf '***\n' ;;
+            definition) printf '[example]: https://example.com\n' ;;
+            combined) printf '***\n\n[example]: https://example.com\n' ;;
+          esac
+          if [ "$control" = prose ]; then
+            printf '\nRender [request status][example] in the existing member page.\n'
+          fi
+        } > "$PF_ROOT/technical.md"
+        if [ "$target" = intent ]; then
+          cp "$PF_ROOT/technical.md" "$PF_ROOT/intent.md"
+        else
+          { cat "$PF_ROOT/technical.md"; pipeline_section; } > "$PF_ROOT/live.md"
+          preflight_live_body "$PF_ROOT/live.md"
+        fi
+        preflight_run; rc=$?
+        if [ "$control" = absent ]; then
+          expect_code 2 "$rc" "$target $mode without technical prose"
+          [ ! -s "$PF_ROOT/validated.md" ] || fail "empty technical explanation released intent"
+          assert_contains "$(cat "$PF_ROOT/diagnostic")" 'complete the What changed technically section' "missing technical explanation diagnostic"
+          if [ "$target" = intent ]; then
+            assert_absent "$PF_ROOT/calls" "invalid technical intent reached the forge"
+          fi
+        else
+          expect_code 0 "$rc" "$target $mode with technical prose: $(cat "$PF_ROOT/diagnostic")"
+          cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "technical prose control rewrote intent"
+        fi
+      done
+    done
+  done
+  pass "technical sections require prose while retaining thematic breaks and reference links"
+}
+
 test_preflight_stale_body_refuses_until_owner_reconciles() {
   local rc
   preflight_case
@@ -1258,6 +1300,7 @@ test_tracked_pr_bodies_pass_firstmate_ceo_overview() {
 
 test_preflight_fresh_intent_survives_generated_body
 test_preflight_rejects_bad_intent_before_forge_read
+test_preflight_requires_technical_prose
 test_preflight_stale_body_refuses_until_owner_reconciles
 test_preflight_refuses_stale_or_forged_pipeline_data
 test_preflight_preserves_comment_boundaries_and_step_types
