@@ -1,0 +1,81 @@
+Regression assertion against pre-fix classifier (expected failure):
+not ok - active pipeline-owned-head run remains parked (missing: 'state: parked')
+--- output ---
+state: failed · source: run-step · run failed
+
+Regression assertion against target classifier:
+ok - active same-branch run with unavailable pipeline head outranks historical failure
+
+Public CLI and persisted reconciliation behavior:
+
+base: task=lalo-launch-offers-member-billing local_HEAD=d34eee05f7f8ccb92488e3892c2a6f6afb64fbe2 pipeline_HEAD=44b15c94 (unavailable)
+fake no-mistakes axi status:
+run:
+  id: "01RUN"
+  branch: fm/member-billing
+  status: awaiting_approval
+  awaiting_agent: parked 2m10s
+  head: "44b15c94"
+  pr: ""
+  findings[2]{id,severity,file,line,action,description}:
+    r1,warning,a.go,,auto-fix,ignored error
+    r2,error,b.go,,ask-user,changes product behavior
+gate: review
+fake no-mistakes runs:
+failed    fm/member-billing d34eee05  2026-09-08 10:00
+$ bin/fm-crew-state.sh lalo-launch-offers-member-billing
+state: failed · source: run-step · run failed
+$ bin/fm-inactive-reconcile.sh scan --startup
+actionable: inactive terminal outcome awaiting captain presentation: child=lalo-launch-offers-member-billing state=failed
+Persisted terminal records:
+schema=fm-terminal-outcome.v1
+fingerprint=568a1e619443f10b3723445720216193
+task_id=lalo-launch-offers-member-billing
+incarnation=test-live-run
+state=failed
+outcome_key=inactive-outcome-main-lalo-launch-offers-member-billing-failed
+origin=direct
+pr=
+created_epoch=1788942115
+notice_emitted=0
+phase=presentation
+
+target: task=lalo-launch-offers-member-billing local_HEAD=d34eee05f7f8ccb92488e3892c2a6f6afb64fbe2 pipeline_HEAD=44b15c94 (unavailable)
+fake no-mistakes axi status:
+run:
+  id: "01RUN"
+  branch: fm/member-billing
+  status: awaiting_approval
+  awaiting_agent: parked 2m10s
+  head: "44b15c94"
+  pr: ""
+  findings[2]{id,severity,file,line,action,description}:
+    r1,warning,a.go,,auto-fix,ignored error
+    r2,error,b.go,,ask-user,changes product behavior
+gate: review
+fake no-mistakes runs:
+failed    fm/member-billing d34eee05  2026-09-08 10:00
+$ bin/fm-crew-state.sh lalo-launch-offers-member-billing
+state: parked · source: run-step · parked at review: 2 finding(s) (ask-user: authority decision)
+$ bin/fm-inactive-reconcile.sh scan --startup
+actionable: stale: fm:fm-lalo-launch-offers-member-billing (active work has no meaningful progress since first observation; no timestamped progress event)
+Persisted terminal records:
+(none)
+
+Active-only exception matrix through public CLI:
+running => state: working · source: run-step · validating (running)
+fixing => state: working · source: run-step · validating (fixing)
+ci => state: working · source: run-step · ci running
+awaiting_approval => state: parked · source: run-step · parked at awaiting_approval
+fix_review => state: parked · source: run-step · parked at fix_review
+completed => state: working · source: status-log · current local stage
+failed => state: working · source: status-log · current local stage
+cancelled => state: working · source: status-log · current local stage
+passed => state: working · source: status-log · current local stage
+checks-passed => state: working · source: status-log · current local stage
+
+Adjacent head safety and proven descendant path:
+ok - historical same-branch rewritten head is not attributed as current
+ok - active run with valid descendant fix head remains current
+ok - local work advanced past run head invalidates attribution
+ok - missing run head falls back instead of matching by branch
