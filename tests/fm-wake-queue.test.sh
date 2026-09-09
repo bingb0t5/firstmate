@@ -888,10 +888,13 @@ test_codex_stale_hook_linked_secondmate_rearms_and_preserves_wake() {
 test_codex_stale_hook_hands_off_before_deadline_for_delayed_wake() {
   local dir rc scenario=${1:-empty}
   dir=$(make_codex_linked_stale_stop_case "codex-stale-deadline-$scenario")
+  # Keep the 35-second delivery beyond the cached Stop deadline, but poll fast
+  # enough that the attached arm's successor grace fits the 50-second test wait.
   (
     cd "$dir" || exit 1
     FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
       FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" FM_TEST_WATCHER_SCENARIO="$scenario" \
+      FM_POLL=1 \
       "$dir/codex" -s > "$dir/delayed.out" 2> "$dir/delayed.err" <<'SH'
 printf '%s\n' "$$" > "$FM_HOME/state/.lock"
 python3 - <<'PY'
