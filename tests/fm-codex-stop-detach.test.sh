@@ -270,6 +270,51 @@ SH
   pass 'confirmation timeout retires pre-lock preparation and descendants'
 }
 
+test_exec_boundary_cancellation() {
+  local dir rc executable
+  dir=$(make_codex_case exec-cancellation)
+  executable=$(command -v perl)
+  cat > "$dir/perl-child" <<'PERL'
+use POSIX;
+POSIX::setsid() >= 0 or exit 125;
+open my $ready, ">", "$ENV{FM_HOME}/candidate.pid" or die $!;
+print $ready "$$\n";
+close $ready;
+until (-f "$ENV{FM_HOME}/exec-release") { select undef, undef, undef, 0.02; }
+exec $ARGV[0];
+PERL
+  printf '#!/usr/bin/env bash\nif [[ "${3:-}" = POSIX::setsid* ]]; then exec %q "$FM_HOME/perl-child" "${4}"; fi\nexec %q "$@"\n' "$executable" "$executable" > "$dir/fakebin/perl"
+  executable=$(command -v ps)
+  printf '#!/usr/bin/env bash\nif [ "${2:-}" = ppid= ] && [ "${4:-}" = "$(cat "$FM_HOME/candidate.pid" 2>/dev/null)" ]; then\n  touch "$FM_HOME/exec-release"\n  for ((i=0; i<100; i++)); do\n    [ -s "$FM_HOME/post-exec" ] && break\n    sleep 0.02\n  done\nfi\nexec %q "$@"\n' "$executable" > "$dir/fakebin/ps"
+  cat >> "$dir/bash-env" <<'SH'
+if [ "${0##*/}" = fm-watch.sh ]; then
+  printf '%s\n' "$$" > "$FM_HOME/post-exec"
+fi
+SH
+  chmod +x "$dir/fakebin/perl" "$dir/fakebin/ps"
+  run_arm "$dir" env BASH_ENV="$dir/bash-env" FM_ARM_CONFIRM_TIMEOUT=1 > "$dir/arm.out" 2>&1
+  rc=$?
+  [ "$rc" -ne 0 ] || fail 'pre-exec candidate unexpectedly confirmed'
+  [ -s "$dir/post-exec" ] || fail 'cancellation did not cross the candidate exec boundary'
+  is_live_non_zombie "$(cat "$dir/candidate.pid")" && fail 'cancellation left the execed candidate stopped or alive'
+  pass 'confirmation cancellation retires its child across exec'
+}
+
+test_supervisor_start_timeout() {
+  local dir rc executable
+  dir=$(make_codex_case supervisor-timeout)
+  executable=$(command -v mv)
+  printf '#!/usr/bin/env bash\ncase "$*" in */owner.tmp*) printf "%%s\n" "$PPID" > "$FM_HOME/supervisor.pid"; sleep 10 ;; esac\nexec %q "$@"\n' "$executable" > "$dir/fakebin/mv"
+  chmod +x "$dir/fakebin/mv"
+  run_arm "$dir" env BASH_ENV="$dir/bash-env" FM_ARM_CONFIRM_TIMEOUT=1 > "$dir/arm.out" 2>&1
+  rc=$?
+  [ "$rc" -ne 0 ] || fail 'blocked supervisor unexpectedly confirmed'
+  [ -s "$dir/supervisor.pid" ] || fail 'supervisor never reached owner publication'
+  is_live_non_zombie "$(cat "$dir/supervisor.pid")" && fail 'launch timeout left its supervisor alive'
+  [ ! -e "$dir/state/.watch.lock/pid" ] || fail 'unacknowledged supervisor started a watcher'
+  pass 'supervisor timeout prevents unacknowledged watcher startup'
+}
+
 test_fast_completion_identity() {
   local dir rc i
   for i in 1 2 3; do
@@ -313,7 +358,7 @@ SH
 
 test_late_completion_handoff() {
   local dir scenario child
-  for scenario in wake failure replaced-session rebound; do
+  for scenario in wake failure replaced-session rebound direct direct-failure race; do
     dir=$(make_codex_case "late-$scenario")
     cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -337,13 +382,24 @@ set -u
 cd "$FM_HOME" || exit 1
 printf '%s\n' "$$" > "$FM_HOME/state/.lock"
 printf 'kind=ship\n' > "$FM_HOME/state/live.meta"
+if [[ "$1" = direct* ]]; then
+  "$FM_HOME/bin/fm-watch.sh" > "$FM_HOME/direct.out" 2>&1 &
+  original=$!
+  for ((i=0; i<100; i++)); do
+    [ -s "$FM_HOME/state/.last-watcher-beat" ] && break
+    sleep 0.05
+  done
+fi
 stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$FM_HOME/.codex/hooks.json")
 printf '{"stop_hook_active":false}' | bash -c "$stop" || exit 10
+if [[ "$1" = direct* ]]; then
+  [ "$(cat "$FM_HOME/state/.watch.lock/pid")" = "$original" ] || exit 13
+fi
 printf 'returned\n' > "$FM_HOME/stop-returned"
 sleep 2
 watcher=$(cat "$FM_HOME/state/.watch.lock/pid")
 case "$1" in
-  failure) kill -KILL "$watcher" ;;
+  failure|direct-failure) kill -KILL "$watcher" ;;
   replaced-session)
     printf '1\n' > "$FM_HOME/state/.lock"
     printf 'done: completed after Stop\n' > "$FM_HOME/state/live.status" ;;
@@ -360,6 +416,19 @@ for ((i=0; i<150; i++)); do
 done
 exit 11
 SH
+    if [ "$scenario" = race ]; then
+      rm "$dir/bin/fm-watch.sh"
+      cp "$ROOT/bin/fm-watch.sh" "$dir/bin/fm-watch.sh"
+      cat >> "$dir/bash-env" <<'SH'
+if [ "${0##*/}" = fm-watch.sh ] && [ -n "${FM_WATCH_LAUNCH_DIR:-}" ]; then
+  env -u FM_WATCH_LAUNCH_DIR perl -MPOSIX -e 'POSIX::setsid(); exec $ARGV[0]' "$0" &
+  for ((i=0; i<100; i++)); do
+    [ -s "$FM_HOME/state/.last-watcher-beat" ] && break
+    sleep 0.05
+  done
+fi
+SH
+    fi
     if [ "$scenario" = rebound ]; then
       run_stop_to_files "$dir" || fail 'could not establish the previous session watcher'
     fi
@@ -384,6 +453,8 @@ test_detached_start_and_pipe_closure
 test_existing_watcher_attaches_without_duplicate
 test_high_inherited_descriptor
 test_prelock_confirmation_failure
+test_exec_boundary_cancellation
+test_supervisor_start_timeout
 test_fast_completion_identity
 test_unmatched_delivery_is_rejected
 test_late_completion_handoff

@@ -16,6 +16,18 @@ DRAIN="$ROOT/bin/fm-wake-drain.sh"
 GRANT="$ROOT/bin/fm-wake-grant.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-wake-tests)
+. "$(dirname "${BASH_SOURCE[0]}")/codex-stop-detach-helpers.sh"
+
+cleanup_wake_processes() {
+  local rc=$?
+  trap - EXIT INT TERM
+  codex_stop_cleanup_processes "$TMP_ROOT" || exit 1
+  fm_test_cleanup
+  exit "$rc"
+}
+trap cleanup_wake_processes EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 
 test_concurrent_append_and_drain() {

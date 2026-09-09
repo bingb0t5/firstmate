@@ -2850,7 +2850,7 @@ if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
     '["bash", $script, $backend, $target]')
   sq_home_notify=$(shell_quote "notify=$home_notify")
   LAUNCH=${LAUNCH//__HOMENOTIFY__/$sq_home_notify}
-  LAUNCH="export FM_HOME_WAKE_BACKEND=$(shell_quote "$BACKEND") FM_HOME_WAKE_TARGET=$(shell_quote "$T"); $LAUNCH"
+  LAUNCH="FM_HOME_WAKE_BACKEND=$(shell_quote "$BACKEND") FM_HOME_WAKE_TARGET=$(shell_quote "$T") $LAUNCH"
 fi
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
