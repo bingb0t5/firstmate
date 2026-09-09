@@ -469,7 +469,7 @@ JS
 
 test_preflight_uses_markdown_structure() {
   local mode rc
-  for mode in canonical r11_heading r11_signature r12_continuation r13_thematic causal_quote heading_plain thematic_plain; do
+  for mode in canonical r11_heading r11_signature r12_continuation r13_thematic causal_quote heading_plain thematic_plain r14_pipeline_html pipeline_details pipeline_details_stale r14_narrative_html narrative_details; do
     preflight_case
     { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
     node - "$PF_ROOT/live.md" "$mode" <<'JS'
@@ -486,7 +486,16 @@ const replacements = {
   heading_plain: comment => 'Example `\n---\n' + comment,
   thematic_plain: comment => 'Example `\n***\n' + comment,
 };
-if (mode === 'r11_signature') {
+if (['r14_pipeline_html', 'pipeline_details', 'pipeline_details_stale'].includes(mode)) {
+  const tag = mode === 'r14_pipeline_html' ? 'blockquote' : 'details';
+  body = body.replace('## Pipeline\n', '## Pipeline\n\n<' + tag + '>\n' +
+    (tag === 'details' ? '<summary>Generated validation evidence</summary>\n' : '')) + '\n\n</' + tag + '>\n';
+  if (tag === 'details') body = body.replace('</details>', '- **What is changing:** `Generated machine output`\n\n</details>');
+  if (mode.endsWith('_stale')) body = body.replace('0000000000000000000000000000000000000000', '1111111111111111111111111111111111111111');
+} else if (mode === 'r14_narrative_html' || mode === 'narrative_details') {
+  const tag = mode === 'r14_narrative_html' ? 'blockquote' : 'details';
+  body = '<' + tag + '>\n\n' + body.replace('\n## Pipeline', '\n</' + tag + '>\n\n## Pipeline');
+} else if (mode === 'r11_signature') {
   body = body.replace(signature, '`\n' + signature + '\n`');
   body = body.replace('\n## Pipeline', '\nThe publisher emits ' + signature + '.\n\n## Pipeline');
 } else {
@@ -497,7 +506,7 @@ JS
     preflight_live_body "$PF_ROOT/live.md"
     preflight_run; rc=$?
     case "$mode" in
-      canonical|heading_plain|thematic_plain)
+      canonical|heading_plain|thematic_plain|r14_pipeline_html|pipeline_details)
         expect_code 0 "$rc" "$mode structural control"
         cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
         ;;
@@ -508,7 +517,102 @@ JS
         ;;
     esac
   done
-  pass "R11-R13 evidence classification follows Markdown structure and actual occurrences"
+  pass "R11-R14 table preserves machine outcomes and refuses narrative HTML separately"
+}
+
+test_preflight_requires_positional_narrative_fields() {
+  local target label mode rc
+  for target in intent live; do
+    for label in 'What is changing' 'Checks passed'; do
+      for mode in canonical earlier_prose inline_code quote_value fence_value prose_label plain_bullet nested_bullet empty_with_continuation field_in_pipeline; do
+        [ "$target:$mode" != intent:field_in_pipeline ] || continue
+        preflight_case
+        { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+        node - "$PF_ROOT/$target.md" "$label" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], label = process.argv[3], mode = process.argv[4];
+let body = fs.readFileSync(file, 'utf8');
+const line = body.split('\n').find(line => line.startsWith('- **' + label + ':**'));
+const prefix = '- **' + label + ':**';
+const value = line.slice(prefix.length).trim();
+const replacements = {
+  canonical: line,
+  earlier_prose: label + ': pending\n' + line,
+  inline_code: prefix + ' `' + value + '`',
+  quote_value: prefix + ' > ' + value,
+  fence_value: prefix + ' ~~~ ' + value,
+  prose_label: label + ': ' + value,
+  plain_bullet: '- ' + label + ': ' + value,
+  nested_bullet: '- An example\n  ' + line,
+  empty_with_continuation: prefix + '\n  ' + value,
+  field_in_pipeline: '',
+};
+body = body.replace(line, replacements[mode]);
+if (mode === 'field_in_pipeline') body += '\n\n' + line + '\n';
+fs.writeFileSync(file, body);
+JS
+        preflight_live_body "$PF_ROOT/live.md"
+        preflight_run; rc=$?
+        if [ "$mode" = canonical ] || [ "$mode" = earlier_prose ]; then
+          expect_code 0 "$rc" "$target $label canonical narrative"
+          cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$target canonical changed intent"
+        else
+          expect_code 2 "$rc" "$target $label $mode narrative"
+          [ ! -s "$PF_ROOT/validated.md" ] || fail "$target $label $mode released intent"
+          if [ "$target" = intent ]; then
+            [ ! -e "$PF_ROOT/calls" ] || fail "invalid authored narrative reached the forge"
+          fi
+        fi
+      done
+    done
+  done
+  pass "only exact unquoted template bullets supply narrative fields, independently of Pipeline"
+}
+
+test_preflight_reports_narrative_html_locations() {
+  local target mode rc line
+  for target in intent live; do
+    for mode in comment inline_tag block_tag details after_pipeline; do
+      [ "$target:$mode" != intent:after_pipeline ] || continue
+      preflight_case
+      { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+      node - "$PF_ROOT/$target.md" "$mode" "$PF_ROOT/html-line" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+let body = fs.readFileSync(file, 'utf8');
+const value = 'Unit tests and type check.';
+let tag = '';
+if (mode === 'comment') {
+  body = '<!-- Example <details> is only a comment. -->\n\n' + body;
+} else if (mode === 'inline_tag') {
+  tag = '<span>';
+  body = body.replace(value, tag + value + '</span>');
+} else if (mode === 'after_pipeline') {
+  tag = '<details>';
+  body += '\n\n## Additional notes\n\n' + tag + '\n<summary>Review notes</summary>\n\nAdditional prose.\n\n</details>\n';
+} else {
+  tag = mode === 'details' ? '<details>' : '<blockquote>';
+  body = body.replace('## CEO overview', tag + '\n\n## CEO overview');
+}
+body = '<!-- 🧭 source position -->\n\n' + body;
+fs.writeFileSync(process.argv[4], String(body.slice(0, body.indexOf(tag)).split('\n').length));
+fs.writeFileSync(file, body.replace(/\n/g, '\r\n'));
+JS
+      preflight_live_body "$PF_ROOT/live.md"
+      preflight_run; rc=$?
+      if [ "$mode" = comment ]; then
+        expect_code 0 "$rc" "$target HTML comment control"
+        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$target comment control changed intent"
+      else
+        expect_code 2 "$rc" "$target $mode raw narrative HTML"
+        [ ! -s "$PF_ROOT/validated.md" ] || fail "$target $mode HTML released intent"
+        line=$(cat "$PF_ROOT/html-line")
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" "raw HTML on line $line;" "$target $mode lost the original line"
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'remove it or use plain Markdown outside ## Pipeline' "$target $mode lacks recovery guidance"
+      fi
+    done
+  done
+  pass "non-comment narrative HTML fails with original line locations and recovery guidance"
 }
 
 test_preflight_requires_original_pipeline_signature() {
@@ -1069,6 +1173,8 @@ test_preflight_checks_original_quoting_context
 test_preflight_binds_evidence_to_source_positions
 test_preflight_preserves_original_paragraph_boundaries
 test_preflight_uses_markdown_structure
+test_preflight_requires_positional_narrative_fields
+test_preflight_reports_narrative_html_locations
 test_preflight_requires_original_pipeline_signature
 test_preflight_pins_github_against_ambient_host
 test_preflight_forge_failures_never_mean_no_existing_pr

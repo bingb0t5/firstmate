@@ -2,6 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fromMarkdown, gfm, gfmFromMarkdown } from './markdown/parser.mjs';
+import { deliveryNarrative } from './pr-delivery-narrative.ts';
 import { runPrCommunicationCheck } from './check-pr-communication.ts';
 import { runFirstmateCeoOverviewCheck } from './check-firstmate-ceo-overview.ts';
 
@@ -107,13 +108,14 @@ function section(body: string, heading: string): string {
 }
 
 function assess(title: string, body: string, source: string): void {
+  const narrative = deliveryNarrative(body, source);
   for (const check of [runPrCommunicationCheck, runFirstmateCeoOverviewCheck]) {
-    const result = check({ title, body });
+    const result = check({ title, body: narrative });
     if (result.exitCode !== 0) refuse(`${source}: ${result.lines.join('\n')}`);
   }
   // Intake additionally requires the technical section from the shared template.
   // Quoted template text cannot stand in for authored prose; shared rules stay pinned.
-  const visible = unquoted(body);
+  const visible = unquoted(narrative);
   const content = section(visible, 'what changed technically');
   if (!content.trim() || /^(?:todo|tbd|pending|none|n\/a)[.!]?$/i.test(content.trim())) {
     refuse(`${source}: complete the What changed technically section outside quoted evidence`);
