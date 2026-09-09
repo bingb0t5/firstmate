@@ -2554,6 +2554,7 @@ perl -e '$SIG{TERM}="IGNORE"; open my $ready, ">", $ENV{FM_TEST_DESCENDANT_READY
 printf '%s\n' "$!" > "$FM_TEST_DESCENDANT_PID"
 while [ ! -s "$FM_TEST_DESCENDANT_READY" ]; do sleep 0.01; done
 : > "$FM_TEST_DIRECT_DONE"
+printf 'custom-check-complete\n'
 SH
     chmod 0700 "$state/custom.check.sh"
     FM_HOME="$dir/home" "$REGISTER" custom >/dev/null \
@@ -2578,11 +2579,11 @@ SH
       FM_TEST_DIRECT_DONE="$direct_done" PATH="$fakebin:$BASE_PATH" "$WATCH" \
       > "$dir/watch.out" 2> "$dir/watch.err" &
     watcher_pid=$!
+    # A result makes the watcher finish its cycle after draining the returned
+    # check's process group. Do not race TERM against unrelated foreground
+    # work after .last-check; signal cleanup has its own test above.
     i=0
-    while [ "$i" -lt 200 ]; do
-      [ -s "$ready" ] && [ -s "$child_pid_file" ] && [ -e "$direct_done" ] \
-        && [ -e "$state/.last-check" ] && break
-      kill -0 "$watcher_pid" 2>/dev/null || break
+    while kill -0 "$watcher_pid" 2>/dev/null && [ "$i" -lt 500 ]; do
       sleep 0.02
       i=$((i + 1))
     done
@@ -2590,12 +2591,6 @@ SH
       && [ -e "$state/.last-check" ] \
       || fail "$backend watcher did not complete the direct custom check"
     child_pid=$(cat "$child_pid_file")
-    kill -TERM "$watcher_pid" 2>/dev/null || fail "could not stop $backend watcher"
-    i=0
-    while kill -0 "$watcher_pid" 2>/dev/null && [ "$i" -lt 150 ]; do
-      sleep 0.02
-      i=$((i + 1))
-    done
     if kill -0 "$watcher_pid" 2>/dev/null; then
       kill -KILL "$watcher_pid" 2>/dev/null || true
       wait "$watcher_pid" 2>/dev/null || true
@@ -2604,7 +2599,9 @@ SH
     fi
     rc=0
     wait "$watcher_pid" || rc=$?
-    [ "$rc" -ne 0 ] || fail "$backend signaled watcher exited successfully"
+    [ "$rc" -eq 0 ] || fail "$backend watcher failed after the direct check returned: $(cat "$dir/watch.err")"
+    assert_grep "check: $state/custom.check.sh: custom-check-complete" "$dir/watch.out" \
+      "$backend watcher did not surface the completed custom check"
     alive=0
     kill -0 "$child_pid" 2>/dev/null && alive=1
     [ "$alive" -eq 0 ] || kill -KILL "$child_pid" 2>/dev/null || true
