@@ -1,0 +1,112 @@
+ok - stale Codex Stop command re-arms a linked secondmate home and preserves its durable wake
+scenario: empty
+initial queue bytes: 0
+command: bash -c 'bash -lc '"'"'payload=$(cat 2>/dev/null || true); [ -n "$payload" ] || exit 0; command -v jq >/dev/null 2>&1 || exit 0; root=$(pwd -P) || exit 0; [ -x "$root/bin/fm-turnend-guard.sh" ] || exit 0; [ -f "$root/AGENTS.md" ] || exit 0; [ -f "$root/.codex/hooks.json" ] || exit 0; jq -e "any(.hooks.Stop[]?.hooks[]?.command?; type == \"string\" and contains(\"fm-turnend-guard.sh\"))" "$root/.codex/hooks.json" >/dev/null 2>&1 || exit 0; printf "%s" "$payload" | "$root/bin/fm-turnend-guard.sh"'"'"''
+result: exit=2 elapsed=7.82s
+stderr: The cached Stop hook has a 30-second deadline. Its five-second foreground checkpoint was quiet; continue supervision in this turn before that deadline expires.
+CODEX_WATCH_CONTINUE: bin/fm-watch-checkpoint.sh --arm --seconds 180
+Run that command as a foreground tool call in this home. After each checkpoint, drain with bin/fm-wake-drain.sh, handle queued wakes, run the exact WAKE_ACK_REQUIRED acknowledgement command, and repeat the foreground checkpoint loop. Do not end the turn or use background tasks to wait.
+command: bin/fm-watch-checkpoint.sh --arm --seconds 180
+result: exit=0 elapsed=0.55s
+stdout: check: rearm-resurface
+command: bin/fm-wake-drain.sh
+result: exit=0 elapsed=1.21s
+stderr: WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0 --recovery-generation 2212427.1788923651.NFhX5p
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WORKTREE TANGLE - PRIMARY CHECKOUT IS ON A FEATURE BRANCH
+●  /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M21Y0C89M5MSP26ZZN28F6PK/.test-tmp/fm-wake-tests.vt2qka/codex-stale-deadline-empty-home is on 'fm/codex-stale-deadline-empty-home', not its default branch 'main'.
+●  A crewmate likely branched/committed in the primary instead of its own worktree.
+●  The work is SAFE on the 'fm/codex-stale-deadline-empty-home' ref.
+●  Restore the primary to 'main':
+●      git -C /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M21Y0C89M5MSP26ZZN28F6PK/.test-tmp/fm-wake-tests.vt2qka/codex-stale-deadline-empty-home checkout main
+●  then re-validate 'fm/codex-stale-deadline-empty-home' in a proper isolated worktree.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+command: bin/fm-wake-drain.sh --ack-through 0 --recovery-generation 2212427.1788923651.NFhX5p
+result: exit=0 elapsed=0.11s
+command: bash -c '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'
+result: exit=0 elapsed=0.04s
+command: bash -c '. bin/fm-wake-lib.sh; fm_wake_append check delayed-row "check: delayed legacy wake"'
+result: exit=0 elapsed=0.14s
+command: bin/fm-watch-checkpoint.sh --arm --seconds 180
+result: exit=0 elapsed=31.12s
+stdout: watcher: started pid=2218887 (beacon fresh)
+check: rearm-resurface
+command: bin/fm-wake-drain.sh
+result: exit=0 elapsed=1.59s
+stdout: 1788923679	1	check	delayed-row	check: delayed legacy wake
+stderr: WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 2281580.1788923679.1sFKFh
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WORKTREE TANGLE - PRIMARY CHECKOUT IS ON A FEATURE BRANCH
+●  /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M21Y0C89M5MSP26ZZN28F6PK/.test-tmp/fm-wake-tests.vt2qka/codex-stale-deadline-empty-home is on 'fm/codex-stale-deadline-empty-home', not its default branch 'main'.
+●  A crewmate likely branched/committed in the primary instead of its own worktree.
+●  The work is SAFE on the 'fm/codex-stale-deadline-empty-home' ref.
+●  Restore the primary to 'main':
+●      git -C /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M21Y0C89M5MSP26ZZN28F6PK/.test-tmp/fm-wake-tests.vt2qka/codex-stale-deadline-empty-home checkout main
+●  then re-validate 'fm/codex-stale-deadline-empty-home' in a proper isolated worktree.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+queue before acknowledgement: 1788923679	1	check	delayed-row	check: delayed legacy wake
+command: bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 2281580.1788923679.1sFKFh
+result: exit=0 elapsed=0.20s
+queue after acknowledgement bytes: 0
+child turn-ended marker exists: False
+watcher cycle ledger: arm_pid=2202212	watcher_pid=2202224	origin=started	started_at=1788923646	ended_at=1788923651	exit_code=143	signal=TERM	reason=arm-interrupted	beacon_age=5	lock_before=pid:2202224|identity:linux-starttime=153743651 cmdline-hex=62617368002f686f6d652f726963682f2e6e6f2d6d697374616b65732f776f726b74726565732f3763653035343062373566342f30314d323159304338394d354d535032365a5a4e32384636504b2f2e746573742d746d702f666d2d77616b652d74657374732e767432716b612f636f6465782d7374616c652d646561646c696e652d656d7074792d686f6d652f62696e2f666d2d77617463682e736800	lock_after=pid:none|identity:none	successor=none
+arm_pid=2214763	watcher_pid=2214795	origin=started	started_at=1788923652	ended_at=1788923652	exit_code=0	signal=none	reason=actionable-check	beacon_age=0	lock_before=pid:none|identity:none	lock_after=pid:none|identity:none	successor=none
+arm_pid=2218855	watcher_pid=2218887	origin=started	started_at=1788923653	ended_at=1788923684	exit_code=0	signal=none	reason=actionable-check	beacon_age=0	lock_before=pid:2218887|identity:linux-starttime=153744439 cmdline-hex=62617368002f686f6d652f726963682f2e6e6f2d6d697374616b65732f776f726b74726565732f3763653035343062373566342f30314d323159304338394d354d535032365a5a4e32384636504b2f2e746573742d746d702f666d2d77616b652d74657374732e767432716b612f636f6465782d7374616c652d646561646c696e652d656d7074792d686f6d652f62696e2f666d2d77617463682e736800	lock_after=pid:none|identity:none	successor=none
+cached 30-second Stop handed off to foreground checkpoints and acknowledged the delayed wake
+ok - legacy Stop (empty) returns before 30 seconds and its foreground continuation handles a wake after 35 seconds
+command: bash -c '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'
+result: exit=1 elapsed=0.03s
+command: bash -c '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'
+result: exit=1 elapsed=0.03s
+command: bash -c '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'
+result: exit=1 elapsed=0.03s
+command: bash -c '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'
+result: exit=1 elapsed=0.02s
+command: bash -c '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'
+result: exit=1 elapsed=0.04s
+command: bash -c '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'
+result: exit=0 elapsed=0.05s
+existing watcher identity: {'pid': b'2301895\n', 'pid-identity': b'linux-starttime=153747776 cmdline-hex=626173680062696e2f666d2d77617463682e736800\n'}
+scenario: attached
+initial queue bytes: 0
+command: bash -c 'bash -lc '"'"'payload=$(cat 2>/dev/null || true); [ -n "$payload" ] || exit 0; command -v jq >/dev/null 2>&1 || exit 0; root=$(pwd -P) || exit 0; [ -x "$root/bin/fm-turnend-guard.sh" ] || exit 0; [ -f "$root/AGENTS.md" ] || exit 0; [ -f "$root/.codex/hooks.json" ] || exit 0; jq -e "any(.hooks.Stop[]?.hooks[]?.command?; type == \"string\" and contains(\"fm-turnend-guard.sh\"))" "$root/.codex/hooks.json" >/dev/null 2>&1 || exit 0; printf "%s" "$payload" | "$root/bin/fm-turnend-guard.sh"'"'"''
+result: exit=2 elapsed=8.11s
+stderr: The cached Stop hook has a 30-second deadline. Its five-second foreground checkpoint was quiet; continue supervision in this turn before that deadline expires.
+CODEX_WATCH_CONTINUE: bin/fm-watch-checkpoint.sh --arm --seconds 180
+Run that command as a foreground tool call in this home. After each checkpoint, drain with bin/fm-wake-drain.sh, handle queued wakes, run the exact WAKE_ACK_REQUIRED acknowledgement command, and repeat the foreground checkpoint loop. Do not end the turn or use background tasks to wait.
+command: bash -c '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'
+result: exit=0 elapsed=0.04s
+command: bash -c '. bin/fm-wake-lib.sh; fm_wake_append check delayed-row "check: delayed legacy wake"'
+result: exit=0 elapsed=0.09s
+command: bin/fm-watch-checkpoint.sh --arm --seconds 180
+result: exit=0 elapsed=49.06s
+stdout: watcher: attached pid=2301895 (beacon 9s)
+check: rearm-resurface
+command: bin/fm-wake-drain.sh
+result: exit=0 elapsed=1.13s
+stdout: 1788923722	1	check	delayed-row	check: delayed legacy wake
+stderr: WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 2399695.1788923723.8Zsrmr
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WORKTREE TANGLE - PRIMARY CHECKOUT IS ON A FEATURE BRANCH
+●  /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M21Y0C89M5MSP26ZZN28F6PK/.test-tmp/fm-wake-tests.vt2qka/codex-stale-deadline-attached-home is on 'fm/codex-stale-deadline-attached-home', not its default branch 'main'.
+●  A crewmate likely branched/committed in the primary instead of its own worktree.
+●  The work is SAFE on the 'fm/codex-stale-deadline-attached-home' ref.
+●  Restore the primary to 'main':
+●      git -C /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M21Y0C89M5MSP26ZZN28F6PK/.test-tmp/fm-wake-tests.vt2qka/codex-stale-deadline-attached-home checkout main
+●  then re-validate 'fm/codex-stale-deadline-attached-home' in a proper isolated worktree.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+queue before acknowledgement: 1788923722	1	check	delayed-row	check: delayed legacy wake
+command: bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 2399695.1788923723.8Zsrmr
+result: exit=0 elapsed=0.14s
+queue after acknowledgement bytes: 0
+child turn-ended marker exists: False
+watcher cycle ledger: arm_pid=2310089	watcher_pid=2301895	origin=attached	started_at=1788923690	ended_at=1788923695	exit_code=143	signal=TERM	reason=arm-interrupted	beacon_age=8	lock_before=pid:2301895|identity:linux-starttime=153747776 cmdline-hex=626173680062696e2f666d2d77617463682e736800	lock_after=pid:2301895|identity:linux-starttime=153747776 cmdline-hex=626173680062696e2f666d2d77617463682e736800	successor=none
+arm_pid=2325751	watcher_pid=2301895	origin=attached	started_at=1788923696	ended_at=1788923745	exit_code=unknown	signal=unknown	reason=attached-delivered-wake	beacon_age=12	lock_before=pid:2301895|identity:linux-starttime=153747776 cmdline-hex=626173680062696e2f666d2d77617463682e736800	lock_after=pid:none|identity:none	successor=none
+cached 30-second Stop handed off to foreground checkpoints and acknowledged the delayed wake
+ok - legacy Stop (attached) returns before 30 seconds and its foreground continuation handles a wake after 35 seconds
+ok - stale Codex hook remains generic in an unmarked primary and inert in a child worktree
+ok - stale Codex hook requires both a valid home marker and session-lock ownership
+ok - no-flag Stops from other lock-owning harnesses retain generic home behavior
+ok - Codex Stop self-wakes remain healthy with active work, while stale and unmarked homes still alarm
+ok - Codex queued-only failures retry, request one repair after productive wakes, and exhaust loudly
+ok - Codex away Stops retain strict watcher health, daemon recovery guidance, and the existing bound

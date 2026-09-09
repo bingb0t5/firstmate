@@ -1,0 +1,6 @@
+ok - session-lock: a version-named Claude Code session is identified from its install path and argv[0]
+ok - session-lock: ordinary script paths under a harness directory are not harness processes
+ok - session-lock: ownership stops at the first non-harness gap above the contiguous run
+ok - session-lock: a live version-named session holding the lock is not mistaken for a stale owner
+not ok - the fixture hook never finished
+/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M21Y0C89M5MSP26ZZN28F6PK/.test-tmp/fm-session-lock-ancestry.OLVCid/e2e-version-named/session.sh: line 12: /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M21Y0C89M5MSP26ZZN28F6PK/.test-tmp/fm-session-lock-ancestry.OLVCid/e2e-version-named/state/hook.rc: No such file or directory
