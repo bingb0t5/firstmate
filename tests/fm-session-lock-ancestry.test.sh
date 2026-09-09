@@ -261,7 +261,7 @@ make_primary_home() {  # <dir>
 #!/usr/bin/env bash
 if [ "${FM_FIXTURE_ORPHAN_HERE:-0}" = 1 ]; then
   i=0
-  while [ "$i" -lt 200 ] && [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" != 1 ]; do
+  while [ "$i" -lt 200 ] && [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" = "$FM_FIXTURE_LAUNCHER_PID" ]; do
     sleep 0.05
     i=$((i + 1))
   done
@@ -274,7 +274,7 @@ SH
   cat > "$dir/daemon.sh" <<'SH'
 #!/usr/bin/env bash
 i=0
-while [ "$i" -lt 200 ] && [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" != 1 ]; do
+while [ "$i" -lt 200 ] && [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" = "$FM_FIXTURE_LAUNCHER_PID" ]; do
   sleep 0.05
   i=$((i + 1))
 done
@@ -286,24 +286,27 @@ SH
 }
 
 # Start the fixture tree detached from this suite's own process tree: the
-# launcher exits immediately, so the tree is reparented to init and the ancestry
-# walk terminates inside the fixture. Returns once the hook has recorded its exit
-# code.
+# launcher exits immediately, so the tree is reparented to init or a subreaper
+# such as systemd --user. Wait for that parent transition rather than assuming
+# adoption by PID 1. Returns once the hook has recorded its exit code.
 run_fixture_tree() {  # <dir> <session-bin> [<daemon-bin>]
   local dir=$1 session_bin=$2 daemon_bin=${3:-} i
   if [ -n "$daemon_bin" ]; then
     FM_HOME="$dir" FM_SESSION_BIN="$session_bin" FM_FIXTURE_ORPHAN_HERE=0 \
-      bash -c '"$0" "$1" &' "$daemon_bin" "$dir/daemon.sh"
+      bash -c 'export FM_FIXTURE_LAUNCHER_PID=$$; "$0" "$1" &' "$daemon_bin" "$dir/daemon.sh"
   else
     FM_HOME="$dir" FM_FIXTURE_ORPHAN_HERE=1 \
-      bash -c '"$0" "$1" &' "$session_bin" "$dir/session.sh"
+      bash -c 'export FM_FIXTURE_LAUNCHER_PID=$$; "$0" "$1" &' "$session_bin" "$dir/session.sh"
   fi
   i=0
   while [ "$i" -lt 400 ] && [ ! -s "$dir/state/hook.rc" ]; do
     sleep 0.05
     i=$((i + 1))
   done
-  [ -s "$dir/state/hook.rc" ] || fail "the fixture hook never finished"
+  if [ ! -s "$dir/state/hook.rc" ]; then
+    cat "$dir/state/hook.out" >&2 2>/dev/null || true
+    fail "the fixture hook never finished"
+  fi
 }
 
 hook_rc() {

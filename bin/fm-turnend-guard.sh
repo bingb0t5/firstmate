@@ -32,8 +32,9 @@
 # primary checkout - the main home or a genuinely marked secondmate home - and
 # stay a silent, fast no-op inside child task worktrees.
 #
-# --codex in a marked secondmate home uses the Stop-owned arm and recovery
-# contract in docs/turnend-guard.md outside away mode.
+# Explicit --codex and eligible legacy invocations in a marked secondmate home
+# use the Stop-owned arm and recovery contract in docs/turnend-guard.md outside
+# away mode.
 # Loop-guard, default mode (including Grok and other Codex Stops): never block
 # twice in the same turn.
 # Codex uses stop_hook_active and Grok uses stopHookActive; typed camel-case
@@ -82,6 +83,7 @@ WATCH="$SCRIPT_DIR/fm-watch.sh"
 CLAUDE_MODE=0
 CURSOR_MODE=0
 CODEX_MODE=0
+CODEX_LEGACY_MODE=0
 SYNC_WAIT_MS=${FM_CLAUDE_AUTOARM_SYNC_WAIT_MS:-800}
 EPOCH_FRESH=${FM_CLAUDE_AUTOARM_EPOCH_FRESH:-15}
 BLOCK_BUDGET=${FM_CLAUDE_TURNEND_BLOCK_BUDGET:-3}
@@ -148,6 +150,23 @@ STOP_HOOK_ACTIVE=$(printf '%s' "$PAYLOAD" | jq -r '
 # so this exempts them while guarding every real secondmate home.
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
+# A Codex process can keep the pre-PR40 hook command loaded after this checkout
+# has been updated, so a marked secondmate home may arrive without --codex. Only
+# promote that legacy invocation when the hook root and effective home are the
+# same validated marker-bearing checkout and the current process owns its
+# session lock; an unmarked primary or child worktree stays on the generic path,
+# and an ambiguous or lockless invocation fails closed.
+if [ "$CODEX_MODE" -eq 0 ] && [ "$CLAUDE_MODE" -eq 0 ] && [ "$CURSOR_MODE" -eq 0 ] \
+  && [ "$FM_ROOT" = "$FM_HOME" ] \
+  && fm_root_is_secondmate_home "$FM_ROOT"; then
+  # shellcheck source=bin/fm-session-lock-lib.sh
+  . "$SCRIPT_DIR/fm-session-lock-lib.sh"
+  if fm_session_lock_owned_by_self "$STATE" codex; then
+    CODEX_LEGACY_MODE=1
+    CODEX_MODE=1
+  fi
+fi
+
 # --- the actual predicate ----------------------------------------------------
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
@@ -157,6 +176,10 @@ if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
   . "$SCRIPT_DIR/fm-session-lock-lib.sh"
   fm_session_lock_owned_by_self "$STATE" || exit 0
   if [ ! -e "$STATE/.afk" ]; then
+    ARM_COMMAND=("$SCRIPT_DIR/fm-watch-arm.sh")
+    if [ "$CODEX_LEGACY_MODE" -eq 1 ]; then
+      ARM_COMMAND=("$SCRIPT_DIR/fm-watch-checkpoint.sh" --arm --seconds 5)
+    fi
     PREVIOUS_CYCLE=$(tail -n 1 "$STATE/.watch-cycle-exits.log" 2>/dev/null || true)
     PREVIOUS_REASON=$(printf '%s\n' "$PREVIOUS_CYCLE" | awk -F '\t' '{for (i=1; i<=NF; i++) if ($i ~ /^reason=/) print substr($i,8)}')
     PREVIOUS_FAILED=0
@@ -169,14 +192,21 @@ if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
     while [ "$ARM_ATTEMPT" -lt 2 ]; do
       ARM_ATTEMPT=$((ARM_ATTEMPT + 1))
       if [ -n "$OUT" ]; then
-        "$SCRIPT_DIR/fm-watch-arm.sh" > "$OUT" 2>&1
+        "${ARM_COMMAND[@]}" > "$OUT" 2>&1
         ARM_RC=$?
       else
-        "$SCRIPT_DIR/fm-watch-arm.sh" >&2
+        "${ARM_COMMAND[@]}" >&2
         ARM_RC=$?
       fi
       fm_session_lock_owned_by_self "$STATE" || exit 0
       [ -e "$STATE/.afk" ] && break
+      if [ "$CODEX_LEGACY_MODE" -eq 1 ] && [ "$ARM_RC" -eq 124 ]; then
+        printf '%s\n' \
+          'The cached Stop hook has a 30-second deadline. Its five-second foreground checkpoint was quiet; continue supervision in this turn before that deadline expires.' \
+          'CODEX_WATCH_CONTINUE: bin/fm-watch-checkpoint.sh --arm --seconds 180' \
+          'Run that command as a foreground tool call in this home. After each checkpoint, drain with bin/fm-wake-drain.sh, handle queued wakes, run the exact WAKE_ACK_REQUIRED acknowledgement command, and repeat the foreground checkpoint loop. Do not end the turn or use background tasks to wait.' >&2
+        exit 2
+      fi
       if [ "$ARM_RC" -eq 0 ] && [ -n "$OUT" ] && grep -Eq '^(signal:|stale:|check:|heartbeat($|:))' "$OUT"; then
         grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >&2
         printf '%s\n' 'Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.' >&2

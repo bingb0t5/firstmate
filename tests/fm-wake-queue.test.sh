@@ -838,6 +838,311 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
   pass "Codex Stop self-wakes remain healthy with active work, while stale and unmarked homes still alarm"
 }
 
+make_codex_linked_stale_stop_case() {
+  local name=$1 base dir entry stop stale
+  base=$(make_case "$name-base")
+  dir="$TMP_ROOT/$name-home"
+  fm_git_worktree "$base" "$dir" "fm/$name-home"
+  mkdir -p "$dir/state" "$dir/fakebin" "$dir/bin" "$dir/.codex"
+  cp -R "$base/fakebin/." "$dir/fakebin/"
+  for entry in "$ROOT/bin/"*; do
+    ln -s "$entry" "$dir/bin/${entry##*/}"
+  done
+  cp "$ROOT/.codex/hooks.json" "$dir/.codex/hooks.json"
+  stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$dir/.codex/hooks.json")
+  stale=${stop/ --codex/}
+  [ "$stale" != "$stop" ] || fail "current Codex hook did not carry the explicit mode"
+  if ! jq --arg command "$stale" '.hooks.Stop[0].hooks[0] |= (.command = $command | .timeout = 30)' \
+    "$dir/.codex/hooks.json" > "$dir/.codex/hooks.json.tmp" ||
+    ! mv "$dir/.codex/hooks.json.tmp" "$dir/.codex/hooks.json"; then
+    fail "could not install the pre-PR40 Stop command"
+  fi
+  cp "$(command -v bash)" "$dir/codex"
+  # shellcheck disable=SC2016 # PATH expands when the child shell reads BASH_ENV.
+  printf 'export PATH=%q:"$PATH"\n' "$dir/fakebin" > "$dir/bash-env"
+  : > "$dir/AGENTS.md"
+  printf 'mate\n' > "$dir/.fm-secondmate-home"
+  printf '%s\n' "$dir"
+}
+
+test_codex_stale_hook_linked_secondmate_rearms_and_preserves_wake() {
+  local dir state gd gcd rc
+  dir=$(make_codex_linked_stale_stop_case codex-stale-linked)
+  state="$dir/state"
+  gd=$(git -C "$dir" rev-parse --git-dir)
+  gcd=$(git -C "$dir" rev-parse --git-common-dir)
+  [ "$gd" != "$gcd" ] || fail "stale-hook fixture must be a linked worktree"
+  append_wake "$state" check stale-home-row 'check: stale-hook home row' \
+    || fail "could not seed the stale-hook home row"
+
+  run_codex_stop_case "$dir" false
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "stale Codex Stop did not re-arm the linked secondmate home: rc=$rc $(cat "$dir/stop.err")"
+  grep -qF 'check: rearm-resurface' "$dir/stop.err" \
+    || fail "stale Codex Stop did not foreground the home watcher: $(cat "$dir/stop.err")"
+  [ -s "$state/.wake-queue" ] || fail "stale Codex Stop consumed the durable home wake"
+  [ ! -e "$state/mate.turn-ended" ] || fail "stale Codex Stop published a child-task marker"
+  pass "stale Codex Stop command re-arms a linked secondmate home and preserves its durable wake"
+}
+
+test_codex_stale_hook_hands_off_before_deadline_for_delayed_wake() {
+  local dir rc scenario=${1:-empty}
+  dir=$(make_codex_linked_stale_stop_case "codex-stale-deadline-$scenario")
+  # Keep the 35-second delivery beyond the cached Stop deadline, but poll fast
+  # enough that the attached arm's successor grace fits the 50-second test wait.
+  (
+    cd "$dir" || exit 1
+    FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
+      FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" FM_TEST_WATCHER_SCENARIO="$scenario" \
+      FM_POLL=1 \
+      "$dir/codex" -s > "$dir/delayed.out" 2> "$dir/delayed.err" <<'SH'
+printf '%s\n' "$$" > "$FM_HOME/state/.lock"
+python3 - <<'PY'
+import atexit
+import concurrent.futures
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import signal
+import subprocess
+import time
+
+home = Path.cwd()
+state = home / "state"
+hook = json.loads((home / ".codex/hooks.json").read_text())["hooks"]["Stop"][0]["hooks"][0]
+assert hook["timeout"] == 30, "fixture must enforce the cached timeout"
+queue = state / ".wake-queue"
+assert not queue.exists() or not queue.read_bytes(), "fixture must start with an empty queue"
+existing = None
+transcript = os.environ.get("FM_TEST_TRANSCRIPT") == "1"
+
+def record(label, value):
+    if transcript:
+        print(f"{label}: {value}", flush=True)
+
+def run(command, seconds, payload=None):
+    began = time.monotonic()
+    child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, err = child.communicate(payload, timeout=seconds)
+    except BaseException:
+        os.killpg(child.pid, signal.SIGTERM)
+        try:
+            child.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.communicate()
+        raise
+    record("command", shlex.join(command))
+    record("result", f"exit={child.returncode} elapsed={time.monotonic() - began:.2f}s")
+    if out:
+        record("stdout", out.rstrip())
+    if err:
+        record("stderr", err.rstrip())
+    return child.returncode, out, err
+
+def watcher_healthy():
+    rc, _, _ = run(["bash", "-c", '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'], 5)
+    return rc == 0
+
+if os.environ["FM_TEST_WATCHER_SCENARIO"] == "attached":
+    with (home / "existing.out").open("w") as out, (home / "existing.err").open("w") as err:
+        existing = subprocess.Popen(["bin/fm-watch.sh"], stdout=out, stderr=err, start_new_session=True)
+
+    def stop_existing():
+        if existing.poll() is None:
+            os.killpg(existing.pid, signal.SIGTERM)
+            try:
+                existing.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                os.killpg(existing.pid, signal.SIGKILL)
+                existing.wait()
+
+    atexit.register(stop_existing)
+    ready_by = time.monotonic() + 10
+    while not watcher_healthy():
+        assert time.monotonic() < ready_by, "existing watcher failed to become healthy"
+        time.sleep(0.1)
+    owner = {name: (state / ".watch.lock" / name).read_bytes() for name in ("pid", "pid-identity")}
+    assert int(owner["pid"]) == existing.pid, "fixture watcher does not own the lock"
+    record("existing watcher identity", owner)
+
+started = time.monotonic()
+record("scenario", os.environ["FM_TEST_WATCHER_SCENARIO"])
+record("initial queue bytes", queue.stat().st_size if queue.exists() else 0)
+
+def assert_original_watcher():
+    if existing is not None:
+        assert existing.poll() is None, "legacy checkpoint stopped the existing watcher"
+        assert owner == {name: (state / ".watch.lock" / name).read_bytes() for name in owner}, "legacy handoff replaced the existing watcher"
+        assert not (home / "existing.out").read_bytes(), "existing watcher emitted a premature wake"
+
+def deliver_late_wake():
+    time.sleep(max(0, 31 - (time.monotonic() - started)))
+    assert not queue.exists() or not queue.read_bytes(), "wake arrived before the old deadline"
+    rc, _, err = run(["bash", "-c", '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'], 5)
+    assert rc == 0, f"foreground continuation has no healthy watcher after the old deadline: {err}"
+    assert_original_watcher()
+    time.sleep(max(0, 35 - (time.monotonic() - started)))
+    rc, _, err = run(["bash", "-c", '. bin/fm-wake-lib.sh; fm_wake_append check delayed-row "check: delayed legacy wake"'], 5)
+    assert rc == 0, f"could not publish delayed wake: {err}"
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    producer = executor.submit(deliver_late_wake)
+    rc, out, err = run(["bash", "-c", hook["command"]], hook["timeout"], '{"stop_hook_active":false}')
+    assert rc == 2, f"legacy Stop did not request a continuation: {rc}: {out} {err}"
+    assert time.monotonic() - started < hook["timeout"], "legacy Stop exceeded its deadline"
+    commands = [line.removeprefix("CODEX_WATCH_CONTINUE: ") for line in err.splitlines()
+                if line.startswith("CODEX_WATCH_CONTINUE: ")]
+    assert len(commands) == 1, f"legacy Stop omitted its foreground continuation command: {err}"
+    command = shlex.split(commands[0])
+    assert command == ["bin/fm-watch-checkpoint.sh", "--arm", "--seconds", "180"], command
+    assert_original_watcher()
+    if existing is not None:
+        cycles = [dict(field.split("=", 1) for field in line.split("\t"))
+                  for line in (state / ".watch-cycle-exits.log").read_text().splitlines()]
+        assert len(cycles) == 1 and cycles[0]["origin"] == "attached", cycles
+        assert int(cycles[0]["watcher_pid"]) == existing.pid, cycles
+        assert not queue.exists() or not queue.read_bytes(), "attachment invented a wake"
+    observed = False
+    for _ in range(3):
+        rc, out, err = run(command, 50)
+        assert rc == 0, f"foreground continuation failed: {rc}: {out} {err}"
+        assert any(out.startswith(prefix) or f"\n{prefix}" in out
+                   for prefix in ("signal:", "stale:", "check:", "heartbeat")), out
+        rc, rows, instructions = run(["bin/fm-wake-drain.sh"], 10)
+        assert rc == 0, f"wake drain failed: {instructions}"
+        observed = "check: delayed legacy wake" in rows
+        if observed:
+            assert time.monotonic() - started > hook["timeout"], "wake was not delayed beyond the old deadline"
+            assert b"delayed-row" in queue.read_bytes(), "delivery consumed the wake before handling"
+            record("queue before acknowledgement", queue.read_text().rstrip())
+            (home / "handled.rows").write_text(rows)
+        ack = re.search(r"--ack-through ([0-9]+) --recovery-generation ([A-Za-z0-9._-]+)", instructions)
+        if ack:
+            rc, _, err = run(["bin/fm-wake-drain.sh", "--ack-through", ack[1], "--recovery-generation", ack[2]], 10)
+            assert rc == 0, f"handling acknowledgement failed: {err}"
+        if observed:
+            break
+    producer.result()
+    assert observed, "foreground checkpoint loop did not deliver the delayed wake"
+    assert not queue.read_bytes(), "handled and acknowledged wake remained queued"
+    record("queue after acknowledgement bytes", queue.stat().st_size)
+    assert not (state / "mate.turn-ended").exists(), "home supervision wrote a child marker"
+    record("child turn-ended marker exists", (state / "mate.turn-ended").exists())
+    record("watcher cycle ledger", (state / ".watch-cycle-exits.log").read_text().rstrip())
+    if existing is not None:
+        cycles = [dict(field.split("=", 1) for field in line.split("\t"))
+                  for line in (state / ".watch-cycle-exits.log").read_text().splitlines()]
+        assert all(row["origin"] == "attached" and int(row["watcher_pid"]) == existing.pid for row in cycles), cycles
+        assert cycles[-1]["reason"] == "attached-delivered-wake", cycles
+print("cached 30-second Stop handed off to foreground checkpoints and acknowledged the delayed wake")
+PY
+rc=$?
+exit "$rc"
+SH
+  )
+  rc=$?
+  if [ "${FM_TEST_TRANSCRIPT:-0}" = 1 ]; then
+    cat "$dir/delayed.out"
+  fi
+  [ "$rc" -eq 0 ] || fail "legacy deadline handoff failed: $(cat "$dir/delayed.err")"
+  pass "legacy Stop ($scenario) returns before 30 seconds and its foreground continuation handles a wake after 35 seconds"
+}
+
+test_codex_stale_hook_does_not_add_home_behavior_to_primary_or_child() {
+  local primary child home rc out stop stale
+  primary=$(make_codex_stop_case codex-stale-primary)
+  git init -q "$primary"
+  git -C "$primary" -c user.name=fmtest -c user.email=fmtest@example.invalid \
+    commit -q --allow-empty -m init
+  mv "$primary/.fm-secondmate-home" "$primary/marker.saved"
+  stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$primary/.codex/hooks.json")
+  stale=${stop/ --codex/}
+  if ! jq --arg command "$stale" '.hooks.Stop[0].hooks[0].command = $command' \
+    "$primary/.codex/hooks.json" > "$primary/.codex/hooks.json.tmp" ||
+    ! mv "$primary/.codex/hooks.json.tmp" "$primary/.codex/hooks.json"; then
+    fail "could not install the pre-PR40 primary Stop command"
+  fi
+  printf 'kind=ship\n' > "$primary/state/task.meta"
+  run_codex_stop_case "$primary" false
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "stale hook changed the generic primary guard exit: rc=$rc"
+  ! grep -qF 'check: rearm-resurface' "$primary/stop.err" \
+    || fail "stale hook added home-only re-arm behavior to an unmarked primary"
+  [ ! -e "$primary/state/.watch-cycle-exits.log" ] \
+    || fail "stale hook armed a watcher in an unmarked primary"
+
+  home=$(make_codex_linked_stale_stop_case codex-stale-child-parent)
+  child="$TMP_ROOT/codex-stale-child"
+  git -C "$home" worktree add --quiet -b fm/codex-stale-child "$child"
+  mkdir -p "$child/state" "$child/fakebin" "$child/bin" "$child/.codex"
+  cp -R "$home/fakebin/." "$child/fakebin/"
+  for out in "$ROOT/bin/"*; do
+    ln -s "$out" "$child/bin/${out##*/}"
+  done
+  cp "$home/.codex/hooks.json" "$child/.codex/hooks.json"
+  cp "$(command -v bash)" "$child/codex"
+  : > "$child/AGENTS.md"
+  printf 'kind=ship\n' > "$child/state/task.meta"
+  # shellcheck disable=SC2016 # PATH expands when the child shell reads BASH_ENV.
+  printf 'export PATH=%q:"$PATH"\n' "$child/fakebin" > "$child/bash-env"
+  run_codex_stop_case "$child" false
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "stale hook changed the child-worktree scope exit: rc=$rc $(cat "$child/stop.err")"
+  [ ! -e "$child/state/.watch-cycle-exits.log" ] \
+    || fail "stale hook armed a watcher in a child worktree"
+  pass "stale Codex hook remains generic in an unmarked primary and inert in a child worktree"
+}
+
+test_codex_stale_hook_requires_marked_home_lock() {
+  local dir out rc
+  dir=$(make_codex_linked_stale_stop_case codex-stale-lockless)
+  printf 'kind=ship\n' > "$dir/state/task.meta"
+  out=$(printf '{"stop_hook_active":false}' \
+    | FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
+      bash "$dir/bin/fm-turnend-guard.sh" 2>&1)
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "lockless stale hook did not fail closed through the generic guard: rc=$rc"
+  ! grep -qF 'check: rearm-resurface' <<<"$out" \
+    || fail "lockless stale hook entered home-only recovery"
+  [ ! -e "$dir/state/.watch-cycle-exits.log" ] \
+    || fail "lockless stale hook started a watcher without session ownership"
+  pass "stale Codex hook requires both a valid home marker and session-lock ownership"
+}
+
+test_no_flag_secondmate_stop_keeps_other_harnesses_generic() {
+  local dir harness rc
+  for harness in grok pi pi-signed opencode claude kimi; do
+    dir=$(make_codex_linked_stale_stop_case "generic-stop-$harness")
+    cp "$(command -v bash)" "$dir/$harness"
+    (
+      cd "$dir" || exit 1
+      FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
+        FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" \
+        "$dir/$harness" -s -- "$ROOT" > "$dir/stop.out" 2> "$dir/stop.err" <<'SH'
+printf '%s\n' "$$" > "$FM_HOME/state/.lock"
+. "$1/bin/fm-session-lock-lib.sh"
+fm_session_lock_owned_by_self "$FM_HOME/state" || exit 99
+printf '{"stop_hook_active":false}' | bash "$1/bin/fm-turnend-guard.sh"
+rc=$?
+exit "$rc"
+SH
+    ) &
+    wait_for_exit "$!" 40
+    rc=$?
+    [ "$rc" -eq 0 ] || fail "$harness no-flag Stop blocked despite an empty home: rc=$rc $(cat "$dir/stop.err")"
+    [ ! -e "$dir/state/.watch-cycle-exits.log" ] \
+      && [ ! -e "$dir/state/.watch.lock" ] \
+      || fail "$harness no-flag Stop armed a Codex home watcher"
+    [ ! -s "$dir/stop.err" ] || fail "$harness no-flag Stop emitted unexpected recovery output"
+  done
+  pass "no-flag Stops from other lock-owning harnesses retain generic home behavior"
+}
+
 make_codex_stop_case() {
   local dir entry
   dir=$(make_case "$1")
@@ -1796,11 +2101,21 @@ test_historical_annotation_skips_announced_status() {
   pass "historical annotations replay nothing already announced and keep everything new"
 }
 
-run_secondmate_review_tests() {
-  test_watch_env_rejects_arithmetic_execution
+run_codex_stop_tests() {
+  test_codex_stale_hook_linked_secondmate_rearms_and_preserves_wake
+  test_codex_stale_hook_hands_off_before_deadline_for_delayed_wake
+  test_codex_stale_hook_hands_off_before_deadline_for_delayed_wake attached
+  test_codex_stale_hook_does_not_add_home_behavior_to_primary_or_child
+  test_codex_stale_hook_requires_marked_home_lock
+  test_no_flag_secondmate_stop_keeps_other_harnesses_generic
   test_codex_secondmate_stop_arms_and_self_wakes
   test_codex_stop_failure_recovery_is_bounded
   test_codex_stop_away_keeps_shared_guard
+}
+
+run_secondmate_review_tests() {
+  test_watch_env_rejects_arithmetic_execution
+  run_codex_stop_tests
   test_busy_grok_pi_and_live_branch_keep_their_cadence
   test_grok_notify_wait_is_not_a_stall
   test_grok_notify_wait_pages_after_cadence
@@ -1815,6 +2130,11 @@ run_secondmate_review_tests() {
   test_secondmate_stall_override_precedes_busy_state
   test_secondmate_watch_env_default_is_loaded_safely
 }
+
+if [ "${1:-}" = --codex-stop ]; then
+  run_codex_stop_tests
+  exit
+fi
 
 if [ "${1:-}" = --secondmate ]; then
   run_secondmate_review_tests
