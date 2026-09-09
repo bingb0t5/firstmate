@@ -26,7 +26,7 @@ Complete [the shared template](.github/PULL_REQUEST_TEMPLATE.md), retaining ever
 Before starting or resuming pipeline delivery, run [`bin/fm-nm-pr-preflight.sh`](bin/fm-nm-pr-preflight.sh) against that intent file and the explicit GitHub delivery target; its header and `--help` own the command contract.
 Pass the returned intent unchanged to `no-mistakes axi run --intent`, and repeat the preflight when the intent, live body, or head changes.
 The read-only preflight refuses incomplete intent, reserved pipeline markers, and an incomplete existing live body or stale pipeline head before another delivery action.
-The technical section must contain unquoted prose; thematic breaks and link definitions alone do not supply an explanation.
+The technical section must contain unquoted prose after Markdown character references are decoded; whitespace-only references, images, empty headings, thematic breaks, and link definitions alone do not supply an explanation.
 For narrative intake, start each exact labelled template bullet in CEO overview and Validation at the beginning of its line and put its prose value on that same line.
 These seven bullets, including their continuation lines, must be free of HTML tags, blockquote markers, fences, and inline code.
 Those constructs elsewhere, including generated Testing details, are inert to the narrative field restrictions; generated Pipeline content stays under the existing machine check and cannot supply narrative fields.
