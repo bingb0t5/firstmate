@@ -66,7 +66,7 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
   The handling turn owns the normal drain and acknowledgement; the callback leaves queued rows and unread status presentation untouched even when submission fails or the composer becomes occupied.
   The callback stays silent for an empty queue, leaves an existing watcher in charge, and defers busy or occupied composers and away mode.
   It never publishes a child-task signal; ordinary Codex crew notifications retain their task markers.
-  With an explicit `--codex` registration in a marked secondmate home, the lock-owning session foregrounds `fm-watch-arm.sh` inside the Stop process tree, including when only queued home wakes remain or the home is idle.
+  With an explicit `--codex` registration in a marked secondmate home, the lock-owning session invokes the bounded detached `fm-watch-arm.sh --detached` path inside Stop, including when only queued home wakes remain or the home is idle.
   An actionable close returns exit 2 with the durable wake and handling instruction, and the next Stop owns re-arming without publishing any child-task marker.
   Away mode skips normal arming and retains the shared strict watcher health check and daemon-specific recovery instruction.
   Each Stop makes at most two arm attempts, including in queued-only homes.

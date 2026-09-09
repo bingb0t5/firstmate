@@ -1187,9 +1187,20 @@ if [ -e "$FM_HOME/fail-watch" ]; then
   printf 'watcher: FAILED - injected startup failure\n'
   exit 3
 fi
+. "$FM_TEST_WAKE_LIB"
+identity=$(fm_pid_identity "$$")
+mkdir -p "$FM_HOME/state/.watch.lock"
+printf '%s\n' "$$" > "$FM_HOME/state/.watch.lock/pid"
+printf '%s\n' "$FM_HOME" > "$FM_HOME/state/.watch.lock/fm-home"
+printf '%s\n' "$0" > "$FM_HOME/state/.watch.lock/watcher-path"
+printf '%s\n' "$identity" > "$FM_HOME/state/.watch.lock/pid-identity"
+touch "$FM_HOME/state/.last-watcher-beat"
+printf '%s\t%s\tcheck: completed productive cycle\n' "$$" "$identity" >> "$FM_HOME/state/.watch-deliveries.log"
 printf 'check: completed productive cycle\n'
+sleep 0.5
 SH
   chmod +x "$dir/bin/fm-watch.sh"
+  export FM_TEST_WAKE_LIB="$ROOT/bin/fm-wake-lib.sh"
   append_wake "$state" check pending 'check: pending home work'
   cp "$state/.wake-queue" "$dir/queue.before"
   run_codex_stop_case "$dir" false; rc=$?

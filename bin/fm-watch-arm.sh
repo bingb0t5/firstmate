@@ -41,6 +41,9 @@
 # failure. Neither is ever a clean empty completion. On FAILED it exits non-zero
 # so the failure is loud. A live cycle already present means re-arm attaches - do
 # not start a second watcher.
+# `--detached` is the bounded Stop-hook entry point: it starts the same watcher
+# in a new session with all standard and inherited descriptors closed, confirms
+# the home lock and fresh beacon, then returns while the watcher continues.
 #
 # Every observed watcher cycle appends one tab-separated lifecycle record to
 # state/.watch-cycle-exits.log. The arm layer owns that bounded ledger; it records
@@ -277,6 +280,38 @@ fail_unexplained_cycle() {
   return 1
 }
 
+# Launch one watcher in a new session without inheriting the Stop hook's pipe.
+# Perl is already a required Firstmate runtime dependency for process-event
+# isolation, and POSIX::setsid is available on the Unix platforms this watcher
+# supports. The parent writes the exact watcher pid before exiting so the arm
+# layer can apply its normal bounded lock/beacon confirmation.
+launch_detached_watcher() {
+  local pid_file=$1 launcher
+  command -v perl >/dev/null 2>&1 || return 1
+  perl -MPOSIX -e '
+    my ($pid_file, $script) = @ARGV;
+    defined(my $pid = fork) or exit 125;
+    if ($pid == 0) {
+      POSIX::setsid() >= 0 or exit 125;
+      for my $fd (3 .. 1024) { POSIX::close($fd); }
+      open STDIN,  "<", "/dev/null" or exit 125;
+      open STDOUT, ">", "/dev/null" or exit 125;
+      open STDERR, ">", "/dev/null" or exit 125;
+      exec $script;
+      exit 125;
+    }
+    open my $fh, ">", $pid_file or do { kill "TERM", $pid; exit 125; };
+    print {$fh} "$pid\n" or do { kill "TERM", $pid; exit 125; };
+    close $fh or do { kill "TERM", $pid; exit 125; };
+    exit 0;
+  ' "$pid_file" "$WATCH" </dev/null >/dev/null 2>&1 &
+  launcher=$!
+  case "$launcher" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$launcher"
+}
+
 # Close a cycle whose reason line this arm could not read against the bounded
 # terminal-delivery ledger the watcher publishes before releasing its lock.
 close_unobserved_cycle() {
@@ -390,6 +425,7 @@ handling_generation=
 handling_watcher_pid=
 case "${1:-}" in
   ''|arm|--arm) mode=arm ;;
+  --detached) mode=detached ;;
   --restart) mode=restart ;;
   --handling-delivered)
     mode=handling-delivered
@@ -400,7 +436,7 @@ case "${1:-}" in
     case "$handling_watcher_pid" in ''|*[!0-9]*) echo "watcher: invalid successor watcher pid" >&2; exit 2 ;; esac
     [ "$#" -eq 4 ] || { echo "watcher: unexpected handling delivery arguments" >&2; exit 2; }
     ;;
-  *) echo "usage: $(basename "$0") [--restart | --handling-delivered GENERATION --watcher-pid PID]" >&2; exit 2 ;;
+  *) echo "usage: $(basename "$0") [--detached | --restart | --handling-delivered GENERATION --watcher-pid PID]" >&2; exit 2 ;;
 esac
 
 if [ "$mode" = handling-delivered ]; then
@@ -437,12 +473,77 @@ fi
 # one - attach to that cycle and wait until it ends so the harness notify fires
 # then, not as an immediate empty wake. (--restart skips this: it just stopped
 # this home's watcher and wants a fresh one.)
+if [ "$mode" = detached ] && healthy_watcher; then
+  report_attached
+  exit 0
+fi
+
 if [ "$mode" = arm ] && healthy_watcher; then
   cycle_mark_predecessor_successor "attached:$HEALTHY_PID"
   cycle_begin "$HEALTHY_PID" attached "$HEALTHY_IDENTITY"
   report_attached
   attach_and_wait "$HEALTHY_PID"
   exit $?
+fi
+
+if [ "$mode" = detached ]; then
+  detached_pid_file=$(mktemp "$STATE/.watch-arm-detached.XXXXXX") || {
+    echo "watcher: FAILED - could not prepare detached launch" >&2
+    exit 1
+  }
+  detached_launcher=$(launch_detached_watcher "$detached_pid_file") || {
+    rm -f "$detached_pid_file" 2>/dev/null || true
+    echo "watcher: FAILED - detached launch is unavailable" >&2
+    exit 1
+  }
+  child=
+  deadline=$(( $(date +%s) + CONFIRM_TIMEOUT + 1 ))
+  while [ -z "$child" ]; do
+    child=$(sed -n '1p' "$detached_pid_file" 2>/dev/null || true)
+    case "$child" in
+      ''|*[!0-9]*) child= ;;
+    esac
+    [ -n "$child" ] && break
+    [ "$(date +%s)" -ge "$deadline" ] && break
+    sleep 0.05
+  done
+  rm -f "$detached_pid_file" 2>/dev/null || true
+  if [ -z "$child" ]; then
+    fm_pid_alive "$detached_launcher" && kill -TERM "$detached_launcher" 2>/dev/null || true
+    echo "watcher: FAILED - detached launch did not publish a watcher pid" >&2
+    exit 1
+  fi
+  cycle_begin "$child" detached "$(fm_pid_identity "$child" 2>/dev/null || true)"
+  while :; do
+    if healthy_watcher; then
+      if [ "$HEALTHY_PID" = "$child" ]; then
+        cycle_refresh_lock_before
+        cycle_log_append 0 none detached-start "live:$child"
+        echo "watcher: started pid=$child (beacon fresh) detached"
+        exit 0
+      fi
+      cycle_log_append 0 none detached-lock-race "attached:$HEALTHY_PID"
+      echo "watcher: attached pid=$HEALTHY_PID (beacon $(fm_path_age "$BEAT")s)"
+      exit 0
+    fi
+    if ! fm_pid_alive "$child"; then
+      if close_unobserved_cycle; then
+        cycle_log_append 0 none detached-delivered-wake none
+        exit 0
+      fi
+      cycle_log_append 1 none detached-start-failed none
+      echo "watcher: FAILED - detached watcher exited before health confirmation" >&2
+      exit 1
+    fi
+    [ "$(date +%s)" -ge "$deadline" ] && break
+    sleep 0.2
+  done
+  if fm_watcher_lock_matches_pid "$STATE" "$WATCH" "$child" "$FM_HOME"; then
+    kill -TERM "$child" 2>/dev/null || true
+  fi
+  cycle_log_append 1 none confirmation-timeout none
+  echo "watcher: FAILED - no live watcher with a fresh beacon"
+  exit 1
 fi
 
 # Start a watcher as a tracked child and confirm it before settling in. The child
