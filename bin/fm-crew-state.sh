@@ -33,8 +33,10 @@
 #      branch whose head was rewritten or diverged must not be attributed.
 #      A run matches when its head equals the worktree HEAD, or the worktree HEAD
 #      is an ancestor of the run head (pipeline fix commits advanced the run on
-#      the same line of history). For an active same-branch run only, a non-empty
-#      pipeline-owned head that cannot be resolved locally is also accepted.
+#      the same line of history). Only the full `axi status` response may also
+#      attribute an active same-branch run with a non-empty pipeline-owned head
+#      that cannot be resolved locally, provided the worktree HEAD is readable.
+#      This exception never applies to terminal runs or coarse `runs` rows.
 #      Local work that advanced past a resolvable run head, or diverged from it,
 #      invalidates attribution.
 #      The run-step is AUTHORITATIVE: running/fixing -> working, ci -> working,
@@ -221,8 +223,8 @@ crew_busy_verdict() {  # <target>
 
 # --- no-mistakes run lookup (authoritative when a run matches this branch) --
 # trim, strip_quotes, the bounded nm_run call, nm_field's TOON parse, and the
-# branch+head attribution rule below are thin wrappers over the ONE owner in
-# bin/fm-nm-run-lib.sh, shared with fm-teardown.sh's pre-teardown run abort.
+# locally provable head matching below wrap bin/fm-nm-run-lib.sh, shared with
+# fm-teardown.sh's pre-teardown run abort. The read-only exception is owned here.
 
 trim() { fm_nm_trim "$@"; }
 strip_quotes() { fm_nm_strip_quotes "$@"; }
@@ -400,8 +402,8 @@ nm_runs_status_for_branch() {  # <branch>
     rest=$(trim "$rest")
     sha=${rest%% *}
     if [ "$br" = "$branch" ]; then
-      # Same code-identity rule as axi status: skip a same-branch row whose
-      # short-sha does not match this worktree (rewritten or advanced tip).
+      # Coarse rows always require the shared local ancestry proof; the full
+      # axi-status response's read-only exception never applies here.
       if ! nm_coarse_head_matches_worktree "$sha"; then
         continue
       fi
@@ -472,12 +474,11 @@ if [ "$KIND" = ship ] && [ -n "$CREW_BRANCH" ] && command -v no-mistakes >/dev/n
       if nm_run_head_matches_worktree; then
         HAVE_RUN=1
       elif nm_run_is_active && nm_run_head_unavailable_locally; then
-        # The proven same-branch path binds an available run head to the local
-        # history. A live same-branch run with a non-local pipeline-owned head
-        # is the one conservative exception: its full axi-status payload is
-        # current, while the coarse fallback can only expose an older terminal
-        # row at the local head. Missing heads and resolvable local divergence
-        # still fall through to that safety-preserving fallback.
+        # Unlike the ancestry-proven path above, this path cannot bind local
+        # history. Rejecting the unavailable pipeline head triggered fallback;
+        # an older failed row at local HEAD then masked the active run, yielding
+        # false failed state and an inactive-terminal classification downstream.
+        # tests/fm-crew-state.test.sh covers that masking case and the boundary.
         HAVE_RUN=1
       else
         # A terminal row, missing head, or known local divergence is not
