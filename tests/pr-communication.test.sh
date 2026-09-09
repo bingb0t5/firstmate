@@ -382,6 +382,49 @@ JS
   pass "original list-fence and multiline inline-code context cannot authorize quoted attestations"
 }
 
+test_preflight_binds_evidence_to_source_positions() {
+  local mode rc
+  for mode in underlined_inline underlined_equals underlined_plain signature_quoted signature_prose_mask signature_standalone_mask signature_prose_plain signature_standalone_plain signature_prose_mask_crlf signature_prose_plain_crlf; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    node - "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+const signature = 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)';
+let body = fs.readFileSync(file, 'utf8');
+const start = body.indexOf('\n## Pipeline');
+if (mode.startsWith('underlined_')) {
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment =>
+    'Example `\n' + (mode === 'underlined_equals' ? '===' : '---') + '\n' +
+    (mode === 'underlined_plain' ? comment : '`\n' + comment + '\n`'));
+} else {
+  if (!mode.includes('_plain')) body = body.replace(signature, '`\n' + signature + '\n`');
+  let earlier = '';
+  if (mode.includes('_prose_')) earlier = '\nThe publisher emits ' + signature + ' when delivery completes.\n';
+  if (mode.includes('_standalone_')) earlier = '\n' + signature + '\n';
+  body = body.slice(0, start) + earlier + body.slice(start);
+}
+body = '<!-- Source-position control: 🧭 -->\n\n~~~\nAn earlier example `\n~~~\n\n' + body;
+if (mode.endsWith('_crlf')) body = body.replace(/\n/g, '\r\n');
+fs.writeFileSync(file, body);
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    case "$mode" in
+      *_plain|*_plain_crlf)
+        expect_code 0 "$rc" "$mode source-position control"
+        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
+        ;;
+      *)
+        expect_code 2 "$rc" "$mode quoted evidence"
+        [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode quoted evidence released intent"
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "$mode refusal did not identify live evidence"
+        ;;
+    esac
+  done
+  pass "underlined headings and earlier occurrences cannot mask quoting at the actual evidence position"
+}
+
 test_preflight_requires_original_pipeline_signature() {
   local rc out
   preflight_case
@@ -937,6 +980,7 @@ test_preflight_refuses_stale_or_forged_pipeline_data
 test_preflight_preserves_comment_boundaries_and_step_types
 test_preflight_rejects_quoted_pipeline_evidence
 test_preflight_checks_original_quoting_context
+test_preflight_binds_evidence_to_source_positions
 test_preflight_requires_original_pipeline_signature
 test_preflight_pins_github_against_ambient_host
 test_preflight_forge_failures_never_mean_no_existing_pr

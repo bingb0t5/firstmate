@@ -8,19 +8,23 @@ function refuse(message: string): never {
   throw new Error(message);
 }
 
+function blank(text: string): string {
+  return text.replace(/[^\r\n]/g, ' ');
+}
+
 function unquoted(body: string): string {
   const lines: string[] = [];
   let fence: { marker: string; length: number; indent: number } | undefined;
-  for (const line of body.split(/\r?\n/)) {
-    lines.push('');
+  for (const line of body.split('\n')) {
+    lines.push(blank(line));
     if (fence) {
       const content = line.startsWith(' '.repeat(fence.indent)) ? line.slice(fence.indent) : line;
-      const match = content.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+      const match = content.match(/^ {0,3}(`{3,}|~{3,})(.*)\r?$/);
       if (match && match[1][0] === fence.marker && match[1].length >= fence.length && !match[2].trim()) fence = undefined;
       continue;
     }
     if (/^(?: {0,3}>| {4}| {0,3}\t)/.test(line)) continue;
-    const opening = line.match(/^( {0,3})((?:[-+*]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/);
+    const opening = line.match(/^( {0,3})((?:[-+*]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)\r?$/);
     if (opening && !(opening[3][0] === '`' && opening[4].includes('`'))) {
       fence = { marker: opening[3][0], length: opening[3].length, indent: opening[2] ? opening[1].length + opening[2].length : 0 };
       continue;
@@ -30,26 +34,40 @@ function unquoted(body: string): string {
   return lines.join('\n');
 }
 
-function insideInlineCode(body: string, evidence: string): boolean {
-  const block = unquoted(body).split('\n')
-    .map(line => /^ {0,3}#{1,6}(?:[ \t]|$)/.test(line) ? '' : line)
-    .join('\n').split(/\n[ \t]*\n/).find(part => part.includes(evidence));
-  if (block === undefined) return false;
-  const offset = block.indexOf(evidence);
-  for (const span of block.matchAll(/<!--[\s\S]*?(?:-->|$)|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)) {
-    if (span.index > offset) return false;
-    if (span[1] && offset < span.index + span[0].length) return true;
+function insideInlineCode(body: string, offset: number): boolean {
+  const context = unquoted(body).split('\n')
+    .map(line => /^ {0,3}#{1,6}(?:[ \t]|\r?$)/.test(line) || /^ {0,3}(?:=+|-+)[ \t]*\r?$/.test(line) ? blank(line) : line)
+    .join('\n');
+  let start = 0;
+  let end = context.length;
+  let cursor = 0;
+  for (const line of context.split('\n')) {
+    if (!line.trim()) {
+      if (cursor >= offset) {
+        end = cursor;
+        break;
+      }
+      start = cursor + line.length + 1;
+    }
+    cursor += line.length + 1;
+  }
+  for (const span of context.slice(start, end).matchAll(/<!--[\s\S]*?(?:-->|$)|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)) {
+    if (start + span.index > offset) return false;
+    if (span[1] && offset < start + span.index + span[0].length) return true;
   }
   return false;
 }
 
+function sectionBounds(body: string, heading: string): { start: number; end: number } | undefined {
+  const headings = [...body.matchAll(/^ {0,3}##[ \t]+([^\r\n]*)\r?$/gm)];
+  const index = headings.findIndex(match => match[1].trim().toLowerCase() === heading);
+  if (index < 0) return undefined;
+  return { start: headings[index].index + headings[index][0].length, end: headings[index + 1]?.index ?? body.length };
+}
+
 function section(body: string, heading: string): string {
-  const lines = body.split('\n');
-  const start = lines.findIndex(line => line.trim().toLowerCase() === `## ${heading}`);
-  if (start < 0) return '';
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex(line => /^##\s+/.test(line));
-  return (end < 0 ? rest : rest.slice(0, end)).join('\n');
+  const bounds = sectionBounds(body, heading);
+  return bounds ? body.slice(bounds.start, bounds.end) : '';
 }
 
 function assess(title: string, body: string, source: string): void {
@@ -118,16 +136,22 @@ function main(): void {
       refuse('existing live PR body has missing or ambiguous pipeline attestations; ask its owner to reconcile it');
     }
     const visible = unquoted(pr.body).replace(/<!--[\s\S]*?(?:-->|$)/g, (comment: string) =>
-      comment.startsWith('<!-- no-mistakes-pipeline-attestation:v1 ') ? comment : '');
-    const pipeline = section(visible, 'pipeline');
+      comment.startsWith('<!-- no-mistakes-pipeline-attestation:v1 ') ? comment : blank(comment));
+    const pipeline = sectionBounds(visible, 'pipeline');
+    const isEvidence = (offset: number, evidence: string): boolean => {
+      const lineStart = pr.body.lastIndexOf('\n', offset - 1) + 1;
+      const nextLine = pr.body.indexOf('\n', offset);
+      return pipeline !== undefined && offset >= pipeline.start && offset + evidence.length <= pipeline.end &&
+        pr.body.slice(lineStart, nextLine < 0 ? pr.body.length : nextLine).trim() === evidence &&
+        visible.slice(offset, offset + evidence.length) === evidence && !insideInlineCode(pr.body, offset);
+    };
     const signature = 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)';
-    if (!pr.body.split(/\r?\n/).some((line: string) => line.trim() === signature) ||
-        insideInlineCode(pr.body, signature) || !pipeline.split('\n').some(line => line.trim() === signature)) {
+    const signatureLines = [...pr.body.matchAll(/^[^\n]+/gm)];
+    if (!signatureLines.some(line => line[0].trim() === signature && isEvidence(line.index + line[0].indexOf(signature), signature))) {
       refuse('existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it');
     }
     const originalAttestation = pr.body.match(/<!-- no-mistakes-pipeline-attestation:v1 ([\s\S]*?) -->/);
-    if (!originalAttestation || insideInlineCode(pr.body, originalAttestation[0]) ||
-        !pipeline.split('\n').some(line => line.trim() === originalAttestation[0])) {
+    if (!originalAttestation || !isEvidence(originalAttestation.index, originalAttestation[0])) {
       refuse('existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it');
     }
     const attestation = JSON.parse(originalAttestation[1]);
