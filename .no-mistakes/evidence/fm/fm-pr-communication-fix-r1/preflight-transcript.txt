@@ -1,0 +1,2296 @@
+
+Case: test_preflight_fresh_intent_survives_generated_body
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_fresh_intent_survives_generated_body
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_rejects_bad_intent_before_forge_read
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: add ## CEO overview with its exact template bullets
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_bad_intent_before_forge_read
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent must not contain reserved pipeline sections, signatures, or attestations
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_bad_intent_before_forge_read
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_bad_intent_before_forge_read
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_bad_intent_before_forge_read
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_bad_intent_before_forge_read
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_bad_intent_before_forge_read
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_bad_intent_before_forge_read
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: intent exceeds 16000 bytes; shorten prose while retaining every task requirement
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 821
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 848
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 853
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: complete the What changed technically section outside quoted evidence
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_technical_prose
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_stale_body_refuses_until_owner_reconciles
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: add ## CEO overview with its exact template bullets
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_stale_body_refuses_until_owner_reconciles
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_refuses_stale_or_forged_pipeline_data
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has a stale pipeline head; ask its owner to reconcile it before another push
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_refuses_stale_or_forged_pipeline_data
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has missing or ambiguous pipeline attestations; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_refuses_stale_or_forged_pipeline_data
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_refuses_stale_or_forged_pipeline_data
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_refuses_stale_or_forged_pipeline_data
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body lacks completed required pipeline steps; return to its pipeline owner
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_refuses_stale_or_forged_pipeline_data
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body lacks completed required pipeline steps; return to its pipeline owner
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_comment_boundaries_and_step_types
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_comment_boundaries_and_step_types
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_comment_boundaries_and_step_types
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has invalid pipeline step entries; return to its pipeline owner
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_comment_boundaries_and_step_types
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has invalid pipeline step entries; return to its pipeline owner
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_comment_boundaries_and_step_types
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has invalid pipeline step entries; return to its pipeline owner
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_comment_boundaries_and_step_types
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has invalid pipeline step entries; return to its pipeline owner
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_comment_boundaries_and_step_types
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has invalid pipeline step entries; return to its pipeline owner
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_quoted_pipeline_evidence
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_checks_original_quoting_context
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_binds_evidence_to_source_positions
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_preserves_original_paragraph_boundaries
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_preserves_original_paragraph_boundaries
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_original_paragraph_boundaries
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_original_paragraph_boundaries
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_original_paragraph_boundaries
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_original_paragraph_boundaries
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_preserves_original_paragraph_boundaries
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_preserves_original_paragraph_boundaries
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_preserves_original_paragraph_boundaries
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body needs exactly one unquoted pipeline attestation; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has a stale pipeline head; ask its owner to reconcile it before another push
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_uses_markdown_structure
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Cannot enter staging until completed: CEO overview: What is changing (found line: What is changing: pending)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 3 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 3 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 3 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview at line 1 requires - **What is changing:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview at line 1 requires - **What is changing:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview at line 1 requires - **What is changing:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Cannot enter staging until completed: CEO overview: What is changing (found line: - What is changing:)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Cannot enter staging until completed: Validation: Checks passed (found line: Checks passed: pending)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 10 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 10 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 10 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation at line 8 requires - **Checks passed:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation at line 8 requires - **Checks passed:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation at line 8 requires - **Checks passed:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Cannot enter staging until completed: Validation: Checks passed (found line: - Checks passed:)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Cannot enter staging until completed: CEO overview: What is changing (found line: What is changing: pending)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 3 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 3 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 3 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview at line 1 requires - **What is changing:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview at line 1 requires - **What is changing:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview at line 1 requires - **What is changing:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Cannot enter staging until completed: CEO overview: What is changing (found line: - What is changing:)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview at line 1 requires - **What is changing:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Cannot enter staging until completed: Validation: Checks passed (found line: Checks passed: pending)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 10 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 10 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 10 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation at line 8 requires - **Checks passed:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation at line 8 requires - **Checks passed:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation at line 8 requires - **Checks passed:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Cannot enter staging until completed: Validation: Checks passed (found line: - Checks passed:)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_positional_narrative_fields
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation at line 8 requires - **Checks passed:** at the start of an unquoted template bullet
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 911
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 907
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 927
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 998
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 899
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 909
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 906
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_keeps_arbitrary_lines_inert
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: authored intent: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 5 contains quoted or coded content; use plain prose after - **What is changing:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 6 contains quoted or coded content; use plain prose after - **Why it matters:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 7 contains quoted or coded content; use plain prose after - **Customer or business impact:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: CEO overview bullet on line 8 contains quoted or coded content; use plain prose after - **Risk and rollout:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 12 contains quoted or coded content; use plain prose after - **Checks passed:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 13 contains quoted or coded content; use plain prose after - **Checks not run:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_rejects_constructs_inside_every_labelled_bullet
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: Validation bullet on line 14 contains quoted or coded content; use plain prose after - **Evidence and limitations:**
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_original_pipeline_signature
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_requires_original_pipeline_signature
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_pins_github_against_ambient_host
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_pins_github_against_ambient_host
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: existing live PR body: add ## CEO overview with its exact template bullets
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_pins_github_against_ambient_host
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 0
+Stdout bytes: 805
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+Output is byte-identical to authored intent.
+
+Case: test_preflight_forge_failures_never_mean_no_existing_pr
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: Command failed: gh-axi api GET /repos/o/r/pulls --hostname github.com --field state=open --field head=o:fm/preflight --field per_page=2 --jq @base64 --full
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_forge_failures_never_mean_no_existing_pr
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: cannot confirm complete gh-axi PR data; inspect the read-only forge query and retry
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_forge_failures_never_mean_no_existing_pr
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: open PR lookup is ambiguous; reconcile the explicit delivery target
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_forge_failures_never_mean_no_existing_pr
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: forge response does not identify the requested open PR; no delivery authorized
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+Case: test_preflight_forge_failures_never_mean_no_existing_pr
+Command: bin/fm-nm-pr-preflight.sh --intent-file <fixture>/intent.md --repo o/r --head o:fm/preflight
+Transport: isolated gh-axi fixture; no live forge mutation
+Exit: 2
+Stdout bytes: 0
+REFUSED: Unexpected token 'i', "invalid" is not valid JSON
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.

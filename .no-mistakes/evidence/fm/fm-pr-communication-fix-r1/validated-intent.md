@@ -5,10 +5,6 @@
 - **Customer or business impact:** Members get clearer communication and the team saves time.
 - **Risk and rollout:** Low risk. Release through staging and confirm the main request flow.
 
-## What changed technically
-
-Render request status in the existing member page.
-
 ## Validation
 
 - **Checks passed:** Unit tests and type check.
@@ -22,3 +18,7 @@ Current module retained: request status rendering belongs with the existing memb
 ## Decision needed
 
 No decision required.
+
+## What changed technically
+
+Render request status in the existing member page.
