@@ -160,6 +160,8 @@ fm_harness_pid_alive() {
 # and an inner pid when a harness-named daemon parents the session. A missing
 # lock, a malformed lock, a lock held by a harness outside this ancestry, or an
 # ancestry that cannot be resolved all fail closed.
+# Optional $2 restricts the lock-owning ancestor to that canonical harness name;
+# another harness elsewhere in the ancestry cannot satisfy this restriction.
 fm_session_lock_owned_by_self() {
   local state=$1 expected_harness=${2:-} lock_pid pids pid comm args name
   lock_pid=$(cat "$state/.lock" 2>/dev/null || true)

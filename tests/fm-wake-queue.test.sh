@@ -913,8 +913,14 @@ assert hook["timeout"] == 30, "fixture must enforce the cached timeout"
 queue = state / ".wake-queue"
 assert not queue.exists() or not queue.read_bytes(), "fixture must start with an empty queue"
 existing = None
+transcript = os.environ.get("FM_TEST_TRANSCRIPT") == "1"
+
+def record(label, value):
+    if transcript:
+        print(f"{label}: {value}", flush=True)
 
 def run(command, seconds, payload=None):
+    began = time.monotonic()
     child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, text=True, start_new_session=True)
     try:
@@ -927,6 +933,12 @@ def run(command, seconds, payload=None):
             os.killpg(child.pid, signal.SIGKILL)
             child.communicate()
         raise
+    record("command", shlex.join(command))
+    record("result", f"exit={child.returncode} elapsed={time.monotonic() - began:.2f}s")
+    if out:
+        record("stdout", out.rstrip())
+    if err:
+        record("stderr", err.rstrip())
     return child.returncode, out, err
 
 def watcher_healthy():
@@ -953,8 +965,11 @@ if os.environ["FM_TEST_WATCHER_SCENARIO"] == "attached":
         time.sleep(0.1)
     owner = {name: (state / ".watch.lock" / name).read_bytes() for name in ("pid", "pid-identity")}
     assert int(owner["pid"]) == existing.pid, "fixture watcher does not own the lock"
+    record("existing watcher identity", owner)
 
 started = time.monotonic()
+record("scenario", os.environ["FM_TEST_WATCHER_SCENARIO"])
+record("initial queue bytes", queue.stat().st_size if queue.exists() else 0)
 
 def assert_original_watcher():
     if existing is not None:
@@ -1001,6 +1016,7 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         if observed:
             assert time.monotonic() - started > hook["timeout"], "wake was not delayed beyond the old deadline"
             assert b"delayed-row" in queue.read_bytes(), "delivery consumed the wake before handling"
+            record("queue before acknowledgement", queue.read_text().rstrip())
             (home / "handled.rows").write_text(rows)
         ack = re.search(r"--ack-through ([0-9]+) --recovery-generation ([A-Za-z0-9._-]+)", instructions)
         if ack:
@@ -1011,7 +1027,10 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
     producer.result()
     assert observed, "foreground checkpoint loop did not deliver the delayed wake"
     assert not queue.read_bytes(), "handled and acknowledged wake remained queued"
+    record("queue after acknowledgement bytes", queue.stat().st_size)
     assert not (state / "mate.turn-ended").exists(), "home supervision wrote a child marker"
+    record("child turn-ended marker exists", (state / "mate.turn-ended").exists())
+    record("watcher cycle ledger", (state / ".watch-cycle-exits.log").read_text().rstrip())
     if existing is not None:
         cycles = [dict(field.split("=", 1) for field in line.split("\t"))
                   for line in (state / ".watch-cycle-exits.log").read_text().splitlines()]
@@ -1024,6 +1043,9 @@ exit "$rc"
 SH
   )
   rc=$?
+  if [ "${FM_TEST_TRANSCRIPT:-0}" = 1 ]; then
+    cat "$dir/delayed.out"
+  fi
   [ "$rc" -eq 0 ] || fail "legacy deadline handoff failed: $(cat "$dir/delayed.err")"
   pass "legacy Stop ($scenario) returns before 30 seconds and its foreground continuation handles a wake after 35 seconds"
 }
@@ -2076,8 +2098,7 @@ test_historical_annotation_skips_announced_status() {
   pass "historical annotations replay nothing already announced and keep everything new"
 }
 
-run_secondmate_review_tests() {
-  test_watch_env_rejects_arithmetic_execution
+run_codex_stop_tests() {
   test_codex_stale_hook_linked_secondmate_rearms_and_preserves_wake
   test_codex_stale_hook_hands_off_before_deadline_for_delayed_wake
   test_codex_stale_hook_hands_off_before_deadline_for_delayed_wake attached
@@ -2087,6 +2108,11 @@ run_secondmate_review_tests() {
   test_codex_secondmate_stop_arms_and_self_wakes
   test_codex_stop_failure_recovery_is_bounded
   test_codex_stop_away_keeps_shared_guard
+}
+
+run_secondmate_review_tests() {
+  test_watch_env_rejects_arithmetic_execution
+  run_codex_stop_tests
   test_busy_grok_pi_and_live_branch_keep_their_cadence
   test_grok_notify_wait_is_not_a_stall
   test_grok_notify_wait_pages_after_cadence
@@ -2101,6 +2127,11 @@ run_secondmate_review_tests() {
   test_secondmate_stall_override_precedes_busy_state
   test_secondmate_watch_env_default_is_loaded_safely
 }
+
+if [ "${1:-}" = --codex-stop ]; then
+  run_codex_stop_tests
+  exit
+fi
 
 if [ "${1:-}" = --secondmate ]; then
   run_secondmate_review_tests

@@ -32,8 +32,9 @@
 # primary checkout - the main home or a genuinely marked secondmate home - and
 # stay a silent, fast no-op inside child task worktrees.
 #
-# --codex in a marked secondmate home uses the Stop-owned arm and recovery
-# contract in docs/turnend-guard.md outside away mode.
+# Explicit --codex and eligible legacy invocations in a marked secondmate home
+# use the Stop-owned arm and recovery contract in docs/turnend-guard.md outside
+# away mode.
 # Loop-guard, default mode (including Grok and other Codex Stops): never block
 # twice in the same turn.
 # Codex uses stop_hook_active and Grok uses stopHookActive; typed camel-case
