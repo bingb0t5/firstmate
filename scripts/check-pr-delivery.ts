@@ -10,18 +10,19 @@ function refuse(message: string): never {
 
 function unquoted(body: string): string {
   const lines: string[] = [];
-  let fence: { marker: string; length: number } | undefined;
+  let fence: { marker: string; length: number; indent: number } | undefined;
   for (const line of body.split(/\r?\n/)) {
     lines.push('');
-    if (/^(?: {0,3}>| {4}| {0,3}\t)/.test(line)) continue;
-    const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
+      const content = line.startsWith(' '.repeat(fence.indent)) ? line.slice(fence.indent) : line;
+      const match = content.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
       if (match && match[1][0] === fence.marker && match[1].length >= fence.length && !match[2].trim()) fence = undefined;
       continue;
     }
-    const opening = line.match(/^ {0,3}(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/);
-    if (opening && !(opening[1][0] === '`' && opening[2].includes('`'))) {
-      fence = { marker: opening[1][0], length: opening[1].length };
+    if (/^(?: {0,3}>| {4}| {0,3}\t)/.test(line)) continue;
+    const opening = line.match(/^( {0,3})((?:[-+*]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/);
+    if (opening && !(opening[3][0] === '`' && opening[4].includes('`'))) {
+      fence = { marker: opening[3][0], length: opening[3].length, indent: opening[2] ? opening[1].length + opening[2].length : 0 };
       continue;
     }
     lines[lines.length - 1] = line;
@@ -30,7 +31,9 @@ function unquoted(body: string): string {
 }
 
 function insideInlineCode(body: string, evidence: string): boolean {
-  const block = unquoted(body).split(/\n[ \t]*\n/).find(part => part.includes(evidence));
+  const block = unquoted(body).split('\n')
+    .map(line => /^ {0,3}#{1,6}(?:[ \t]|$)/.test(line) ? '' : line)
+    .join('\n').split(/\n[ \t]*\n/).find(part => part.includes(evidence));
   if (block === undefined) return false;
   const offset = block.indexOf(evidence);
   for (const span of block.matchAll(/<!--[\s\S]*?(?:-->|$)|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g)) {
@@ -117,7 +120,9 @@ function main(): void {
     const visible = unquoted(pr.body).replace(/<!--[\s\S]*?(?:-->|$)/g, (comment: string) =>
       comment.startsWith('<!-- no-mistakes-pipeline-attestation:v1 ') ? comment : '');
     const pipeline = section(visible, 'pipeline');
-    if (!pipeline.split('\n').some(line => line.trim() === 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)')) {
+    const signature = 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)';
+    if (!pr.body.split(/\r?\n/).some((line: string) => line.trim() === signature) ||
+        insideInlineCode(pr.body, signature) || !pipeline.split('\n').some(line => line.trim() === signature)) {
       refuse('existing live PR body has no pipeline signature outside quoted evidence; ask its owner to reconcile it');
     }
     const originalAttestation = pr.body.match(/<!-- no-mistakes-pipeline-attestation:v1 ([\s\S]*?) -->/);

@@ -330,7 +330,7 @@ test_preflight_rejects_quoted_pipeline_evidence() {
 
 test_preflight_checks_original_quoting_context() {
   local mode rc
-  for mode in canonical list_fence ordered_fence multiline_inline multiline_double closed_examples inline_json closed_tilde combined_tilde closed_adjacent combined_adjacent; do
+  for mode in canonical list_fence ordered_fence multiline_inline multiline_double closed_examples inline_json closed_tilde combined_tilde closed_adjacent combined_adjacent heading_inline heading_plain closed_long_ordered open_long_ordered; do
     preflight_case
     { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
     node - "$PF_ROOT/live.md" "$mode" <<'JS'
@@ -356,13 +356,19 @@ if (mode === 'list_fence' || mode === 'ordered_fence') {
   body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment =>
     (mode.endsWith('_adjacent') ? example : '') +
     (mode.startsWith('combined_') ? '`\n' + comment + '\n`' : comment));
+} else if (mode === 'heading_inline' || mode === 'heading_plain') {
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment =>
+    '### Example `\n' + (mode === 'heading_inline' ? '`\n' + comment + '\n`' : comment));
+} else if (mode === 'closed_long_ordered' || mode === 'open_long_ordered') {
+  body = body.slice(0, start) + '\n10. ```\n    Example `\n' +
+    (mode === 'closed_long_ordered' ? '    ```\n' : '') + body.slice(start);
 }
 fs.writeFileSync(file, body);
 JS
     preflight_live_body "$PF_ROOT/live.md"
     preflight_run; rc=$?
     case "$mode" in
-      canonical|closed_examples|inline_json|closed_tilde|closed_adjacent)
+      canonical|closed_examples|inline_json|closed_tilde|closed_adjacent|heading_plain|closed_long_ordered)
         expect_code 0 "$rc" "$mode original-context control"
         cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
         ;;
@@ -374,6 +380,25 @@ JS
     esac
   done
   pass "original list-fence and multiline inline-code context cannot authorize quoted attestations"
+}
+
+test_preflight_requires_original_pipeline_signature() {
+  local rc out
+  preflight_case
+  { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+  sed 's/Updates from/Up<!-- example -->dates from/' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md"
+  preflight_live_body "$PF_ROOT/changed.md"
+  preflight_run; rc=$?
+  expect_code 2 "$rc" "comment-split pipeline signature"
+  [ ! -s "$PF_ROOT/validated.md" ] || fail "reconstructed signature released intent"
+  assert_contains "$(cat "$PF_ROOT/diagnostic")" 'no pipeline signature' "reconstructed signature was not refused at the signature check"
+  out=$(PR_BODY="$(cat "$PF_ROOT/changed.md")" PR_AUTHOR='fixture' PR_NUMBER=0 run_no_mistakes_requirement 2>&1); rc=$?
+  [ "$rc" -ne 0 ] || fail "hosted consumer unexpectedly accepted a reconstructed signature: $out"
+  preflight_live_body "$PF_ROOT/live.md"
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "original pipeline signature"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "original signature control changed intent"
+  pass "only an unchanged original pipeline signature authorizes delivery"
 }
 
 test_preflight_pins_github_against_ambient_host() {
@@ -912,6 +937,7 @@ test_preflight_refuses_stale_or_forged_pipeline_data
 test_preflight_preserves_comment_boundaries_and_step_types
 test_preflight_rejects_quoted_pipeline_evidence
 test_preflight_checks_original_quoting_context
+test_preflight_requires_original_pipeline_signature
 test_preflight_pins_github_against_ambient_host
 test_preflight_forge_failures_never_mean_no_existing_pr
 test_missing_remote_token_fails_closed
