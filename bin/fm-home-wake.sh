@@ -24,11 +24,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ "$#" -ge 2 ] || { printf 'usage: fm-home-wake.sh <backend> <target> [notify-json]\n' >&2; exit 2; }
 BACKEND=$1
 TARGET=$2
-if [ -n "${3:-}" ]; then
+COMPLETION_DIR=
+if [ "${3:-}" = --watcher-complete ]; then
+  [ "$#" -eq 4 ] || exit 2
+  COMPLETION_DIR=$4
+  # shellcheck source=bin/fm-watch-launch-lib.sh
+  . "$SCRIPT_DIR/fm-watch-launch-lib.sh"
+  fm_watch_launch_read "$COMPLETION_DIR" && fm_watch_launch_result "$COMPLETION_DIR" || exit 1
+  fm_watch_launch_owner "$COMPLETION_DIR" || exit 1
+  fm_watch_launch_session "$COMPLETION_DIR" || exit 1
+  [ "$LAUNCH_BACKEND" = "$BACKEND" ] && [ "$LAUNCH_TARGET" = "$TARGET" ] || exit 1
+elif [ -n "${3:-}" ]; then
   printf '%s' "$3" | jq -e '.type == "agent-turn-complete"' >/dev/null 2>&1 || exit 0
 fi
+home_session_owned() {
+  if [ -z "$COMPLETION_DIR" ]; then
+    fm_session_lock_owned_by_self "$STATE"
+    return $?
+  fi
+  [ "$(cat "$STATE/.lock" 2>/dev/null)" = "$LAUNCH_SESSION_PID" ] || return 1
+  [ "$(fm_pid_identity "$LAUNCH_SESSION_PID" 2>/dev/null || true)" = "$LAUNCH_SESSION_IDENTITY" ]
+}
 fm_root_is_secondmate_home "$FM_HOME" || exit 0
-fm_session_lock_owned_by_self "$STATE" || exit 0
+home_session_owned || exit 0
 [ ! -e "$STATE/.afk" ] || exit 0
 [ -s "$FM_WAKE_QUEUE" ] && [ ! -L "$FM_WAKE_QUEUE" ] || exit 0
 
@@ -45,13 +63,17 @@ trap 'exit 1' HUP INT TERM
 fm_watch_config_load "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/watch.env"
 if ! fm_watcher_lock_unheld "$STATE"; then
   fm_watcher_healthy "$STATE" "$SCRIPT_DIR/fm-watch.sh" "${FM_GUARD_GRACE:-300}" "$FM_HOME" && exit 0
-  printf 'home wake: watcher ownership unhealthy; durable wakes remain unacknowledged\n' >&2
-  exit 1
+  if [ -z "$COMPLETION_DIR" ] \
+    || [ "$(cat "$STATE/.watch.lock/pid" 2>/dev/null)" != "$LAUNCH_PID" ] \
+    || [ "$(cat "$STATE/.watch.lock/pid-identity" 2>/dev/null)" != "$LAUNCH_IDENTITY" ]; then
+    printf 'home wake: watcher ownership unhealthy; durable wakes remain unacknowledged\n' >&2
+    exit 1
+  fi
 fi
 
 home_ready() {
   local pane
-  fm_session_lock_owned_by_self "$STATE" || return 1
+  home_session_owned || return 1
   [ ! -e "$STATE/.afk" ] || return 1
   fm_backend_target_exists "$BACKEND" "$TARGET" || return 1
   [ "$(fm_backend_busy_state "$BACKEND" "$TARGET" 2>/dev/null)" != busy ] || return 1

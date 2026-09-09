@@ -785,6 +785,7 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
       cd "$dir" || exit 1
       # shellcheck disable=SC2016 # The child shell evaluates this program's variables.
       FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
+        FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=codex-stop-test \
         BASH_ENV="$dir/bash-env" FM_BACKEND=tmux FM_CONFIG_OVERRIDE="$dir/config" FM_POLL=1 FM_SIGNAL_GRACE=0 \
         FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
         "$dir/codex" -c '
@@ -1166,6 +1167,7 @@ run_codex_stop_case() {
     env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
       FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
       FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" \
+      FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=codex-stop-test \
       "$dir/codex" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
         printf "{\"stop_hook_active\":%s}" "$2" | bash -c "$1"
@@ -1182,12 +1184,14 @@ test_codex_stop_failure_recovery_is_bounded() {
   rm "$dir/bin/fm-watch.sh"
   cat > "$dir/bin/fm-watch.sh" <<'SH'
 #!/usr/bin/env bash
+. "$FM_TEST_WAKE_LIB"
+. "${FM_TEST_WAKE_LIB%/*}/fm-watch-launch-lib.sh"
+fm_watch_launch_begin || exit 1
 printf 'attempt\n' >> "$FM_HOME/attempts"
 if [ -e "$FM_HOME/fail-watch" ]; then
   printf 'watcher: FAILED - injected startup failure\n'
   exit 3
 fi
-. "$FM_TEST_WAKE_LIB"
 identity=$(fm_pid_identity "$$")
 mkdir -p "$FM_HOME/state/.watch.lock"
 printf '%s\n' "$$" > "$FM_HOME/state/.watch.lock/pid"

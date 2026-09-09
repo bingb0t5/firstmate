@@ -64,6 +64,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-watch-launch-lib.sh
+. "$SCRIPT_DIR/fm-watch-launch-lib.sh"
 
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # shellcheck source=bin/fm-watch-config-lib.sh
@@ -286,30 +288,40 @@ fail_unexplained_cycle() {
 # supports. The parent writes the exact watcher pid before exiting so the arm
 # layer can apply its normal bounded lock/beacon confirmation.
 launch_detached_watcher() {
-  local pid_file=$1 launcher
+  local launch_dir=$1
   command -v perl >/dev/null 2>&1 || return 1
-  perl -MPOSIX -e '
-    my ($pid_file, $script) = @ARGV;
+  perl -MPOSIX -MTime::HiRes=time,sleep -e '
+    my ($dir, $script, $timeout) = @ARGV;
     defined(my $pid = fork) or exit 125;
     if ($pid == 0) {
       POSIX::setsid() >= 0 or exit 125;
-      for my $fd (3 .. 1024) { POSIX::close($fd); }
+      my $fds;
+      opendir($fds, "/proc/self/fd") || opendir($fds, "/dev/fd") or exit 125;
+      my @fds = grep { /^\d+$/ && $_ > 2 } readdir($fds);
+      closedir($fds);
+      POSIX::close($_) for @fds;
       open STDIN,  "<", "/dev/null" or exit 125;
       open STDOUT, ">", "/dev/null" or exit 125;
       open STDERR, ">", "/dev/null" or exit 125;
-      exec $script;
+      exec $script, "--detached-run", $dir;
       exit 125;
     }
-    open my $fh, ">", $pid_file or do { kill "TERM", $pid; exit 125; };
-    print {$fh} "$pid\n" or do { kill "TERM", $pid; exit 125; };
-    close $fh or do { kill "TERM", $pid; exit 125; };
-    exit 0;
-  ' "$pid_file" "$WATCH" </dev/null >/dev/null 2>&1 &
-  launcher=$!
-  case "$launcher" in
-    ''|*[!0-9]*) return 1 ;;
-  esac
-  printf '%s\n' "$launcher"
+    my $deadline = time + $timeout;
+    while (time < $deadline) {
+      exit 0 if -s "$dir/owner";
+      if (waitpid($pid, POSIX::WNOHANG()) == $pid) {
+        exit(-s "$dir/owner" ? 0 : 125);
+      }
+      sleep 0.02;
+    }
+    kill "STOP", $pid;
+    kill "TERM", -$pid;
+    sleep 0.2;
+    kill "KILL", -$pid;
+    kill "KILL", $pid;
+    waitpid $pid, 0;
+    exit 125;
+  ' "$launch_dir" "$SCRIPT_DIR/fm-watch-arm.sh" "$CONFIRM_TIMEOUT" </dev/null >/dev/null 2>&1
 }
 
 # Close a cycle whose reason line this arm could not read against the bounded
@@ -420,12 +432,36 @@ handling_successor_generation() {
   esac
 }
 
+bind_detached_session() {
+  local dir=$1 pid identity
+  if [ -z "${FM_HOME_WAKE_BACKEND:-}" ] || [ -z "${FM_HOME_WAKE_TARGET:-}" ]; then
+    [ "${FM_WATCH_NOTIFY_REQUIRED:-0}" != 1 ] && return 0
+    echo "watcher: FAILED - detached Stop requires a bound home notification endpoint; relaunch this secondmate through fm-spawn.sh" >&2
+    return 1
+  fi
+  # shellcheck source=bin/fm-session-lock-lib.sh
+  . "$SCRIPT_DIR/fm-session-lock-lib.sh"
+  if ! fm_session_lock_owned_by_self "$STATE"; then
+    echo "watcher: FAILED - detached notification requires the owning home session" >&2
+    return 1
+  fi
+  pid=$(cat "$STATE/.lock")
+  identity=$(fm_pid_identity "$pid") || return 1
+  printf '%s\t%s\t%s\t%s\n' "$pid" "$identity" "$FM_HOME_WAKE_BACKEND" "$FM_HOME_WAKE_TARGET" > "$dir/session.tmp.$ARM_PID" \
+    && mv -f "$dir/session.tmp.$ARM_PID" "$dir/session"
+}
+
 mode=arm
 handling_generation=
 handling_watcher_pid=
 case "${1:-}" in
   ''|arm|--arm) mode=arm ;;
   --detached) mode=detached ;;
+  --detached-run|--detached-complete)
+    [ "$#" -eq 2 ] || exit 2
+    mode=${1#--}
+    detached_dir=$2
+    ;;
   --restart) mode=restart ;;
   --handling-delivered)
     mode=handling-delivered
@@ -474,6 +510,22 @@ fi
 # then, not as an immediate empty wake. (--restart skips this: it just stopped
 # this home's watcher and wants a fresh one.)
 if [ "$mode" = detached ] && healthy_watcher; then
+  detached_dir=$(cat "$WATCH_LOCK/watcher-launch" 2>/dev/null || true)
+  if [ -n "$detached_dir" ]; then
+    fm_watch_launch_read "$detached_dir" && fm_watch_launch_owner "$detached_dir" || exit 1
+    [ "$LAUNCH_PID" = "$HEALTHY_PID" ] && [ "$LAUNCH_IDENTITY" = "$HEALTHY_IDENTITY" ] || exit 1
+    i=0
+    until fm_lock_try_acquire "$detached_dir/handoff.lock"; do
+      [ "$i" -lt 50 ] || exit 1
+      sleep 0.02
+      i=$((i + 1))
+    done
+    if ! bind_detached_session "$detached_dir" || ! touch "$detached_dir/accepted"; then
+      fm_lock_release "$detached_dir/handoff.lock"
+      exit 1
+    fi
+    fm_lock_release "$detached_dir/handoff.lock"
+  fi
   report_attached
   exit 0
 fi
@@ -486,60 +538,171 @@ if [ "$mode" = arm ] && healthy_watcher; then
   exit $?
 fi
 
+if [ "$mode" = detached-run ]; then
+  case "$detached_dir" in "$STATE"/.watch-arm-detached.*) ;; *) exit 1 ;; esac
+  case "${detached_dir#"$STATE"/.watch-arm-detached.}" in ''|*/*) exit 1 ;; esac
+  [ -d "$detached_dir" ] && [ ! -L "$detached_dir" ] || exit 1
+  detached_child=
+  detached_cancelled=0
+  cancel_detached_child() {
+    local identity parent group
+    detached_cancelled=1
+    trap '' HUP INT TERM
+    [ -n "$detached_child" ] || return 0
+    identity=$(fm_pid_identity "$detached_child" 2>/dev/null) || return 0
+    parent=$(ps -o ppid= -p "$detached_child" | tr -d '[:space:]')
+    [ "$parent" = "$ARM_PID" ] || return 0
+    kill -STOP "$detached_child" 2>/dev/null || return 0
+    [ "$(fm_pid_identity "$detached_child" 2>/dev/null || true)" = "$identity" ] || return 0
+    group=$(ps -o pgid= -p "$detached_child" | tr -d '[:space:]')
+    if [ "$group" = "$detached_child" ]; then
+      kill -TERM -- "-$detached_child" 2>/dev/null || true
+      sleep 0.2
+      kill -KILL -- "-$detached_child" 2>/dev/null || true
+    fi
+    kill -KILL "$detached_child" 2>/dev/null || true
+    wait "$detached_child" 2>/dev/null || true
+  }
+  trap cancel_detached_child HUP INT TERM
+  owner_identity=$(fm_pid_identity "$ARM_PID") || exit 1
+  printf '%s\t%s\n' "$ARM_PID" "$owner_identity" > "$detached_dir/owner.tmp" \
+    && mv -f "$detached_dir/owner.tmp" "$detached_dir/owner" || exit 1
+  [ "$detached_cancelled" -eq 0 ] || exit 1
+  FM_WATCH_LAUNCH_DIR="$detached_dir" perl -MPOSIX -e 'POSIX::setsid() >= 0 or exit 125; exec $ARGV[0]; exit 125' "$WATCH" &
+  detached_child=$!
+  if [ "$detached_cancelled" -eq 1 ]; then cancel_detached_child; fi
+  wait "$detached_child"
+  detached_status=$?
+  trap '' HUP INT TERM
+  WATCH_LAUNCH_PID=$detached_child
+  WATCH_LAUNCH_IDENTITY=
+  detached_reason=
+  if fm_watch_launch_read "$detached_dir"; then
+    WATCH_LAUNCH_IDENTITY=$LAUNCH_IDENTITY
+    cycle_begin "$LAUNCH_PID" detached "$LAUNCH_IDENTITY"
+    if [ "$detached_status" -eq 0 ]; then
+      detached_reason=$(close_unobserved_cycle) || detached_reason=
+    fi
+  fi
+  i=0
+  until fm_lock_try_acquire "$detached_dir/handoff.lock"; do
+    [ "$i" -lt 50 ] || exit 1
+    sleep 0.02
+    i=$((i + 1))
+  done
+  if ! fm_watch_launch_record "$detached_dir" "$detached_status" "$detached_reason"; then
+    fm_lock_release "$detached_dir/handoff.lock"
+    exit 1
+  fi
+  detached_notify=0
+  [ ! -f "$detached_dir/accepted" ] || detached_notify=1
+  fm_lock_release "$detached_dir/handoff.lock"
+  if [ "$detached_notify" -eq 1 ]; then
+    "$SCRIPT_DIR/fm-watch-arm.sh" --detached-complete "$detached_dir"
+    exit $?
+  fi
+  exit 0
+fi
+
+if [ "$mode" = detached-complete ]; then
+  fm_watch_launch_read "$detached_dir" && fm_watch_launch_result "$detached_dir" || exit 1
+  fm_watch_launch_owner "$detached_dir" || exit 1
+  [ -f "$detached_dir/accepted" ] || exit 1
+  cycle_begin "$LAUNCH_PID" detached "$LAUNCH_IDENTITY"
+  if [ "$LAUNCH_STATUS" -eq 0 ] && [ -n "$LAUNCH_REASON" ] && close_unobserved_cycle; then
+    cycle_log_append 0 none detached-delivered-wake none
+  elif healthy_watcher; then
+    cycle_log_append "$LAUNCH_STATUS" none detached-lock-race "attached:$HEALTHY_PID"
+    rm -rf "$detached_dir"
+    exit 0
+  else
+    cycle_log_append 1 none detached-start-failed none
+    fm_wake_append check watcher-failed 'check: watcher failed after detached startup; inspect watcher recovery before relying on unattended supervision' || exit 1
+  fi
+  if fm_watch_launch_session "$detached_dir"; then
+    "$SCRIPT_DIR/fm-home-wake.sh" "$LAUNCH_BACKEND" "$LAUNCH_TARGET" \
+      --watcher-complete "$detached_dir" || exit 1
+  fi
+  rm -rf "$detached_dir"
+  exit 0
+fi
+
 if [ "$mode" = detached ]; then
-  detached_pid_file=$(mktemp "$STATE/.watch-arm-detached.XXXXXX") || {
+  cycle_begin none detached none
+  trap 'rc=$?; if [ "$rc" -ne 0 ]; then cycle_log_append "$rc" none detached-start-failed none; fi' EXIT
+  detached_dir=$(mktemp -d "$STATE/.watch-arm-detached.XXXXXX") || {
     echo "watcher: FAILED - could not prepare detached launch" >&2
     exit 1
   }
-  detached_launcher=$(launch_detached_watcher "$detached_pid_file") || {
-    rm -f "$detached_pid_file" 2>/dev/null || true
-    echo "watcher: FAILED - detached launch is unavailable" >&2
+  if ! bind_detached_session "$detached_dir"; then
+    rm -rf "$detached_dir"
     exit 1
-  }
-  child=
+  fi
   deadline=$(( $(date +%s) + CONFIRM_TIMEOUT + 1 ))
-  while [ -z "$child" ]; do
-    child=$(sed -n '1p' "$detached_pid_file" 2>/dev/null || true)
-    case "$child" in
-      ''|*[!0-9]*) child= ;;
-    esac
-    [ -n "$child" ] && break
+  if ! launch_detached_watcher "$detached_dir"; then
+    rm -rf "$detached_dir"
+    echo "watcher: FAILED - detached launch did not publish a watcher identity" >&2
+    exit 1
+  fi
+  while ! fm_watch_launch_read "$detached_dir"; do
+    if [ -f "$detached_dir/result" ] || [ "$(date +%s)" -ge "$deadline" ]; then
+      fm_watch_launch_retire "$detached_dir" || exit 1
+      rm -rf "$detached_dir"
+      echo "watcher: FAILED - detached watcher did not publish its post-exec identity" >&2
+      exit 1
+    fi
+    sleep 0.02
+  done
+  child=$LAUNCH_PID
+  cycle_begin "$child" detached "$LAUNCH_IDENTITY"
+  while :; do
+    if fm_lock_try_acquire "$detached_dir/handoff.lock"; then
+      if [ -f "$detached_dir/result" ]; then
+        fm_watch_launch_result "$detached_dir"
+        result_rc=$?
+        fm_lock_release "$detached_dir/handoff.lock"
+        if [ "$result_rc" -eq 0 ] && [ "$LAUNCH_STATUS" -eq 0 ] && [ -n "$LAUNCH_REASON" ] && close_unobserved_cycle; then
+          cycle_log_append 0 none detached-delivered-wake none
+          rm -rf "$detached_dir"
+          exit 0
+        fi
+        if healthy_watcher; then
+          cycle_log_append 0 none detached-lock-race "attached:$HEALTHY_PID"
+          report_attached
+          rm -rf "$detached_dir"
+          exit 0
+        fi
+        cycle_log_append 1 none detached-start-failed none
+        rm -rf "$detached_dir"
+        echo "watcher: FAILED - detached watcher exited before health confirmation" >&2
+        exit 1
+      fi
+      if healthy_watcher; then
+        if [ "$HEALTHY_PID" = "$child" ] && [ "$HEALTHY_IDENTITY" = "$LAUNCH_IDENTITY" ]; then
+          cycle_refresh_lock_before
+          cycle_log_append 0 none detached-start "live:$child"
+          if ! touch "$detached_dir/accepted"; then
+            fm_lock_release "$detached_dir/handoff.lock"
+            break
+          fi
+          fm_lock_release "$detached_dir/handoff.lock"
+          echo "watcher: started pid=$child (beacon fresh) detached"
+          exit 0
+        fi
+        fm_lock_release "$detached_dir/handoff.lock"
+        fm_watch_launch_retire "$detached_dir" || exit 1
+        cycle_log_append 0 none detached-lock-race "attached:$HEALTHY_PID"
+        report_attached
+        rm -rf "$detached_dir"
+        exit 0
+      fi
+      fm_lock_release "$detached_dir/handoff.lock"
+    fi
     [ "$(date +%s)" -ge "$deadline" ] && break
     sleep 0.05
   done
-  rm -f "$detached_pid_file" 2>/dev/null || true
-  if [ -z "$child" ]; then
-    fm_pid_alive "$detached_launcher" && kill -TERM "$detached_launcher" 2>/dev/null || true
-    echo "watcher: FAILED - detached launch did not publish a watcher pid" >&2
-    exit 1
-  fi
-  cycle_begin "$child" detached "$(fm_pid_identity "$child" 2>/dev/null || true)"
-  while :; do
-    if healthy_watcher; then
-      if [ "$HEALTHY_PID" = "$child" ]; then
-        cycle_refresh_lock_before
-        cycle_log_append 0 none detached-start "live:$child"
-        echo "watcher: started pid=$child (beacon fresh) detached"
-        exit 0
-      fi
-      cycle_log_append 0 none detached-lock-race "attached:$HEALTHY_PID"
-      echo "watcher: attached pid=$HEALTHY_PID (beacon $(fm_path_age "$BEAT")s)"
-      exit 0
-    fi
-    if ! fm_pid_alive "$child"; then
-      if close_unobserved_cycle; then
-        cycle_log_append 0 none detached-delivered-wake none
-        exit 0
-      fi
-      cycle_log_append 1 none detached-start-failed none
-      echo "watcher: FAILED - detached watcher exited before health confirmation" >&2
-      exit 1
-    fi
-    [ "$(date +%s)" -ge "$deadline" ] && break
-    sleep 0.2
-  done
-  if fm_watcher_lock_matches_pid "$STATE" "$WATCH" "$child" "$FM_HOME"; then
-    kill -TERM "$child" 2>/dev/null || true
+  if fm_watch_launch_retire "$detached_dir"; then
+    rm -rf "$detached_dir"
   fi
   cycle_log_append 1 none confirmation-timeout none
   echo "watcher: FAILED - no live watcher with a fresh beacon"

@@ -87,11 +87,11 @@ CODEX_LEGACY_MODE=0
 SYNC_WAIT_MS=${FM_CLAUDE_AUTOARM_SYNC_WAIT_MS:-800}
 EPOCH_FRESH=${FM_CLAUDE_AUTOARM_EPOCH_FRESH:-15}
 BLOCK_BUDGET=${FM_CLAUDE_TURNEND_BLOCK_BUDGET:-3}
-CODEX_DETACHED_SETTLE_MS=${FM_CODEX_STOP_DETACHED_SETTLE_MS:-1000}
+CODEX_DETACHED_SETTLE_MS=${FM_CODEX_STOP_DETACHED_SETTLE_MS:-0}
 case "$SYNC_WAIT_MS" in ''|*[!0-9]*) SYNC_WAIT_MS=800 ;; esac
 case "$EPOCH_FRESH" in ''|*[!0-9]*|0) EPOCH_FRESH=15 ;; esac
 case "$BLOCK_BUDGET" in ''|*[!0-9]*|0) BLOCK_BUDGET=3 ;; esac
-case "$CODEX_DETACHED_SETTLE_MS" in ''|*[!0-9]*) CODEX_DETACHED_SETTLE_MS=1000 ;; esac
+case "$CODEX_DETACHED_SETTLE_MS" in ''|*[!0-9]*) CODEX_DETACHED_SETTLE_MS=0 ;; esac
 
 for arg in "$@"; do
   case "$arg" in
@@ -196,10 +196,18 @@ if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
     while [ "$ARM_ATTEMPT" -lt 2 ]; do
       ARM_ATTEMPT=$((ARM_ATTEMPT + 1))
       if [ -n "$OUT" ]; then
-        "${ARM_COMMAND[@]}" > "$OUT" 2>&1
+        if [ "$CODEX_LEGACY_MODE" -eq 1 ]; then
+          "${ARM_COMMAND[@]}" > "$OUT" 2>&1
+        else
+          FM_WATCH_NOTIFY_REQUIRED=1 "${ARM_COMMAND[@]}" > "$OUT" 2>&1
+        fi
         ARM_RC=$?
       else
-        "${ARM_COMMAND[@]}" >&2
+        if [ "$CODEX_LEGACY_MODE" -eq 1 ]; then
+          "${ARM_COMMAND[@]}" >&2
+        else
+          FM_WATCH_NOTIFY_REQUIRED=1 "${ARM_COMMAND[@]}" >&2
+        fi
         ARM_RC=$?
       fi
       fm_session_lock_owned_by_self "$STATE" || exit 0
@@ -218,7 +226,7 @@ if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
       fi
       if [ "$ARM_RC" -eq 0 ]; then
         [ -z "$OUT" ] || cat "$OUT" >&2
-        if [ "$QUEUE_WAS_PENDING" -eq 1 ]; then
+        if [ "$QUEUE_WAS_PENDING" -eq 1 ] || [ -s "$STATE/.wake-queue" ]; then
           printf '%s\n' 'check: rearm-resurface' >&2
           printf '%s\n' 'Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.' >&2
           exit 2

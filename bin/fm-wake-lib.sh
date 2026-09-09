@@ -295,6 +295,7 @@ fm_lock_clean_known_files() {
     "$lockdir/pid-identity" \
     "$lockdir/role" \
     "$lockdir/watcher-path" \
+    "$lockdir/watcher-launch" \
     2>/dev/null || true
 }
 

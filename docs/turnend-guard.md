@@ -62,6 +62,11 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
   A quiet checkpoint returns exit 2 with `CODEX_WATCH_CONTINUE`, directing the same session into the existing [foreground checkpoint loop](supervision-protocols/codex.md); each checkpoint's output returns through the foreground tool call, so wakes arriving after the old hook deadline remain observable without a restart.
   This continuation requires the agent to execute the emitted command and keep following that loop; the hook does not extend its cached timeout or detach a background watcher.
   `fm-spawn.sh` gives Codex secondmates a home-scoped CLI `notify` callback through `bin/fm-home-wake.sh`, bound to the launched backend endpoint.
+  The same launch exports that endpoint for Stop-owned detached completion; a session without a binding receives an actionable relaunch error instead of claiming unattended supervision.
+  The detached arm waits for its own watcher and delivers later wakes and failures through the existing home callback, after verifying the original home-session PID and process identity.
+  Startup and completion transfer ownership under a per-launch lock: the watcher publishes its post-exec identity before preparation, and the arm publishes its identity-bound exit result before the Stop caller or detached completion path may consume it.
+  Confirmation failure cancels the identity-owned detached arm, which retires its own watcher process group even before watcher lock metadata exists.
+  A later lock-owning Stop can rebind a surviving detached watcher to its current session under the same handoff lock.
   With queued home wakes, a lock-owning idle session runs a bounded watcher checkpoint before submitting a handling notification through the backend.
   The handling turn owns the normal drain and acknowledgement; the callback leaves queued rows and unread status presentation untouched even when submission fails or the composer becomes occupied.
   The callback stays silent for an empty queue, leaves an existing watcher in charge, and defers busy or occupied composers and away mode.

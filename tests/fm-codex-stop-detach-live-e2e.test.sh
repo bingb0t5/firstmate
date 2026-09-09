@@ -37,8 +37,7 @@ mkdir -p "$HOME_DIR/state" "$HOME_DIR/config"
 printf 'codex-stop-live\n' > "$HOME_DIR/.fm-secondmate-home"
 printf 'kind=ship\n' > "$HOME_DIR/state/live.meta"
 git clone -q "$ROOT" "$PROJECT"
-cp "$ROOT/bin/fm-turnend-guard.sh" "$PROJECT/bin/fm-turnend-guard.sh"
-cp "$ROOT/bin/fm-watch-arm.sh" "$PROJECT/bin/fm-watch-arm.sh"
+cp -R "$ROOT/bin/." "$PROJECT/bin/"
 
 run_codex_turn() {
   local home=$1 output=$2 start end rc child
@@ -46,6 +45,7 @@ run_codex_turn() {
   (
     cd "$PROJECT" || exit 1
     printf '%s\n' "$$" > "$home/state/.lock"
+    export FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=detach-live-test
     export FM_HOME="$home" FM_ROOT_OVERRIDE="$PROJECT" FM_STATE_OVERRIDE="$home/state" FM_CONFIG_OVERRIDE="$home/config"
     exec timeout 55s codex exec \
       --dangerously-bypass-hook-trust \
@@ -92,6 +92,7 @@ INT_TRANSCRIPT="$LAB/codex-interrupt.jsonl"
 setsid bash -c '
   cd "$1" || exit 1
   printf "%s\\n" "$$" > "$2/state/.lock"
+  export FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=detach-live-test
   export FM_HOME="$2" FM_ROOT_OVERRIDE="$1" FM_STATE_OVERRIDE="$2/state" FM_CONFIG_OVERRIDE="$2/config"
   exec timeout 55s codex exec \
     --dangerously-bypass-hook-trust \

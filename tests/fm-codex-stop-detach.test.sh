@@ -61,6 +61,7 @@ run_stop_to_files() {
     env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
       FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
       FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" \
+      FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=detach-test \
       FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
       "$dir/codex" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
@@ -80,6 +81,7 @@ run_stop_to_pipe() {
     env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
       FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
       FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" \
+      FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=detach-test \
       FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
       "$dir/codex" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
@@ -109,7 +111,22 @@ wait_for_watcher() {
 
 count_watchers() {
   local dir=$1
-  ps -eo comm=,args= | awk -v path="$dir/bin/fm-watch.sh" '$1 == "bash" && index($0, path) { count++ } END { print count + 0 }'
+  ps -eo pid=,ppid=,comm=,args= | awk -v path="$dir/bin/fm-watch.sh" '
+    { parents[$1] = $2 }
+    $3 == "bash" && index($0, path) { watchers[$1] = 1 }
+    END {
+      for (pid in watchers) {
+        parent = parents[pid]
+        nested = 0
+        while (parent > 1 && parent in parents) {
+          if (parent in watchers) { nested = 1; break }
+          parent = parents[parent]
+        }
+        if (!nested) count++
+      }
+      print count + 0
+    }
+  '
 }
 
 test_detached_start_and_pipe_closure() {
@@ -177,5 +194,196 @@ test_existing_watcher_attaches_without_duplicate() {
   pass "Codex Stop attaches to a healthy watcher and returns without a duplicate"
 }
 
+run_arm() {
+  local dir=$1
+  shift
+  env -u FM_HOME_WAKE_BACKEND -u FM_HOME_WAKE_TARGET \
+    FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" FM_CONFIG_OVERRIDE="$dir/config" \
+    FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$@" "$dir/bin/fm-watch-arm.sh" --detached
+}
+
+test_high_inherited_descriptor() {
+  local dir
+  dir=$(make_codex_case high-descriptor)
+  printf 'kind=ship\n' > "$dir/state/live.meta"
+  python3 - "$dir" <<'PYTEST'
+import os
+import resource
+import select
+import subprocess
+import sys
+home = sys.argv[1]
+soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+if hard != resource.RLIM_INFINITY and hard <= 2048:
+    print('skip: hard descriptor limit cannot support fd 2048')
+    sys.exit(0)
+resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, 2049), hard))
+reader, writer = os.pipe()
+os.dup2(writer, 2048, inheritable=True)
+os.close(writer)
+env = dict(os.environ, FM_HOME=home, FM_ROOT_OVERRIDE=home,
+           FM_STATE_OVERRIDE=home + '/state', FM_CONFIG_OVERRIDE=home + '/config',
+           FM_POLL='1', FM_SIGNAL_GRACE='0', FM_CHECK_INTERVAL='999999', FM_HEARTBEAT='999999')
+env.pop('FM_HOME_WAKE_BACKEND', None)
+env.pop('FM_HOME_WAKE_TARGET', None)
+try:
+    result = subprocess.run([home + '/bin/fm-watch-arm.sh', '--detached'],
+                            env=env, pass_fds=(2048,), capture_output=True, text=True, timeout=15)
+finally:
+    os.close(2048)
+assert result.returncode == 0, (result.stdout, result.stderr)
+assert select.select([reader], [], [], 2)[0], 'fd 2048 retained the inherited hook pipe'
+assert os.read(reader, 1) == b'', 'hook pipe did not reach EOF'
+os.close(reader)
+pid = int(open(home + '/state/.watch.lock/pid').read())
+os.kill(pid, 0)
+assert os.getsid(pid) == pid
+PYTEST
+  [ "$?" -eq 0 ] || fail 'high-numbered inherited hook descriptor stayed open'
+  pass 'detached launch closes inherited fd 2048 while its watcher survives'
+}
+
+test_prelock_confirmation_failure() {
+  local dir rc start elapsed pid
+  dir=$(make_codex_case slow-preparation)
+  rm "$dir/bin/fm-pr-check-migrate.sh"
+  cat > "$dir/bin/fm-pr-check-migrate.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$$" > "$FM_HOME/preparation.pid"
+sleep 60 &
+printf '%s\n' "$!" > "$FM_HOME/preparation-child.pid"
+wait
+SH
+  chmod +x "$dir/bin/fm-pr-check-migrate.sh"
+  start=$(codex_stop_milliseconds)
+  run_arm "$dir" env FM_ARM_CONFIRM_TIMEOUT=1 > "$dir/arm.out" 2>&1
+  rc=$?
+  elapsed=$(( $(codex_stop_milliseconds) - start ))
+  [ "$rc" -ne 0 ] || fail 'slow pre-lock preparation was accepted'
+  [ "$elapsed" -lt 6000 ] || fail "pre-lock cancellation exceeded its bound: $elapsed"
+  [ -s "$dir/preparation.pid" ] && [ -s "$dir/preparation-child.pid" ] || fail 'slow preparation never ran'
+  for pid in "$(cat "$dir/preparation.pid")" "$(cat "$dir/preparation-child.pid")"; do
+    is_live_non_zombie "$pid" && fail "confirmation failure leaked preparation pid=$pid"
+  done
+  [ ! -e "$dir/state/.watch.lock/pid" ] || fail 'failed pre-lock candidate later acquired the watcher lock'
+  pass 'confirmation timeout retires pre-lock preparation and descendants'
+}
+
+test_fast_completion_identity() {
+  local dir rc i
+  for i in 1 2 3; do
+    dir=$(make_codex_case "fast-completion-$i")
+    append_wake "$dir/state" check fast 'check: already queued'
+    FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash -c '. "$1"; fm_recovery_marker_publish "$STATE/.watcher-down" downtime' _ "$ROOT/bin/fm-wake-lib.sh"
+    cat >> "$dir/bash-env" <<'SH'
+if [ "${0##*/}" = fm-watch-arm.sh ] && [ "${1:-}" = --detached ]; then
+  date() { sleep 0.3; command date "$@"; }
+fi
+SH
+    run_arm "$dir" env BASH_ENV="$dir/bash-env" > "$dir/arm.out" 2>&1
+    rc=$?
+    [ "$rc" -eq 0 ] || fail "fast queued completion was reported as failure: $(cat "$dir/arm.out")"
+    [ -s "$dir/state/.wake-queue" ] || fail 'fast completion consumed queued work'
+    grep -qE '^(check: rearm-resurface|watcher: started)' "$dir/arm.out" || fail 'fast completion returned no observable outcome'
+  done
+  pass 'fast queued completions retain post-exec identity and successful outcomes'
+}
+
+test_unmatched_delivery_is_rejected() {
+  local dir rc
+  dir=$(make_codex_case mismatched-delivery)
+  rm "$dir/bin/fm-watch.sh"
+  cat > "$dir/bin/fm-watch.sh" <<'SH'
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/fm-wake-lib.sh"
+. "$SCRIPT_DIR/fm-watch-launch-lib.sh"
+fm_watch_launch_begin || exit 1
+printf '%s\t%s\t%s\n' "$$" 'different process identity' 'check: forged delivery' > "$STATE/.watch-deliveries.log"
+exit 0
+SH
+  chmod +x "$dir/bin/fm-watch.sh"
+  run_arm "$dir" env > "$dir/arm.out" 2>&1
+  rc=$?
+  [ "$rc" -ne 0 ] || fail 'a delivery from a mismatched process identity was accepted'
+  grep -q 'watcher: FAILED' "$dir/arm.out" || fail 'mismatched delivery failed without an actionable outcome'
+  pass 'unmatched delivery records cannot turn an empty completion into success'
+}
+
+test_late_completion_handoff() {
+  local dir scenario child
+  for scenario in wake failure replaced-session rebound; do
+    dir=$(make_codex_case "late-$scenario")
+    cat > "$dir/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  display-message) case "$*" in *cursor_y*) printf '1\n' ;; *) printf 'codex\n' ;; esac ;;
+  capture-pane) printf '╭────╮\n│ %s   │\n╰────╯\n' "$(cat "$FM_HOME/pending" 2>/dev/null)" ;;
+  send-keys)
+    if [ "${4:-}" = -l ]; then
+      printf '%s\n' "$5" > "$FM_HOME/pending"
+      printf '%s\n' "$5" >> "$FM_HOME/submissions"
+    elif [ "${4:-}" = Enter ]; then
+      : > "$FM_HOME/pending"
+    fi ;;
+esac
+exit 0
+SH
+    chmod +x "$dir/fakebin/tmux"
+    cat > "$dir/late-probe.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+cd "$FM_HOME" || exit 1
+printf '%s\n' "$$" > "$FM_HOME/state/.lock"
+printf 'kind=ship\n' > "$FM_HOME/state/live.meta"
+stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$FM_HOME/.codex/hooks.json")
+printf '{"stop_hook_active":false}' | bash -c "$stop" || exit 10
+printf 'returned\n' > "$FM_HOME/stop-returned"
+sleep 2
+watcher=$(cat "$FM_HOME/state/.watch.lock/pid")
+case "$1" in
+  failure) kill -KILL "$watcher" ;;
+  replaced-session)
+    printf '1\n' > "$FM_HOME/state/.lock"
+    printf 'done: completed after Stop\n' > "$FM_HOME/state/live.status" ;;
+  *) printf 'done: completed after Stop\n' > "$FM_HOME/state/live.status" ;;
+esac
+for ((i=0; i<150; i++)); do
+  [ -s "$FM_HOME/submissions" ] && exit 0
+  if [ "$1" = replaced-session ] && [ -s "$FM_HOME/state/.watch-deliveries.log" ]; then
+    sleep 1
+    [ ! -s "$FM_HOME/submissions" ] || exit 12
+    exit 0
+  fi
+  sleep 0.1
+done
+exit 11
+SH
+    if [ "$scenario" = rebound ]; then
+      run_stop_to_files "$dir" || fail 'could not establish the previous session watcher'
+    fi
+    env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+      FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" FM_CONFIG_OVERRIDE="$dir/config" \
+      FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=detach-test BASH_ENV="$dir/bash-env" \
+      FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      "$dir/codex" "$dir/late-probe.sh" "$scenario" > "$dir/probe.out" 2>&1 &
+    child=$!
+    CHILD_PIDS="$CHILD_PIDS $child"
+    wait "$child" || fail "late $scenario completion did not hand off correctly: $(cat "$dir/probe.out")"
+    [ -s "$dir/stop-returned" ] || fail 'late event occurred before the Stop hook returned'
+    [ -s "$dir/state/.wake-queue" ] || fail 'completion callback consumed the queue'
+    if [ "$scenario" != replaced-session ]; then
+      [ "$(wc -l < "$dir/submissions")" -eq 1 ] || fail 'completion submitted duplicate handling turns'
+    fi
+  done
+  pass 'late wake and SIGKILL failure notify the original session without consuming queued work'
+}
+
 test_detached_start_and_pipe_closure
 test_existing_watcher_attaches_without_duplicate
+test_high_inherited_descriptor
+test_prelock_confirmation_failure
+test_fast_completion_identity
+test_unmatched_delivery_is_rejected
+test_late_completion_handoff
