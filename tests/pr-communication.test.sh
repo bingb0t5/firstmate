@@ -551,14 +551,38 @@ body = body.replace(line, replacements[mode]);
 if (mode === 'field_in_pipeline') body += '\n\n' + line + '\n';
 fs.writeFileSync(file, body);
 JS
+        if [ "$mode" = canonical ] || [ "$mode" = earlier_prose ]; then
+          node - "$CHECK" "$PF_ROOT/$target.md" > "$PF_ROOT/hosted-diagnostic" 2>&1 <<'JS'
+const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const result = spawnSync(process.execPath, ['--experimental-strip-types', process.argv[2]], {
+  env: { ...process.env, PR_TITLE: 'Show members their request status',
+    PR_BODY: fs.readFileSync(process.argv[3], 'utf8'), GITHUB_STEP_SUMMARY: '' },
+  encoding: 'utf8',
+});
+process.stdout.write(result.stdout || '');
+process.stderr.write(result.stderr || '');
+process.exit(result.status ?? 1);
+JS
+          rc=$?
+          if [ "$mode" = canonical ]; then
+            expect_code 0 "$rc" "$target $label original hosted assessment"
+          else
+            expect_code 1 "$rc" "$target $label stale original hosted assessment"
+            assert_contains "$(cat "$PF_ROOT/hosted-diagnostic")" "$label: pending" "$target hosted assessor did not reject the original stale line"
+          fi
+        fi
         preflight_live_body "$PF_ROOT/live.md"
         preflight_run; rc=$?
-        if [ "$mode" = canonical ] || [ "$mode" = earlier_prose ]; then
+        if [ "$mode" = canonical ]; then
           expect_code 0 "$rc" "$target $label canonical narrative"
           cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$target canonical changed intent"
         else
           expect_code 2 "$rc" "$target $label $mode narrative"
           [ ! -s "$PF_ROOT/validated.md" ] || fail "$target $label $mode released intent"
+          if [ "$mode" = earlier_prose ]; then
+            assert_contains "$(cat "$PF_ROOT/diagnostic")" "$label: pending" "$target preflight hid the original stale line"
+          fi
           if [ "$target" = intent ]; then
             [ ! -e "$PF_ROOT/calls" ] || fail "invalid authored narrative reached the forge"
           fi
@@ -566,7 +590,7 @@ JS
       done
     done
   done
-  pass "only exact unquoted template bullets supply narrative fields, independently of Pipeline"
+  pass "original hosted assessment and positional narrative restrictions must both pass"
 }
 
 test_preflight_reports_narrative_html_locations() {

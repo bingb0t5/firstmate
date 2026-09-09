@@ -16,6 +16,7 @@ Parser fence tokens also identify unterminated examples; intake refuses later ev
 Both parses must accept the actual occurrence; neither provides reconstructed evidence bytes.
 The original first-delimiter extraction and JSON validation remain in `check-pr-delivery.ts`.
 
-`pr-delivery-narrative.ts` supplies the narrative-only input to the pinned assessors; its intake format is documented in [CONTRIBUTING.md](../../CONTRIBUTING.md).
+`pr-delivery-narrative.ts` supplies an additional narrative-only input to the pinned assessors; its intake format is documented in [CONTRIBUTING.md](../../CONTRIBUTING.md).
 It masks Pipeline sections before narrative evaluation and preserves source positions for field eligibility and HTML diagnostics.
+Both the unchanged original body and the eligible narrative fields must pass the pinned assessors; filtering cannot authorize an original body that those assessors reject.
 The narrative HTML refusal does not change the existing machine parser or reject its accepted HTML-wrapped Pipeline evidence.
