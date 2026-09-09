@@ -57,12 +57,15 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
 - Claude registers two `Stop` hooks in `.claude/settings.json`, both anchored through `CLAUDE_PROJECT_DIR`: `bin/fm-turnend-guard.sh --claude`, and `bin/fm-claude-stop-autoarm.sh` with `asyncRewake: true` and `timeout: 28800`.
 - Codex registers a `Stop` hook in `.codex/hooks.json`, anchors the executable to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and passes the original payload to the shared guard with `--codex`.
   A process that loaded the pre-PR40 command before a tracked hook update is also promoted to this path when it runs from the same validated marked secondmate home and the verified Codex process owns that home's session lock, while other harnesses, an unmarked primary, child worktree, or ambiguous or lockless home override remain on the generic path.
+  Before promotion, that legacy invocation selects a five-second foreground checkpoint because its loaded hook still has a 30-second deadline.
+  A quiet checkpoint returns exit 2 with `CODEX_WATCH_CONTINUE`, directing the same session into the existing [foreground checkpoint loop](supervision-protocols/codex.md); each checkpoint's output returns through the foreground tool call, so wakes arriving after the old hook deadline remain observable without a restart.
+  This continuation requires the agent to execute the emitted command and keep following that loop; the hook does not extend its cached timeout or detach a background watcher.
   `fm-spawn.sh` gives Codex secondmates a home-scoped CLI `notify` callback through `bin/fm-home-wake.sh`, bound to the launched backend endpoint.
   With queued home wakes, a lock-owning idle session runs a bounded watcher checkpoint before submitting a handling notification through the backend.
   The handling turn owns the normal drain and acknowledgement; the callback leaves queued rows and unread status presentation untouched even when submission fails or the composer becomes occupied.
   The callback stays silent for an empty queue, leaves an existing watcher in charge, and defers busy or occupied composers and away mode.
   It never publishes a child-task signal; ordinary Codex crew notifications retain their task markers.
-  In a marked secondmate home, the lock-owning session foregrounds `fm-watch-arm.sh` inside the Stop process tree, including when only queued home wakes remain or the home is idle.
+  With an explicit `--codex` registration in a marked secondmate home, the lock-owning session foregrounds `fm-watch-arm.sh` inside the Stop process tree, including when only queued home wakes remain or the home is idle.
   An actionable close returns exit 2 with the durable wake and handling instruction, and the next Stop owns re-arming without publishing any child-task marker.
   Away mode skips normal arming and retains the shared strict watcher health check and daemon-specific recovery instruction.
   Each Stop makes at most two arm attempts, including in queued-only homes.
