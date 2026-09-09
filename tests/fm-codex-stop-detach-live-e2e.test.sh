@@ -13,21 +13,25 @@ fail() {
   exit 1
 }
 command -v codex >/dev/null 2>&1 || fail "codex not found"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required for portable process inspection and cleanup"
 
 LAB=$(mktemp -d "$ROOT/.codex-stop-detach-live.XXXXXX")
 PROJECT="$LAB/project"
 HOME_DIR="$LAB/home"
 TRANSCRIPT="$LAB/codex.jsonl"
-WATCHER_PIDS=
+CHILD_PIDS=
+. "$ROOT/tests/codex-stop-detach-helpers.sh"
 cleanup() {
-  for watcher_pid in $WATCHER_PIDS; do
-    kill -TERM "$watcher_pid" 2>/dev/null || true
-    wait "$watcher_pid" 2>/dev/null || true
-  done
+  local rc=$?
+  trap - EXIT INT TERM
+  codex_stop_cleanup_processes "$LAB" || exit 1
   chmod -R u+w "$LAB" 2>/dev/null || true
   rm -r "$LAB"
+  exit "$rc"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 mkdir -p "$HOME_DIR/state" "$HOME_DIR/config"
 printf 'codex-stop-live\n' > "$HOME_DIR/.fm-secondmate-home"
@@ -37,8 +41,8 @@ cp "$ROOT/bin/fm-turnend-guard.sh" "$PROJECT/bin/fm-turnend-guard.sh"
 cp "$ROOT/bin/fm-watch-arm.sh" "$PROJECT/bin/fm-watch-arm.sh"
 
 run_codex_turn() {
-  local home=$1 output=$2 start end rc
-  start=$(date +%s%N)
+  local home=$1 output=$2 start end rc child
+  start=$(codex_stop_milliseconds)
   (
     cd "$PROJECT" || exit 1
     printf '%s\n' "$$" > "$home/state/.lock"
@@ -49,10 +53,13 @@ run_codex_turn() {
       --skip-git-repo-check \
       -c 'model_reasoning_effort="low"' --json \
       'Reply with exactly OK and do not use tools.'
-  ) > "$output" 2>&1
+  ) > "$output" 2>&1 &
+  child=$!
+  CHILD_PIDS="$CHILD_PIDS $child"
+  wait "$child"
   rc=$?
-  end=$(date +%s%N)
-  printf '%s %s\n' "$rc" "$(( (end - start) / 1000000 ))"
+  end=$(codex_stop_milliseconds)
+  TURN_RESULT="$rc $((end - start))"
   return "$rc"
 }
 
@@ -62,16 +69,17 @@ watcher_is_healthy() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && [ -e "$home/state/.last-watcher-beat" ]
 }
 
-first=$(run_codex_turn "$HOME_DIR" "$TRANSCRIPT") || fail "real Codex Stop turn failed or exceeded its bound: $(tail -20 "$TRANSCRIPT")"
+run_codex_turn "$HOME_DIR" "$TRANSCRIPT" || fail "real Codex Stop turn failed or exceeded its bound: $(tail -20 "$TRANSCRIPT")"
 WATCHER_PID=$(sed -n '1p' "$HOME_DIR/state/.watch.lock/pid" 2>/dev/null || true)
-WATCHER_PIDS="$WATCHER_PID"
+first=$TURN_RESULT
 watcher_is_healthy "$HOME_DIR" || fail "real Codex Stop did not leave a detached healthy watcher"
-watcher_sid=$(ps -o sid= -p "$WATCHER_PID" | tr -d '[:space:]')
+watcher_sid=$(codex_stop_session "$WATCHER_PID")
 [ "$watcher_sid" = "$WATCHER_PID" ] || fail "real Codex watcher does not lead a new session: pid=$WATCHER_PID sid=$watcher_sid"
 printf '%s\n' "ok - real Codex no-watcher Stop returned rc=${first%% *} in ${first##* }ms and left watcher pid=$WATCHER_PID sid=$watcher_sid"
 
 before=$WATCHER_PID
-second=$(run_codex_turn "$HOME_DIR" "$LAB/codex-second.jsonl") || fail "real Codex Stop with an existing watcher failed: $(tail -20 "$LAB/codex-second.jsonl")"
+run_codex_turn "$HOME_DIR" "$LAB/codex-second.jsonl" || fail "real Codex Stop with an existing watcher failed: $(tail -20 "$LAB/codex-second.jsonl")"
+second=$TURN_RESULT
 after=$(sed -n '1p' "$HOME_DIR/state/.watch.lock/pid" 2>/dev/null || true)
 [ "$after" = "$before" ] || fail "real Codex existing-watcher Stop replaced the watcher: before=$before after=$after"
 printf '%s\n' "ok - real Codex existing-watcher Stop returned rc=${second%% *} in ${second##* }ms without replacing pid=$after"
@@ -93,6 +101,7 @@ setsid bash -c '
     '\''Reply with exactly OK and do not use tools.'\''
 ' _ "$PROJECT" "$INT_HOME" > "$INT_TRANSCRIPT" 2>&1 &
 interrupt_parent=$!
+CHILD_PIDS="$CHILD_PIDS $interrupt_parent"
 interrupt_pgid=$(ps -o pgid= -p "$interrupt_parent" | tr -d '[:space:]')
 [ "$interrupt_pgid" = "$interrupt_parent" ] || fail "real Codex interrupt probe did not create an isolated parent process group: pid=$interrupt_parent pgid=$interrupt_pgid"
 interrupt_watcher=
@@ -113,11 +122,11 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 kill -0 "$interrupt_parent" 2>/dev/null && fail "real Codex parent process group did not exit after interrupt"
-WATCHER_PIDS="$WATCHER_PIDS $interrupt_watcher"
-interrupt_sid=$(ps -o sid= -p "$interrupt_watcher" | tr -d '[:space:]')
+interrupt_sid=$(codex_stop_session "$interrupt_watcher")
 [ "$interrupt_sid" = "$interrupt_watcher" ] || fail "interrupting the Codex parent group changed the watcher session: pid=$interrupt_watcher sid=$interrupt_sid"
 watcher_is_healthy "$INT_HOME" || fail "interrupting the Codex parent group killed the detached watcher"
-next=$(run_codex_turn "$INT_HOME" "$LAB/codex-interrupt-next.jsonl") || fail "next real Codex Stop after parent-group interrupt failed or exceeded its bound: $(tail -20 "$LAB/codex-interrupt-next.jsonl")"
+run_codex_turn "$INT_HOME" "$LAB/codex-interrupt-next.jsonl" || fail "next real Codex Stop after parent-group interrupt failed or exceeded its bound: $(tail -20 "$LAB/codex-interrupt-next.jsonl")"
+next=$TURN_RESULT
 next_watcher=$(sed -n '1p' "$INT_HOME/state/.watch.lock/pid" 2>/dev/null || true)
 [ "$next_watcher" = "$interrupt_watcher" ] || fail "next real Codex Stop replaced the surviving watcher: before=$interrupt_watcher after=$next_watcher"
 printf '%s\n' "ok - interrupting real Codex parent group left watcher pid=$interrupt_watcher sid=$interrupt_sid alive and next Stop returned rc=${next%% *} in ${next##* }ms"

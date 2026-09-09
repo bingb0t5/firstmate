@@ -2,23 +2,28 @@
 # Codex Stop-hook detachment contract through the tracked hook registration.
 set -u
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo 'skip: python3 is required for portable process inspection and cleanup'
+  exit 0
+fi
+
 # shellcheck source=tests/wake-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/wake-helpers.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-codex-stop-detach)
-WATCHER_PIDS=
+CHILD_PIDS=
+. "$(dirname "${BASH_SOURCE[0]}")/codex-stop-detach-helpers.sh"
 
 cleanup_watcher_pids() {
-  local pid
-  for pid in $WATCHER_PIDS; do
-    kill -TERM "$pid" 2>/dev/null || true
-  done
-  for pid in $WATCHER_PIDS; do
-    wait "$pid" 2>/dev/null || true
-  done
+  local rc=$?
+  trap - EXIT INT TERM
+  codex_stop_cleanup_processes "$TMP_ROOT" || exit 1
   fm_test_cleanup
+  exit "$rc"
 }
-trap cleanup_watcher_pids EXIT INT TERM
+trap cleanup_watcher_pids EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 make_codex_case() {
   local name=$1 dir entry
@@ -108,36 +113,50 @@ count_watchers() {
 }
 
 test_detached_start_and_pipe_closure() {
-  local dir pipe reader hook_pid start end elapsed watcher sid fd target
+  local dir pipe reader hook_pid start end elapsed watcher sid fd target descriptors
   dir=$(make_codex_case no-watcher)
   printf 'kind=ship\n' > "$dir/state/live.meta"
   pipe="$dir/hook.pipe"
   mkfifo "$pipe"
   cat "$pipe" > "$dir/pipe.out" &
   reader=$!
-  start=$(date +%s%N)
+  CHILD_PIDS="$CHILD_PIDS $reader"
+  start=$(codex_stop_milliseconds)
   run_stop_to_pipe "$dir" "$pipe" &
   hook_pid=$!
+  CHILD_PIDS="$CHILD_PIDS $hook_pid"
   wait_for_exit "$hook_pid" 50 || fail "Codex Stop hook did not return within 5 seconds"
-  end=$(date +%s%N)
-  elapsed=$(( (end - start) / 1000000 ))
+  end=$(codex_stop_milliseconds)
+  elapsed=$((end - start))
   wait_for_exit "$reader" 20 || fail "the hook output pipe stayed open after Stop returned"
   watcher=$(wait_for_watcher "$dir") || fail "detached Stop hook did not leave a healthy watcher"
-  WATCHER_PIDS="$WATCHER_PIDS $watcher"
-  sid=$(ps -o sid= -p "$watcher" | tr -d '[:space:]')
+  sid=$(codex_stop_session "$watcher")
   [ "$sid" = "$watcher" ] || fail "watcher did not lead its own session: pid=$watcher sid=$sid"
-  for fd in 0 1 2; do
-    target=$(readlink "/proc/$watcher/fd/$fd" 2>/dev/null || true)
-    [ "$target" = /dev/null ] || fail "detached watcher fd $fd was not redirected to /dev/null: $target"
-  done
-  for fd in /proc/"$watcher"/fd/*; do
-    target=$(readlink "$fd" 2>/dev/null || true)
-    case "$target" in
-      *hook.pipe*|*pipe.out*) fail "detached watcher inherited the hook pipe: $fd -> $target" ;;
+  if [ -d "/proc/$watcher/fd" ]; then
+    for fd in 0 1 2; do
+      target=$(readlink "/proc/$watcher/fd/$fd" 2>/dev/null || true)
+      [ "$target" = /dev/null ] || fail "detached watcher fd $fd was not redirected to /dev/null: $target"
+    done
+    for fd in /proc/"$watcher"/fd/*; do
+      target=$(readlink "$fd" 2>/dev/null || true)
+      case "$target" in
+        *hook.pipe*|*pipe.out*) fail "detached watcher inherited the hook pipe: $fd -> $target" ;;
+      esac
+    done
+  elif command -v lsof >/dev/null 2>&1; then
+    descriptors=$(lsof -a -p "$watcher" -Ffn 2>/dev/null) || fail "could not inspect watcher descriptors with lsof"
+    for fd in 0 1 2; do
+      target=$(printf '%s\n' "$descriptors" | awk -v fd="$fd" '/^f/ { selected = substr($0, 2) == fd } selected && /^n/ { print substr($0, 2) }')
+      [ "$target" = /dev/null ] || fail "detached watcher fd $fd was not redirected to /dev/null: $target"
+    done
+    case "$descriptors" in
+      *hook.pipe*|*pipe.out*) fail "detached watcher inherited the hook pipe" ;;
     esac
-  done
+  else
+    printf '%s\n' 'skip: descriptor inspection requires /proc or lsof; hook pipe EOF was checked'
+  fi
   [ "$elapsed" -lt 5000 ] || fail "detached Stop hook exceeded its 5-second bound: ${elapsed}ms"
-  pass "Codex Stop starts a new-session watcher, closes stdio and hook descriptors, and returns in ${elapsed}ms"
+  pass "Codex Stop starts a new-session watcher, closes the hook pipe, and returns in ${elapsed}ms"
 }
 
 test_existing_watcher_attaches_without_duplicate() {
@@ -147,8 +166,8 @@ test_existing_watcher_attaches_without_duplicate() {
   FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" FM_CONFIG_OVERRIDE="$dir/config" \
     FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
     "$dir/bin/fm-watch.sh" > "$dir/watcher.out" 2> "$dir/watcher.err" &
+  CHILD_PIDS="$CHILD_PIDS $!"
   watcher_before=$(wait_for_watcher "$dir") || fail "could not establish the healthy pre-existing watcher"
-  WATCHER_PIDS="$WATCHER_PIDS $watcher_before"
   run_stop_to_files "$dir"; rc=$?
   [ "$rc" -eq 0 ] || fail "Stop hook failed on a healthy existing watcher: rc=$rc $(cat "$dir/stop.err")"
   watcher_after=$(watcher_pid "$dir")
