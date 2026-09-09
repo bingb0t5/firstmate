@@ -357,8 +357,10 @@ SH
 }
 
 test_late_completion_handoff() {
-  local dir scenario child
-  for scenario in wake failure replaced-session rebound direct direct-failure race; do
+  local dir scenario child executable
+  local scenarios=(wake failure persistent-failure callback-contention replaced-session rebound direct direct-failure direct-stale direct-successor race)
+  [ "$#" -eq 0 ] || scenarios=("$@")
+  for scenario in "${scenarios[@]}"; do
     dir=$(make_codex_case "late-$scenario")
     cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -380,6 +382,12 @@ SH
 #!/usr/bin/env bash
 set -u
 cd "$FM_HOME" || exit 1
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then
+  printf "probe failed: rc=%s\n" "$rc"
+  for record in "$FM_HOME/state/.watch-cycle-exits.log" "$FM_HOME/state/.watch-deliveries.log" "$FM_HOME/state/.wake-queue" "$FM_HOME/successor.out" "$FM_HOME/state"/.watch-arm-detached.*/notification-output; do
+    [ ! -f "$record" ] || { printf "%s\n" "$record"; cat "$record"; }
+  done
+fi' EXIT
 printf '%s\n' "$$" > "$FM_HOME/state/.lock"
 printf 'kind=ship\n' > "$FM_HOME/state/live.meta"
 if [[ "$1" = direct* ]]; then
@@ -400,13 +408,68 @@ sleep 2
 watcher=$(cat "$FM_HOME/state/.watch.lock/pid")
 case "$1" in
   failure|direct-failure) kill -KILL "$watcher" ;;
+  direct-stale)
+    kill -STOP "$watcher"
+    touch -t 200001010000 "$FM_HOME/state/.last-watcher-beat" ;;
+  direct-successor)
+    kill -TERM "$watcher"
+    wait "$watcher" || true
+    FM_WATCH_HANDLING_SUCCESSOR=1 "$FM_HOME/bin/fm-watch.sh" > "$FM_HOME/successor.out" 2>&1 &
+    successor=$!
+    for ((i=0; i<150; i++)); do
+      [ "$(cat "$FM_HOME/state/.watch.lock/pid" 2>/dev/null)" = "$successor" ] && [ -s "$FM_HOME/state/.watch.lock/watcher-launch" ] && break
+      sleep 0.1
+    done
+    [ -s "$FM_HOME/state/.watch.lock/watcher-launch" ] || exit 14
+    printf 'done: completed by successor\n' > "$FM_HOME/state/live.status" ;;
+  persistent-failure)
+    rm "$FM_HOME/bin/fm-pr-check-migrate.sh"
+    printf '#!/usr/bin/env bash\nprintf "refused migration\n" > "$FM_HOME/migration-attempt"\nexit 73\n' > "$FM_HOME/bin/fm-pr-check-migrate.sh"
+    chmod +x "$FM_HOME/bin/fm-pr-check-migrate.sh"
+    kill -KILL "$watcher" ;;
+  callback-contention)
+    launch_dir=$(cat "$FM_HOME/state/.watch.lock/watcher-launch")
+    kill -STOP "$watcher"
+    . "$FM_HOME/bin/fm-wake-lib.sh"
+    fm_wake_append check callback-contention 'check: completion during native callback cleanup' || exit 15
+    FM_TEST_PAUSE_CALLBACK_CLEANUP=1 "$FM_HOME/bin/fm-home-wake.sh" tmux detach-test > "$FM_HOME/native.out" 2>&1 &
+    native=$!
+    for ((i=0; i<100; i++)); do
+      [ -f "$FM_HOME/native-cleanup-ready" ] && break
+      sleep 0.05
+    done
+    [ -f "$FM_HOME/native-cleanup-ready" ] || exit 16
+    kill -CONT "$watcher"
+    for ((i=0; i<100; i++)); do
+      [ -f "$launch_dir/result" ] && break
+      sleep 0.05
+    done
+    [ -f "$launch_dir/result" ] || exit 17
+    sleep 2
+    [ -f "$launch_dir/result" ] && [ ! -s "$FM_HOME/submissions" ] || exit 18
+    touch "$FM_HOME/native-cleanup-release"
+    wait "$native" || exit 19 ;;
+
   replaced-session)
     printf '1\n' > "$FM_HOME/state/.lock"
     printf 'done: completed after Stop\n' > "$FM_HOME/state/live.status" ;;
   *) printf 'done: completed after Stop\n' > "$FM_HOME/state/live.status" ;;
 esac
 for ((i=0; i<150; i++)); do
-  [ -s "$FM_HOME/submissions" ] && exit 0
+  if [ -s "$FM_HOME/submissions" ]; then
+    case "$1" in
+      persistent-failure)
+        [ ! -e "$FM_HOME/migration-attempt" ] || exit 20
+        grep -q 'Watcher supervision failed' "$FM_HOME/submissions" || exit 21 ;;
+      direct-stale)
+        kill -0 "$watcher" || exit 22
+        [ "$(cat "$FM_HOME/state/.watch.lock/pid")" = "$watcher" ] || exit 23
+        grep -q 'Watcher supervision failed' "$FM_HOME/submissions" || exit 24
+        kill -CONT "$watcher"
+        kill -TERM "$watcher" ;;
+    esac
+    exit 0
+  fi
   if [ "$1" = replaced-session ] && [ -s "$FM_HOME/state/.watch-deliveries.log" ]; then
     sleep 1
     [ ! -s "$FM_HOME/submissions" ] || exit 12
@@ -416,6 +479,11 @@ for ((i=0; i<150; i++)); do
 done
 exit 11
 SH
+    if [ "$scenario" = callback-contention ]; then
+      executable=$(command -v rm)
+      printf '#!/usr/bin/env bash\nif [ "${FM_TEST_PAUSE_CALLBACK_CLEANUP:-0}" = 1 ] && [ "${2:-}" = "$FM_HOME/state/.home-wake.lock" ]; then\n  touch "$FM_HOME/native-cleanup-ready"\n  for ((i=0; i<200; i++)); do\n    [ -f "$FM_HOME/native-cleanup-release" ] && break\n    sleep 0.05\n  done\nfi\nexec %q "$@"\n' "$executable" > "$dir/fakebin/rm"
+      chmod +x "$dir/fakebin/rm"
+    fi
     if [ "$scenario" = race ]; then
       rm "$dir/bin/fm-watch.sh"
       cp "$ROOT/bin/fm-watch.sh" "$dir/bin/fm-watch.sh"
@@ -448,6 +516,12 @@ SH
   done
   pass 'late wake and SIGKILL failure notify the original session without consuming queued work'
 }
+
+if [ "${1:-}" = --late-completion ]; then
+  shift
+  test_late_completion_handoff "$@"
+  exit
+fi
 
 test_detached_start_and_pipe_closure
 test_existing_watcher_attaches_without_duplicate

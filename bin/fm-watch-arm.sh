@@ -364,10 +364,12 @@ close_unobserved_cycle() {
 # delivered, or fail loudly - never a clean empty completion that an adapter could
 # mistake for a no-op.
 attach_and_wait() {
-  local attached_pid=$1
+  local attached_pid=$1 attachment_mode=${2:-follow}
   while :; do
+    [ "$attachment_mode" != detached ] || [ "$detached_cancelled" -eq 0 ] || return 1
     if healthy_watcher; then
       if [ "$HEALTHY_PID" != "$attached_pid" ] || [ "$HEALTHY_IDENTITY" != "$cycle_watcher_identity" ]; then
+        [ "$attachment_mode" != detached ] || return 3
         cycle_log_append unknown unknown lock-replaced "attached:$HEALTHY_PID"
         attached_pid=$HEALTHY_PID
         cycle_begin "$attached_pid" attached "$HEALTHY_IDENTITY"
@@ -377,6 +379,9 @@ attach_and_wait() {
       continue
     fi
     if wait_for_healthy_successor; then
+      if [ "$attachment_mode" = detached ] && { [ "$HEALTHY_PID" != "$attached_pid" ] || [ "$HEALTHY_IDENTITY" != "$cycle_watcher_identity" ]; }; then
+        return 3
+      fi
       cycle_log_append unknown unknown attached-cycle-ended "attached:$HEALTHY_PID"
       attached_pid=$HEALTHY_PID
       cycle_begin "$attached_pid" attached "$HEALTHY_IDENTITY"
@@ -623,14 +628,16 @@ if [ "$mode" = detached-run ]; then
   [ "$detached_cancelled" -eq 0 ] || exit 1
   if [ -f "$detached_dir/attach" ]; then
     fm_watch_launch_read "$detached_dir" || exit 1
-    attached_pid=$LAUNCH_PID
-    attached_identity=$LAUNCH_IDENTITY
-    while [ "$detached_cancelled" -eq 0 ] && [ "$(fm_pid_identity "$attached_pid" 2>/dev/null || true)" = "$attached_identity" ]; do
-      sleep 0.1
-    done
+    cycle_begin "$LAUNCH_PID" attached "$LAUNCH_IDENTITY"
+    attach_and_wait "$LAUNCH_PID" detached
+    detached_status=$?
     [ "$detached_cancelled" -eq 0 ] || exit 1
-    detached_child=$attached_pid
-    detached_status=0
+    if [ "$detached_status" -eq 3 ]; then
+      bind_healthy_completion "$detached_dir" || exit 1
+      rm -rf "$detached_dir"
+      exit 0
+    fi
+    detached_child=$cycle_watcher_pid
   else
     FM_WATCH_LAUNCH_DIR="$detached_dir" perl -MPOSIX -e 'POSIX::setsid() >= 0 or exit 125; exec $ARGV[0]; exit 125' "$WATCH" &
     detached_child=$!
@@ -676,7 +683,7 @@ if [ "$mode" = detached-complete ]; then
   cycle_begin "$LAUNCH_PID" detached "$LAUNCH_IDENTITY"
   if [ "$LAUNCH_STATUS" -eq 0 ] && [ -n "$LAUNCH_REASON" ] && close_unobserved_cycle; then
     cycle_log_append 0 none detached-delivered-wake none
-  elif healthy_watcher; then
+  elif healthy_watcher && { [ "$HEALTHY_PID" != "$LAUNCH_PID" ] || [ "$HEALTHY_IDENTITY" != "$LAUNCH_IDENTITY" ]; }; then
     bind_healthy_completion "$detached_dir" || exit 1
     cycle_log_append "$LAUNCH_STATUS" none detached-lock-race "attached:$HEALTHY_PID"
     rm -rf "$detached_dir"
@@ -686,8 +693,16 @@ if [ "$mode" = detached-complete ]; then
     fm_wake_append check watcher-failed 'check: watcher failed after detached startup; inspect watcher recovery before relying on unattended supervision' || exit 1
   fi
   if fm_watch_launch_session "$detached_dir"; then
-    "$SCRIPT_DIR/fm-home-wake.sh" "$LAUNCH_BACKEND" "$LAUNCH_TARGET" \
-      --watcher-complete "$detached_dir" || exit 1
+    while :; do
+      "$SCRIPT_DIR/fm-home-wake.sh" "$LAUNCH_BACKEND" "$LAUNCH_TARGET" \
+        --watcher-complete "$detached_dir" > "$detached_dir/notification-output" 2>&1 || true
+      notification=$(cat "$detached_dir/notification" 2>/dev/null || true)
+      case "$notification" in
+        delivered|settled) break ;;
+        superseded) exit 0 ;;
+      esac
+      sleep 1
+    done
   fi
   rm -rf "$detached_dir"
   exit 0
