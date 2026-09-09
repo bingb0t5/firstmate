@@ -946,6 +946,35 @@ test_codex_stale_hook_requires_marked_home_lock() {
   pass "stale Codex hook requires both a valid home marker and session-lock ownership"
 }
 
+test_no_flag_secondmate_stop_keeps_other_harnesses_generic() {
+  local dir harness rc
+  for harness in grok pi pi-signed opencode claude kimi; do
+    dir=$(make_codex_linked_stale_stop_case "generic-stop-$harness")
+    cp "$(command -v bash)" "$dir/$harness"
+    (
+      cd "$dir" || exit 1
+      FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
+        FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" \
+        "$dir/$harness" -s -- "$ROOT" > "$dir/stop.out" 2> "$dir/stop.err" <<'SH'
+printf '%s\n' "$$" > "$FM_HOME/state/.lock"
+. "$1/bin/fm-session-lock-lib.sh"
+fm_session_lock_owned_by_self "$FM_HOME/state" || exit 99
+printf '{"stop_hook_active":false}' | bash "$1/bin/fm-turnend-guard.sh"
+rc=$?
+exit "$rc"
+SH
+    ) &
+    wait_for_exit "$!" 40
+    rc=$?
+    [ "$rc" -eq 0 ] || fail "$harness no-flag Stop blocked despite an empty home: rc=$rc $(cat "$dir/stop.err")"
+    [ ! -e "$dir/state/.watch-cycle-exits.log" ] \
+      && [ ! -e "$dir/state/.watch.lock" ] \
+      || fail "$harness no-flag Stop armed a Codex home watcher"
+    [ ! -s "$dir/stop.err" ] || fail "$harness no-flag Stop emitted unexpected recovery output"
+  done
+  pass "no-flag Stops from other lock-owning harnesses retain generic home behavior"
+}
+
 make_codex_stop_case() {
   local dir entry
   dir=$(make_case "$1")
@@ -1909,6 +1938,7 @@ run_secondmate_review_tests() {
   test_codex_stale_hook_linked_secondmate_rearms_and_preserves_wake
   test_codex_stale_hook_does_not_add_home_behavior_to_primary_or_child
   test_codex_stale_hook_requires_marked_home_lock
+  test_no_flag_secondmate_stop_keeps_other_harnesses_generic
   test_codex_secondmate_stop_arms_and_self_wakes
   test_codex_stop_failure_recovery_is_bounded
   test_codex_stop_away_keeps_shared_guard

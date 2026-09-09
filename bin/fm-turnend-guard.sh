@@ -159,7 +159,7 @@ if [ "$CODEX_MODE" -eq 0 ] && [ "$CLAUDE_MODE" -eq 0 ] && [ "$CURSOR_MODE" -eq 0
   && fm_root_is_secondmate_home "$FM_ROOT"; then
   # shellcheck source=bin/fm-session-lock-lib.sh
   . "$SCRIPT_DIR/fm-session-lock-lib.sh"
-  fm_session_lock_owned_by_self "$STATE" && CODEX_MODE=1
+  fm_session_lock_owned_by_self "$STATE" codex && CODEX_MODE=1
 fi
 
 # --- the actual predicate ----------------------------------------------------
