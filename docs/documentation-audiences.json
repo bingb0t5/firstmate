@@ -425,6 +425,14 @@
       "audience": "operator-current"
     },
     {
+      "path": "scripts/markdown/LICENSES.txt",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "scripts/markdown/README.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "skills/stow/SKILL.md",
       "audience": "public-product"
     },

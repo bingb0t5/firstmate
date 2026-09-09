@@ -26,7 +26,7 @@ Complete [the shared template](.github/PULL_REQUEST_TEMPLATE.md), retaining ever
 Before starting or resuming pipeline delivery, run [`bin/fm-nm-pr-preflight.sh`](bin/fm-nm-pr-preflight.sh) against that intent file and the explicit GitHub delivery target; its header and `--help` own the command contract.
 Pass the returned intent unchanged to `no-mistakes axi run --intent`, and repeat the preflight when the intent, live body, or head changes.
 The read-only preflight refuses incomplete intent, reserved pipeline markers, and an incomplete existing live body or stale pipeline head before another delivery action.
-For narrative intake, use the exact labelled template bullets in CEO overview and Validation, with prose values free of HTML tags, blockquote markers, fences, and inline code.
+For narrative intake, start each exact labelled template bullet in CEO overview and Validation at the beginning of its line and put its prose value on that same line, free of HTML tags, blockquote markers, fences, and inline code.
 Non-comment raw HTML outside `## Pipeline` is refused with its source line; generated Pipeline content stays under the existing machine check and cannot supply narrative fields.
 These intake restrictions supplement assessment of the unchanged original body; filtered prose cannot override a refusal from the shared assessors.
 On refusal, correct the intent or return the live-body problem to that PR's owner; a local sidecar does not repair a stale live description, and the preflight never changes a PR or manufactures pipeline evidence.

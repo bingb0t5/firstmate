@@ -3,7 +3,7 @@
 `parser.mjs` is a generated, offline bundle of the pinned `mdast-util-from-markdown` CommonMark parser with GitHub-flavored Markdown extensions.
 `package-lock.json` pins its transitive dependencies; `LICENSES.txt` contains the bundled packages' licenses.
 Regenerate from this directory with `npm ci --ignore-scripts --no-audit --no-fund` followed by `npm run build`.
-Neither preflight nor tests require an npm install or network access.
+Loading the bundled parser requires neither an npm install nor network access.
 
 Delivery evidence is classified by its original source offsets in the Markdown tree.
 Only top-level paragraphs and the canonical HTML attestation comment can supply evidence.
