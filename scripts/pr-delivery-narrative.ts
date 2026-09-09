@@ -45,23 +45,17 @@ export function deliveryNarrative(body: string, source: string): string {
   const pipeline = headings(parse(body), body).filter(heading => heading.name === 'pipeline');
   const narrative = mask(body, pipeline);
   const tree = parse(narrative);
-  const comments: Range[] = [];
-  const inspectHtml = (node: Node): void => {
+  const htmlRanges: Range[] = [];
+  const collectHtml = (node: Node): void => {
     if (node.type === 'html') {
-      const start = node.position.start.offset;
-      const html = narrative.slice(start, node.position.end.offset);
-      const nonComment = html.replace(/<!--[\s\S]*?(?:-->|$)/g, comment => comment.replace(/[^\r\n]/g, ' '));
-      const index = nonComment.search(/\S/);
-      if (index >= 0) {
-        const line = node.position.start.line + (html.slice(0, index).match(/\n/g) || []).length;
-        throw new Error(`${source}: raw HTML on line ${line}; remove it or use plain Markdown outside ## Pipeline`);
-      }
-      comments.push({ start, end: node.position.end.offset });
+      htmlRanges.push({ start: node.position.start.offset, end: node.position.end.offset });
     }
-    node.children?.forEach(inspectHtml);
+    node.children?.forEach(collectHtml);
   };
-  inspectHtml(tree);
-  let projected = mask(narrative, comments);
+  // Generated evidence outside labelled bullets is inert. Inspect each original
+  // bullet subtree below, including continuations, before copying its value.
+  collectHtml(tree);
+  let projected = mask(narrative, htmlRanges);
   const sections = headings(tree, narrative);
   for (const [name, labels] of fields) {
     const section = sections.find(heading => heading.name === name.toLowerCase());

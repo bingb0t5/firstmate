@@ -162,13 +162,41 @@ test_preflight_fresh_intent_survives_generated_body() {
   # This is the public body shape observed from the legacy publisher. The live
   # no-mistakes delivery proof remains a separate integration check, not a fake
   # publisher implementation hidden in CI.
-  body=$(printf '## Intent\n\n'; cat "$PF_ROOT/validated.md"; pipeline_generated_body; pipeline_section)
+  {
+    printf '## Intent\n\n'
+    cat "$PF_ROOT/validated.md"
+    pipeline_generated_body
+    cat <<'EOF'
+
+<details>
+<summary>Evidence: Public preflight and recovery</summary>
+
+The generated Testing evidence can contain quoted examples:
+
+> A captured diagnostic.
+
+```text
+An observed command result.
+```
+
+The `request status` label was verified.
+
+</details>
+EOF
+  } > "$PF_ROOT/generated-narrative.md"
+  pipeline_section > "$PF_ROOT/machine-body.md"
+  body=$("$BODY_COMPOSER" "$PF_ROOT/generated-narrative.md" "$PF_ROOT/machine-body.md")
   for checker in "$CHECK" "$FIRSTMATE_CHECK"; do
     out=$(PR_TITLE='Show request status' PR_BODY="$body" node --experimental-strip-types "$checker" 2>&1)
     rc=$?
     expect_code 0 "$rc" "generated legacy wrapper carrying validated intent: $out"
   done
-  pass "preflight returns unchanged fresh intent that passes assessment inside the generated wrapper"
+  printf '%s\n' "$body" > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "generated Testing details with composed authored sections: $(cat "$PF_ROOT/diagnostic")"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "generated details changed validated intent"
+  pass "fresh intent and composed generated Testing details pass both assessors and live preflight"
 }
 
 test_preflight_rejects_bad_intent_before_forge_read() {
@@ -513,7 +541,7 @@ JS
     preflight_live_body "$PF_ROOT/live.md"
     preflight_run; rc=$?
     case "$mode" in
-      canonical|heading_plain|thematic_plain|r14_pipeline_html|pipeline_details)
+      canonical|heading_plain|thematic_plain|r14_pipeline_html|pipeline_details|r14_narrative_html|narrative_details)
         expect_code 0 "$rc" "$mode structural control"
         cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
         ;;
@@ -524,7 +552,7 @@ JS
         ;;
     esac
   done
-  pass "R11-R14 table preserves machine outcomes and refuses narrative HTML separately"
+  pass "R11-R14 table preserves machine outcomes while arbitrary HTML wrappers remain inert"
 }
 
 test_preflight_requires_positional_narrative_fields() {
@@ -600,50 +628,84 @@ JS
   pass "original hosted assessment and positional narrative restrictions must both pass"
 }
 
-test_preflight_reports_narrative_html_locations() {
-  local target mode rc line
+test_preflight_keeps_arbitrary_lines_inert() {
+  local target mode rc
   for target in intent live; do
-    for mode in comment inline_tag block_tag details after_pipeline; do
+    for mode in comment inline_tag block_tag details after_pipeline blockquote fence inline_code; do
       [ "$target:$mode" != intent:after_pipeline ] || continue
       preflight_case
       { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
-      node - "$PF_ROOT/$target.md" "$mode" "$PF_ROOT/html-line" <<'JS'
+      node - "$PF_ROOT/$target.md" "$mode" <<'JS'
 const fs = require('node:fs');
 const file = process.argv[2], mode = process.argv[3];
 let body = fs.readFileSync(file, 'utf8');
-const value = 'Unit tests and type check.';
-let tag = '';
-if (mode === 'comment') {
-  body = '<!-- Example <details> is only a comment. -->\n\n' + body;
-} else if (mode === 'inline_tag') {
-  tag = '<span>';
-  body = body.replace(value, tag + value + '</span>');
-} else if (mode === 'after_pipeline') {
-  tag = '<details>';
-  body += '\n\n## Additional notes\n\n' + tag + '\n<summary>Review notes</summary>\n\nAdditional prose.\n\n</details>\n';
+const outside = {
+  comment: '<!-- Example <details> is only a comment. -->',
+  inline_tag: 'An unrelated <span>generated note</span>.',
+  block_tag: '<blockquote>\n\nAn unrelated generated note.\n\n</blockquote>',
+  details: '<details>\n<summary>Generated Testing evidence</summary>\n\n' +
+    '- **Checks passed:** `Generated output outside Validation`\n\n</details>',
+  blockquote: '> An unrelated quoted diagnostic.',
+  fence: '```text\nAn unrelated captured result.\n```',
+  inline_code: 'The `request status` label was verified.',
+};
+if (mode === 'after_pipeline') {
+  body += '\n\n## Additional notes\n\n<details>\n<summary>Review notes</summary>\n\nAdditional prose.\n\n</details>\n';
 } else {
-  tag = mode === 'details' ? '<details>' : '<blockquote>';
-  body = body.replace('## CEO overview', tag + '\n\n## CEO overview');
+  body = outside[mode] + '\n\n' + body;
 }
 body = '<!-- 🧭 source position -->\n\n' + body;
-fs.writeFileSync(process.argv[4], String(body.slice(0, body.indexOf(tag)).split('\n').length));
 fs.writeFileSync(file, body.replace(/\n/g, '\r\n'));
 JS
       preflight_live_body "$PF_ROOT/live.md"
       preflight_run; rc=$?
-      if [ "$mode" = comment ]; then
-        expect_code 0 "$rc" "$target HTML comment control"
-        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$target comment control changed intent"
-      else
-        expect_code 2 "$rc" "$target $mode raw narrative HTML"
-        [ ! -s "$PF_ROOT/validated.md" ] || fail "$target $mode HTML released intent"
-        line=$(cat "$PF_ROOT/html-line")
-        assert_contains "$(cat "$PF_ROOT/diagnostic")" "raw HTML on line $line;" "$target $mode lost the original line"
-        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'remove it or use plain Markdown outside ## Pipeline' "$target $mode lacks recovery guidance"
-      fi
+      expect_code 0 "$rc" "$target $mode outside labelled bullets: $(cat "$PF_ROOT/diagnostic")"
+      cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$target $mode changed intent"
     done
   done
-  pass "non-comment narrative HTML fails with original line locations and recovery guidance"
+  pass "HTML and quoted constructs outside labelled bullets do not trigger narrative refusal"
+}
+
+test_preflight_rejects_constructs_inside_every_labelled_bullet() {
+  local target label mode placement rc line
+  for target in intent live; do
+    for label in 'What is changing' 'Why it matters' 'Customer or business impact' 'Risk and rollout' 'Checks passed' 'Checks not run' 'Evidence and limitations'; do
+      for mode in html blockquote fence inline_code; do
+        for placement in value continuation; do
+          preflight_case
+          { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+          node - "$PF_ROOT/$target.md" "$label" "$mode" "$placement" "$PF_ROOT/bullet-line" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], label = process.argv[3], mode = process.argv[4], placement = process.argv[5];
+let body = fs.readFileSync(file, 'utf8');
+const prefix = '- **' + label + ':**';
+const line = body.split('\n').find(line => line.startsWith(prefix));
+const constructs = {
+  html: '<span>Quoted evidence</span>',
+  blockquote: '> Quoted evidence',
+  fence: placement === 'value' ? '~~~ Quoted evidence' : '~~~text\n  Quoted evidence\n  ~~~',
+  inline_code: '`Quoted evidence`',
+};
+const replacement = placement === 'value' ? prefix + ' ' + constructs[mode] : line + '\n  ' + constructs[mode];
+body = '<!-- 🧭 source position -->\n\n' + body.replace(line, replacement);
+fs.writeFileSync(process.argv[6], String(body.slice(0, body.indexOf(prefix)).split('\n').length));
+fs.writeFileSync(file, body.replace(/\n/g, '\r\n'));
+JS
+          preflight_live_body "$PF_ROOT/live.md"
+          preflight_run; rc=$?
+          expect_code 2 "$rc" "$target $label $mode in $placement"
+          [ ! -s "$PF_ROOT/validated.md" ] || fail "$target $label $mode in $placement released intent"
+          line=$(cat "$PF_ROOT/bullet-line")
+          assert_contains "$(cat "$PF_ROOT/diagnostic")" "bullet on line $line contains quoted or coded content" "$target $label $mode lost its bullet location"
+          assert_contains "$(cat "$PF_ROOT/diagnostic")" "use plain prose after - **$label:**" "$target $label $mode lacks recovery guidance"
+          if [ "$target" = intent ]; then
+            [ ! -e "$PF_ROOT/calls" ] || fail "invalid authored bullet reached the forge"
+          fi
+        done
+      done
+    done
+  done
+  pass "all seven labelled bullets reject HTML, quotes, fences and inline code including continuations"
 }
 
 test_preflight_requires_original_pipeline_signature() {
@@ -1205,7 +1267,8 @@ test_preflight_binds_evidence_to_source_positions
 test_preflight_preserves_original_paragraph_boundaries
 test_preflight_uses_markdown_structure
 test_preflight_requires_positional_narrative_fields
-test_preflight_reports_narrative_html_locations
+test_preflight_keeps_arbitrary_lines_inert
+test_preflight_rejects_constructs_inside_every_labelled_bullet
 test_preflight_requires_original_pipeline_signature
 test_preflight_pins_github_against_ambient_host
 test_preflight_forge_failures_never_mean_no_existing_pr
