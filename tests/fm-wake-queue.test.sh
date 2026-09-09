@@ -886,15 +886,16 @@ test_codex_stale_hook_linked_secondmate_rearms_and_preserves_wake() {
 }
 
 test_codex_stale_hook_hands_off_before_deadline_for_delayed_wake() {
-  local dir rc
-  dir=$(make_codex_linked_stale_stop_case codex-stale-deadline)
+  local dir rc scenario=${1:-empty}
+  dir=$(make_codex_linked_stale_stop_case "codex-stale-deadline-$scenario")
   (
     cd "$dir" || exit 1
     FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
-      FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" \
+      FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" FM_TEST_WATCHER_SCENARIO="$scenario" \
       "$dir/codex" -s > "$dir/delayed.out" 2> "$dir/delayed.err" <<'SH'
 printf '%s\n' "$$" > "$FM_HOME/state/.lock"
 python3 - <<'PY'
+import atexit
 import concurrent.futures
 import json
 import os
@@ -911,7 +912,7 @@ hook = json.loads((home / ".codex/hooks.json").read_text())["hooks"]["Stop"][0][
 assert hook["timeout"] == 30, "fixture must enforce the cached timeout"
 queue = state / ".wake-queue"
 assert not queue.exists() or not queue.read_bytes(), "fixture must start with an empty queue"
-started = time.monotonic()
+existing = None
 
 def run(command, seconds, payload=None):
     child = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -928,11 +929,45 @@ def run(command, seconds, payload=None):
         raise
     return child.returncode, out, err
 
+def watcher_healthy():
+    rc, _, _ = run(["bash", "-c", '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'], 5)
+    return rc == 0
+
+if os.environ["FM_TEST_WATCHER_SCENARIO"] == "attached":
+    with (home / "existing.out").open("w") as out, (home / "existing.err").open("w") as err:
+        existing = subprocess.Popen(["bin/fm-watch.sh"], stdout=out, stderr=err, start_new_session=True)
+
+    def stop_existing():
+        if existing.poll() is None:
+            os.killpg(existing.pid, signal.SIGTERM)
+            try:
+                existing.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                os.killpg(existing.pid, signal.SIGKILL)
+                existing.wait()
+
+    atexit.register(stop_existing)
+    ready_by = time.monotonic() + 10
+    while not watcher_healthy():
+        assert time.monotonic() < ready_by, "existing watcher failed to become healthy"
+        time.sleep(0.1)
+    owner = {name: (state / ".watch.lock" / name).read_bytes() for name in ("pid", "pid-identity")}
+    assert int(owner["pid"]) == existing.pid, "fixture watcher does not own the lock"
+
+started = time.monotonic()
+
+def assert_original_watcher():
+    if existing is not None:
+        assert existing.poll() is None, "legacy checkpoint stopped the existing watcher"
+        assert owner == {name: (state / ".watch.lock" / name).read_bytes() for name in owner}, "legacy handoff replaced the existing watcher"
+        assert not (home / "existing.out").read_bytes(), "existing watcher emitted a premature wake"
+
 def deliver_late_wake():
     time.sleep(max(0, 31 - (time.monotonic() - started)))
     assert not queue.exists() or not queue.read_bytes(), "wake arrived before the old deadline"
     rc, _, err = run(["bash", "-c", '. bin/fm-wake-lib.sh; fm_watcher_healthy "$STATE" "$FM_HOME/bin/fm-watch.sh" 300 "$FM_HOME"'], 5)
     assert rc == 0, f"foreground continuation has no healthy watcher after the old deadline: {err}"
+    assert_original_watcher()
     time.sleep(max(0, 35 - (time.monotonic() - started)))
     rc, _, err = run(["bash", "-c", '. bin/fm-wake-lib.sh; fm_wake_append check delayed-row "check: delayed legacy wake"'], 5)
     assert rc == 0, f"could not publish delayed wake: {err}"
@@ -946,7 +981,14 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 if line.startswith("CODEX_WATCH_CONTINUE: ")]
     assert len(commands) == 1, f"legacy Stop omitted its foreground continuation command: {err}"
     command = shlex.split(commands[0])
-    assert command == ["bin/fm-watch-checkpoint.sh", "--seconds", "180"], command
+    assert command == ["bin/fm-watch-checkpoint.sh", "--arm", "--seconds", "180"], command
+    assert_original_watcher()
+    if existing is not None:
+        cycles = [dict(field.split("=", 1) for field in line.split("\t"))
+                  for line in (state / ".watch-cycle-exits.log").read_text().splitlines()]
+        assert len(cycles) == 1 and cycles[0]["origin"] == "attached", cycles
+        assert int(cycles[0]["watcher_pid"]) == existing.pid, cycles
+        assert not queue.exists() or not queue.read_bytes(), "attachment invented a wake"
     observed = False
     for _ in range(3):
         rc, out, err = run(command, 50)
@@ -970,6 +1012,11 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
     assert observed, "foreground checkpoint loop did not deliver the delayed wake"
     assert not queue.read_bytes(), "handled and acknowledged wake remained queued"
     assert not (state / "mate.turn-ended").exists(), "home supervision wrote a child marker"
+    if existing is not None:
+        cycles = [dict(field.split("=", 1) for field in line.split("\t"))
+                  for line in (state / ".watch-cycle-exits.log").read_text().splitlines()]
+        assert all(row["origin"] == "attached" and int(row["watcher_pid"]) == existing.pid for row in cycles), cycles
+        assert cycles[-1]["reason"] == "attached-delivered-wake", cycles
 print("cached 30-second Stop handed off to foreground checkpoints and acknowledged the delayed wake")
 PY
 rc=$?
@@ -978,7 +1025,7 @@ SH
   )
   rc=$?
   [ "$rc" -eq 0 ] || fail "legacy deadline handoff failed: $(cat "$dir/delayed.err")"
-  pass "legacy Stop returns before 30 seconds and its foreground continuation handles a wake after 35 seconds"
+  pass "legacy Stop ($scenario) returns before 30 seconds and its foreground continuation handles a wake after 35 seconds"
 }
 
 test_codex_stale_hook_does_not_add_home_behavior_to_primary_or_child() {
@@ -2033,6 +2080,7 @@ run_secondmate_review_tests() {
   test_watch_env_rejects_arithmetic_execution
   test_codex_stale_hook_linked_secondmate_rearms_and_preserves_wake
   test_codex_stale_hook_hands_off_before_deadline_for_delayed_wake
+  test_codex_stale_hook_hands_off_before_deadline_for_delayed_wake attached
   test_codex_stale_hook_does_not_add_home_behavior_to_primary_or_child
   test_codex_stale_hook_requires_marked_home_lock
   test_no_flag_secondmate_stop_keeps_other_harnesses_generic

@@ -177,7 +177,7 @@ if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
   if [ ! -e "$STATE/.afk" ]; then
     ARM_COMMAND=("$SCRIPT_DIR/fm-watch-arm.sh")
     if [ "$CODEX_LEGACY_MODE" -eq 1 ]; then
-      ARM_COMMAND=("$SCRIPT_DIR/fm-watch-checkpoint.sh" --seconds 5)
+      ARM_COMMAND=("$SCRIPT_DIR/fm-watch-checkpoint.sh" --arm --seconds 5)
     fi
     PREVIOUS_CYCLE=$(tail -n 1 "$STATE/.watch-cycle-exits.log" 2>/dev/null || true)
     PREVIOUS_REASON=$(printf '%s\n' "$PREVIOUS_CYCLE" | awk -F '\t' '{for (i=1; i<=NF; i++) if ($i ~ /^reason=/) print substr($i,8)}')
@@ -202,7 +202,7 @@ if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
       if [ "$CODEX_LEGACY_MODE" -eq 1 ] && [ "$ARM_RC" -eq 124 ]; then
         printf '%s\n' \
           'The cached Stop hook has a 30-second deadline. Its five-second foreground checkpoint was quiet; continue supervision in this turn before that deadline expires.' \
-          'CODEX_WATCH_CONTINUE: bin/fm-watch-checkpoint.sh --seconds 180' \
+          'CODEX_WATCH_CONTINUE: bin/fm-watch-checkpoint.sh --arm --seconds 180' \
           'Run that command as a foreground tool call in this home. After each checkpoint, drain with bin/fm-wake-drain.sh, handle queued wakes, run the exact WAKE_ACK_REQUIRED acknowledgement command, and repeat the foreground checkpoint loop. Do not end the turn or use background tasks to wait.' >&2
         exit 2
       fi

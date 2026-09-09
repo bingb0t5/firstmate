@@ -5,12 +5,15 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SECONDS_ARG=${FM_CODEX_WATCH_CHECKPOINT:-180}
+WATCH_COMMAND="$SCRIPT_DIR/fm-watch.sh"
 
 usage() {
   cat <<'EOF'
-Usage: fm-watch-checkpoint.sh [--seconds <n>]
+Usage: fm-watch-checkpoint.sh [--seconds <n>] [--arm]
 
 Run bin/fm-watch.sh in the foreground for a bounded checkpoint.
+With --arm, run bin/fm-watch-arm.sh to arm or attach to a healthy home watcher.
+A quiet attached checkpoint leaves the existing watcher running.
 On an actionable watcher wake, pass through the watcher output and exit 0.
 On a quiet checkpoint, print "checkpoint: no actionable wake within <n>s" and exit 124.
 EOF
@@ -18,6 +21,10 @@ EOF
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --arm)
+      WATCH_COMMAND="$SCRIPT_DIR/fm-watch-arm.sh"
+      shift
+      ;;
     --seconds)
       [ "$#" -gt 1 ] || { echo "error: --seconds requires a value" >&2; exit 2; }
       SECONDS_ARG=$2
@@ -70,15 +77,15 @@ run_with_perl_timeout() {
     alarm $seconds;
     waitpid $pid, 0;
     exit($? >> 8);
-  ' "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh"
+  ' "$SECONDS_ARG" "$WATCH_COMMAND"
 }
 
 set +e
 if command -v timeout >/dev/null 2>&1; then
-  timeout "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
+  timeout "$SECONDS_ARG" "$WATCH_COMMAND" >"$OUT" 2>"$ERR"
   RC=$?
 elif command -v gtimeout >/dev/null 2>&1; then
-  gtimeout "$SECONDS_ARG" "$SCRIPT_DIR/fm-watch.sh" >"$OUT" 2>"$ERR"
+  gtimeout "$SECONDS_ARG" "$WATCH_COMMAND" >"$OUT" 2>"$ERR"
   RC=$?
 else
   run_with_perl_timeout >"$OUT" 2>"$ERR"
@@ -92,7 +99,8 @@ if grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >/dev/null 2>&1; the
   exit 0
 fi
 
-if grep -E '^watcher: already running' "$OUT" "$ERR" >/dev/null 2>&1; then
+if [ "$WATCH_COMMAND" = "$SCRIPT_DIR/fm-watch.sh" ] \
+  && grep -E '^watcher: already running' "$OUT" "$ERR" >/dev/null 2>&1; then
   [ ! -s "$OUT" ] || cat "$OUT"
   [ ! -s "$ERR" ] || cat "$ERR" >&2
   echo "checkpoint: watcher is already running outside this foreground checkpoint" >&2
