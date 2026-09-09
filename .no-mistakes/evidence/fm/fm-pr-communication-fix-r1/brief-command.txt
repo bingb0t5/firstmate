@@ -1,0 +1,1 @@
+scaffolded: /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M1ZWGPMKC8FVWJ0XHPHYGNNG/.test-tmp/brief-home/data/preflight-evidence/brief.md (ship, mode=no-mistakes; replace {TASK})

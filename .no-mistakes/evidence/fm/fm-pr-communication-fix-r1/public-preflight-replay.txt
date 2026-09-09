@@ -1,0 +1,390 @@
+Public delivery preflight replay at af80dc8f5ff476f41060d5df84d8cfdf22e0eb40
+Only gh-axi transport is controlled; all preflight/assessor code executes normally.
+Pipeline data is the existing synthetic test fixture, never published. Hosted Actions were not run.
+
+
+CASE: Fresh canonical intent
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=0; stdout_bytes=805
+stdout:
+## CEO overview
+
+- **What is changing:** Members can see the status of their submitted requests.
+- **Why it matters:** It reduces support messages asking for updates.
+- **Customer or business impact:** Members get clearer communication and the team saves time.
+- **Risk and rollout:** Low risk. Release through staging and confirm the main request flow.
+
+## What changed technically
+
+Render request status in the existing member page.
+
+## Validation
+
+- **Checks passed:** Unit tests and type check.
+- **Checks not run:** End-to-end test was not run locally.
+- **Evidence and limitations:** Tested with a representative request.
+
+## Module-boundary decision
+
+Current module retained: request status rendering belongs with the existing member request page module.
+
+## Decision needed
+
+No decision required.
+
+stderr:
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+
+
+CASE: Canonical generated body, original hosted interface
+$ node --experimental-strip-types scripts/check-pr-communication.ts
+exit=0; stdout_bytes=30
+stdout:
+PR communication is complete.
+
+stderr:
+
+
+CASE: Canonical generated body, Firstmate hosted interface
+$ node --experimental-strip-types scripts/check-firstmate-ceo-overview.ts
+exit=0; stdout_bytes=36
+stdout:
+Firstmate CEO overview is complete.
+
+stderr:
+
+
+CASE: R16 intent What is changing unchanged input
+$ node --experimental-strip-types scripts/check-pr-communication.ts
+exit=1; stdout_bytes=227
+stdout:
+Cannot enter staging until completed: CEO overview: What is changing (found line: What is changing: pending)
+::error::Cannot enter staging until completed: CEO overview: What is changing (found line: What is changing: pending)
+
+stderr:
+
+
+CASE: Before R16 fix: intent What is changing
+$ node --experimental-strip-types scripts/check-pr-delivery.test-before.ts --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=0; stdout_bytes=831
+stdout:
+## CEO overview
+
+What is changing: pending
+- **What is changing:** Members can see the status of their submitted requests.
+- **Why it matters:** It reduces support messages asking for updates.
+- **Customer or business impact:** Members get clearer communication and the team saves time.
+- **Risk and rollout:** Low risk. Release through staging and confirm the main request flow.
+
+## What changed technically
+
+Render request status in the existing member page.
+
+## Validation
+
+- **Checks passed:** Unit tests and type check.
+- **Checks not run:** End-to-end test was not run locally.
+- **Evidence and limitations:** Tested with a representative request.
+
+## Module-boundary decision
+
+Current module retained: request status rendering belongs with the existing member request page module.
+
+## Decision needed
+
+No decision required.
+
+stderr:
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+
+
+CASE: After R16 fix: intent What is changing
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=2; stdout_bytes=0
+stdout:
+
+stderr:
+REFUSED: authored intent: Cannot enter staging until completed: CEO overview: What is changing (found line: What is changing: pending)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+
+CASE: R16 intent Checks passed unchanged input
+$ node --experimental-strip-types scripts/check-pr-communication.ts
+exit=1; stdout_bytes=211
+stdout:
+Cannot enter staging until completed: Validation: Checks passed (found line: Checks passed: pending)
+::error::Cannot enter staging until completed: Validation: Checks passed (found line: Checks passed: pending)
+
+stderr:
+
+
+CASE: Before R16 fix: intent Checks passed
+$ node --experimental-strip-types scripts/check-pr-delivery.test-before.ts --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=0; stdout_bytes=828
+stdout:
+## CEO overview
+
+- **What is changing:** Members can see the status of their submitted requests.
+- **Why it matters:** It reduces support messages asking for updates.
+- **Customer or business impact:** Members get clearer communication and the team saves time.
+- **Risk and rollout:** Low risk. Release through staging and confirm the main request flow.
+
+## What changed technically
+
+Render request status in the existing member page.
+
+## Validation
+
+Checks passed: pending
+- **Checks passed:** Unit tests and type check.
+- **Checks not run:** End-to-end test was not run locally.
+- **Evidence and limitations:** Tested with a representative request.
+
+## Module-boundary decision
+
+Current module retained: request status rendering belongs with the existing member request page module.
+
+## Decision needed
+
+No decision required.
+
+stderr:
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+
+
+CASE: After R16 fix: intent Checks passed
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=2; stdout_bytes=0
+stdout:
+
+stderr:
+REFUSED: authored intent: Cannot enter staging until completed: Validation: Checks passed (found line: Checks passed: pending)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+
+CASE: R16 live What is changing unchanged input
+$ node --experimental-strip-types scripts/check-pr-communication.ts
+exit=1; stdout_bytes=227
+stdout:
+Cannot enter staging until completed: CEO overview: What is changing (found line: What is changing: pending)
+::error::Cannot enter staging until completed: CEO overview: What is changing (found line: What is changing: pending)
+
+stderr:
+
+
+CASE: Before R16 fix: live What is changing
+$ node --experimental-strip-types scripts/check-pr-delivery.test-before.ts --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=0; stdout_bytes=805
+stdout:
+## CEO overview
+
+- **What is changing:** Members can see the status of their submitted requests.
+- **Why it matters:** It reduces support messages asking for updates.
+- **Customer or business impact:** Members get clearer communication and the team saves time.
+- **Risk and rollout:** Low risk. Release through staging and confirm the main request flow.
+
+## What changed technically
+
+Render request status in the existing member page.
+
+## Validation
+
+- **Checks passed:** Unit tests and type check.
+- **Checks not run:** End-to-end test was not run locally.
+- **Evidence and limitations:** Tested with a representative request.
+
+## Module-boundary decision
+
+Current module retained: request status rendering belongs with the existing member request page module.
+
+## Decision needed
+
+No decision required.
+
+stderr:
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+
+
+CASE: After R16 fix: live What is changing
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=2; stdout_bytes=0
+stdout:
+
+stderr:
+REFUSED: existing live PR body: Cannot enter staging until completed: CEO overview: What is changing (found line: What is changing: pending)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+
+CASE: R16 live Checks passed unchanged input
+$ node --experimental-strip-types scripts/check-pr-communication.ts
+exit=1; stdout_bytes=211
+stdout:
+Cannot enter staging until completed: Validation: Checks passed (found line: Checks passed: pending)
+::error::Cannot enter staging until completed: Validation: Checks passed (found line: Checks passed: pending)
+
+stderr:
+
+
+CASE: Before R16 fix: live Checks passed
+$ node --experimental-strip-types scripts/check-pr-delivery.test-before.ts --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=0; stdout_bytes=805
+stdout:
+## CEO overview
+
+- **What is changing:** Members can see the status of their submitted requests.
+- **Why it matters:** It reduces support messages asking for updates.
+- **Customer or business impact:** Members get clearer communication and the team saves time.
+- **Risk and rollout:** Low risk. Release through staging and confirm the main request flow.
+
+## What changed technically
+
+Render request status in the existing member page.
+
+## Validation
+
+- **Checks passed:** Unit tests and type check.
+- **Checks not run:** End-to-end test was not run locally.
+- **Evidence and limitations:** Tested with a representative request.
+
+## Module-boundary decision
+
+Current module retained: request status rendering belongs with the existing member request page module.
+
+## Decision needed
+
+No decision required.
+
+stderr:
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+
+
+CASE: After R16 fix: live Checks passed
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=2; stdout_bytes=0
+stdout:
+
+stderr:
+REFUSED: existing live PR body: Cannot enter staging until completed: Validation: Checks passed (found line: Checks passed: pending)
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+
+CASE: Stale live body cannot be hidden by complete local intent
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=2; stdout_bytes=0
+stdout:
+
+stderr:
+REFUSED: existing live PR body: add ## CEO overview with its exact template bullets
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+
+CASE: Owner-reconciled live body, unchanged intent
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=0; stdout_bytes=805
+stdout:
+## CEO overview
+
+- **What is changing:** Members can see the status of their submitted requests.
+- **Why it matters:** It reduces support messages asking for updates.
+- **Customer or business impact:** Members get clearer communication and the team saves time.
+- **Risk and rollout:** Low risk. Release through staging and confirm the main request flow.
+
+## What changed technically
+
+Render request status in the existing member page.
+
+## Validation
+
+- **Checks passed:** Unit tests and type check.
+- **Checks not run:** End-to-end test was not run locally.
+- **Evidence and limitations:** Tested with a representative request.
+
+## Module-boundary decision
+
+Current module retained: request status rendering belongs with the existing member request page module.
+
+## Decision needed
+
+No decision required.
+
+stderr:
+PR communication preflight passed: authored intent and 1 existing live PR body checked. Recheck after any input or head change.
+
+
+CASE: Stale live attestation head
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=2; stdout_bytes=0
+stdout:
+
+stderr:
+REFUSED: existing live PR body has a stale pipeline head; ask its owner to reconcile it before another push
+No PR or pipeline was changed. Correct the authored intent or have the existing PR owner reconcile its live body, then repeat the preflight.
+
+
+CASE: R15 deferred completeness case: ***
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=0; stdout_bytes=758
+stdout:
+## CEO overview
+
+- **What is changing:** Members can see the status of their submitted requests.
+- **Why it matters:** It reduces support messages asking for updates.
+- **Customer or business impact:** Members get clearer communication and the team saves time.
+- **Risk and rollout:** Low risk. Release through staging and confirm the main request flow.
+
+## What changed technically
+
+***
+
+## Validation
+
+- **Checks passed:** Unit tests and type check.
+- **Checks not run:** End-to-end test was not run locally.
+- **Evidence and limitations:** Tested with a representative request.
+
+## Module-boundary decision
+
+Current module retained: request status rendering belongs with the existing member request page module.
+
+## Decision needed
+
+No decision required.
+
+stderr:
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+
+
+CASE: R15 deferred completeness case: [unused]: https://example.invalid
+$ bin/fm-nm-pr-preflight.sh --intent-file .test-tmp/capture/intent.md --repo o/r --head o:fm/preflight
+exit=0; stdout_bytes=788
+stdout:
+## CEO overview
+
+- **What is changing:** Members can see the status of their submitted requests.
+- **Why it matters:** It reduces support messages asking for updates.
+- **Customer or business impact:** Members get clearer communication and the team saves time.
+- **Risk and rollout:** Low risk. Release through staging and confirm the main request flow.
+
+## What changed technically
+
+[unused]: https://example.invalid
+
+## Validation
+
+- **Checks passed:** Unit tests and type check.
+- **Checks not run:** End-to-end test was not run locally.
+- **Evidence and limitations:** Tested with a representative request.
+
+## Module-boundary decision
+
+Current module retained: request status rendering belongs with the existing member request page module.
+
+## Decision needed
+
+No decision required.
+
+stderr:
+PR communication preflight passed: authored intent and 0 existing live PR body checked. Recheck after any input or head change.
+
+
+R15 remains reproducible and was not changed, per the separate recorded decision.
