@@ -53,10 +53,7 @@ function unquoted(body: string): string {
     if (node.children) node.children.forEach(visit);
     else ranges.push({ start: node.position.start.offset, end: node.position.end.offset });
   };
-  for (const node of tree.children || []) {
-    if (node.type === 'heading') ranges.push({ start: node.position.start.offset, end: node.position.end.offset });
-    else visit(node);
-  }
+  visit(tree);
   let visible = '';
   let cursor = 0;
   for (const range of ranges) {
@@ -96,15 +93,17 @@ function pipelineEvidence(body: string): (offset: number, evidence: string, html
 }
 
 function sectionBounds(body: string, heading: string): { start: number; end: number } | undefined {
-  const headings = [...body.matchAll(/^ {0,3}##[ \t]+([^\r\n]*)\r?$/gm)];
-  const index = headings.findIndex(match => match[1].trim().toLowerCase() === heading);
+  const headings = (parseMarkdown(body).children || []).filter(node => node.type === 'heading' && node.depth === 2 &&
+    /^ {0,3}##[ \t]+/.test(body.slice(node.position.start.offset, node.position.end.offset)));
+  const index = headings.findIndex(node => body.slice(node.position.start.offset, node.position.end.offset)
+    .replace(/^ {0,3}##[ \t]+/, '').trim().toLowerCase() === heading);
   if (index < 0) return undefined;
-  return { start: headings[index].index + headings[index][0].length, end: headings[index + 1]?.index ?? body.length };
+  return { start: headings[index].position.end.offset, end: headings[index + 1]?.position.start.offset ?? body.length };
 }
 
 function section(body: string, heading: string): string {
   const bounds = sectionBounds(body, heading);
-  return bounds ? body.slice(bounds.start, bounds.end) : '';
+  return bounds ? unquoted(body).slice(bounds.start, bounds.end) : '';
 }
 
 function assess(title: string, body: string, source: string): void {
@@ -117,8 +116,7 @@ function assess(title: string, body: string, source: string): void {
   }
   // Intake additionally requires the technical section from the shared template.
   // Quoted template text cannot stand in for authored prose; shared rules stay pinned.
-  const visible = unquoted(narrative);
-  const content = section(visible, 'what changed technically');
+  const content = section(narrative, 'what changed technically');
   if (!content.trim() || /^(?:todo|tbd|pending|none|n\/a)[.!]?$/i.test(content.trim())) {
     refuse(`${source}: complete the What changed technically section outside quoted evidence`);
   }

@@ -234,7 +234,7 @@ test_preflight_rejects_bad_intent_before_forge_read() {
 test_preflight_requires_technical_prose() {
   local target mode control rc
   for target in intent live; do
-    for mode in thematic definition combined; do
+    for mode in thematic definition combined empty_heading coded_heading bounded_heading; do
       preflight_case
       for control in absent prose; do
         {
@@ -244,9 +244,18 @@ test_preflight_requires_technical_prose() {
             thematic) printf '***\n' ;;
             definition) printf '[example]: https://example.com\n' ;;
             combined) printf '***\n\n[example]: https://example.com\n' ;;
+            empty_heading|bounded_heading) printf '###\n' ;;
+            coded_heading) printf '### \140pending\140\n' ;;
           esac
           if [ "$control" = prose ]; then
-            printf '\nRender [request status][example] in the existing member page.\n'
+            case "$mode" in
+              *_heading) printf '\n### ' ;;
+              *) printf '\n' ;;
+            esac
+            printf 'Render [request status][example] in the existing member page.\n'
+          fi
+          if [ "$mode" = bounded_heading ]; then
+            printf '\n## Other evidence\n\nProse in another section cannot supply the technical explanation.\n'
           fi
         } > "$PF_ROOT/technical.md"
         if [ "$target" = intent ]; then
