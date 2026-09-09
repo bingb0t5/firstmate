@@ -234,7 +234,7 @@ test_preflight_rejects_bad_intent_before_forge_read() {
 test_preflight_requires_technical_prose() {
   local target mode control rc
   for target in intent live; do
-    for mode in thematic definition combined empty_heading coded_heading bounded_heading; do
+    for mode in thematic definition combined empty_heading coded_heading bounded_heading decimal_space hex_space named_space empty_image reference_image encoded_pending; do
       preflight_case
       for control in absent prose; do
         {
@@ -246,13 +246,22 @@ test_preflight_requires_technical_prose() {
             combined) printf '***\n\n[example]: https://example.com\n' ;;
             empty_heading|bounded_heading) printf '###\n' ;;
             coded_heading) printf '### \140pending\140\n' ;;
+            decimal_space) printf '&#32;\n' ;;
+            hex_space) printf '&#x20;\n' ;;
+            named_space) printf '&nbsp;\n' ;;
+            empty_image) printf '![](image.png)\n' ;;
+            reference_image) printf '![][image]\n\n[image]: image.png\n' ;;
+            encoded_pending) printf '&#112;ending\n' ;;
           esac
           if [ "$control" = prose ]; then
             case "$mode" in
               *_heading) printf '\n### ' ;;
               *) printf '\n' ;;
             esac
-            printf 'Render [request status][example] in the existing member page.\n'
+            case "$mode" in
+              *_space|*_image|encoded_pending) printf '&#82;ender [request status][example] in the existing member page.\n' ;;
+              *) printf 'Render [request status][example] in the existing member page.\n' ;;
+            esac
           fi
           if [ "$mode" = bounded_heading ]; then
             printf '\n## Other evidence\n\nProse in another section cannot supply the technical explanation.\n'

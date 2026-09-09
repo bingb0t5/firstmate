@@ -10,12 +10,9 @@ function refuse(message: string): never {
   throw new Error(message);
 }
 
-function blank(text: string): string {
-  return text.replace(/[^\r\n]/g, ' ');
-}
-
 type MarkdownNode = {
   type: string;
+  value?: string;
   depth?: number;
   fences?: number;
   position: { start: { offset: number }; end: { offset: number } };
@@ -45,22 +42,11 @@ function contains(node: MarkdownNode, start: number, end: number): boolean {
   return node.position.start.offset <= start && node.position.end.offset >= end;
 }
 
-function unquoted(body: string): string {
-  const tree = parseMarkdown(body);
-  const ranges: { start: number; end: number }[] = [];
-  const visit = (node: MarkdownNode): void => {
-    if (['blockquote', 'code', 'html', 'inlineCode', 'thematicBreak', 'definition'].includes(node.type)) return;
-    if (node.children) node.children.forEach(visit);
-    else ranges.push({ start: node.position.start.offset, end: node.position.end.offset });
-  };
-  visit(tree);
-  let visible = '';
-  let cursor = 0;
-  for (const range of ranges) {
-    visible += blank(body.slice(cursor, range.start)) + body.slice(range.start, range.end);
-    cursor = range.end;
-  }
-  return visible + blank(body.slice(cursor));
+function unquoted(node: MarkdownNode): string {
+  if (['blockquote', 'code', 'html', 'inlineCode', 'thematicBreak', 'definition'].includes(node.type)) return '';
+  if (node.type === 'text') return node.value || '';
+  const content = (node.children || []).map(unquoted).join('');
+  return ['paragraph', 'heading', 'break', 'tableCell'].includes(node.type) ? `${content}\n` : content;
 }
 
 function pipelineEvidence(body: string): (offset: number, evidence: string, html?: boolean) => boolean {
@@ -103,7 +89,10 @@ function sectionBounds(body: string, heading: string): { start: number; end: num
 
 function section(body: string, heading: string): string {
   const bounds = sectionBounds(body, heading);
-  return bounds ? unquoted(body).slice(bounds.start, bounds.end) : '';
+  if (!bounds) return '';
+  return (parseMarkdown(body).children || []).filter(node =>
+    node.position.start.offset >= bounds.start && node.position.end.offset <= bounds.end)
+    .map(unquoted).join('\n');
 }
 
 function assess(title: string, body: string, source: string): void {
