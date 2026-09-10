@@ -1,9 +1,10 @@
 # Per-repo no-mistakes overrides.
 
-agent: [cursor]
+agent: [pi]
 agent_config:
-  cursor:
-    model: grok-4.6
+  pi:
+    model: xai/grok-4.6
+    thinking: high
 
 # firstmate is an agent-orchestration repo: its AGENTS.md installs a fleet-captain
 # identity. Disable project-level agent settings/instructions for gate agents so a
