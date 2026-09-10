@@ -22,10 +22,21 @@ Firstmate also fails a missing CEO overview or one that is only implementation i
 The remote comparison fails closed when the credential is missing or rejected, and only network errors, HTTP 408 or 429, and server-side HTTP 5xx responses may fall back to the trusted local pin.
 
 For every no-mistakes run in this repository, author the run intent in the gate-required PR shape before the pipeline publishes the live GitHub body, so the first `github.event.pull_request.body` event already passes `pr-communication`.
-Use the full shared template: `## CEO overview` with What is changing, Why it matters, Customer or business impact, and Risk and rollout; `## What changed technically`; `## Validation` with Checks passed, Checks not run, and Evidence and limitations; `## Module-boundary decision`; and `## Decision needed`.
+Complete [the shared template](.github/PULL_REQUEST_TEMPLATE.md), retaining every task requirement in the technical section and describing only checks actually performed in Validation.
+Before starting or resuming pipeline delivery, run [`bin/fm-nm-pr-preflight.sh`](bin/fm-nm-pr-preflight.sh) against that intent file and the explicit GitHub delivery target; its header and `--help` own the command contract.
+Pass the returned intent unchanged to `no-mistakes axi run --intent`, and repeat the preflight when the intent, live body, or head changes.
+The read-only preflight refuses incomplete intent, reserved pipeline markers, and an incomplete existing live body or stale pipeline head before another delivery action.
+The technical section must contain unquoted prose after Markdown character references are decoded; whitespace-only references, images, empty headings, thematic breaks, and link definitions alone do not supply an explanation.
+For narrative intake, start each exact labelled template bullet in CEO overview and Validation at the beginning of its line and put its prose value on that same line.
+These seven bullets, including their continuation lines, must be free of HTML tags, blockquote markers, fences, and inline code.
+Those constructs elsewhere, including generated Testing details, are inert to the narrative field restrictions; generated Pipeline content stays under the existing machine check and cannot supply narrative fields.
+These intake restrictions supplement assessment of the unchanged original body; filtered prose cannot override a refusal from the shared assessors.
+On refusal, correct the intent or return the live-body problem to that PR's owner; a local sidecar does not repair a stale live description, and the preflight never changes a PR or manufactures pipeline evidence.
+Review the prose against the current task yourself: this is structural validation, not proof that claims are accurate or authorization to edit another lane.
 The current pipeline can replace the live description with Intent-shaped text.
 Do not rely on a committed `.github/pr-bodies` sidecar because CI grades the live body.
-This is interim until upstream no-mistakes preserves the author template and appends attestation ([kunchenguid/no-mistakes#995](https://github.com/kunchenguid/no-mistakes/issues/995)).
+This preflight mitigates Firstmate's intake path; it does not intercept direct CLI use, alter an active run's stored intent, or prevent the upstream publisher from rewriting or truncating the body ([kunchenguid/no-mistakes#995](https://github.com/kunchenguid/no-mistakes/issues/995)).
+Hosted checks remain required after every publication.
 
 ## Workflow
 
@@ -33,10 +44,12 @@ This is interim until upstream no-mistakes preserves the author template and app
 2. Create a branch and make your changes.
 3. Initialize the gate with your fork as the push target: `no-mistakes init --fork-url git@github.com:<you>/firstmate.git` (firstmate expects **no-mistakes v1.46.0+**; without a fork, plain `no-mistakes init` still works for maintainers with push access).
 4. Commit your changes.
-5. Push through the gate instead of pushing to `origin`:
+5. Validate the authored intent and start the gate, using the actual target repository and head owner for your fork:
 
    ```sh
-   git push no-mistakes
+   intent=$(bin/fm-nm-pr-preflight.sh --intent-file /path/to/intent.md \
+     --repo bingb0t5/firstmate --head "YOUR_FORK_OWNER:$(git branch --show-current)") &&
+     no-mistakes axi run --intent "$intent"
    ```
 
 6. Run `no-mistakes` to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.

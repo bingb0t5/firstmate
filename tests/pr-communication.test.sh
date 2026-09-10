@@ -22,6 +22,7 @@ TEMPLATE="$ROOT/.github/PULL_REQUEST_TEMPLATE.md"
 TRACKED_BODY_DIR="$ROOT/.github/pr-bodies"
 EVIDENCE_BODY_DIR="$ROOT/tests/fixtures/pr-communication/bodies"
 BODY_COMPOSER="$ROOT/bin/fm-pr-body-compose.sh"
+PREFLIGHT="$ROOT/bin/fm-nm-pr-preflight.sh"
 NO_MISTAKES_WORKFLOW="$ROOT/.github/workflows/no-mistakes-required.yml"
 
 if ! command -v node >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
@@ -90,6 +91,740 @@ Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)
 
 <!-- no-mistakes-pipeline-attestation:v1 {"head_sha":"0000000000000000000000000000000000000000","steps":[{"step":"review","status":"completed"},{"step":"test","status":"completed"},{"step":"document","status":"completed"}]} -->
 EOF
+}
+
+preflight_case() {
+  PF_ROOT=$(fm_test_tmproot fm-pr-preflight)
+  mkdir -p "$PF_ROOT/bin"
+  fm_git_init_commit "$PF_ROOT/repo"
+  git -C "$PF_ROOT/repo" checkout -qb fm/preflight
+  {
+    complete_body
+    printf '\n## What changed technically\n\nRender request status in the existing member page.\n'
+  } > "$PF_ROOT/intent.md"
+  printf '[]\n' > "$PF_ROOT/pulls.json"
+  cat > "$PF_ROOT/bin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+set -eu
+printf '%s\n' "$@" >> "$PF_ROOT/calls"
+[ "$1" = api ] && [ "$2" = GET ] && [ "$3" = /repos/o/r/pulls ] || exit 91
+host=${GH_HOST:-github.com}
+shift 3
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --hostname) host=$2; shift ;;
+    --hostname=*) host=${1#--hostname=} ;;
+  esac
+  shift
+done
+printf '%s\n' "$host" >> "$PF_ROOT/hosts"
+if [ "$host" != github.com ]; then
+  printf 'api_response:\n  body: W10=\n  truncated: false\n'
+  exit 0
+fi
+[ "${PF_TRANSPORT:-}" != error ] || exit 22
+if [ "${PF_TRANSPORT:-}" = malformed ]; then
+  printf 'api_response:\n  body: W10=\n  truncated: true\n'
+  exit 0
+fi
+node -e 'const fs=require("node:fs"); console.log("api_response:\n  body: "+Buffer.from(fs.readFileSync(process.env.PF_ROOT+"/pulls.json")).toString("base64")+"\n  truncated: false")'
+SH
+  chmod +x "$PF_ROOT/bin/gh-axi"
+  export PF_ROOT
+}
+
+preflight_run() {
+  ( cd "$PF_ROOT/repo" && PATH="$PF_ROOT/bin:$PATH" "$PREFLIGHT" \
+    --intent-file "$PF_ROOT/intent.md" --repo o/r --head o:fm/preflight ) \
+    > "$PF_ROOT/validated.md" 2> "$PF_ROOT/diagnostic"
+}
+
+preflight_live_body() {
+  local body_file=$1
+  node - "$body_file" "$PF_ROOT/pulls.json" <<'JS'
+const fs = require('node:fs');
+fs.writeFileSync(process.argv[3], JSON.stringify([{
+  title: 'Show members their request status', state: 'open',
+  body: fs.readFileSync(process.argv[2], 'utf8'),
+  base: { repo: { full_name: 'o/r' } },
+  head: { ref: 'fm/preflight', sha: '0000000000000000000000000000000000000000', repo: { owner: { login: 'o' } } },
+}]));
+JS
+}
+
+test_preflight_fresh_intent_survives_generated_body() {
+  local rc body out
+  preflight_case
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "fresh PR preflight"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "preflight rewrote task intent"
+  grep -qx 'head=o:fm/preflight' "$PF_ROOT/calls" || fail "preflight queried the wrong delivery head"
+  # This is the public body shape observed from the legacy publisher. The live
+  # no-mistakes delivery proof remains a separate integration check, not a fake
+  # publisher implementation hidden in CI.
+  {
+    printf '## Intent\n\n'
+    cat "$PF_ROOT/validated.md"
+    pipeline_generated_body
+    cat <<'EOF'
+
+<details>
+<summary>Evidence: Public preflight and recovery</summary>
+
+The generated Testing evidence can contain quoted examples:
+
+> A captured diagnostic.
+
+```text
+An observed command result.
+```
+
+The `request status` label was verified.
+
+</details>
+EOF
+  } > "$PF_ROOT/generated-narrative.md"
+  pipeline_section > "$PF_ROOT/machine-body.md"
+  body=$("$BODY_COMPOSER" "$PF_ROOT/generated-narrative.md" "$PF_ROOT/machine-body.md")
+  for checker in "$CHECK" "$FIRSTMATE_CHECK"; do
+    out=$(PR_TITLE='Show request status' PR_BODY="$body" node --experimental-strip-types "$checker" 2>&1)
+    rc=$?
+    expect_code 0 "$rc" "generated legacy wrapper carrying validated intent: $out"
+  done
+  printf '%s\n' "$body" > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "generated Testing details with composed authored sections: $(cat "$PF_ROOT/diagnostic")"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "generated details changed validated intent"
+  pass "fresh intent and composed generated Testing details pass both assessors and live preflight"
+}
+
+test_preflight_rejects_bad_intent_before_forge_read() {
+  local mode rc
+  for mode in legacy forged technical quoted blockquote indented tab_indented oversize; do
+    preflight_case
+    case "$mode" in
+      legacy) pipeline_generated_body > "$PF_ROOT/intent.md" ;;
+      forged) pipeline_section >> "$PF_ROOT/intent.md" ;;
+      technical) complete_body > "$PF_ROOT/intent.md" ;;
+      quoted)
+        complete_body > "$PF_ROOT/intent.md"
+        # shellcheck disable=SC2016 # Literal Markdown fences, not shell expansion.
+        printf '\n```markdown\n## What changed technically\nOnly quoted evidence.\n```\n' >> "$PF_ROOT/intent.md"
+        ;;
+      blockquote|indented|tab_indented)
+        complete_body > "$PF_ROOT/intent.md"
+        printf '\n## What changed technically\n\n' >> "$PF_ROOT/intent.md"
+        case "$mode" in
+          blockquote) printf '> Only quoted evidence.\n' ;;
+          indented) printf '    Only quoted evidence.\n' ;;
+          tab_indented) printf '\tOnly quoted evidence.\n' ;;
+        esac >> "$PF_ROOT/intent.md"
+        ;;
+      oversize) node -e 'console.log("x".repeat(16001))' >> "$PF_ROOT/intent.md" ;;
+    esac
+    preflight_run; rc=$?
+    expect_code 2 "$rc" "invalid $mode intent"
+    assert_absent "$PF_ROOT/calls" "invalid intent reached the forge"
+    [ ! -s "$PF_ROOT/validated.md" ] || fail "invalid intent escaped on stdout"
+  done
+  pass "preflight refuses invalid or reserved authored content before any forge read"
+}
+
+test_preflight_requires_technical_prose() {
+  local target mode control rc
+  for target in intent live; do
+    for mode in thematic definition combined empty_heading coded_heading bounded_heading decimal_space hex_space named_space empty_image reference_image encoded_pending; do
+      preflight_case
+      for control in absent prose; do
+        {
+          complete_body
+          printf '\n## What changed technically\n\n'
+          case "$mode" in
+            thematic) printf '***\n' ;;
+            definition) printf '[example]: https://example.com\n' ;;
+            combined) printf '***\n\n[example]: https://example.com\n' ;;
+            empty_heading|bounded_heading) printf '###\n' ;;
+            coded_heading) printf '### \140pending\140\n' ;;
+            decimal_space) printf '&#32;\n' ;;
+            hex_space) printf '&#x20;\n' ;;
+            named_space) printf '&nbsp;\n' ;;
+            empty_image) printf '![](image.png)\n' ;;
+            reference_image) printf '![][image]\n\n[image]: image.png\n' ;;
+            encoded_pending) printf '&#112;ending\n' ;;
+          esac
+          if [ "$control" = prose ]; then
+            case "$mode" in
+              *_heading) printf '\n### ' ;;
+              *) printf '\n' ;;
+            esac
+            case "$mode" in
+              *_space|*_image|encoded_pending) printf '&#82;ender [request status][example] in the existing member page.\n' ;;
+              *) printf 'Render [request status][example] in the existing member page.\n' ;;
+            esac
+          fi
+          if [ "$mode" = bounded_heading ]; then
+            printf '\n## Other evidence\n\nProse in another section cannot supply the technical explanation.\n'
+          fi
+        } > "$PF_ROOT/technical.md"
+        if [ "$target" = intent ]; then
+          cp "$PF_ROOT/technical.md" "$PF_ROOT/intent.md"
+        else
+          { cat "$PF_ROOT/technical.md"; pipeline_section; } > "$PF_ROOT/live.md"
+          preflight_live_body "$PF_ROOT/live.md"
+        fi
+        preflight_run; rc=$?
+        if [ "$control" = absent ]; then
+          expect_code 2 "$rc" "$target $mode without technical prose"
+          [ ! -s "$PF_ROOT/validated.md" ] || fail "empty technical explanation released intent"
+          assert_contains "$(cat "$PF_ROOT/diagnostic")" 'complete the What changed technically section' "missing technical explanation diagnostic"
+          if [ "$target" = intent ]; then
+            assert_absent "$PF_ROOT/calls" "invalid technical intent reached the forge"
+          fi
+        else
+          expect_code 0 "$rc" "$target $mode with technical prose: $(cat "$PF_ROOT/diagnostic")"
+          cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "technical prose control rewrote intent"
+        fi
+      done
+    done
+  done
+  pass "technical sections require prose while retaining thematic breaks and reference links"
+}
+
+test_preflight_stale_body_refuses_until_owner_reconciles() {
+  local rc
+  preflight_case
+  { pipeline_generated_body; pipeline_section; } > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  preflight_run; rc=$?
+  expect_code 2 "$rc" "stale legacy live body with a complete local intent"
+  assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "stale live source was not identified"
+  [ ! -s "$PF_ROOT/validated.md" ] || fail "stale live body released intent for delivery"
+  # Simulate the owner having reconciled the forge response. The preflight
+  # itself is read-only and never manufactures or publishes this fixture.
+  "$BODY_COMPOSER" "$PF_ROOT/intent.md" "$PF_ROOT/live.md" > "$PF_ROOT/reconciled.md"
+  preflight_live_body "$PF_ROOT/reconciled.md"
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "reconciled live body"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "recovery changed intent"
+  [ "$(grep -c '^GET$' "$PF_ROOT/calls")" -eq 2 ] || fail "preflight did not reread live data on recovery"
+  pass "a local sidecar cannot hide stale live prose; owner reconciliation permits a fresh read"
+}
+
+test_preflight_refuses_stale_or_forged_pipeline_data() {
+  local mode rc
+  for mode in stale duplicate quoted missing_signature incomplete malformed_status; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    case "$mode" in
+      stale) sed 's/0000000000000000000000000000000000000000/1111111111111111111111111111111111111111/' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
+      duplicate) { cat "$PF_ROOT/live.md"; pipeline_section; } > "$PF_ROOT/changed.md" ;;
+      quoted) { cat "$PF_ROOT/intent.md"; printf '\n```markdown\n'; pipeline_section; printf '\n```\n'; } > "$PF_ROOT/changed.md" ;;
+      missing_signature) sed '/^Updates from /d' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
+      incomplete) sed 's/"status":"completed"/"status":"pending"/g' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md" ;;
+      malformed_status)
+        # shellcheck disable=SC2016 # Literal backticks intentionally corrupt the JSON status fixture.
+        sed 's/"step":"test","status":"completed"/"step":"test","status":"com`pending`pleted"/' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md"
+        ;;
+    esac
+    preflight_live_body "$PF_ROOT/changed.md"
+    preflight_run; rc=$?
+    expect_code 2 "$rc" "$mode pipeline data"
+    if [ "$mode" = malformed_status ]; then
+      assert_contains "$(cat "$PF_ROOT/diagnostic")" 'lacks completed required pipeline steps' "malformed status did not reach unchanged step validation"
+    fi
+    [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode pipeline data released intent"
+  done
+  pass "preflight rejects stale heads, ambiguous or quoted attestations, and incomplete pipeline evidence"
+}
+
+test_preflight_preserves_comment_boundaries_and_step_types() {
+  local mode rc out
+  for mode in embedded_comments early_terminator numeric_step string_step boolean_step null_step array_step; do
+    preflight_case
+    node - "$PF_ROOT/intent.md" "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const mode = process.argv[4];
+const steps = ['review', 'test', 'document'].map(step => ({ step, status: 'completed' }));
+const attestation = { head_sha: '0'.repeat(40), steps };
+if (mode === 'embedded_comments' || mode === 'early_terminator') {
+  attestation.note = ' -->';
+  if (mode === 'embedded_comments') steps[1].status = 'com<!--pending-->pleted';
+} else {
+  const entries = { numeric_step: 0, string_step: 'test', boolean_step: false, null_step: null, array_step: [] };
+  steps.unshift(entries[mode]);
+}
+const json = JSON.stringify(attestation, ['note', 'head_sha', 'steps', 'step', 'status']);
+fs.writeFileSync(process.argv[3], fs.readFileSync(process.argv[2], 'utf8') +
+  '\n## Pipeline\n\nUpdates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)\n\n' +
+  '<!-- no-mistakes-pipeline-attestation:v1 ' + json + ' -->\n');
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    expect_code 2 "$rc" "$mode pipeline evidence"
+    [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode pipeline evidence released intent"
+    case "$mode" in
+      null_step) ;;
+      *)
+        out=$(PR_BODY="$(cat "$PF_ROOT/live.md")" PR_AUTHOR='fixture' PR_NUMBER=0 run_no_mistakes_requirement 2>&1); rc=$?
+        [ "$rc" -ne 0 ] || fail "hosted consumer unexpectedly accepted $mode: $out"
+        ;;
+    esac
+  done
+  pass "original comment boundaries and object-only steps prevent malformed evidence from authorizing delivery"
+}
+
+test_preflight_rejects_quoted_pipeline_evidence() {
+  local style evidence prefix suffix rc
+  for style in blockquote nested_blockquote indented tab_indented mixed_tab single_backtick double_backtick triple_backtick mixed_backticks; do
+    suffix=''
+    case "$style" in
+      blockquote) prefix='> ' ;;
+      nested_blockquote) prefix='   > > ' ;;
+      indented) prefix='    ' ;;
+      tab_indented) prefix=$(printf '\t') ;;
+      mixed_tab) prefix=$(printf '  \t') ;;
+      single_backtick) prefix='`'; suffix='`' ;;
+      double_backtick) prefix='``'; suffix='``' ;;
+      triple_backtick) prefix='```'; suffix='```' ;;
+      mixed_backticks)
+        # shellcheck disable=SC2016 # Literal mixed backticks exercise Markdown quoting.
+        prefix='``example ` '; suffix='``'
+        ;;
+    esac
+    for evidence in signature attestation both; do
+      preflight_case
+      {
+        cat "$PF_ROOT/intent.md"
+        case "$evidence" in
+          signature) pipeline_section | sed "/^Updates from /s/.*/$prefix&$suffix/" ;;
+          attestation) pipeline_section | sed "/^<!-- no-mistakes-pipeline-attestation:/s/.*/$prefix&$suffix/" ;;
+          both) pipeline_section | sed "/^Updates from /s/.*/$prefix&$suffix/; /^<!-- no-mistakes-pipeline-attestation:/s/.*/$prefix&$suffix/" ;;
+        esac
+      } > "$PF_ROOT/live.md"
+      preflight_live_body "$PF_ROOT/live.md"
+      preflight_run; rc=$?
+      expect_code 2 "$rc" "$style pipeline $evidence"
+      assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "quoted evidence refusal did not identify the live body"
+      [ ! -s "$PF_ROOT/validated.md" ] || fail "$style pipeline $evidence released intent"
+    done
+  done
+  preflight_case
+  {
+    cat "$PF_ROOT/intent.md"
+    # shellcheck disable=SC2016 # Literal backticks represent inline Markdown code in prose.
+    printf '\n%s\n' 'The `request status` label appears on the member page.'
+    pipeline_section
+  } > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "inline prose code with unquoted pipeline evidence"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "inline prose code changed validated intent"
+  pass "quoted signatures or attestations cannot authorize delivery; inline prose code remains supported"
+}
+
+test_preflight_checks_original_quoting_context() {
+  local mode rc
+  for mode in canonical list_fence ordered_fence multiline_inline multiline_double closed_examples inline_json closed_tilde combined_tilde closed_adjacent combined_adjacent heading_inline heading_plain closed_long_ordered open_long_ordered; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    node - "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+let body = fs.readFileSync(file, 'utf8');
+const start = body.indexOf('\n## Pipeline');
+if (mode === 'list_fence' || mode === 'ordered_fence') {
+  const marker = mode === 'list_fence' ? '-' : '1.';
+  const indent = mode === 'list_fence' ? '  ' : '   ';
+  body = body.slice(0, start) + '\n' + marker + ' ```\n' +
+    body.slice(start + 1).split('\n').map(line => indent + line).join('\n') + '\n' + indent + '```\n';
+} else if (mode === 'multiline_inline' || mode === 'multiline_double') {
+  const marker = mode === 'multiline_inline' ? '`' : '``';
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment => marker + '\n' + comment + '\n' + marker);
+} else if (mode === 'closed_examples') {
+  body = body.slice(0, start) + '\n- ```\n  Example code\n  ```\n\n`\nInline example\n`\n' + body.slice(start);
+} else if (mode === 'inline_json') {
+  body = body.replace('"head_sha":', '"note":"literal `value`", "head_sha":');
+} else if (['closed_tilde', 'combined_tilde', 'closed_adjacent', 'combined_adjacent'].includes(mode)) {
+  const example = '\n~~~\n`\n~~~\n';
+  if (mode.endsWith('_tilde')) body = body.slice(0, start) + example + body.slice(start);
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment =>
+    (mode.endsWith('_adjacent') ? example : '') +
+    (mode.startsWith('combined_') ? '`\n' + comment + '\n`' : comment));
+} else if (mode === 'heading_inline' || mode === 'heading_plain') {
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment =>
+    '### Example `\n' + (mode === 'heading_inline' ? '`\n' + comment + '\n`' : comment));
+} else if (mode === 'closed_long_ordered' || mode === 'open_long_ordered') {
+  body = body.slice(0, start) + '\n10. ```\n    Example `\n' +
+    (mode === 'closed_long_ordered' ? '    ```\n' : '') + body.slice(start);
+}
+fs.writeFileSync(file, body);
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    case "$mode" in
+      canonical|closed_examples|inline_json|closed_tilde|closed_adjacent|heading_plain|closed_long_ordered)
+        expect_code 0 "$rc" "$mode original-context control"
+        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
+        ;;
+      *)
+        expect_code 2 "$rc" "$mode quoted attestation"
+        [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode quoted attestation released intent"
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "$mode refusal did not identify live evidence"
+        ;;
+    esac
+  done
+  pass "original list-fence and multiline inline-code context cannot authorize quoted attestations"
+}
+
+test_preflight_binds_evidence_to_source_positions() {
+  local mode rc
+  for mode in underlined_inline underlined_equals underlined_plain signature_quoted signature_prose_mask signature_standalone_mask signature_prose_plain signature_standalone_plain signature_prose_mask_crlf signature_prose_plain_crlf; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    node - "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+const signature = 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)';
+let body = fs.readFileSync(file, 'utf8');
+const start = body.indexOf('\n## Pipeline');
+if (mode.startsWith('underlined_')) {
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment =>
+    'Example `\n' + (mode === 'underlined_equals' ? '===' : '---') + '\n' +
+    (mode === 'underlined_plain' ? comment : '`\n' + comment + '\n`'));
+} else {
+  if (!mode.includes('_plain')) body = body.replace(signature, '`\n' + signature + '\n`');
+  let earlier = '';
+  if (mode.includes('_prose_')) earlier = '\nThe publisher emits ' + signature + ' when delivery completes.\n';
+  if (mode.includes('_standalone_')) earlier = '\n' + signature + '\n';
+  body = body.slice(0, start) + earlier + body.slice(start);
+}
+body = '<!-- Source-position control: 🧭 -->\n\n~~~\nAn earlier example `\n~~~\n\n' + body;
+if (mode.endsWith('_crlf')) body = body.replace(/\n/g, '\r\n');
+fs.writeFileSync(file, body);
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    case "$mode" in
+      *_plain|*_plain_crlf)
+        expect_code 0 "$rc" "$mode source-position control"
+        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
+        ;;
+      *)
+        expect_code 2 "$rc" "$mode quoted evidence"
+        [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode quoted evidence released intent"
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "$mode refusal did not identify live evidence"
+        ;;
+    esac
+  done
+  pass "underlined headings and earlier occurrences cannot mask quoting at the actual evidence position"
+}
+
+test_preflight_preserves_original_paragraph_boundaries() {
+  local mode rc
+  for mode in canonical quoted_only indented_continuation tab_continuation indented_continuation_crlf true_blank spaces_blank prior_indented_block indented_close; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    node - "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+let body = fs.readFileSync(file, 'utf8');
+body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, comment => {
+  switch (mode) {
+    case 'quoted_only': return '`\n' + comment + '\n`';
+    case 'indented_continuation':
+    case 'indented_continuation_crlf': return '`\n    example\n' + comment + '\n`';
+    case 'tab_continuation': return '`\n\texample\n' + comment + '\n`';
+    case 'true_blank': return '`\n\n' + comment + '\n`';
+    case 'spaces_blank': return '`\n    \n' + comment + '\n`';
+    case 'prior_indented_block': return '    example `\n`\n' + comment + '\n`';
+    case 'indented_close': return '`\n    example `\n' + comment;
+    default: return comment;
+  }
+});
+if (mode.endsWith('_crlf')) body = body.replace(/\n/g, '\r\n');
+fs.writeFileSync(file, body);
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    case "$mode" in
+      canonical|true_blank|spaces_blank|indented_close)
+        expect_code 0 "$rc" "$mode original-paragraph control"
+        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
+        ;;
+      *)
+        expect_code 2 "$rc" "$mode quoted attestation"
+        [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode quoted attestation released intent"
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'unquoted pipeline attestation' "$mode did not fail at the evidence context check"
+        ;;
+    esac
+  done
+  pass "indented continuations preserve quoting while actual paragraph boundaries remain effective"
+}
+
+test_preflight_uses_markdown_structure() {
+  local mode rc
+  for mode in canonical r11_heading r11_signature r12_continuation r13_thematic causal_quote heading_plain thematic_plain r14_pipeline_html pipeline_details pipeline_details_stale r14_narrative_html narrative_details; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    node - "$PF_ROOT/live.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+const signature = 'Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)';
+let body = fs.readFileSync(file, 'utf8');
+const replacements = {
+  canonical: comment => comment,
+  r11_heading: comment => 'Example `\n---\n`\n' + comment + '\n`',
+  r12_continuation: comment => '`\n    example\n' + comment + '\n`',
+  r13_thematic: comment => 'Example `\n***\n`\n' + comment + '\n`',
+  causal_quote: comment => '`\n' + comment + '\n`',
+  heading_plain: comment => 'Example `\n---\n' + comment,
+  thematic_plain: comment => 'Example `\n***\n' + comment,
+};
+if (['r14_pipeline_html', 'pipeline_details', 'pipeline_details_stale'].includes(mode)) {
+  const tag = mode === 'r14_pipeline_html' ? 'blockquote' : 'details';
+  body = body.replace('## Pipeline\n', '## Pipeline\n\n<' + tag + '>\n' +
+    (tag === 'details' ? '<summary>Generated validation evidence</summary>\n' : '')) + '\n\n</' + tag + '>\n';
+  if (tag === 'details') body = body.replace('</details>', '- **What is changing:** `Generated machine output`\n\n</details>');
+  if (mode.endsWith('_stale')) body = body.replace('0000000000000000000000000000000000000000', '1111111111111111111111111111111111111111');
+} else if (mode === 'r14_narrative_html' || mode === 'narrative_details') {
+  const tag = mode === 'r14_narrative_html' ? 'blockquote' : 'details';
+  body = '<' + tag + '>\n\n' + body.replace('\n## Pipeline', '\n</' + tag + '>\n\n## Pipeline');
+} else if (mode === 'r11_signature') {
+  body = body.replace(signature, '`\n' + signature + '\n`');
+  body = body.replace('\n## Pipeline', '\nThe publisher emits ' + signature + '.\n\n## Pipeline');
+} else {
+  body = body.replace(/<!-- no-mistakes-pipeline-attestation:v1 .*? -->/, replacements[mode]);
+}
+fs.writeFileSync(file, body);
+JS
+    preflight_live_body "$PF_ROOT/live.md"
+    preflight_run; rc=$?
+    case "$mode" in
+      canonical|heading_plain|thematic_plain|r14_pipeline_html|pipeline_details|r14_narrative_html|narrative_details)
+        expect_code 0 "$rc" "$mode structural control"
+        cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$mode changed validated intent"
+        ;;
+      *)
+        expect_code 2 "$rc" "$mode structural quoting regression"
+        [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode quoted evidence released intent"
+        assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "$mode refusal did not identify live evidence"
+        ;;
+    esac
+  done
+  pass "R11-R14 table preserves machine outcomes while arbitrary HTML wrappers remain inert"
+}
+
+test_preflight_requires_positional_narrative_fields() {
+  local target label mode rc
+  for target in intent live; do
+    for label in 'What is changing' 'Checks passed'; do
+      for mode in canonical earlier_prose inline_code quote_value fence_value prose_label plain_bullet nested_bullet empty_with_continuation field_in_pipeline; do
+        [ "$target:$mode" != intent:field_in_pipeline ] || continue
+        preflight_case
+        { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+        node - "$PF_ROOT/$target.md" "$label" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], label = process.argv[3], mode = process.argv[4];
+let body = fs.readFileSync(file, 'utf8');
+const line = body.split('\n').find(line => line.startsWith('- **' + label + ':**'));
+const prefix = '- **' + label + ':**';
+const value = line.slice(prefix.length).trim();
+const replacements = {
+  canonical: line,
+  earlier_prose: label + ': pending\n' + line,
+  inline_code: prefix + ' `' + value + '`',
+  quote_value: prefix + ' > ' + value,
+  fence_value: prefix + ' ~~~ ' + value,
+  prose_label: label + ': ' + value,
+  plain_bullet: '- ' + label + ': ' + value,
+  nested_bullet: '- An example\n  ' + line,
+  empty_with_continuation: prefix + '\n  ' + value,
+  field_in_pipeline: '',
+};
+body = body.replace(line, replacements[mode]);
+if (mode === 'field_in_pipeline') body += '\n\n' + line + '\n';
+fs.writeFileSync(file, body);
+JS
+        if [ "$mode" = canonical ] || [ "$mode" = earlier_prose ]; then
+          node - "$CHECK" "$PF_ROOT/$target.md" > "$PF_ROOT/hosted-diagnostic" 2>&1 <<'JS'
+const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+const result = spawnSync(process.execPath, ['--experimental-strip-types', process.argv[2]], {
+  env: { ...process.env, PR_TITLE: 'Show members their request status',
+    PR_BODY: fs.readFileSync(process.argv[3], 'utf8'), GITHUB_STEP_SUMMARY: '' },
+  encoding: 'utf8',
+});
+process.stdout.write(result.stdout || '');
+process.stderr.write(result.stderr || '');
+process.exit(result.status ?? 1);
+JS
+          rc=$?
+          if [ "$mode" = canonical ]; then
+            expect_code 0 "$rc" "$target $label original hosted assessment"
+          else
+            expect_code 1 "$rc" "$target $label stale original hosted assessment"
+            assert_contains "$(cat "$PF_ROOT/hosted-diagnostic")" "$label: pending" "$target hosted assessor did not reject the original stale line"
+          fi
+        fi
+        preflight_live_body "$PF_ROOT/live.md"
+        preflight_run; rc=$?
+        if [ "$mode" = canonical ]; then
+          expect_code 0 "$rc" "$target $label canonical narrative"
+          cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$target canonical changed intent"
+        else
+          expect_code 2 "$rc" "$target $label $mode narrative"
+          [ ! -s "$PF_ROOT/validated.md" ] || fail "$target $label $mode released intent"
+          if [ "$mode" = earlier_prose ]; then
+            assert_contains "$(cat "$PF_ROOT/diagnostic")" "$label: pending" "$target preflight hid the original stale line"
+          fi
+          if [ "$target" = intent ]; then
+            [ ! -e "$PF_ROOT/calls" ] || fail "invalid authored narrative reached the forge"
+          fi
+        fi
+      done
+    done
+  done
+  pass "original hosted assessment and positional narrative restrictions must both pass"
+}
+
+test_preflight_keeps_arbitrary_lines_inert() {
+  local target mode rc
+  for target in intent live; do
+    for mode in comment inline_tag block_tag details after_pipeline blockquote fence inline_code; do
+      [ "$target:$mode" != intent:after_pipeline ] || continue
+      preflight_case
+      { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+      node - "$PF_ROOT/$target.md" "$mode" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], mode = process.argv[3];
+let body = fs.readFileSync(file, 'utf8');
+const outside = {
+  comment: '<!-- Example <details> is only a comment. -->',
+  inline_tag: 'An unrelated <span>generated note</span>.',
+  block_tag: '<blockquote>\n\nAn unrelated generated note.\n\n</blockquote>',
+  details: '<details>\n<summary>Generated Testing evidence</summary>\n\n' +
+    '- **Checks passed:** `Generated output outside Validation`\n\n</details>',
+  blockquote: '> An unrelated quoted diagnostic.',
+  fence: '```text\nAn unrelated captured result.\n```',
+  inline_code: 'The `request status` label was verified.',
+};
+if (mode === 'after_pipeline') {
+  body += '\n\n## Additional notes\n\n<details>\n<summary>Review notes</summary>\n\nAdditional prose.\n\n</details>\n';
+} else {
+  body = outside[mode] + '\n\n' + body;
+}
+body = '<!-- 🧭 source position -->\n\n' + body;
+fs.writeFileSync(file, body.replace(/\n/g, '\r\n'));
+JS
+      preflight_live_body "$PF_ROOT/live.md"
+      preflight_run; rc=$?
+      expect_code 0 "$rc" "$target $mode outside labelled bullets: $(cat "$PF_ROOT/diagnostic")"
+      cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "$target $mode changed intent"
+    done
+  done
+  pass "HTML and quoted constructs outside labelled bullets do not trigger narrative refusal"
+}
+
+test_preflight_rejects_constructs_inside_every_labelled_bullet() {
+  local target label mode placement rc line
+  for target in intent live; do
+    for label in 'What is changing' 'Why it matters' 'Customer or business impact' 'Risk and rollout' 'Checks passed' 'Checks not run' 'Evidence and limitations'; do
+      for mode in html blockquote fence inline_code; do
+        for placement in value continuation; do
+          preflight_case
+          { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+          node - "$PF_ROOT/$target.md" "$label" "$mode" "$placement" "$PF_ROOT/bullet-line" <<'JS'
+const fs = require('node:fs');
+const file = process.argv[2], label = process.argv[3], mode = process.argv[4], placement = process.argv[5];
+let body = fs.readFileSync(file, 'utf8');
+const prefix = '- **' + label + ':**';
+const line = body.split('\n').find(line => line.startsWith(prefix));
+const constructs = {
+  html: '<span>Quoted evidence</span>',
+  blockquote: '> Quoted evidence',
+  fence: placement === 'value' ? '~~~ Quoted evidence' : '~~~text\n  Quoted evidence\n  ~~~',
+  inline_code: '`Quoted evidence`',
+};
+const replacement = placement === 'value' ? prefix + ' ' + constructs[mode] : line + '\n  ' + constructs[mode];
+body = '<!-- 🧭 source position -->\n\n' + body.replace(line, replacement);
+fs.writeFileSync(process.argv[6], String(body.slice(0, body.indexOf(prefix)).split('\n').length));
+fs.writeFileSync(file, body.replace(/\n/g, '\r\n'));
+JS
+          preflight_live_body "$PF_ROOT/live.md"
+          preflight_run; rc=$?
+          expect_code 2 "$rc" "$target $label $mode in $placement"
+          [ ! -s "$PF_ROOT/validated.md" ] || fail "$target $label $mode in $placement released intent"
+          line=$(cat "$PF_ROOT/bullet-line")
+          assert_contains "$(cat "$PF_ROOT/diagnostic")" "bullet on line $line contains quoted or coded content" "$target $label $mode lost its bullet location"
+          assert_contains "$(cat "$PF_ROOT/diagnostic")" "use plain prose after - **$label:**" "$target $label $mode lacks recovery guidance"
+          if [ "$target" = intent ]; then
+            [ ! -e "$PF_ROOT/calls" ] || fail "invalid authored bullet reached the forge"
+          fi
+        done
+      done
+    done
+  done
+  pass "all seven labelled bullets reject HTML, quotes, fences and inline code including continuations"
+}
+
+test_preflight_requires_original_pipeline_signature() {
+  local rc out
+  preflight_case
+  { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+  sed 's/Updates from/Up<!-- example -->dates from/' "$PF_ROOT/live.md" > "$PF_ROOT/changed.md"
+  preflight_live_body "$PF_ROOT/changed.md"
+  preflight_run; rc=$?
+  expect_code 2 "$rc" "comment-split pipeline signature"
+  [ ! -s "$PF_ROOT/validated.md" ] || fail "reconstructed signature released intent"
+  assert_contains "$(cat "$PF_ROOT/diagnostic")" 'no pipeline signature' "reconstructed signature was not refused at the signature check"
+  out=$(PR_BODY="$(cat "$PF_ROOT/changed.md")" PR_AUTHOR='fixture' PR_NUMBER=0 run_no_mistakes_requirement 2>&1); rc=$?
+  [ "$rc" -ne 0 ] || fail "hosted consumer unexpectedly accepted a reconstructed signature: $out"
+  preflight_live_body "$PF_ROOT/live.md"
+  preflight_run; rc=$?
+  expect_code 0 "$rc" "original pipeline signature"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "original signature control changed intent"
+  pass "only an unchanged original pipeline signature authorizes delivery"
+}
+
+test_preflight_pins_github_against_ambient_host() {
+  local rc
+  preflight_case
+  GH_HOST=enterprise.example preflight_run; rc=$?
+  expect_code 0 "$rc" "fresh GitHub target with ambient enterprise host"
+  incomplete_body > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  GH_HOST=enterprise.example preflight_run; rc=$?
+  expect_code 2 "$rc" "stale GitHub body hidden by empty enterprise response"
+  assert_contains "$(cat "$PF_ROOT/diagnostic")" 'existing live PR body' "ambient host bypassed the GitHub body check"
+  [ ! -s "$PF_ROOT/validated.md" ] || fail "ambient host released intent for a stale GitHub body"
+  { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+  preflight_live_body "$PF_ROOT/live.md"
+  GH_HOST=enterprise.example preflight_run; rc=$?
+  expect_code 0 "$rc" "reconciled GitHub body with ambient enterprise host"
+  cmp -s "$PF_ROOT/intent.md" "$PF_ROOT/validated.md" || fail "host-bound recovery changed intent"
+  [ "$(grep -cx github.com "$PF_ROOT/hosts")" -eq 3 ] || fail "forge queries did not consistently target GitHub"
+  pass "ambient GH_HOST cannot hide stale GitHub evidence or block valid GitHub intake"
+}
+
+test_preflight_forge_failures_never_mean_no_existing_pr() {
+  local mode rc
+  for mode in error malformed ambiguous wrong_head invalid_json; do
+    preflight_case
+    { cat "$PF_ROOT/intent.md"; pipeline_section; } > "$PF_ROOT/live.md"
+    preflight_live_body "$PF_ROOT/live.md"
+    case "$mode" in
+      error|malformed) export PF_TRANSPORT=$mode ;;
+      ambiguous) node -e 'const f=require("node:fs"),p=process.argv[1],a=JSON.parse(f.readFileSync(p)); f.writeFileSync(p,JSON.stringify([a[0],a[0]]))' "$PF_ROOT/pulls.json" ;;
+      wrong_head) sed 's/fm\/preflight/fm\/other/' "$PF_ROOT/pulls.json" > "$PF_ROOT/changed.json"; mv "$PF_ROOT/changed.json" "$PF_ROOT/pulls.json" ;;
+      invalid_json) printf 'invalid' > "$PF_ROOT/pulls.json" ;;
+    esac
+    preflight_run; rc=$?
+    unset PF_TRANSPORT
+    expect_code 2 "$rc" "$mode forge response"
+    [ ! -s "$PF_ROOT/validated.md" ] || fail "$mode forge response released intent"
+  done
+  pass "failed, truncated, ambiguous, or mismatched forge data cannot authorize delivery"
 }
 
 run_no_mistakes_requirement() {
@@ -581,6 +1316,23 @@ test_tracked_pr_bodies_pass_firstmate_ceo_overview() {
   pass "tracked PR body artifacts satisfy the Firstmate CEO overview check"
 }
 
+test_preflight_fresh_intent_survives_generated_body
+test_preflight_rejects_bad_intent_before_forge_read
+test_preflight_requires_technical_prose
+test_preflight_stale_body_refuses_until_owner_reconciles
+test_preflight_refuses_stale_or_forged_pipeline_data
+test_preflight_preserves_comment_boundaries_and_step_types
+test_preflight_rejects_quoted_pipeline_evidence
+test_preflight_checks_original_quoting_context
+test_preflight_binds_evidence_to_source_positions
+test_preflight_preserves_original_paragraph_boundaries
+test_preflight_uses_markdown_structure
+test_preflight_requires_positional_narrative_fields
+test_preflight_keeps_arbitrary_lines_inert
+test_preflight_rejects_constructs_inside_every_labelled_bullet
+test_preflight_requires_original_pipeline_signature
+test_preflight_pins_github_against_ambient_host
+test_preflight_forge_failures_never_mean_no_existing_pr
 test_missing_remote_token_fails_closed
 test_vendored_unit_suite
 test_firstmate_unit_suite

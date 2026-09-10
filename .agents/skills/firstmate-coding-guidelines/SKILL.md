@@ -12,6 +12,7 @@ metadata:
 # firstmate-coding-guidelines
 
 Load this before changing firstmate's shared, tracked material, as defined by `AGENTS.md` section 1.
+Before starting or resuming delivery for this repository, follow the PR communication preflight in [`CONTRIBUTING.md`](../../../CONTRIBUTING.md).
 It exists because `AGENTS.md` grew from 585 to 958 lines between its last two restructures, entirely from conditional detail added inline instead of routed to its right home.
 Applying the rules below on every change is what keeps that from happening again.
 
