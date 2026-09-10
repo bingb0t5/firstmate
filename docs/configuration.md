@@ -431,6 +431,15 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the 
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
 
+## Todoist bridge (config/todoist-bridge.env)
+`config/todoist-bridge.env` is an optional local, gitignored receptacle for the Todoist bridge endpoints and bearer token.
+The bridge scripts parse the file as data and never source it as shell.
+`TODOIST_BRIDGE_PUBLISH_URL` receives the `fm-board.v1` publication.
+`TODOIST_BRIDGE_REPLIES_URL` returns pending captain comments and new-card events.
+`TODOIST_BRIDGE_ACK_URL` receives one JSON acknowledgement containing each event id.
+`TODOIST_BRIDGE_TOKEN` is sent only as a bearer header and is never printed.
+See [`docs/todoist-bridge.md`](todoist-bridge.md) for the payload, stage rules, reply authority, hide list, and watcher check recipe.
+
 ## PR merge conflict watch
 
 `bin/fm-pr-conflict-watch.sh` polls open GitHub pull requests for merge conflicts across the repositories this home works in.
