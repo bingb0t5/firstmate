@@ -411,6 +411,8 @@ EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
+Before starting /no-mistakes, resolve the ordinary PR repository with \`PR_REPO=\$(bin/fm-pr-target.sh .)\` and stop if it refuses the configured target.
+Every GitHub PR operation must carry \`--repo \"\$PR_REPO\"\`; for Firstmate this must resolve to \`bingb0t5/firstmate\`, while upstream remains pull-only.
 When you believe it is complete, append \`done: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 
