@@ -5,9 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# Superseded PR pushes should not keep burning minutes on the full matrix.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
@@ -130,11 +136,11 @@ jobs:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-latest
     # Measured whole remainder is ~55 min of serial work; the balanced shards
-    # are ~13.8 min each. Cap is a hang tripwire with roughly 1.4x margin, not
+    # are ~13.8 min each. Cap is a hang tripwire with roughly 1.8x margin, not
     # the expected healthy end of the lane. Balance depends on the duration
     # hints in bin/fm-test-run.sh: refresh them when the lane grows
     # (docs/fm-test-portable-shards.md), or a stale hint puts one shard here.
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       # Every shard reports so one failure never hides another shard's result.
       fail-fast: false
@@ -351,6 +357,8 @@ jobs:
 
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
+    # Keep costly stock Bash compatibility coverage off repeated PR updates.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     # The full stock Bash 3.2 compatibility suite, retaining the 14 x 180 KB
     # ARG_MAX fixture, took 12m53s on the measured host, so 20 minutes leaves

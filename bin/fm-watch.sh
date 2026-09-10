@@ -1610,10 +1610,21 @@ EOF
             *)      clear_pause_tracking "$key" ;;
           esac
         elif afk_present; then
-          # Daemon owns triage: one-shot per distinct stale hash, as before.
-          if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
+          # Away mode owns triage, but a re-armed watcher must not turn the
+          # same captain-relevant status into a second stale wake. The signal
+          # path records the receipt before handing the wake to away mode;
+          # preserve that receipt across the successor's first stale poll.
+          task=$(window_to_task "$w" "$STATE")
+          last=$(last_status_line "$STATE/$task.status")
+          if [ -n "$last" ] && status_surfaced_matches "$STATE" "$task" "$last"; then
+            printf '%s' "$h" > "$sf"
+            rm -f "$ssf" "$ewf"
+            clear_write_tracking "$key"
+            triage_log "absorbed stale (status already surfaced): $w"
+          elif [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
             fm_wake_append stale "$w" "stale: $w" || exit 1
             printf '%s' "$h" > "$sf"
+            mark_surfaced "$STATE/$task.status" away
             wake "stale: $w"
           fi
         elif stale_is_terminal "$w" "$STATE"; then
