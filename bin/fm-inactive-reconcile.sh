@@ -1016,7 +1016,7 @@ scan_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-
 }
 
 scan_active_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondmate-id-or-empty> <timeout>
-  local cursor=$1 upper=$2 deadline=$3 self=${4:-} timeout=$5 id candidate meta remaining share rc first target payload queue_rc alert_now
+  local cursor=$1 upper=$2 deadline=$3 self=${4:-} timeout=$5 id candidate meta remaining share rc first forced_first target payload queue_rc alert_now
   local position=$1
   while IFS=$'\t' read -r id candidate; do
     [ "$candidate" = active ] || continue
@@ -1026,6 +1026,7 @@ scan_active_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondm
     meta="$STATE/$id.meta"
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     first=0
+    forced_first=0
     if [ "${ACTIVE_SCAN_FIRST_VISIT_PENDING:-0}" -eq 1 ]; then
       first=1
       ACTIVE_SCAN_FIRST_VISIT_PENDING=0
@@ -1033,13 +1034,14 @@ scan_active_pass() { # <after-cursor> <upper-bound-or-empty> <deadline> <secondm
     remaining=$((deadline - $(date +%s)))
     if [ "$first" -eq 1 ] && [ "$remaining" -lt 1 ]; then
       remaining=1
+      forced_first=1
     fi
     [ "$remaining" -gt 0 ] || return 3
     share=$timeout
     [ "$remaining" -le "$share" ] || remaining=$share
     SCAN_ACTIVE_CURSOR=$id
     write_scan_marker "$SCAN_REGULAR_CURSOR" || return 1
-    if fm_run_timed $((remaining + 1)) env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    if fm_run_timed $((remaining + 1 - forced_first)) env FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
       FM_INACTIVE_RECONCILE_SECS="$FM_INACTIVE_RECONCILE_SECS" \
       FM_INACTIVE_RECONCILE_BUDGET_SECS="$FM_INACTIVE_RECONCILE_BUDGET_SECS" \
       FM_INACTIVE_CREW_STATE_BIN="$CREW_STATE_BIN" "$0" _reconcile-child \
