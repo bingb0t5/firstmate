@@ -7,7 +7,7 @@ One rule up front:
 We require this to reduce the maintainer's burden of reviewing and merging contributions.
 
 `no-mistakes` puts a local git proxy in front of your real remote.
-Pushing through it runs an AI-driven review/test/lint pipeline in an isolated worktree, forwards the push upstream only after every check passes, and opens a clean PR automatically.
+Pushing through it runs an AI-driven review/test/lint pipeline in an isolated worktree, forwards the push to the configured delivery remote only after every check passes, and opens a clean PR automatically.
 
 A GitHub Actions check (`Require no-mistakes`) runs on PRs targeting `main` and fails if the body is missing the deterministic signature that no-mistakes writes.
 It evaluates every PR opening and body edit independently, so a later edit cannot replace an earlier pending compliance check.
@@ -40,11 +40,12 @@ Hosted checks remain required after every publication.
 
 ## Workflow
 
-1. Fork the repo, then clone the parent repo or set your local `origin` back to the parent (`git@github.com:bingb0t5/firstmate.git`).
+1. Clone the captain fork as `origin` and keep any upstream repository as a separate fetch-only remote.
 2. Create a branch and make your changes.
-3. Initialize the gate with your fork as the push target: `no-mistakes init --fork-url git@github.com:<you>/firstmate.git` (firstmate expects **no-mistakes v1.46.0+**; without a fork, plain `no-mistakes init` still works for maintainers with push access).
+3. Initialize the gate with plain `no-mistakes init` (firstmate expects **no-mistakes v1.59.0+** so its GitHub PR commands carry an explicit `--repo`).
 4. Commit your changes.
-5. Validate the authored intent and start the gate, using the actual target repository and head owner for your fork:
+5. Validate the authored intent and start the gate through the explicitly configured delivery repository:
+   Push through the gate instead of pushing directly to `origin`.
 
    ```sh
    intent=$(bin/fm-nm-pr-preflight.sh --intent-file /path/to/intent.md \
@@ -54,11 +55,13 @@ Hosted checks remain required after every publication.
 
 6. Run `no-mistakes` to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.
    Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
-7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
+7. Once the pipeline passes, it pushes the branch to `origin` and opens the PR in that same explicitly configured delivery repository.
+   The upstream remote remains available for fetch, compare, and monitoring, but is never an ordinary PR target.
    `pr-communication` grades that live GitHub body, so author the required shape before publish as specified above.
    A committed `.github/pr-bodies` sidecar is not what CI reads.
    If a later description edit is needed, replace only the narrative sections.
    Keep no-mistakes' `## Pipeline` section verbatim, including the `Updates from [git push no-mistakes]` signature line and the `<!-- no-mistakes-pipeline-attestation:v1 ... -->` comment, because `Require no-mistakes` reads both from the body and fails when a rewrite deletes them.
+   Before staging, replace any legacy `Intent`, `What Changed`, `Risk Assessment`, or `Testing` description with every completed section from [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
    Repeat that check before every branch synchronization and after later description edits.
 
 See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/start-here/quick-start/) for the full first-run walkthrough.
