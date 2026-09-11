@@ -249,8 +249,43 @@ JSON
   pass "replies tolerate inbox wake failure without duplicating notes"
 }
 
+test_replies_skip_duplicate_after_crash_before_seen() {
+  local home out notes status=0
+  home=$(make_home replies-crash-seen)
+  bridge_env "$home"
+  make_fake_curl "$home"
+  mkdir -p "$home/state/inbox"
+  cat >"$home/state/inbox/crash-note.note" <<'EOF'
+id=crash-note
+at=2026-09-10T00:00:00Z
+source=text
+--
+todoist-bridge-event-id: crash-before-seen
+todoist captain-3 comment: already filed
+EOF
+  cat >"$home/response.json" <<'JSON'
+[
+  {"id":"crash-before-seen","card_key":"captain-3","kind":"comment","text":"already filed","author":"captain","at":"2026-09-10T00:00:00Z"}
+]
+JSON
+  : >"$home/posts"
+  out="$home/out"
+  env FM_HOME="$home" FM_CONFIG_OVERRIDE="$home/config" FM_STATE_OVERRIDE="$home/state" \
+    FAKE_CURL_RESPONSE="$home/response.json" FAKE_CURL_POSTS="$home/posts" \
+    PATH="$home/fakebin:$PATH" "$REPLIES" >"$out" 2>&1 || status=$?
+  [ "$status" -eq 0 ] || fail "poll after crash-before-seen failed: $(cat "$out")"
+  notes=$(find "$home/state/inbox" -maxdepth 1 -name '*.note' | wc -l | tr -d ' ')
+  [ "$notes" = 1 ] || fail "crash-before-seen path filed a duplicate captain note"
+  grep -F crash-before-seen "$home/state/todoist-bridge-replies.seen" >/dev/null \
+    || fail "crash-before-seen path did not record the event as seen"
+  [ "$(grep -c '"id":"crash-before-seen"' "$home/posts")" = 1 ] \
+    || fail "crash-before-seen path did not acknowledge the event"
+  pass "replies skip duplicate notes after crash before seen-list update"
+}
+
 test_unconfigured_is_local_success
 test_publish_projects_stages_dates_options_and_hide_list
 test_publish_never_outputs_token_on_network_failure
 test_replies_file_once_and_ack_idempotently
 test_replies_tolerate_inbox_wake_failure_without_duplicating
+test_replies_skip_duplicate_after_crash_before_seen

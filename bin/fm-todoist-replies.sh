@@ -73,6 +73,16 @@ command -v jq >/dev/null 2>&1 || die "jq not found"
 command -v curl >/dev/null 2>&1 || die "curl not found"
 [ -x "$INBOX_BIN" ] || die "captain inbox is unavailable"
 
+inbox_has_event() { # <event-id>
+  local event_id=$1 note
+  [ -d "$STATE/inbox" ] || return 1
+  for note in "$STATE/inbox"/*.note; do
+    [ -e "$note" ] || continue
+    grep -F -q -- "todoist-bridge-event-id: $event_id" "$note" && return 0
+  done
+  return 1
+}
+
 mkdir -p "$STATE"
 lock="$STATE/.todoist-bridge-replies.lock"
 if ! mkdir "$lock" 2>/dev/null; then
@@ -93,10 +103,7 @@ if ! curl --fail --silent --show-error --max-time "${FM_CHECK_TIMEOUT:-30}" \
 fi
 
 if ! jq -e '
-  if type == "array" then .
-  elif type == "object" and (.events | type) == "array" then .events
-  else error("pending replies must be an array or an object with events")
-  end
+  if type != "array" then error("pending replies must be an array") else . end
   | all(.[]; (.id != null and (.id | tostring | length > 0)
               and (.card_key | type) == "string"
               and (.kind == "comment" or .kind == "new_card")
@@ -106,9 +113,7 @@ if ! jq -e '
 ' "$response" >/dev/null 2>"$tmpdir/response.error"; then
   die "bridge replies response is malformed"
 fi
-jq -c '
-  if type == "array" then . else .events end
-' "$response" >"$events" || die "bridge replies response could not be read"
+jq -c '.' "$response" >"$events" || die "bridge replies response could not be read"
 
 touch "$SEEN_FILE"
 while IFS= read -r event; do
@@ -125,10 +130,24 @@ while IFS= read -r event; do
     continue
   fi
 
+  if inbox_has_event "$id"; then
+    printf '%s\n' "$id" >>"$SEEN_FILE" || die "reply seen-list could not be updated"
+    ack=$(printf '%s' "$event" | jq -c '{id:.id}')
+    if ! printf '%s' "$ack" | curl --fail --silent --show-error \
+      --max-time "${FM_CHECK_TIMEOUT:-30}" --request POST \
+      --header 'Content-Type: application/json' \
+      --header "Authorization: Bearer $TOKEN" --data-binary @- "$ACK_URL" \
+      >"$tmpdir/ack.out" 2>"$tmpdir/ack.error"; then
+      die "bridge reply acknowledgement failed"
+    fi
+    continue
+  fi
+
   card_key=$(printf '%s' "$event" | jq -r '.card_key')
   kind=$(printf '%s' "$event" | jq -r '.kind')
   body="$tmpdir/body"
   {
+    printf 'todoist-bridge-event-id: %s\n' "$id"
     printf 'todoist %s %s: ' "$card_key" "$kind"
     printf '%s' "$event" | jq -r '.text'
   } >"$body"
