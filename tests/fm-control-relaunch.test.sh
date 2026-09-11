@@ -92,6 +92,16 @@ case "${1:-}" in
         'export TRACEPARENT='*)
           [ -z "${FM_FAKE_TRACE_EXPORTED:-}" ] || : > "$FM_FAKE_TRACE_EXPORTED"
           ;;
+        'treehouse get')
+          mkdir -p "$D/wt-reallocated"
+          printf '%s/wt-reallocated\n' "$D" > "$D/cwd"
+          ;;
+        cd\ *)
+          path=${payload#cd }
+          path=${path#\'}; path=${path%\'}
+          path=${path#\"}; path=${path%\"}
+          printf '%s\n' "$path" > "$D/cwd"
+          ;;
       esac
     fi
     exit 0 ;;
@@ -122,6 +132,7 @@ case "${1:-}" in
       shift
     done
     printf '%s\n' "$name" > "$D/windows"
+    [ -f "$D/proj" ] && cat "$D/proj" > "$D/cwd"
     printf '@1\n'
     exit 0
     ;;
@@ -171,6 +182,7 @@ add_ship_task() {
   } > "$home/state/$id.meta"
   printf '%s\n' "fm-$id" > "$dir/fake/windows"
   printf '%s' "$wt" > "$dir/fake/cwd"
+  printf '%s' "$proj" > "$dir/fake/proj"
   TASK_TMPS+=("/tmp/fm-$id")
 }
 
@@ -1288,9 +1300,10 @@ test_spawn_relaunch_refuses_a_live_agent() {
 }
 
 test_relaunch_recreates_a_missing_endpoint_after_checkpoint() {
-  local dir out rc
+  local dir out rc recorded_wt
   dir=$(new_case missing-endpoint rl36)
   add_ship_task "$dir" rl36 claude
+  recorded_wt="$dir/wt"
   rm -f "$dir/fake/windows"
 
   out=$(run_control "$dir" rl36 exit); rc=$?
@@ -1304,6 +1317,10 @@ test_relaunch_recreates_a_missing_endpoint_after_checkpoint() {
     || fail "relaunch should recreate the task endpoint with its recorded name"
   [ "$(meta_field "$dir" rl36 window)" = "fmses:fm-rl36" ] \
     || fail "relaunch should preserve the task endpoint identity after recreation"
+  [ "$(meta_field "$dir" rl36 worktree)" = "$recorded_wt" ] \
+    || fail "relaunch must not reallocate a second local copy after a missing endpoint"
+  assert_no_grep 'treehouse get' "$dir/fake/keys" \
+    "a missing-endpoint relaunch must reuse the recorded copy, not treehouse get"
   pass "relaunch: a missing endpoint is agent-free after the worktree checkpoint and is recreated safely"
 }
 

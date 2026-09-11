@@ -2266,12 +2266,17 @@ kimi_spawn_fail() {  # <detail>
   echo "error: $1; inspect window $T" >&2
 }
 
-if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_RECREATED" -eq 0 ]; then
+if [ "$RELAUNCH" -eq 1 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # No worktree is acquired: the recorded one is reused as-is. What must be
   # proven instead is that the adopted endpoint's shell is actually sitting in
   # that worktree, so the replacement agent starts where the work is rather
-  # than wherever the pane happened to drift.
+  # than wherever the pane happened to drift. A recreated endpoint starts in
+  # the project checkout, so cd into the recorded copy instead of treehouse get,
+  # which would allocate a second pool worktree.
   relaunch_wt_real=$(real_path_or_raw "$WT")
+  if [ "$RELAUNCH_ENDPOINT_RECREATED" -eq 1 ]; then
+    spawn_send_text_line "$WT_TARGET" "cd $(shell_quote "$WT")"
+  fi
   relaunch_seen=
   for _ in $(seq 1 10); do
     relaunch_seen=$(spawn_current_path "$WT_TARGET" || true)
@@ -2282,7 +2287,7 @@ if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_RECREATED" -eq 0 ]; then
     echo "error: task $ID's endpoint is in '${relaunch_seen:-unknown}', not its recorded worktree '$WT'; refusing to relaunch an agent outside the copy holding its work" >&2
     exit 1
   fi
-  [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
+  validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
