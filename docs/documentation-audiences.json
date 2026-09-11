@@ -455,6 +455,10 @@
     {
       "path": "tests/fixtures/pr-communication/bodies/implementation-only-overview.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "throwaway-nm-cursor-eval.txt",
+      "audience": "maintainer-verification"
     }
   ]
 }
