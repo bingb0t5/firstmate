@@ -63,6 +63,9 @@ fi
 if [ -n "${FM_FAKE_FAIL_URL_SUBSTR:-}" ] && [[ "$url" == *"$FM_FAKE_FAIL_URL_SUBSTR"* ]]; then
   exit 1
 fi
+if [ -n "${FM_FAKE_SLEEP_SECS:-}" ]; then
+  sleep "$FM_FAKE_SLEEP_SECS"
+fi
 printf '%s' "$body"
 if [ -n "$writeout" ]; then
   printf '\n%s' "$status"
@@ -325,6 +328,56 @@ test_partial_mismatch_survives_later_probe_failure() {
   pass "earlier mismatches are still alerted when a later probe fails"
 }
 
+test_incomplete_sweep_preserves_prior_findings() {
+  local home out status=0 stored
+  QUOTED=0
+  make_home incomplete-preserve
+  home=$MADE_HOME
+  jq -cn --arg key LALO_ASSISTANT_API_KEY --arg value "fixture-mismatch-$$-$RANDOM" \
+    '{key:$key,value:$value}' > "$home/render/LALO_ASSISTANT_API_KEY.json"
+  out="$home/out1"
+  run_check "$home" "$out"
+  stored=$(sed -n '3p' "$home/state/.secret-parity")
+  assert_contains "$stored" 'LALO_ASSISTANT_API_KEY [admin-prod, render-llalo]' \
+    "initial mismatch was not recorded"
+  : > "$out"
+  FM_HOME="$home" \
+    FM_SECRET_PARITY_COOLIFY_ENV_FILE="$home/config/coolify.env" \
+    FM_SECRET_PARITY_RENDER_ENV_FILE="$home/config/render.env" \
+    FM_SECRET_PARITY_INTERVAL=0 \
+    FM_CHECK_TIMEOUT=5 \
+    FM_FAKE_SLEEP_SECS=1 \
+    FM_FAKE_COOLIFY_FIXTURES="$home/coolify" \
+    FM_FAKE_RENDER_FIXTURES="$home/render" \
+    PATH="$FAKEBIN:$PATH" \
+    "$CHECK" >"$out" 2>&1 || status=$?
+  expect_code 0 "$status" "incomplete sweep exit"
+  stored=$(sed -n '3p' "$home/state/.secret-parity")
+  assert_contains "$stored" 'LALO_ASSISTANT_API_KEY [admin-prod, render-llalo]' \
+    "incomplete sweep cleared a prior mismatch record"
+  [ ! -s "$out" ] || fail "incomplete sweep re-alerted an unchanged mismatch: $(cat "$out")"
+  pass "incomplete sweeps preserve prior mismatch records"
+}
+
+test_intra_tuple_mismatch_survives_probe_failure() {
+  local home out report
+  QUOTED=0
+  make_home intra-tuple-probe-failure
+  home=$MADE_HOME
+  jq --arg key BEANBOT_PLATFORM_SYNC_TOKEN --arg value "fixture-mismatch-$$-$RANDOM" \
+    'map(if .key == $key then .value=$value | .real_value=$value else . end)' \
+    "$home/coolify/o13agfus3ladxv4zpii2x792.json" \
+    > "$home/coolify/staging-mismatch.json"
+  mv "$home/coolify/staging-mismatch.json" "$home/coolify/o13agfus3ladxv4zpii2x792.json"
+  out="$home/out"
+  FM_FAKE_FAIL_URL_SUBSTR=/v1/services/ \
+    run_check "$home" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" 'BEANBOT_PLATFORM_SYNC_TOKEN [admin-prod, admin-staging, signals, render-llalo]' \
+    "intra-tuple mismatch was dropped after a later probe failed"
+  pass "intra-tuple mismatches survive a later probe failure in the same tuple"
+}
+
 test_unavailable_sweep_records_cadence() {
   local home out status=0 epoch
   QUOTED=0
@@ -367,4 +420,6 @@ test_n8n_membership_is_checked
 test_pins_are_checked
 test_operator_arm_registers_private_check
 test_partial_mismatch_survives_later_probe_failure
+test_incomplete_sweep_preserves_prior_findings
+test_intra_tuple_mismatch_survives_probe_failure
 test_unavailable_sweep_records_cadence

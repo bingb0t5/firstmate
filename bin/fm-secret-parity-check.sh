@@ -169,6 +169,7 @@ real_epoch() { date +%s; }
 
 DEADLINE=0
 SWEEP_UNAVAILABLE=0
+SWEEP_COMPLETE=0
 
 budget_exhausted() {
   [ "$(real_epoch)" -ge "$DEADLINE" ]
@@ -354,6 +355,44 @@ probe_location() {
 }
 
 MISMATCHES=
+merge_findings() {
+  local prior=$1 current=$2 result='' source entry key seen existing rest
+  for source in "$prior" "$current"; do
+    rest=$source
+    while [ -n "$rest" ]; do
+      case "$rest" in
+        *'; '*) entry=${rest%%'; '*} ; rest=${rest#*'; '} ;;
+        *) entry=$rest ; rest= ;;
+      esac
+      entry=${entry#"${entry%%[![:space:]]*}"}
+      entry=${entry%"${entry##*[![:space:]]}"}
+      [ -n "$entry" ] || continue
+      key=${entry%% \[*}
+      seen=0
+      if [ -n "$result" ]; then
+        existing=$result
+        while [ -n "$existing" ]; do
+          case "$existing" in
+            *'; '*) existing_entry=${existing%%'; '*} ; existing=${existing#*'; '} ;;
+            *) existing_entry=$existing ; existing= ;;
+          esac
+          existing_entry=${existing_entry#"${existing_entry%%[![:space:]]*}"}
+          existing_entry=${existing_entry%"${existing_entry##*[![:space:]]}"}
+          [ "${existing_entry%% \[*}" = "$key" ] && seen=1 && break
+        done
+      fi
+      if [ "$seen" -eq 0 ]; then
+        if [ -n "$result" ]; then
+          result="$result; $entry"
+        else
+          result=$entry
+        fi
+      fi
+    done
+  done
+  printf '%s' "$result"
+}
+
 append_mismatch() {
   local key=$1
   shift
@@ -372,7 +411,12 @@ compare_secret() {
   for label in "$@"; do
     [ -n "$labels" ] && labels="$labels, "
     labels="$labels$label"
-    probe_location "$label" "$key" || return 2
+    probe_location "$label" "$key" || {
+      if [ "$missing" -eq 1 ] || [ "$mismatch" -eq 1 ]; then
+        append_mismatch "$key" "$labels"
+      fi
+      return 2
+    }
     if [ "$PROBE_PRESENT" != true ]; then
       missing=1
     elif [ "$first_set" -eq 0 ]; then
@@ -429,15 +473,23 @@ compare_pin() {
 }
 
 finish_sweep() {
+  local store
   record_read
   if [ -n "$MISMATCHES" ]; then
     if [ "$MISMATCHES" != "$RECORD_FINDINGS" ]; then
       printf 'secret parity mismatch: %s\n' "$MISMATCHES"
     fi
-  elif [ "$SWEEP_UNAVAILABLE" -eq 1 ]; then
+  elif [ "$SWEEP_UNAVAILABLE" -eq 1 ] && [ -z "$RECORD_FINDINGS" ]; then
     printf '%s\n' 'secret parity check unavailable'
   fi
-  record_write "$MISMATCHES" || true
+  if [ "$SWEEP_COMPLETE" -eq 1 ]; then
+    store=$MISMATCHES
+  elif [ -z "$MISMATCHES" ]; then
+    store=$RECORD_FINDINGS
+  else
+    store=$(merge_findings "$RECORD_FINDINGS" "$MISMATCHES")
+  fi
+  record_write "$store" || true
 }
 
 sweep_step() {
@@ -453,6 +505,7 @@ action_check() {
   due_for_sweep || return 0
   MISMATCHES=
   SWEEP_UNAVAILABLE=0
+  SWEEP_COMPLETE=0
   command -v curl >/dev/null 2>&1 || {
     SWEEP_UNAVAILABLE=1
     finish_sweep
@@ -512,6 +565,9 @@ action_check() {
     return 0
   }
 
+  if [ "$SWEEP_UNAVAILABLE" -eq 0 ]; then
+    SWEEP_COMPLETE=1
+  fi
   finish_sweep
   return 0
 }
