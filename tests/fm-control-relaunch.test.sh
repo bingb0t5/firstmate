@@ -92,6 +92,16 @@ case "${1:-}" in
         'export TRACEPARENT='*)
           [ -z "${FM_FAKE_TRACE_EXPORTED:-}" ] || : > "$FM_FAKE_TRACE_EXPORTED"
           ;;
+        'treehouse get')
+          mkdir -p "$D/wt-reallocated"
+          printf '%s/wt-reallocated\n' "$D" > "$D/cwd"
+          ;;
+        cd\ *)
+          path=${payload#cd }
+          path=${path#\'}; path=${path%\'}
+          path=${path#\"}; path=${path%\"}
+          printf '%s\n' "$path" > "$D/cwd"
+          ;;
       esac
     fi
     exit 0 ;;
@@ -111,6 +121,21 @@ case "${1:-}" in
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
   list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  has-session) exit 0 ;;
+  new-window)
+    name=
+    while [ $# -gt 0 ]; do
+      if [ "$1" = -n ]; then
+        shift
+        name=${1:-}
+      fi
+      shift
+    done
+    printf '%s\n' "$name" > "$D/windows"
+    [ -f "$D/proj" ] && cat "$D/proj" > "$D/cwd"
+    printf '@1\n'
+    exit 0
+    ;;
 esac
 exit 0
 SH
@@ -157,6 +182,7 @@ add_ship_task() {
   } > "$home/state/$id.meta"
   printf '%s\n' "fm-$id" > "$dir/fake/windows"
   printf '%s' "$wt" > "$dir/fake/cwd"
+  printf '%s' "$proj" > "$dir/fake/proj"
   TASK_TMPS+=("/tmp/fm-$id")
 }
 
@@ -1273,6 +1299,31 @@ test_spawn_relaunch_refuses_a_live_agent() {
   pass "fm-spawn --relaunch: refuses to launch a second agent into a live endpoint"
 }
 
+test_relaunch_recreates_a_missing_endpoint_after_checkpoint() {
+  local dir out rc recorded_wt
+  dir=$(new_case missing-endpoint rl36)
+  add_ship_task "$dir" rl36 claude
+  recorded_wt="$dir/wt"
+  rm -f "$dir/fake/windows"
+
+  out=$(run_control "$dir" rl36 exit); rc=$?
+  expect_code 0 "$rc" "exit should be idempotent when the endpoint is authoritatively missing"
+  assert_contains "$out" "already-stopped rl36" "missing endpoint exit should report an already-stopped task"
+
+  out=$(run_control "$dir" rl36 relaunch --note "recover the worker from its preserved local copy"); rc=$?
+  expect_code 0 "$rc" "relaunch should recreate an authoritatively missing endpoint"$'\n'"$out"
+  assert_contains "$out" "relaunched rl36" "relaunch should report the replacement"
+  grep -Fxq 'fm-rl36' "$dir/fake/windows" \
+    || fail "relaunch should recreate the task endpoint with its recorded name"
+  [ "$(meta_field "$dir" rl36 window)" = "fmses:fm-rl36" ] \
+    || fail "relaunch should preserve the task endpoint identity after recreation"
+  [ "$(meta_field "$dir" rl36 worktree)" = "$recorded_wt" ] \
+    || fail "relaunch must not reallocate a second local copy after a missing endpoint"
+  assert_no_grep 'treehouse get' "$dir/fake/keys" \
+    "a missing-endpoint relaunch must reuse the recorded copy, not treehouse get"
+  pass "relaunch: a missing endpoint is agent-free after the worktree checkpoint and is recreated safely"
+}
+
 test_spawn_relaunch_refuses_contradicting_flags() {
   local dir out rc
   dir=$(new_case flags rl16)
@@ -1355,6 +1406,7 @@ test_concurrent_relaunch_is_refused
 test_direct_spawn_relaunch_participates_in_the_lifecycle_lock
 test_promotion_participates_in_the_lifecycle_lock_before_metadata_resolution
 test_spawn_relaunch_refuses_a_live_agent
+test_relaunch_recreates_a_missing_endpoint_after_checkpoint
 test_spawn_relaunch_refuses_contradicting_flags
 test_spawn_relaunch_refuses_an_unrecorded_task
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree
