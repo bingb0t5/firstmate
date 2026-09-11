@@ -1,0 +1,9 @@
+=== Codex Stop hook live reproduction ===
+elapsed_ms=621
+watcher_pid=
+watcher_sid=n/a
+sid_is_session_leader=no
+pipe_closed=yes
+watcher_alive=no
+beat_exists=no
+--- stop.err (last 5 lines) ---

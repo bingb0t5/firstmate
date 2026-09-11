@@ -1,0 +1,23 @@
+Codex Stop detach validation — test round 2 (2026-09-11)
+
+Regression suite (public hook path, scratch homes):
+  bash tests/fm-codex-stop-detach.test.sh
+  Result: 10/10 ok, exit 0, ~166s
+  Key timing: no-watcher Stop returned in 1544ms (<5000ms bound)
+  Key session evidence: watcher leads own session (sid==pid), stdio fd 0/1/2 -> /dev/null
+  Key pipe evidence: hook pipe EOF after Stop return
+
+Wake-queue Codex Stop semantics:
+  bash tests/fm-wake-queue.test.sh --codex-stop
+  Result: 9/9 ok, exit 0, ~116s
+  Covers: wake-queue preservation, failure recovery, away-mode guard, stale hook behavior
+
+Real Codex CLI live e2e:
+  FM_CODEX_STOP_DETACH_LIVE_E2E=1 bash tests/fm-codex-stop-detach-live-e2e.test.sh
+  Result: FAILED — Codex account usage limit (resets Sep 15th, 2026 8:24 AM)
+  Scenarios 11-13 remain blocked on Codex quota/credits
+
+Reproduction commands:
+  bash tests/fm-codex-stop-detach.test.sh
+  bash tests/fm-wake-queue.test.sh --codex-stop
+  FM_CODEX_STOP_DETACH_LIVE_E2E=1 bash tests/fm-codex-stop-detach-live-e2e.test.sh  # requires Codex quota

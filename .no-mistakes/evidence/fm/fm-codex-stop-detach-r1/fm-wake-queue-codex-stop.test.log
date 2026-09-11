@@ -1,0 +1,9 @@
+ok - stale Codex Stop command re-arms a linked secondmate home and preserves its durable wake
+ok - legacy Stop (empty) returns before 30 seconds and its foreground continuation handles a wake after 35 seconds
+ok - legacy Stop (attached) returns before 30 seconds and its foreground continuation handles a wake after 35 seconds
+ok - stale Codex hook remains generic in an unmarked primary and inert in a child worktree
+ok - stale Codex hook requires both a valid home marker and session-lock ownership
+ok - no-flag Stops from other lock-owning harnesses retain generic home behavior
+ok - Codex Stop self-wakes remain healthy with active work, while stale and unmarked homes still alarm
+ok - Codex queued-only failures retry, request one repair after productive wakes, and exhaust loudly
+ok - Codex away Stops retain strict watcher health, daemon recovery guidance, and the existing bound
