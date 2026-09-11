@@ -1,0 +1,24 @@
+Throwaway file verification (fm-nm-cursor-throwaway-r1)
+========================================================
+
+Command: test -f throwaway-nm-cursor-eval.txt && wc -c && head -1 throwaway-nm-cursor-eval.txt
+
+Result:
+  File exists: yes
+  Size: 121 bytes (one line)
+  Content: # THROWAWAY (fm-nm-cursor-throwaway-r1): no-mistakes Cursor gate identity experiment only — safe to delete after eval.
+
+Label checks:
+  THROWAWAY marker: present
+  Branch id (fm-nm-cursor-throwaway-r1): present
+  Safe-to-delete hint: present
+
+Diff scope (c630a8b..bb989d9):
+  Only throwaway-nm-cursor-eval.txt added (1 line).
+
+Branch context (.no-mistakes.yaml, not in this commit diff):
+  disable_project_settings: false (intentional experiment setup)
+
+Identity experiment note:
+  Whether Cursor gate agents adopt fleet-captain vs reviewer identity is
+  observable only during Review/other gate LLM phases, not in Test phase.
