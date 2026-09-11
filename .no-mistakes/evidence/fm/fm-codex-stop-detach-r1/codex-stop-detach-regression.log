@@ -1,0 +1,10 @@
+ok - Codex Stop starts a new-session watcher, closes the hook pipe, and returns in 1694ms
+ok - Codex Stop attaches to a healthy watcher and returns without a duplicate
+ok - old detached completion preserves the current replacement session binding
+ok - detached launch closes inherited fd 2048 while its watcher survives
+ok - confirmation timeout retires pre-lock preparation and descendants
+ok - confirmation cancellation retires its child across exec
+ok - supervisor timeout prevents unacknowledged watcher startup
+ok - fast queued completions retain post-exec identity and successful outcomes
+ok - unmatched delivery records cannot turn an empty completion into success
+ok - late wake and SIGKILL failure notify the original session without consuming queued work
