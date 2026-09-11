@@ -571,13 +571,13 @@ action_preflight() {
     DEADLINE=$(($(real_epoch) + BUDGET_SECS))
     run_sweep || true
   fi
-  if [ "$SWEEP_UNAVAILABLE" -ne 0 ] || [ "$SWEEP_COMPLETE" -ne 1 ]; then
-    printf '%s\n' 'secret parity preflight unavailable'
-    return 2
-  fi
   if [ -n "$MISMATCHES" ]; then
     printf 'secret parity preflight failed: %s\n' "$MISMATCHES"
     return 1
+  fi
+  if [ "$SWEEP_UNAVAILABLE" -ne 0 ] || [ "$SWEEP_COMPLETE" -ne 1 ]; then
+    printf '%s\n' 'secret parity preflight unavailable'
+    return 2
   fi
   printf '%s\n' 'secret parity preflight passed'
   return 0

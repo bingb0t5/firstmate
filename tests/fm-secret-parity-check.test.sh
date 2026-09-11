@@ -388,6 +388,25 @@ test_partial_mismatch_survives_later_probe_failure() {
   pass "earlier mismatches are still alerted when a later probe fails"
 }
 
+test_preflight_reports_mismatch_when_sweep_incomplete() {
+  local home out report
+  QUOTED=0
+  make_home preflight-partial-probe-failure
+  home=$MADE_HOME
+  jq -cn --arg key LALO_ASSISTANT_API_KEY --arg value "fixture-mismatch-$$-$RANDOM" \
+    '{key:$key,value:$value}' > "$home/render/LALO_ASSISTANT_API_KEY.json"
+  out="$home/out"
+  FM_FAKE_FAIL_URL_SUBSTR=/api/v1/services/ \
+    run_preflight "$home" "$out"
+  expect_code 1 "$PREFLIGHT_STATUS" "incomplete preflight with mismatch exit"
+  report=$(cat "$out")
+  assert_contains "$report" 'secret parity preflight failed: LALO_ASSISTANT_API_KEY [admin-prod, render-llalo]' \
+    "incomplete preflight hid an earlier mismatch after a later probe failed"
+  assert_not_contains "$report" 'secret parity preflight unavailable' \
+    "incomplete preflight replaced a known mismatch with unavailable"
+  pass "release preflight names earlier mismatches when a later probe fails"
+}
+
 test_incomplete_sweep_preserves_prior_findings() {
   local home out status=0 stored
   QUOTED=0
@@ -483,6 +502,7 @@ test_n8n_membership_is_checked
 test_pins_are_checked
 test_operator_arm_registers_private_check
 test_partial_mismatch_survives_later_probe_failure
+test_preflight_reports_mismatch_when_sweep_incomplete
 test_incomplete_sweep_preserves_prior_findings
 test_intra_tuple_mismatch_survives_probe_failure
 test_unavailable_sweep_records_cadence
