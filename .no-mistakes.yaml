@@ -1,6 +1,10 @@
 # Per-repo no-mistakes overrides.
 
-agent: [codex]
+agent: [pi]
+agent_config:
+  pi:
+    model: openai/gpt-5.6-terra
+    thinking: high
 
 # firstmate is an agent-orchestration repo: its AGENTS.md installs a fleet-captain
 # identity. Disable project-level agent settings/instructions for gate agents so a
