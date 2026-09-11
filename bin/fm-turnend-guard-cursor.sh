@@ -8,8 +8,8 @@
 #   PARK      while supervision is needed, foreground bin/fm-watch-arm.sh and
 #             hold the turn boundary open until the watcher closes with an
 #             actionable wake, then return that wake as the follow-up. No model
-#             tokens are spent while parked. The next turn end parks again, so
-#             the arm/re-arm loop is hook-owned, never model-memory-owned.
+#             tokens are spent while parked. The next eligible Cursor turn parks
+#             again, so the arm/re-arm loop is hook-owned, never model-memory-owned.
 #   BACKSTOP  when the park cannot establish supervision, return the shared
 #             turn-end guard's repair instruction as a bounded follow-up.
 #
@@ -64,6 +64,7 @@ WATCH="$SCRIPT_DIR/fm-watch.sh"
 OWNER="$STATE/.cursor-park-owner"
 OWNER_LOCK="$STATE/.cursor-park-owner.lock"
 BUDGET_FILE="$STATE/.turnend-cursor-blocks"
+PENDING_WAKE_FILE="$STATE/.cursor-wake-pending"
 
 LOOP_CEILING=${FM_CURSOR_TURNEND_LOOP_CEILING:-180}
 BLOCK_BUDGET=${FM_CURSOR_TURNEND_BLOCK_BUDGET:-3}
@@ -103,6 +104,8 @@ LOOP_COUNT=$(printf '%s' "$PAYLOAD" | jq -r '
 case "$LOOP_COUNT" in ''|*[!0-9]*) exit 0 ;; esac
 SESSION_ID=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // "unknown"' 2>/dev/null || printf 'unknown')
 case "$SESSION_ID" in ''|*[!A-Za-z0-9._-]*) SESSION_ID=unknown ;; esac
+GENERATION_ID=$(printf '%s' "$PAYLOAD" | jq -r '.generation_id // .generationId // empty' 2>/dev/null || true)
+case "$GENERATION_ID" in ''|*[!A-Za-z0-9._-]*) GENERATION_ID=unknown ;; esac
 
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
@@ -124,6 +127,10 @@ emit_followup() {  # <kind> <body> [reset-budget]
   response=$(jq -n --arg m "$encoded" '{followup_message:$m}' 2>/dev/null) || exit 0
   lock_acquire_bounded "$OWNER_LOCK" || exit 0
   if ! park_still_ours || ! current_session_still_ours || [ -e "$STATE/.afk" ]; then
+    fm_lock_release "$OWNER_LOCK"
+    exit 0
+  fi
+  if [ "$kind" = watcher ] && ! claim_pending_wake_slot; then
     fm_lock_release "$OWNER_LOCK"
     exit 0
   fi
@@ -238,6 +245,61 @@ current_session_still_ours() {
   fm_session_lock_owned_by_self "$STATE"
 }
 
+cursor_pending_wake_matches_current_turn() {
+  local pending_session pending_generation pending_loop
+  [ -f "$PENDING_WAKE_FILE" ] && [ ! -L "$PENDING_WAKE_FILE" ] || return 1
+  pending_session=$(sed -n 's/^session=//p' "$PENDING_WAKE_FILE" 2>/dev/null | head -1)
+  pending_generation=$(sed -n 's/^generation=//p' "$PENDING_WAKE_FILE" 2>/dev/null | head -1)
+  pending_loop=$(sed -n 's/^loop_count=//p' "$PENDING_WAKE_FILE" 2>/dev/null | head -1)
+  [ "$pending_session" = "$SESSION_ID" ] || return 1
+  if [ "$GENERATION_ID" != unknown ] && [ "$pending_generation" != unknown ]; then
+    [ "$pending_generation" = "$GENERATION_ID" ]
+    return
+  fi
+  [ "$pending_loop" = "$LOOP_COUNT" ]
+}
+
+# A watcher wake is an input injection, not a new durable event. Cursor may
+# invoke this hook again while the turn that received the previous follow-up is
+# still active; keep one pending injection claim for that session turn and let
+# the durable wake queue retain every additional event.
+prepare_pending_wake_slot() {
+  lock_acquire_bounded "$OWNER_LOCK" || return 1
+  if ! park_still_ours || ! current_session_still_ours || [ -e "$STATE/.afk" ]; then
+    fm_lock_release "$OWNER_LOCK"
+    return 1
+  fi
+  if cursor_pending_wake_matches_current_turn; then
+    fm_lock_release "$OWNER_LOCK"
+    return 2
+  fi
+  if [ -e "$PENDING_WAKE_FILE" ] || [ -L "$PENDING_WAKE_FILE" ]; then
+    [ -f "$PENDING_WAKE_FILE" ] && [ ! -L "$PENDING_WAKE_FILE" ] || {
+      fm_lock_release "$OWNER_LOCK"
+      return 1
+    }
+    if ! rm -f "$PENDING_WAKE_FILE" 2>/dev/null \
+      || [ -e "$PENDING_WAKE_FILE" ] || [ -L "$PENDING_WAKE_FILE" ]; then
+      fm_lock_release "$OWNER_LOCK"
+      return 1
+    fi
+  fi
+  fm_lock_release "$OWNER_LOCK"
+  return 0
+}
+
+claim_pending_wake_slot() {
+  local tmp="$PENDING_WAKE_FILE.tmp.${BASHPID:-$$}"
+  if ! printf 'session=%s\ngeneration=%s\nloop_count=%s\n' \
+    "$SESSION_ID" "$GENERATION_ID" "$LOOP_COUNT" > "$tmp" 2>/dev/null \
+    || ! mv -f "$tmp" "$PENDING_WAKE_FILE" 2>/dev/null \
+    || ! cursor_pending_wake_matches_current_turn; then
+    rm -f "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  return 0
+}
+
 # Only the lock-owning session may arm or wake. A prior session that died
 # leaving its numeric harness pid behind is the one recoverable
 # case, delegated to bin/fm-lock.sh so acquisition keeps its single owner.
@@ -254,6 +316,7 @@ case "$OWNER_ID" in ''|*[!0-9]*) exit 0 ;; esac
 
 PARK_SEQ=
 claim_park || exit 0
+prepare_pending_wake_slot || exit 0
 
 # Cursor's own loop_limit is the outer ceiling; this inner one bites first so the
 # session is told once, loudly, instead of supervision going quiet unannounced.
@@ -354,7 +417,7 @@ Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQ
 fi
 
 # A verified live cycle with a fresh beacon is positive recovery even though this
-# park closed without a wake of its own: the next turn end parks again.
+# park closed without a wake of its own: the next eligible Cursor turn parks again.
 if [ "$HEALTHY" -eq 1 ]; then
   budget_reset_if_ours
   exit 0

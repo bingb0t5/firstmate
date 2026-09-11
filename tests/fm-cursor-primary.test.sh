@@ -289,6 +289,46 @@ test_park_delivers_actionable_wake_as_followup() {
   pass "cursor park: an actionable close is delivered as one watcher-kind follow-up"
 }
 
+test_park_coalesces_one_pending_watcher_wake_per_cursor_turn() {
+  local dir first_out second_out third_out
+  dir=$(make_primary_dir "$TMP_ROOT/park-wake-coalesce")
+  : > "$dir/state/task1.meta"
+  write_arm_fixture "$dir" actionable
+
+  first_out=$(run_park "$dir")
+  [ "$(kind_of_followup "$first_out")" = watcher ] \
+    || fail "the first actionable wake must be delivered"
+  [ -f "$dir/state/.cursor-wake-pending" ] \
+    || fail "the delivered wake must claim the pending injection slot"
+
+  rm -f "$dir/state/arm-ran"
+  second_out=$(run_park "$dir")
+  [ -z "$second_out" ] \
+    || fail "a second stop in the same Cursor turn queued a duplicate wake: $second_out"
+  [ ! -e "$dir/state/arm-ran" ] \
+    || fail "a pending wake should defer before arming another watcher cycle"
+
+  third_out=$(run_park "$dir" 1)
+  [ "$(kind_of_followup "$third_out")" = watcher ] \
+    || fail "a later Cursor turn must receive the durable wake: $third_out"
+  pass "cursor park: one pending watcher wake is coalesced until the next Cursor turn"
+}
+
+test_park_rejects_a_nonregular_pending_wake_slot() {
+  local dir out
+  dir=$(make_primary_dir "$TMP_ROOT/park-wake-slot-directory")
+  : > "$dir/state/task1.meta"
+  mkdir "$dir/state/.cursor-wake-pending"
+  write_arm_fixture "$dir" actionable
+
+  out=$(run_park "$dir")
+  [ -z "$out" ] \
+    || fail "a nonregular pending wake slot must not emit a follow-up: $out"
+  [ ! -e "$dir/state/arm-ran" ] \
+    || fail "a nonregular pending wake slot must defer before arming"
+  pass "cursor park: nonregular pending wake slot fails closed"
+}
+
 test_park_never_exits_two() {
   local dir status
   dir=$(make_primary_dir "$TMP_ROOT/park-exit")
@@ -340,7 +380,7 @@ test_park_nag_budget_resets_after_a_real_wake() {
   out=$(run_park "$dir")
   [ "$(kind_of_followup "$out")" = watcher ] || fail "expected a real wake, got: $out"
   write_arm_fixture "$dir" failed
-  out=$(run_park "$dir")
+  out=$(run_park "$dir" 1)
   [ "$(kind_of_followup "$out")" = turn-end-guard ] \
     || fail "a productive wake must reset the nag budget, got: $out"
   pass "cursor park: a delivered wake resets the bounded repair budget"
@@ -644,6 +684,8 @@ test_pretool_guards_deduplicate_and_render_cursor_deny
 test_cd_guard_renders_cursor_deny
 test_park_silent_when_nothing_in_flight
 test_park_delivers_actionable_wake_as_followup
+test_park_coalesces_one_pending_watcher_wake_per_cursor_turn
+test_park_rejects_a_nonregular_pending_wake_slot
 test_park_never_exits_two
 test_park_repair_nag_is_bounded
 test_park_repair_nag_requires_a_persisted_budget
