@@ -1,0 +1,16 @@
+== arm a stable condition and action ==
+armed: when-deploy-ready
+starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+reminder: deterministic, safe, reversible actions only; judgment and destructive actions stay on the wake-and-decide path
+== reconcile executes the condition source ==
+reconciled: published=0 started=1 stopped=0 uncertain=0
+== durable fired outcome ==
+  when: when-deploy-ready
+  status: fired
+  detail: the condition held and the action exited 0
+  condition_polls: 1
+  action_exit: 0
+  output:
+  deployed
+== terminal source has retired ==
+no sources registered

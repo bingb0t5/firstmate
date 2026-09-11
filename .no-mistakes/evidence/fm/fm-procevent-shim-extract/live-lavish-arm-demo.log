@@ -1,0 +1,9 @@
+== arm a real Lavish adapter artifact ==
+armed: lavish-c54fba009164565e
+artifact: /home/rich/.no-mistakes/evidence/01M27E4697X1ZFPE605XT0BRG3/live-lavish-arm-case/review.html
+== generic runner sees the adapter registration ==
+SOURCE                       ADAPTER      OWNER      PENDING
+lavish-c54fba009164565e      lavish       none       0
+== adapter retirement ==
+retired: lavish-c54fba009164565e
+no sources registered

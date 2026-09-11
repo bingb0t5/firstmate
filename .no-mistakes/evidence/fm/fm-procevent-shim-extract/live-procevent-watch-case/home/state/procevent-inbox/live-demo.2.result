@@ -1,0 +1,3 @@
+session:
+  file: /live-demo.html
+  status: waiting

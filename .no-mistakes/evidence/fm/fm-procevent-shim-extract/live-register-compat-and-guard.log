@@ -1,0 +1,10 @@
+== register compatibility spelling ==
+registered: compat-source (lavish)
+== registered source runs through the same capture interface ==
+not-autohandled: compat-source (left for the handler; still unacknowledged)
+captured: /home/rich/.no-mistakes/evidence/01M27E4697X1ZFPE605XT0BRG3/live-register-compat-case/home/state/procevent-inbox/compat-source.1.result
+captured: compatibility payload 
+== malformed arm is rejected before registration ==
+exit=1
+error: error: arm needs at least one argv element after --
+no sources registered

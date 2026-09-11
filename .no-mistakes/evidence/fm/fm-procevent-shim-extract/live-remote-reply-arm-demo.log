@@ -1,0 +1,8 @@
+== arm a configured remote-reply source ==
+armed: remote-reply-ios offset=0
+== generic runner sees the remote source ==
+SOURCE                       ADAPTER      OWNER      PENDING
+remote-reply-ios             remote-reply none       0
+== retirement ==
+retired: remote-reply-ios
+no sources registered

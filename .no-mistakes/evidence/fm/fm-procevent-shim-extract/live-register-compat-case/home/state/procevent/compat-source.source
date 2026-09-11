@@ -1,0 +1,5 @@
+adapter=lavish
+argc=2
+argv:
+/bin/printf
+compatibility payload\n

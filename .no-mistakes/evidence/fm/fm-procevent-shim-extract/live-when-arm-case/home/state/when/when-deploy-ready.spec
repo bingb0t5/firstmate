@@ -1,0 +1,15 @@
+fm-when-spec-v1
+armed=1789104578
+interval=0.1
+stable=1
+deadline=604800
+condition_timeout=60
+action_timeout=1800
+error_budget=3
+action_sha256=5c63567e30e1e9c99aabecc1b87a3780b3c134e3854de88c4ed48bedab736bf7
+condition_argc=1
+action_argc=2
+argv:
+true
+/usr/bin/echo
+deployed

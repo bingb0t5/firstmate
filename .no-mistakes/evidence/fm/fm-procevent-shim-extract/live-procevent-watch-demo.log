@@ -1,0 +1,19 @@
+== arm a process-event source ==
+armed: live-demo (lavish)
+starts on the watcher's next cycle; or run: bin/fm-procevent.sh reconcile
+== public registration listing ==
+SOURCE                       ADAPTER      OWNER      PENDING
+live-demo                    lavish       none       0
+== reconcile starts the registered source ==
+reconciled: published=0 started=1 stopped=0 uncertain=0
+== durable process-event wake ==
+kind=check key=procevent:live-demo:1 payload=check: procevent lavish live-demo 1
+== captured source output ==
+result=/home/rich/.no-mistakes/evidence/01M27E4697X1ZFPE605XT0BRG3/live-procevent-watch-case/home/state/procevent-inbox/live-demo.1.result
+  session:
+    file: /live-demo.html
+    status: waiting
+== running watcher surfaces the queued result ==
+watch: check: process-event result captured: procevent:live-demo:1
+== retire cleanup ==
+retired: live-demo

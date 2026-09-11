@@ -1,0 +1,7 @@
+when: when-deploy-ready
+status: fired
+detail: the condition held and the action exited 0
+condition_polls: 1
+action_exit: 0
+output:
+deployed

@@ -1,0 +1,1 @@
+- ios - iOS delivery (host: remote.example; root: /opt/firstmate; home: /var/fm; scope: iOS work; projects: alpha; added 2026-08-02)
