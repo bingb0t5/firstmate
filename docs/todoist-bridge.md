@@ -67,22 +67,25 @@ Older done backlog records use `archive`.
 Captain-held records use `Waiting for captain`.
 Other held records use `Queued` and explain the wait in `stage_reason`.
 Queued records use `Queued`.
+An in-flight task whose current state is done and has a pull request uses `Waiting for captain` until the snapshot evidences that the pull request is merged.
+That merge-ready ship uses `stage_reason` `Ready for the captain merge word`.
+An in-flight task whose current state is done and has a merged pull request uses `Done this week`.
 An in-flight task whose current state source is a no-mistakes run step uses `Validation`.
 An in-flight task with a failed or blocked current state sets `blocked` to true.
-An in-flight task whose current state is done and has a pull request uses `Waiting for captain` until the snapshot evidences that the pull request is merged.
-An in-flight task whose current state is done and has a merged pull request uses `Done this week`.
 Other in-flight tasks use `In progress`.
-An in-flight scout whose key or title contains `review` uses `UI review`.
+An in-flight scout whose key or title contains `review`, and whose base stage would otherwise be `In progress`, uses `UI review`.
 The `captain` label marks `Waiting for captain` items.
 The `blocked` label marks blocked items.
 The repository label is included when the item has a repository value.
 
 ## Captain replies
-`bin/fm-todoist-replies.sh` gets pending events from the replies URL.
+`bin/fm-todoist-replies.sh` GETs a flat JSON array of pending events from the replies URL.
 Each event must contain `id`, `card_key`, `kind`, `text`, `author`, and `at`.
-The script files each unseen event through `bin/fm-inbox.sh note -` as `todoist <card_key> <kind>: <text>`.
-The event id is kept in the durable `state/todoist-bridge-replies.seen` file before the acknowledgement is posted.
-Seen events are acknowledged again without filing a duplicate note, which repairs a crash between filing and acknowledgement.
+The `kind` value must be `comment` or `new_card`.
+The script files each unseen event through `bin/fm-inbox.sh note -` with a `todoist-bridge-event-id: <id>` line followed by `todoist <card_key> <kind>: <text>`.
+Before filing, it checks pending and handled captain inbox notes for an exact `todoist-bridge-event-id: <id>` line and skips filing when one already exists.
+After a successful filing, the event id is appended to the durable `state/todoist-bridge-replies.seen` file and then acknowledged.
+Events already in the seen list, or already present in the inbox lookup, are acknowledged without filing again.
 Event text is always stdin data and is never interpreted as a command.
 
 ## Polling

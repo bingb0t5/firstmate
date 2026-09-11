@@ -3,9 +3,10 @@
 #
 # Usage: fm-todoist-replies.sh
 #
-# Each event is filed as data through `bin/fm-inbox.sh note -` and then
-# acknowledged by id. The seen-list is durable, so an acknowledged event is not
-# filed again on later polls. Event text is never evaluated as shell.
+# Each unseen event is filed as data through `bin/fm-inbox.sh note -`, recorded
+# in the durable seen-list, and acknowledged by id. Pending and handled inbox
+# notes keyed by todoist-bridge-event-id prevent duplicate filing across crashes.
+# Event text is never evaluated as shell.
 # Configuration is read from config/todoist-bridge.env without sourcing it.
 # An absent bridge configuration is a successful no-op that prints one line.
 
