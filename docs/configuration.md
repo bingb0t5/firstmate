@@ -498,6 +498,34 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a larger budget is
 A cut budget is disclosed at the head of the line and, like a matured coverage hole, can appear without a conflict behind it.
 Because the cut-budget disclosure describes a setting rather than an event, it repeats on every sweep until the two settings agree.
 
+## Deployment secret parity
+
+[`bin/fm-secret-parity-check.sh`](../bin/fm-secret-parity-check.sh) compares approved shared deployment secrets across Render, Coolify, and n8n without exposing secret values, hashes, fingerprints, or value-derived strings.
+It is detection only: it never changes provider configuration.
+The approved secret tuples, membership rules, and pin values are owned by that script's header and `--help`; this section owns operator setup and watcher behavior only.
+
+Provider credential paths, direct overrides, and env-file field names are owned by that script's header and `--help`.
+`FM_SECRET_PARITY_COOLIFY_ENV_FILE` and `FM_SECRET_PARITY_RENDER_ENV_FILE` override the default Coolify and Render credential files.
+No n8n credential-store bearer is read; the n8n assistant bearer is outside this check by policy.
+Coolify n8n is the specified Coolify service resource, not an application.
+Coolify environment values wrapped in one matching quote layer are unwrapped before comparison.
+
+Arm once per home with `bin/fm-secret-parity-check.sh arm`.
+That writes `state/secret-parity.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence and turns a new mismatch or unavailable notice into one `check:` wake line.
+The operator-home registration path is `FM_HOME=/path/to/firstmate-home bin/fm-secret-parity-check.sh arm`; it never creates private registration artifacts in the repository.
+`bin/fm-secret-parity-check.sh disarm` removes the shim, trust binding, and finding record.
+The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required.
+
+The check prints nothing when every approved tuple matches and the same finding set is still present.
+A new or changed mismatch prints one line beginning with `secret parity mismatch:` and naming each secret plus its affected environments only.
+When credentials or runtime dependencies are missing and no prior finding is on record, it prints one `secret parity check unavailable` line.
+`state/.secret-parity` records the finding set the last alert was made from so an unchanged mismatch is reported once instead of on every poll; a complete sweep with no mismatches clears the record so a later mismatch alerts again.
+A sweep interrupted by probe failure or budget exhaustion still alerts mismatches found before the interruption and preserves prior recorded findings until a complete sweep clears them.
+
+`FM_SECRET_PARITY_INTERVAL` (default 900 seconds, `0` to probe on every run) sets how often sweeps run, and `FM_SECRET_PARITY_PROBE_SECS` (default 15, range 1..60) bounds one provider HTTP call.
+The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); probe and budget sizing follow the same cut-to-fit pattern as the other armed custom checks rather than refusing an oversized setting outright.
+`FM_SECRET_PARITY_NOW` is a test-only whole-second clock override.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
@@ -802,6 +830,11 @@ FM_TOOL_UPDATE_INTERVAL=900   # seconds between watched-tool probe sweeps; 0 pro
 FM_TOOL_UPDATE_PROBE_SECS=5   # 1..30 seconds allowed for one version or git probe
 FM_TOOL_UPDATE_BUDGET_SECS=20   # 1..120 seconds allowed for a whole watched-tool sweep; cut to fit FM_CHECK_TIMEOUT, and the cut is reported
 FM_TOOL_UPDATE_NOW=     # test override for the watched-tool sweep clock; the sweep budget still uses real time
+FM_SECRET_PARITY_INTERVAL=900   # seconds between deployment secret parity sweeps; 0 probes on every run
+FM_SECRET_PARITY_PROBE_SECS=15   # 1..60 seconds allowed for one Coolify or Render HTTP probe
+FM_SECRET_PARITY_COOLIFY_ENV_FILE=   # optional override for the Coolify credential file; default ~/.config/beanz/coolify.env
+FM_SECRET_PARITY_RENDER_ENV_FILE=    # optional override for the Render credential file; default ~/.config/lalo/render-api.env
+FM_SECRET_PARITY_NOW=   # test-only whole-second clock override for secret parity sweeps
 FM_PROCEVENT_MAX_OUTPUT_BYTES=1048576   # bound on one captured process-to-event result
 FM_PROCEVENT_CLAIM_ROOT=                # machine-wide source claim root; default $XDG_STATE_HOME/firstmate/procevent-claims
 FM_WHEN_OUTPUT_TAIL_BYTES=8192          # bound on the command-output tail inside one condition->action outcome document
