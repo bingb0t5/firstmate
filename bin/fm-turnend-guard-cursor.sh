@@ -8,8 +8,8 @@
 #   PARK      while supervision is needed, foreground bin/fm-watch-arm.sh and
 #             hold the turn boundary open until the watcher closes with an
 #             actionable wake, then return that wake as the follow-up. No model
-#             tokens are spent while parked. The next turn end parks again, so
-#             the arm/re-arm loop is hook-owned, never model-memory-owned.
+#             tokens are spent while parked. The next eligible Cursor turn parks
+#             again, so the arm/re-arm loop is hook-owned, never model-memory-owned.
 #   BACKSTOP  when the park cannot establish supervision, return the shared
 #             turn-end guard's repair instruction as a bounded follow-up.
 #
@@ -417,7 +417,7 @@ Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQ
 fi
 
 # A verified live cycle with a fresh beacon is positive recovery even though this
-# park closed without a wake of its own: the next turn end parks again.
+# park closed without a wake of its own: the next eligible Cursor turn parks again.
 if [ "$HEALTHY" -eq 1 ]; then
   budget_reset_if_ours
   exit 0
