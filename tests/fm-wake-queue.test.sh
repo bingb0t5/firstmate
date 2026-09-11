@@ -16,6 +16,7 @@ DRAIN="$ROOT/bin/fm-wake-drain.sh"
 GRANT="$ROOT/bin/fm-wake-grant.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-wake-tests)
+# shellcheck source=tests/codex-stop-detach-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/codex-stop-detach-helpers.sh"
 
 cleanup_wake_processes() {

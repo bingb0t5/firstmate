@@ -13,6 +13,7 @@ fi
 
 TMP_ROOT=$(fm_test_tmproot fm-codex-stop-detach)
 CHILD_PIDS=
+# shellcheck source=tests/codex-stop-detach-helpers.sh
 . "$(dirname "${BASH_SOURCE[0]}")/codex-stop-detach-helpers.sh"
 
 cleanup_watcher_pids() {
