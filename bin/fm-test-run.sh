@@ -172,7 +172,7 @@ family_for_basename() {
     fm-control-herdr-smoke.test.sh)
       printf '%s\n' real-herdr-gated
       ;;
-    fm-backlog-handoff.test.sh|fm-on.test.sh|fm-remote-backlog-handoff.test.sh|\
+    fm-backlog-handoff.test.sh|fm-on.test.sh|fm-pull.test.sh|fm-remote-backlog-handoff.test.sh|\
     fm-remote-doctor.test.sh|fm-remote-job.test.sh|fm-remote-job-orphan-reap.test.sh|\
     fm-remote-reply.test.sh|fm-remote-secondmate-lifecycle-e2e.test.sh|\
     fm-remote-secondmate-trace-context.test.sh|\
@@ -453,6 +453,7 @@ tests/fm-procevent-telegram.test.sh 110671
 tests/fm-procevent-when.test.sh 15087
 tests/fm-procevent.test.sh 55552
 tests/fm-project-origin.test.sh 105
+tests/fm-pull.test.sh 8393
 tests/fm-public-followup.test.sh 180865
 tests/fm-quota-array-dispatch-live-e2e.test.sh 19
 tests/fm-quota-dashboard-serve.test.sh 2364
@@ -1031,8 +1032,9 @@ families_for_changed_path() {
       printf '%s\n' watcher-wake-lock
       printf '%s\n' live-harness-optin
       ;;
-    bin/fm-bearings-snapshot.sh|bin/fm-fleet-snapshot.sh|bin/fm-fleet-view.sh)
+    bin/fm-bearings-snapshot.sh|bin/fm-fleet-snapshot.sh|bin/fm-fleet-view.sh|bin/fm-pull.sh)
       printf '%s\n' snapshot-bearings
+      printf '%s\n' secondmate
       ;;
     bin/fm-install-herdr.sh|bin/fm-install-treehouse.sh|bin/fm-herdr-ci-cleanup.sh)
       printf '%s\n' pure-contract-unit

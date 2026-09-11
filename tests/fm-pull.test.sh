@@ -249,7 +249,7 @@ SH
 }
 
 test_incomplete_inventory_retains_readable_tasks_in_summary() {
-  local home out
+  local home out rc=0
   home=$(make_home partial-inventory)
   mkdir -p "$home/projects/visible"
   cat > "$home/data/backlog.md" <<'EOF'
@@ -278,6 +278,19 @@ EOF
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
   printf '%s' "$out" | jq -e '.attention.valid == false and ([.tasks[].id] == ["visible-ship"])' >/dev/null \
     || fail "partial inventory local snapshot dropped readable tasks: $out"
+  mkdir -p "$home/data/admit-task"
+  printf '# brief\n' > "$home/data/admit-task/brief.md"
+  add_task "$home" admit-task 1
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start admit-task "$ROOT" \
+    --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "pull admitted work while inventory remained incomplete"
+  assert_contains "$out" 'attention facts are invalid' "pull did not fail closed on partial inventory"
+  assert_absent "$home/state/admit-task.meta" "partial inventory pull refusal published metadata"
+  rc=0
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-spawn.sh" admit-task "$ROOT" \
+    --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn admitted work while inventory remained incomplete"
+  assert_contains "$out" 'attention facts are invalid' "spawn did not fail closed on partial inventory"
   pass "incomplete inventory retains readable tasks and surfaces the fact"
 }
 
