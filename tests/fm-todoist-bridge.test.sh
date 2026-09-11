@@ -147,7 +147,9 @@ test_publish_projects_stages_dates_options_and_hide_list() {
     and ([.items[] | select(.key == "ready")][0]
       | .stage == "Waiting for captain"
       and .stage_reason == "Ready for the captain merge word")
-    and ([.items[] | select(.key == "merged")][0].stage == "Done this week")
+    and ([.items[] | select(.key == "merged")][0]
+      | .stage == "Done this week"
+      and .stage_reason == "merged")
     and ([.items[] | select(.key == "blocked")][0].blocked == true)
     and ([.items[] | select(.key == "pane-blocked")][0]
       | .stage == "In progress" and .blocked == true)

@@ -178,7 +178,7 @@ jq -n \
             (if $b.hold_until == null then "" else " until " + $b.hold_until end))
          elif $state == "done" and $pr != "" and ($stage == "Waiting for captain") then
            "Ready for the captain merge word"
-         elif $source == "run-step" then
+         elif $source == "run-step" and $stage == "Validation" then
            ("Validation " + $state + (if ($current.detail // "") == "" then "" else ": " + $current.detail end))
          elif ($current.detail // "") != "" then $current.detail
          elif $b.state == "queued" then "Queued, not started"
