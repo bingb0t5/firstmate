@@ -12,8 +12,9 @@
 # identity, else the pane busy-signature) and reconciles the possibly-stale log
 # against it.
 #
-# The determinism lives entirely here - only run-step / pane / log reads plus
-# fixed mapping logic, no heuristics and no LLM. Output is one stable, parseable,
+# The determinism lives entirely here - only run-step / pane / log reads and
+# owned PR-poll merge evidence plus fixed mapping logic, no heuristics and no LLM.
+# Output is one stable, parseable,
 # token-tight line firstmate can read every heartbeat:
 #
 #   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|remote-endpoint|none> · <detail>
@@ -42,6 +43,14 @@
 #      checks" from "checks green, waiting on merge" (see nm_ci_checks_state) -
 #      a ci-step log-tail check reports checks green without terminalizing a
 #      live run, so a green PR is never silently read as still-validating.
+#      A terminal passed run is done, but does not itself prove a PR merged.
+#      Its detail claims PR merged/closed only when the run's canonical PR
+#      identity matches task metadata and the owned PR-poll merge-notification
+#      marker validated by fm-pr-lib.sh. With valid PR metadata but missing or
+#      mismatched evidence, detail is "run passed: PR merge unverified";
+#      without valid PR metadata, it is "run passed". This read makes no live
+#      forge query, and done is not permission to tear down unlanded work:
+#      fm-teardown.sh independently owns the landed-work test.
 #   3. Reconcile the status log: if its last line says needs-decision/blocked but
 #      the run-step shows the run moved on, the log is deterministically stale and
 #      is flagged superseded. A genuinely parked run plus a needs-decision log
@@ -73,6 +82,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 
 ID=${1:-}
 [ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
@@ -323,21 +334,20 @@ nm_effective_ci_step_status() {
   fi
 }
 
-# Root cause of the PR #252 incident (2026-07): for a repo where merge is left
-# to the captain, no-mistakes' ci step (and therefore top-level status/outcome)
-# stays "running" for the ENTIRE CI-monitor phase, including long after GitHub
-# reports every check green - it only reaches outcome=passed once the PR is
-# actually merged (or failed/cancelled if closed). `axi status`'s steps[] table
-# never distinguishes "still waiting on checks" from "checks green, waiting on
-# merge": both read as plain `ci,running,...`. The only place that transition is
-# recorded is the ci step's own log text, e.g. "all CI checks passed - still
-# monitoring until merged or closed" or "no CI checks reported - still
-# monitoring until merged or closed" (verified against 360+ real run logs under
-# ~/.no-mistakes/logs/*/ci.log on the installed v1.32.2 binary, including the
-# actual PR #252 run). Reads the ci step's log tail via `axi logs` and scans it
-# for the MOST RECENT recognized marker (the log is append-only/chronological,
-# so the last match is current): green with nothing red after it means CI is
-# green right now, still only waiting on merge/close.
+# Corroborate merge detail under the header's evidence contract.
+pr_merge_observed() {
+  fm_pr_metadata_identity_parse "$META" || return 1
+  fm_pr_url_parse "$(strip_quotes "$(nm_field pr)")" || return 1
+  [ "$FM_PR_URL" = "$FM_PR_META_URL" ] || return 1
+  fm_pr_poll_merge_already_notified "$STATE" "$ID" \
+    "$FM_PR_META_PROVIDER" "$FM_PR_META_HOST" "$FM_PR_META_PATH" \
+    "$FM_PR_META_NUMBER"
+}
+
+# During CI monitoring, `axi status`'s steps[] table reports both pending
+# checks and green checks awaiting merge as `ci,running,...`.
+# Read the ci step's append-only log tail via `axi logs`; the most recent
+# recognized marker wins so a later failure or re-arm supersedes earlier green.
 nm_ci_checks_state() {
   local run_id log_tail marker
   run_id=$(strip_quotes "$(nm_field id)")
@@ -502,7 +512,16 @@ if [ "$HAVE_RUN" = 1 ]; then
     case "$status" in running|fixing|ci) active_status=1 ;; esac
     if [ -n "$outcome" ] && [ "$active_status" -eq 0 ]; then
       case "$outcome" in
-        passed)        RUN_STATE="done"; RUN_DETAIL="run passed: PR merged/closed" ;;
+        passed)
+          RUN_STATE="done"
+          if pr_merge_observed; then
+            RUN_DETAIL="run passed: PR merged/closed"
+          elif fm_pr_metadata_identity_parse "$META"; then
+            RUN_DETAIL="run passed: PR merge unverified"
+          else
+            RUN_DETAIL="run passed"
+          fi
+          ;;
         checks-passed) RUN_STATE="done"; RUN_DETAIL="checks green: PR ready for review" ;;
         failed)        RUN_STATE=failed; RUN_DETAIL="run failed" ;;
         cancelled)     RUN_STATE=failed; RUN_DETAIL="run cancelled" ;;

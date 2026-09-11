@@ -31,6 +31,8 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-classify-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$ROOT/bin/fm-pr-lib.sh"
 
 CREW_STATE="$ROOT/bin/fm-crew-state.sh"
 TMP_ROOT=$(fm_test_tmproot fm-crew-state)
@@ -272,7 +274,7 @@ run:
   branch: $1
   status: completed
   head: "${FM_FAKE_RUN_HEAD:-abc1234}"
-  pr: "https://github.com/o/r/pull/1"
+  pr: "${2-https://github.com/o/r/pull/1}"
   findings: none
 outcome: passed
 EOF
@@ -677,6 +679,97 @@ test_top_level_fixing_done_log_stays_working() {
 }
 
 # (d) terminal run-step is authoritative
+mark_merged_poll() {  # <state-dir> <id> <number>
+  fm_pr_poll_merge_mark_notified "$1" "$2" github github.com o/r "$3" \
+    || fail "could not create merged PR poll evidence fixture"
+}
+
+# A stopped worker can leave no-mistakes outcome=passed after CI concluded while
+# the recorded PR remains open. Without the owned PR-poll marker, the state
+# reader must report the run as complete but must not claim that the PR merged.
+test_passed_open_pr_does_not_claim_merge() {
+  reset_fakes
+  local d; d=$(new_case passed-open-pr)
+  make_repo_on_branch "$d/wt" fm/feat-open-pr
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-open-pr.meta" "window=fm:fm-feat-open-pr" \
+    "worktree=$d/wt" "kind=ship" "pr=https://github.com/o/r/pull/1"
+  printf 'done: PR https://github.com/o/r/pull/1 checks green\n' > \
+    "$d/state/feat-open-pr.status"
+  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-open-pr)"
+  local out; out=$(run_crew_state "$d" feat-open-pr)
+  assert_contains "$out" "state: done" "stopped passed run remains complete"
+  assert_contains "$out" "source: run-step" "passed run remains run-step sourced"
+  assert_contains "$out" "PR merge unverified" \
+    "an open or unknown PR is reported as merge-unverified"
+  assert_not_contains "$out" "PR merged/closed" \
+    "a passed run without forge evidence must not claim a merge"
+  pass "passed open PR is not reported as merged"
+}
+
+# A matching marker is the owned poll's durable proof that its forge read saw a
+# merge. It restores the terminal merged detail without requiring a live network
+# call or trusting a marker for another PR.
+test_passed_pr_with_owned_merge_evidence_claims_merge() {
+  reset_fakes
+  local d; d=$(new_case passed-merged-pr)
+  make_repo_on_branch "$d/wt" fm/feat-merged-pr
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-merged-pr.meta" "window=fm:fm-feat-merged-pr" \
+    "worktree=$d/wt" "kind=ship" "pr=https://github.com/o/r/pull/1"
+  mark_merged_poll "$d/state" feat-merged-pr 1
+  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-merged-pr)"
+  local out; out=$(run_crew_state "$d" feat-merged-pr)
+  assert_contains "$out" "state: done" "merged run remains complete"
+  assert_contains "$out" "run passed: PR merged/closed" \
+    "matching owned merge evidence restores merged detail"
+  pass "passed PR with matching owned merge evidence is reported as merged"
+}
+
+# A marker for a different PR is not evidence for the currently recorded PR.
+test_passed_pr_with_mismatched_merge_evidence_stays_unverified() {
+  reset_fakes
+  local d; d=$(new_case passed-mismatched-pr)
+  make_repo_on_branch "$d/wt" fm/feat-mismatched-pr
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-mismatched-pr.meta" "window=fm:fm-feat-mismatched-pr" \
+    "worktree=$d/wt" "kind=ship" "pr=https://github.com/o/r/pull/1"
+  mark_merged_poll "$d/state" feat-mismatched-pr 2
+  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-mismatched-pr)"
+  local out; out=$(run_crew_state "$d" feat-mismatched-pr)
+  assert_contains "$out" "PR merge unverified" \
+    "mismatched merge evidence stays unverified"
+  assert_not_contains "$out" "PR merged/closed" \
+    "mismatched merge evidence cannot claim a merge"
+  pass "mismatched owned merge evidence is rejected"
+}
+
+test_passed_run_with_stale_pr_metadata_stays_unverified() {
+  reset_fakes
+  local d run_pr out
+  d=$(new_case passed-stale-pr-metadata)
+  make_repo_on_branch "$d/wt" fm/feat-stale-pr
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-stale-pr.meta" "window=fm:fm-feat-stale-pr" \
+    "worktree=$d/wt" "kind=ship" "pr=https://github.com/o/r/pull/1"
+  mark_merged_poll "$d/state" feat-stale-pr 1
+  FM_FAKE_TMUX_MISSING=1
+  for run_pr in \
+    https://github.com/o/r/pull/2 \
+    https://github.com/o/other/pull/1 \
+    https://gitlab.com/o/r/-/merge_requests/1 \
+    https://github.com/o/r/pull/1/invalid \
+    ''; do
+    FM_FAKE_AXI_STATUS="$(run_passed fm/feat-stale-pr "$run_pr")"
+    out=$(run_crew_state "$d" feat-stale-pr)
+    assert_contains "$out" "state: done" "stopped run remains complete: $run_pr"
+    assert_contains "$out" "source: run-step" "current run remains attributed: $run_pr"
+    assert_contains "$out" "PR merge unverified" "run PR must match merge evidence: $run_pr"
+    assert_not_contains "$out" "PR merged/closed" "stale metadata cannot prove this run merged: $run_pr"
+  done
+  pass "retained metadata and merge evidence cannot certify another run PR"
+}
+
 test_terminal_passed() {
   reset_fakes
   local d; d=$(new_case passed)
@@ -1488,6 +1581,10 @@ test_ci_ready_done_log_relapse_stays_working
 test_ci_fixing_after_green_stays_working
 test_top_level_fixing_ci_running_after_green_stays_working
 test_top_level_fixing_done_log_stays_working
+test_passed_open_pr_does_not_claim_merge
+test_passed_pr_with_owned_merge_evidence_claims_merge
+test_passed_pr_with_mismatched_merge_evidence_stays_unverified
+test_passed_run_with_stale_pr_metadata_stays_unverified
 test_terminal_passed
 test_terminal_failed
 test_live_ci_status_outranks_stale_failure
