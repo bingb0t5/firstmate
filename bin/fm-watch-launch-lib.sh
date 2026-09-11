@@ -29,6 +29,7 @@ fm_watch_launch_read() {
 
 fm_watch_launch_result() {
   local dir=$1 pid identity
+  # shellcheck disable=SC2034 # LAUNCH_REASON is consumed by the calling owner.
   IFS=$'\t' read -r pid identity LAUNCH_STATUS LAUNCH_REASON < "$dir/result" || return 1
   [ "$pid" = "$LAUNCH_PID" ] && [ "$identity" = "$LAUNCH_IDENTITY" ] || return 1
   case "$LAUNCH_STATUS" in ''|*[!0-9]*) return 1 ;; esac
@@ -47,7 +48,7 @@ fm_watch_launch_retire() {
   local dir=$1 i
   fm_watch_launch_owner "$dir" || return 0
   kill -TERM "$LAUNCH_OWNER_PID" 2>/dev/null || return 0
-  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  for ((i = 0; i < 20; i++)); do
     fm_watch_launch_owner "$dir" || return 0
     sleep 0.1
   done

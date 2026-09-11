@@ -8,8 +8,8 @@
 # The explicit --fast mode is local-only and disables ShellCheck's extended
 # dataflow analysis while preserving ordinary shell lint checks. CI and
 # no-mistakes keep the full-analysis no-argument default.
-# Tests stop source analysis at imported production modules because every
-# production shell is already a canonical, source-aware root of this same run.
+# Each canonical production shell is linted as its own root, so imported
+# production modules are covered independently without multiplying source graphs.
 # The default (no explicit-path) path also runs bin/fm-lint-workflows.sh so a
 # malformed GitHub workflow, including a self-broken ci.yml, fails locally
 # before merge instead of only failing to run as CI.
@@ -31,6 +31,9 @@
 # Each shard writes separate diagnostics, and the parent replays those outputs in
 # deterministic shard and root order after every worker finishes. FM_LINT_JOBS=1
 # runs the same shards serially with byte-identical diagnostics and exit selection.
+# Each ShellCheck child is capped at FM_LINT_SHELLCHECK_VMEM_KIB virtual-memory
+# kibibytes (default 4,000,000), so one pathological source graph cannot OOM-kill
+# the host or hide the lint failure.
 #
 # Optional quiet telemetry writes one bounded TSV snapshot of content and source
 # graph identity, wall/CPU/RSS, shard load, and competing ShellCheck processes.
@@ -47,6 +50,7 @@
 set -u
 
 REQUIRED_SHELLCHECK=0.11.0
+SHELLCHECK_VMEM_KIB=${FM_LINT_SHELLCHECK_VMEM_KIB:-4000000}
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$SELF_DIR/fm-lint.sh"
 ROOT="$(cd "$SELF_DIR/.." && pwd)"
@@ -75,15 +79,26 @@ fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
     trap 'fm_lint_worker_stop; exit 129' HUP
     trap 'fm_lint_worker_stop; exit 130' INT
     trap 'fm_lint_worker_stop; exit 143' TERM
-    shellcheck_args=(--norc --external-sources)
+    shellcheck_args=(--norc --exclude=SC1091)
     if [ "${FM_LINT_INTERNAL_FAST:-0}" -eq 1 ]; then
       shellcheck_args+=(--extended-analysis=false)
     fi
-    "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "${roots[@]}" > "$output.out" 2>&1 &
+    (
+      if ! ulimit -v "$SHELLCHECK_VMEM_KIB" 2>/dev/null; then
+        printf 'fm-lint.sh: unable to cap ShellCheck virtual memory at %s KiB\n' \
+          "$SHELLCHECK_VMEM_KIB" >&2
+        exit 125
+      fi
+      exec "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "${roots[@]}"
+    ) > "$output.out" 2>&1 &
     FM_LINT_WORKER_SHELLCHECK_PID=$!
     wait "$FM_LINT_WORKER_SHELLCHECK_PID" || rc=$?
     FM_LINT_WORKER_SHELLCHECK_PID=
     trap - HUP INT TERM
+    if [ "$rc" -ge 128 ]; then
+      printf 'fm-lint.sh: ShellCheck was terminated under the %s KiB virtual-memory cap (exit %s)\n' \
+        "$SHELLCHECK_VMEM_KIB" "$rc" >> "$output.out"
+    fi
   else
     : > "$output.out"
   fi

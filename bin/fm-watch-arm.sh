@@ -661,10 +661,12 @@ if [ "$mode" = detached-run ]; then
     detached_status=$?
   fi
   trap '' HUP INT TERM
+  # shellcheck disable=SC2034 # Consumed by the detached completion owner.
   WATCH_LAUNCH_PID=$detached_child
   WATCH_LAUNCH_IDENTITY=
   detached_reason=
   if fm_watch_launch_read "$detached_dir"; then
+    # shellcheck disable=SC2034 # Consumed by the detached completion owner.
     WATCH_LAUNCH_IDENTITY=$LAUNCH_IDENTITY
     cycle_begin "$LAUNCH_PID" detached "$LAUNCH_IDENTITY"
     if [ "$detached_status" -eq 0 ]; then

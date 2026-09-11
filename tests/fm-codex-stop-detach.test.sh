@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Codex Stop-hook detachment contract through the tracked hook registration.
+# shellcheck disable=SC2016 # Generated test scripts intentionally defer expansion.
 set -u
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -257,7 +258,7 @@ test_high_inherited_descriptor() {
   local dir
   dir=$(make_codex_case high-descriptor)
   printf 'kind=ship\n' > "$dir/state/live.meta"
-  python3 - "$dir" <<'PYTEST'
+  if ! python3 - "$dir" <<'PYTEST'
 import os
 import resource
 import select
@@ -290,7 +291,9 @@ pid = int(open(home + '/state/.watch.lock/pid').read())
 os.kill(pid, 0)
 assert os.getsid(pid) == pid
 PYTEST
-  [ "$?" -eq 0 ] || fail 'high-numbered inherited hook descriptor stayed open'
+  then
+    fail 'high-numbered inherited hook descriptor stayed open'
+  fi
   pass 'detached launch closes inherited fd 2048 while its watcher survives'
 }
 
