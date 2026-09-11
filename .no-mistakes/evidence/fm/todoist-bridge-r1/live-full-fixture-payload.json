@@ -1,0 +1,276 @@
+{
+  "schema": "fm-board.v1",
+  "generated": "2026-09-10T00:00:00Z",
+  "items": [
+    {
+      "key": "blocked",
+      "title": "blocked",
+      "repo": "",
+      "kind": "ship",
+      "stage": "Validation",
+      "stage_reason": "Validation blocked: needs a fix",
+      "status": "needs a fix",
+      "last_event": "blocked: needs a fix",
+      "pr_url": "",
+      "worker": "cursor",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": true,
+      "labels": [
+        "blocked"
+      ]
+    },
+    {
+      "key": "captain",
+      "title": "Captain route",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "Waiting for captain",
+      "stage_reason": "Choose the route",
+      "status": "Captain route",
+      "last_event": "",
+      "pr_url": "",
+      "worker": "",
+      "question": "Choose the route",
+      "options": [
+        "ship",
+        "wait",
+        "ask"
+      ],
+      "default": "ship",
+      "hold_until": null,
+      "due": "2026-09-12",
+      "deadline": "2026-09-30",
+      "blocked": false,
+      "labels": [
+        "alpha",
+        "captain"
+      ]
+    },
+    {
+      "key": "done-old",
+      "title": "Old",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "archive",
+      "stage_reason": "Old",
+      "status": "Old",
+      "last_event": "",
+      "pr_url": "",
+      "worker": "",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha"
+      ]
+    },
+    {
+      "key": "done-recent",
+      "title": "Recent",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "Done this week",
+      "stage_reason": "Recent",
+      "status": "Recent",
+      "last_event": "",
+      "pr_url": "",
+      "worker": "",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha"
+      ]
+    },
+    {
+      "key": "external",
+      "title": "External wait",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "Queued",
+      "stage_reason": "Waiting (external): Upstream release until 2026-09-20",
+      "status": "External wait",
+      "last_event": "",
+      "pr_url": "",
+      "worker": "",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": "2026-09-20",
+      "due": "2026-09-20",
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha"
+      ]
+    },
+    {
+      "key": "merged",
+      "title": "Merged",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "Done this week",
+      "stage_reason": "merged",
+      "status": "merged",
+      "last_event": "done: merged",
+      "pr_url": "https://github.com/example/alpha/pull/2",
+      "worker": "cursor",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha"
+      ]
+    },
+    {
+      "key": "orphan",
+      "title": "orphan",
+      "repo": "",
+      "kind": "ship",
+      "stage": "In progress",
+      "stage_reason": "coding",
+      "status": "coding",
+      "last_event": "working: coding",
+      "pr_url": "",
+      "worker": "cursor",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": []
+    },
+    {
+      "key": "pane-blocked",
+      "title": "Pane blocked",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "In progress",
+      "stage_reason": "waiting on upstream",
+      "status": "waiting on upstream",
+      "last_event": "blocked: waiting on upstream",
+      "pr_url": "",
+      "worker": "cursor",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": true,
+      "labels": [
+        "alpha",
+        "blocked"
+      ]
+    },
+    {
+      "key": "queued",
+      "title": "Queued",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "Queued",
+      "stage_reason": "Queued, not started",
+      "status": "Queued",
+      "last_event": "",
+      "pr_url": "",
+      "worker": "",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha"
+      ]
+    },
+    {
+      "key": "ready",
+      "title": "Ready",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "Waiting for captain",
+      "stage_reason": "Ready for the captain merge word",
+      "status": "checks green",
+      "last_event": "done: checks green",
+      "pr_url": "https://github.com/example/alpha/pull/1",
+      "worker": "cursor",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha",
+        "captain"
+      ]
+    },
+    {
+      "key": "reviewer",
+      "title": "Review schedule",
+      "repo": "alpha",
+      "kind": "scout",
+      "stage": "UI review",
+      "stage_reason": "reviewing",
+      "status": "reviewing",
+      "last_event": "working: review started",
+      "pr_url": "",
+      "worker": "cursor",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha"
+      ]
+    },
+    {
+      "key": "validation",
+      "title": "Validation",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "Validation",
+      "stage_reason": "Validation fixing: tests running",
+      "status": "tests running",
+      "last_event": "working: validation started",
+      "pr_url": "",
+      "worker": "cursor",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha"
+      ]
+    }
+  ]
+}
+

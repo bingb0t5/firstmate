@@ -1,0 +1,3 @@
+active_inbox=0
+seen=1
+acks=1

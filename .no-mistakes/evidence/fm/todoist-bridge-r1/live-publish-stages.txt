@@ -1,0 +1,10 @@
+{
+  "key": "merged",
+  "stage": "Done this week",
+  "stage_reason": "merged"
+}
+{
+  "key": "ready",
+  "stage": "Waiting for captain",
+  "stage_reason": "Ready for the captain merge word"
+}

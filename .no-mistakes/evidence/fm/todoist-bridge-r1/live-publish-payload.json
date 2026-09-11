@@ -1,0 +1,52 @@
+{
+  "schema": "fm-board.v1",
+  "generated": "2026-09-10T00:00:00Z",
+  "items": [
+    {
+      "key": "merged",
+      "title": "Merged",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "Done this week",
+      "stage_reason": "merged",
+      "status": "merged",
+      "last_event": "done: merged",
+      "pr_url": "https://github.com/example/alpha/pull/2",
+      "worker": "cursor",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha"
+      ]
+    },
+    {
+      "key": "ready",
+      "title": "Ready",
+      "repo": "alpha",
+      "kind": "ship",
+      "stage": "Waiting for captain",
+      "stage_reason": "Ready for the captain merge word",
+      "status": "checks green",
+      "last_event": "done: checks green",
+      "pr_url": "https://github.com/example/alpha/pull/1",
+      "worker": "cursor",
+      "question": "",
+      "options": [],
+      "default": "",
+      "hold_until": null,
+      "due": null,
+      "deadline": null,
+      "blocked": false,
+      "labels": [
+        "alpha",
+        "captain"
+      ]
+    }
+  ]
+}
+

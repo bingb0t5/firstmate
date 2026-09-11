@@ -1,0 +1,124 @@
+{
+  "key": "blocked",
+  "stage": "Validation",
+  "stage_reason": "Validation blocked: needs a fix",
+  "blocked": true,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "captain",
+  "stage": "Waiting for captain",
+  "stage_reason": "Choose the route",
+  "blocked": false,
+  "due": "2026-09-12",
+  "deadline": "2026-09-30",
+  "options": [
+    "ship",
+    "wait",
+    "ask"
+  ],
+  "default": "ship"
+}
+{
+  "key": "done-old",
+  "stage": "archive",
+  "stage_reason": "Old",
+  "blocked": false,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "done-recent",
+  "stage": "Done this week",
+  "stage_reason": "Recent",
+  "blocked": false,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "external",
+  "stage": "Queued",
+  "stage_reason": "Waiting (external): Upstream release until 2026-09-20",
+  "blocked": false,
+  "due": "2026-09-20",
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "merged",
+  "stage": "Done this week",
+  "stage_reason": "merged",
+  "blocked": false,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "orphan",
+  "stage": "In progress",
+  "stage_reason": "coding",
+  "blocked": false,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "pane-blocked",
+  "stage": "In progress",
+  "stage_reason": "waiting on upstream",
+  "blocked": true,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "queued",
+  "stage": "Queued",
+  "stage_reason": "Queued, not started",
+  "blocked": false,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "ready",
+  "stage": "Waiting for captain",
+  "stage_reason": "Ready for the captain merge word",
+  "blocked": false,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "reviewer",
+  "stage": "UI review",
+  "stage_reason": "reviewing",
+  "blocked": false,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}
+{
+  "key": "validation",
+  "stage": "Validation",
+  "stage_reason": "Validation fixing: tests running",
+  "blocked": false,
+  "due": null,
+  "deadline": null,
+  "options": [],
+  "default": ""
+}

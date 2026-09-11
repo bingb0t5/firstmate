@@ -1,0 +1,4 @@
+=== Scenario 1: unconfigured ===
+fm-todoist-publish: bridge unconfigured
+fm-todoist-replies: bridge unconfigured
+network_attempts=0

@@ -1,0 +1,8 @@
+ok - absent bridge configuration stays local and succeeds
+ok - publish applies stage rules, dates, options, and hide list
+ok - publish failure output does not contain the bearer token
+ok - replies file unseen text once and acknowledge idempotently
+ok - replies tolerate inbox wake failure without duplicating notes
+ok - replies treat distinct event ids as distinct when one id is a prefix of another
+ok - replies skip duplicate notes already moved to handled inbox
+ok - replies skip duplicate notes after crash before seen-list update
