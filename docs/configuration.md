@@ -50,6 +50,7 @@ A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=
 
 The tracked `.tasks.toml` pins the default `tasks-axi` markdown backend to `data/backlog.md`, with `done_keep = 10` and an archive at `data/done-archive.md`.
 When the default backend is selected and compatible `tasks-axi` is on `PATH`, firstmate uses its verbs for routine backlog mutations.
+Local queued worker dispatch goes through `bin/fm-pull.sh`, which orders eligible rows by priority, since date, and id and refuses rows without exactly one structured `(priority: N)` from 0 through 4; fresh ordinary `bin/fm-spawn.sh` calls remain the hard-four backstop when pull is bypassed.
 Secondmate handoffs bypass that routine-backend choice: `fm-backlog-handoff.sh` keeps only its own fleet-level validation, requires priority 0 through 4 on every queued item in the dependency-closed move set, delegates the item move to `tasks-axi mv`, and requires a verified receiver wake after a new move becomes durable.
 It moves in-scope `## Queued` items only and refuses `## In flight` and historical `## Done` records, which stay with their home for pruning or archiving.
 Handoff item bodies must use at least two leading spaces, and the helper refuses a selected item with a single-space or tab-indented continuation rather than risk orphaning it.

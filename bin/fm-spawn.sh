@@ -98,6 +98,13 @@
 #   even when they select different backends. A fresh spawn first takes the
 #   per-home task-set lock and refuses rather than waits when forced teardown owns
 #   it; relaunch is exempt because the existing task's control lock covers it.
+#   Fresh ordinary ship and scout spawns also recompute fm-fleet-snapshot.sh
+#   --local-json attention facts under that same task-set lock and refuse when
+#   inventory is invalid or the fixed four-worker limit is already reached.
+#   A reservation retry for the same id is allowed only while count stays at or
+#   below four; --secondmate and --relaunch bypass this backstop.
+#   A home marked .fm-secondmate-home refuses fresh --secondmate spawns; only the
+#   primary home may create a domain mate.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
 #   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch

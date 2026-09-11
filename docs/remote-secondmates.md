@@ -208,6 +208,7 @@ bin/fm-backlog-handoff.sh <id> <item-key>...
 
 Every queued item in the dependency-closed move set must have an explicit `tasks-axi` priority from 0 through 4.
 The handoff refuses the whole set before outbox mutation or receiver notification when any item lacks a valid priority.
+After receipt, the remote secondmate claims work only through `bin/fm-pull.sh` in its own home; it never uses raw `tasks-axi start` or a cross-home path.
 For a remote route, `tasks-axi mv` first moves the dependency-closed set atomically from the primary backlog into `data/handoff/<id>.outbox.md`.
 The outbox is then copied to the remote handoff scratch directory and `fm-backlog-receive.sh` atomically ingests every destination-absent key under the remote backlog's own lock.
 After receipt, the helper sends a marked routed-work instruction through the recorded remote endpoint and removes the outbox only after that wake is confirmed.
