@@ -157,7 +157,7 @@ family_for_basename() {
     fm-session-lock-ancestry.test.sh|fm-cursor-primary.test.sh|\
     fm-supervision-events.test.sh|fm-turnend-guard.test.sh|fm-wake-daemon-lifecycle-e2e.test.sh|\
     fm-wake-drain-unread-status.test.sh|\
-    fm-tool-update-check.test.sh|\
+    fm-secret-parity-check.test.sh|fm-tool-update-check.test.sh|\
     fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|\
     fm-watch-triage.test.sh|fm-task-inbox.test.sh|\
     fm-watcher-lock.test.sh|fm-inactive-reconcile.test.sh)
@@ -200,6 +200,7 @@ family_for_basename() {
     fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|\
     fm-quota-array-dispatch-live-e2e.test.sh|fm-send-secondmate-marker-herdr-e2e.test.sh|\
     fm-send-inbox-doorbell-live-e2e.test.sh|\
+    fm-secret-parity-check-live-e2e.test.sh|\
     fm-herdr-submit-confirm-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
@@ -473,6 +474,7 @@ tests/fm-secondmate-liveness.test.sh 9049
 tests/fm-secondmate-safety.test.sh 54235
 tests/fm-secondmate-sync.test.sh 16824
 tests/fm-send-inbox-doorbell-live-e2e.test.sh 17
+tests/fm-secret-parity-check-live-e2e.test.sh 12
 tests/fm-send-inbox.test.sh 40128
 tests/fm-send-remote-delivery.test.sh 14382
 tests/fm-send-resolve-key.test.sh 22331
