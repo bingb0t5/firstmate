@@ -686,6 +686,47 @@ validate_handoff_queued_only() { # <backlog-path> <key>...
   done
 }
 
+handoff_key_queued_at() { # <key> <backlog-path>...
+  local key=$1 dest section
+  shift
+  for dest in "$@"; do
+    [ -f "$dest" ] || continue
+    section=$(backlog_key_section "$dest" "$key" 2>/dev/null || true)
+    [ "$section" = '## Queued' ] && return 0
+  done
+  return 1
+}
+
+handoff_already_contains() { # <key> <existing-key>...
+  local key=$1 existing
+  shift
+  for existing in "$@"; do
+    [ "$existing" = "$key" ] && return 0
+  done
+  return 1
+}
+
+partition_handoff_closure() { # <still-on-main-array-name> <already-array-name> <dest-backlog>... -- <key>...
+  local -n still_ref=$1
+  local -n already_ref=$2
+  shift 2
+  local -a dest_paths=()
+  while [ "$#" -gt 0 ] && [ "$1" != '--' ]; do
+    dest_paths+=("$1")
+    shift
+  done
+  [ "$1" = '--' ] && shift
+  local key
+  still_ref=()
+  for key in "$@"; do
+    if handoff_key_queued_at "$key" "${dest_paths[@]}"; then
+      handoff_already_contains "$key" "${already_ref[@]}" || already_ref+=("$key")
+    else
+      still_ref+=("$key")
+    fi
+  done
+}
+
 outbox_queued_keys() { # <path>
   awk '
     /^## Queued$/ { queued=1; next }
@@ -729,7 +770,7 @@ resolve_handoff_move_closure() { # <queued-key>...
 }
 
 remote_handoff() { # <secondmate-id> <keys...>
-  local id=$1 outbox section main_section out_section key mv_out closure
+  local id=$1 outbox section main_section out_section key mv_out closure skip_pre_deliver
   local -a requested to_move already missing in_flight done_items not_queued
   shift
   requested=("$@")
@@ -778,8 +819,15 @@ remote_handoff() { # <secondmate-id> <keys...>
     return 1
   fi
   if [ "${#to_move[@]}" -gt 0 ]; then
+    local -a closure_keys=() receiver_backlog=
     closure=$(resolve_handoff_move_closure "${to_move[@]}") || return 1
-    mapfile -t to_move <<< "$closure"
+    mapfile -t closure_keys <<< "$closure"
+    receiver_backlog=$(secondmate_registry_field "$REG" "$id" home 2>/dev/null || true)
+    if [ -n "$receiver_backlog" ] && [ -f "$receiver_backlog/data/backlog.md" ]; then
+      partition_handoff_closure to_move already "$outbox" "$receiver_backlog/data/backlog.md" -- "${closure_keys[@]}"
+    else
+      partition_handoff_closure to_move already "$outbox" -- "${closure_keys[@]}"
+    fi
     validate_handoff_queued_only "$MAIN_BACKLOG" "${to_move[@]}" || return 1
   fi
   validate_handoff_priorities "$MAIN_BACKLOG" "${to_move[@]}" || return 1
@@ -795,12 +843,23 @@ remote_handoff() { # <secondmate-id> <keys...>
   # staged into that outbox, the old confirmation would suppress the wake for
   # the new work. Finish receipt, wake reconciliation, and cleanup for the old
   # batch first. A failure leaves the fresh items dispatchable in main.
+  # When closure blockers are already queued in the outbox, complete the set
+  # there instead of delivering the partial batch first.
   if [ "${#to_move[@]}" -gt 0 ] && [ -f "$outbox" ] \
     && [ "$(outbox_item_count "$outbox")" -gt 0 ]; then
-    remote_deliver_outbox "$id" "$outbox" || {
-      echo "error: previous remote handoff for secondmate $id could not be completed; nothing new was staged" >&2
-      return 1
-    }
+    skip_pre_deliver=0
+    for key in "${already[@]}"; do
+      if handoff_key_queued_at "$key" "$outbox"; then
+        skip_pre_deliver=1
+        break
+      fi
+    done
+    if [ "$skip_pre_deliver" -eq 0 ]; then
+      remote_deliver_outbox "$id" "$outbox" || {
+        echo "error: previous remote handoff for secondmate $id could not be completed; nothing new was staged" >&2
+        return 1
+      }
+    fi
   fi
   seed_backlog_scaffold "$outbox"
   if [ "${#to_move[@]}" -gt 0 ]; then
@@ -937,11 +996,13 @@ if [ "$FAILED" -ne 0 ]; then
   exit 1
 fi
 if [ "${#TO_MOVE[@]}" -gt 0 ]; then
+  CLOSURE_KEYS=()
   MOVE_CLOSURE=$(resolve_handoff_move_closure "${TO_MOVE[@]}") || {
     echo "       nothing was moved." >&2
     exit 1
   }
-  mapfile -t TO_MOVE <<< "$MOVE_CLOSURE"
+  mapfile -t CLOSURE_KEYS <<< "$MOVE_CLOSURE"
+  partition_handoff_closure TO_MOVE ALREADY "$SUB_BACKLOG" -- "${CLOSURE_KEYS[@]}"
   validate_handoff_queued_only "$MAIN_BACKLOG" "${TO_MOVE[@]}" || {
     echo "       nothing was moved." >&2
     exit 1

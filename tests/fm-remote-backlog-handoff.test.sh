@@ -228,6 +228,32 @@ assert_absent "$PARENT/data/handoff/ios.outbox.md" "remote closure priority refu
 [ ! -s "$WAKE_LOG" ] || fail "remote closure priority refusal notified the receiver"
 pass "dependency closure priorities are validated before remote staging or notification"
 
+write_backlog $'- [ ] outbox-dependent - routed work blocked-by: outbox-blocker (repo: alpha) (kind: ship) (priority: 1)'
+printf '## In flight\n\n## Queued\n\n## Done\n' > "$REMOTE/data/backlog.md"
+mkdir -p "$PARENT/data/handoff"
+cat > "$PARENT/data/handoff/ios.outbox.md" <<'EOF'
+## Queued
+- [ ] outbox-blocker - blocker already staged (repo: alpha) (kind: ship) (priority: 2)
+
+## Done
+EOF
+remote_before=$(sha256_file "$PARENT/data/backlog.md")
+set +e
+handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios outbox-dependent > "$TMP_ROOT/closure-outbox.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "remote dependency closure refused a dependent whose blocker is already in the outbox: $(cat "$TMP_ROOT/closure-outbox.out")"
+assert_grep 'outbox-dependent' "$REMOTE/data/backlog.md" \
+  "dependent did not reach the remote backlog"
+assert_grep 'outbox-blocker' "$REMOTE/data/backlog.md" \
+  "blocker did not remain on the remote backlog"
+assert_no_grep 'outbox-dependent' "$PARENT/data/backlog.md" \
+  "dependent remained in the source backlog after outbox closure handoff"
+[ "$(sha256_file "$PARENT/data/backlog.md")" != "$remote_before" ] \
+  || fail "outbox closure handoff did not remove the dependent from the source backlog"
+pass "dependency closure follows an already-staged outbox blocker"
+: > "$WAKE_LOG"
+
 mkdir -p "$PARENT/data/handoff"
 cat > "$PARENT/data/handoff/ios.outbox.md" <<'EOF'
 ## Queued

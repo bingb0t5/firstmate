@@ -219,6 +219,34 @@ EOF
   pass "dependency closure priorities are validated before local mutation or notification"
 }
 
+test_dependency_closure_follows_already_routed_blocker() {
+  local home="$TMP_ROOT/closure-routed-main" sub="$TMP_ROOT/closure-routed-sub" fakebin out
+  setup_homes "$home" "$sub"
+  mkdir -p "$sub/data"
+  cat > "$home/data/backlog.md" <<'EOF'
+## Queued
+- [ ] routed-blocker - blocker already at destination (repo: alpha) (kind: ship) (priority: 2)
+- [ ] routed-dependent - routed work blocked-by: routed-blocker (repo: alpha) (kind: ship) (priority: 1)
+
+## Done
+EOF
+  printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/closure-routed-fake")
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/closure-routed-blocker-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design routed-blocker > "$TMP_ROOT/closure-routed-blocker.out" 2>&1 \
+    || fail "initial blocker handoff failed: $(cat "$TMP_ROOT/closure-routed-blocker.out")"
+  assert_grep 'routed-blocker' "$sub/data/backlog.md" "blocker did not reach the destination backlog"
+  assert_no_grep 'routed-blocker' "$home/data/backlog.md" "blocker remained in the source backlog"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/closure-routed-dependent-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design routed-dependent 2>&1) \
+    || fail "dependent handoff failed after blocker was already routed: $out"
+  assert_grep 'routed-dependent' "$sub/data/backlog.md" "dependent did not reach the destination backlog"
+  assert_no_grep 'routed-dependent' "$home/data/backlog.md" "dependent remained in the source backlog"
+  pass "dependency closure follows an already-routed blocker without re-validating it on main"
+}
+
 test_failed_wake_retries_when_the_item_is_already_present() {
   local home="$TMP_ROOT/retry-wake-main" sub="$TMP_ROOT/retry-wake-sub" out corr rc=0
   setup_homes "$home" "$sub"
@@ -1447,6 +1475,7 @@ test_already_done_refuses_without_wake
 test_dependency_closure_refuses_inflight_blocker
 test_conflicting_priority_metadata_refuses_handoff
 test_dependency_closure_requires_priority_without_mutation
+test_dependency_closure_follows_already_routed_blocker
 test_failed_wake_retries_when_the_item_is_already_present
 test_known_receiver_failure_remains_retryable_after_grace
 test_known_failure_restores_retry_after_reconciliation_race
