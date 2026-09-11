@@ -19,8 +19,12 @@
 #   ~/.config/beanz/coolify.env       COOLIFY_URL, COOLIFY_API_TOKEN
 #   ~/.config/lalo/render-api.env     RENDER_API_KEY
 # The files can be changed with FM_SECRET_PARITY_COOLIFY_ENV_FILE and
-# FM_SECRET_PARITY_RENDER_ENV_FILE. Direct COOLIFY_URL, COOLIFY_API_TOKEN,
-# RENDER_API_URL, and RENDER_API_KEY environment variables take precedence.
+# FM_SECRET_PARITY_RENDER_ENV_FILE. Each value is resolved from a direct
+# environment export first, then from the selected credential file:
+# COOLIFY_URL (or FM_SECRET_PARITY_COOLIFY_URL), COOLIFY_API_TOKEN (or
+# FM_SECRET_PARITY_COOLIFY_API_TOKEN), and RENDER_API_KEY (or
+# FM_SECRET_PARITY_RENDER_API_KEY). The Render API base URL comes from
+# FM_SECRET_PARITY_RENDER_API_URL when set, otherwise https://api.render.com.
 # No n8n credential-store bearer is read; the n8n assistant bearer is outside
 # this check by policy.
 #
@@ -80,6 +84,10 @@ Credential stores:
   FM_SECRET_PARITY_RENDER_ENV_FILE   default ~/.config/lalo/render-api.env
   FM_SECRET_PARITY_INTERVAL           default 900, or 0 for every run
   FM_SECRET_PARITY_PROBE_SECS         default 15, range 1..60
+
+Direct environment exports override credential-file values when set.
+See the script header for COOLIFY_URL, COOLIFY_API_TOKEN, RENDER_API_KEY, the
+FM_SECRET_PARITY_* credential aliases, and FM_SECRET_PARITY_RENDER_API_URL.
 EOF
 }
 
