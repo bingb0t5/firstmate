@@ -90,6 +90,7 @@ mkdir -p "$INT_HOME/state" "$INT_HOME/config"
 printf 'codex-stop-live-interrupt\n' > "$INT_HOME/.fm-secondmate-home"
 printf 'kind=ship\n' > "$INT_HOME/state/live.meta"
 INT_TRANSCRIPT="$LAB/codex-interrupt.jsonl"
+# shellcheck disable=SC2016 # $1 and $2 expand inside the setsid child shell.
 setsid bash -c '
   cd "$1" || exit 1
   printf "%s\\n" "$$" > "$2/state/.lock"
