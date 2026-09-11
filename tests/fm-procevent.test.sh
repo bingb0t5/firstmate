@@ -153,8 +153,10 @@ assert_contains "$sup" no "an unconfigured home does not need supervision"
 # --- a blocking source completes into exactly one normalized event ----------
 H1="$TMP_ROOT/h1"; new_home "$H1"
 TRIG="$TMP_ROOT/trigger-one"
-out=$(pe_register "$H1" lavish src-one -- "$BLOCKER" "$TRIG" "payload one")
-assert_contains "$out" "registered: src-one" "register records a source"
+out=$(pe "$H1" arm lavish src-one -- "$BLOCKER" "$TRIG" "payload one")
+assert_contains "$out" "armed: src-one" "the generic arm seam records a source"
+listed=$(pe "$H1" list | awk '$1 == "src-one" && $2 == "lavish" { print $1, $2 }')
+assert_contains "$listed" "src-one lavish" "arm exposes the registered source through the public list"
 
 sup=$(PATH="${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" bash -c \
   '. "$1/bin/fm-supervision-lib.sh"; fm_supervision_needed "$2" && echo yes || echo no' _ "$ROOT" "$H1/state")
@@ -188,7 +190,8 @@ assert_absent "${RESULT%.result}.handled" "publication alone never marks a resul
 # --- the public start boundary establishes generation group ownership -------
 HPG="$TMP_ROOT/hpg"; new_home "$HPG"
 DIRECT_TRIGGER="$TMP_ROOT/direct-trigger"
-pe_register "$HPG" lavish direct-src -- "$BLOCKER" "$DIRECT_TRIGGER" "direct result" >/dev/null
+out=$(pe_register "$HPG" lavish direct-src -- "$BLOCKER" "$DIRECT_TRIGGER" "direct result")
+assert_contains "$out" "registered: direct-src" "the compatibility register spelling still records a source"
 pe "$HPG" start direct-src > "$TMP_ROOT/direct-start.out" &
 direct_runner=$!
 wait_for "$FM_PROCEVENT_CLAIM_ROOT/direct-src.claim" || fail "direct start never claimed its source"

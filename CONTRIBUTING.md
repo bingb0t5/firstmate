@@ -55,6 +55,7 @@ Hosted checks remain required after every publication.
 6. Run `no-mistakes` to attach to the pipeline, watch findings, authorize auto-fixes, and review ask-user findings as needed.
    Follow the installed no-mistakes version's SKILL.md and live `axi` help for gate mechanics.
 7. Once the pipeline passes, it pushes the branch to your fork and opens the PR against the parent repo for you.
+   The PR phase must generate every completed section from [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md), replacing any legacy `Intent`, `What Changed`, `Risk Assessment`, or `Testing` description before it opens or updates the PR.
    `pr-communication` grades that live GitHub body, so author the required shape before publish as specified above.
    A committed `.github/pr-bodies` sidecar is not what CI reads.
    If a later description edit is needed, replace only the narrative sections.
