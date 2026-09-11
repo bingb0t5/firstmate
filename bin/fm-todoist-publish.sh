@@ -163,7 +163,6 @@ jq -n \
          elif ($source == "run-step") then "Validation"
          elif ($state == "done" and $pr != "") then
            if merged($b; $t) then "Done this week" else "Waiting for captain" end
-         elif ($state == "failed" or $state == "blocked") then "Validation"
          else "In progress"
          end) as $base_stage
       | (if (($b.kind // $t.kind // "") == "scout"

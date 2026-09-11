@@ -68,6 +68,7 @@ cat <<'JSON'
       {"structured":true,"id":"reviewer","state":"in_flight","title":"Review schedule","repo":"alpha","kind":"scout","body_lines":[]},
       {"structured":true,"id":"ready","state":"in_flight","title":"Ready","repo":"alpha","kind":"ship","pr_url":"https://github.com/example/alpha/pull/1","body_lines":[]},
       {"structured":true,"id":"merged","state":"in_flight","title":"Merged","repo":"alpha","kind":"ship","pr_url":"https://github.com/example/alpha/pull/2","completion":{"verb":"merged","date":"2026-09-10"},"body_lines":[]},
+      {"structured":true,"id":"pane-blocked","state":"in_flight","title":"Pane blocked","repo":"alpha","kind":"ship","body_lines":[]},
       {"structured":true,"id":"hidden","state":"queued","title":"Hidden","repo":"alpha","kind":"ship","body_lines":[]}
     ]
   },
@@ -77,6 +78,7 @@ cat <<'JSON'
     {"id":"ready","kind":"ship","harness":"cursor","current_state":{"state":"done","source":"pane","detail":"checks green"},"pr":{"url":"https://github.com/example/alpha/pull/1"},"hints":{"last_event_text":"done [at=125]: checks green","blocked_event":false}},
     {"id":"merged","kind":"ship","harness":"cursor","current_state":{"state":"done","source":"pane","detail":"merged"},"pr":{"url":"https://github.com/example/alpha/pull/2"},"hints":{"last_event_text":"done [at=126]: merged","blocked_event":false}},
     {"id":"blocked","kind":"ship","harness":"cursor","current_state":{"state":"blocked","source":"run-step","detail":"needs a fix"},"pr":{"url":null},"hints":{"last_event_text":"blocked [at=127]: needs a fix","blocked_event":true}},
+    {"id":"pane-blocked","kind":"ship","harness":"cursor","current_state":{"state":"blocked","source":"pane","detail":"waiting on upstream"},"pr":{"url":null},"hints":{"last_event_text":"blocked [at=129]: waiting on upstream","blocked_event":true}},
     {"id":"orphan","kind":"ship","harness":"cursor","current_state":{"state":"working","source":"pane","detail":"coding"},"pr":{"url":null},"hints":{"last_event_text":"working [at=128]: coding","blocked_event":false}}
   ]
 }
@@ -145,6 +147,8 @@ test_publish_projects_stages_dates_options_and_hide_list() {
     and ([.items[] | select(.key == "ready")][0].stage == "Waiting for captain")
     and ([.items[] | select(.key == "merged")][0].stage == "Done this week")
     and ([.items[] | select(.key == "blocked")][0].blocked == true)
+    and ([.items[] | select(.key == "pane-blocked")][0]
+      | .stage == "In progress" and .blocked == true)
     and ([.items[] | select(.key == "orphan")][0].stage == "In progress")
     and ([.items[] | select(.key == "validation")][0].last_event == "working: validation started")
   ' "$payload" >/dev/null || fail "board projection rules were wrong: $(cat "$payload")"
@@ -199,7 +203,54 @@ JSON
   pass "replies file unseen text once and acknowledge idempotently"
 }
 
+test_replies_tolerate_inbox_wake_failure_without_duplicating() {
+  local home out notes status=0
+  home=$(make_home replies-wake-fail)
+  bridge_env "$home"
+  make_fake_curl "$home"
+  cat >"$home/fake-inbox.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+body=$(cat)
+inbox="${FM_STATE_OVERRIDE:-${FM_HOME:?}}/inbox"
+mkdir -p "$inbox"
+id="fixture-note"
+printf 'id=%s\nat=2026-09-10T00:00:00Z\nsource=text\n--\n%s\n' "$id" "$body" >"$inbox/$id.note"
+printf 'queued %s\n' "$id" >&2
+printf 'fm-inbox: note %s is saved at %s/%s.note but firstmate was NOT woken\n' "$id" "$inbox" "$id" >&2
+exit 1
+SH
+  chmod 0755 "$home/fake-inbox.sh"
+  cat >"$home/response.json" <<'JSON'
+[
+  {"id":"wake-fail","card_key":"captain-2","kind":"comment","text":"still one note","author":"captain","at":"2026-09-10T00:00:00Z"}
+]
+JSON
+  : >"$home/posts"
+  out="$home/out"
+  env FM_HOME="$home" FM_CONFIG_OVERRIDE="$home/config" FM_STATE_OVERRIDE="$home/state" \
+    FM_TODOIST_INBOX_BIN="$home/fake-inbox.sh" \
+    FAKE_CURL_RESPONSE="$home/response.json" FAKE_CURL_POSTS="$home/posts" \
+    PATH="$home/fakebin:$PATH" "$REPLIES" >"$out" 2>&1 || status=$?
+  [ "$status" -eq 0 ] || fail "reply poll should succeed after wake failure: $(cat "$out")"
+  notes=$(find "$home/state/inbox" -maxdepth 1 -name '*.note' | wc -l | tr -d ' ')
+  [ "$notes" = 1 ] || fail "wake failure path did not file exactly one captain note"
+  grep -F wake-fail "$home/state/todoist-bridge-replies.seen" >/dev/null \
+    || fail "wake failure path did not record the event as seen"
+
+  status=0
+  env FM_HOME="$home" FM_CONFIG_OVERRIDE="$home/config" FM_STATE_OVERRIDE="$home/state" \
+    FM_TODOIST_INBOX_BIN="$home/fake-inbox.sh" \
+    FAKE_CURL_RESPONSE="$home/response.json" FAKE_CURL_POSTS="$home/posts" \
+    PATH="$home/fakebin:$PATH" "$REPLIES" >"$out" 2>&1 || status=$?
+  [ "$status" -eq 0 ] || fail "second poll after wake failure failed: $(cat "$out")"
+  notes=$(find "$home/state/inbox" -maxdepth 1 -name '*.note' | wc -l | tr -d ' ')
+  [ "$notes" = 1 ] || fail "wake failure path duplicated the captain note"
+  pass "replies tolerate inbox wake failure without duplicating notes"
+}
+
 test_unconfigured_is_local_success
 test_publish_projects_stages_dates_options_and_hide_list
 test_publish_never_outputs_token_on_network_failure
 test_replies_file_once_and_ack_idempotently
+test_replies_tolerate_inbox_wake_failure_without_duplicating

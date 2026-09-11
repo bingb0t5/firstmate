@@ -18,7 +18,7 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 ENV_FILE="$CONFIG/todoist-bridge.env"
 SEEN_FILE="$STATE/todoist-bridge-replies.seen"
-INBOX_BIN="$SCRIPT_DIR/fm-inbox.sh"
+INBOX_BIN="${FM_TODOIST_INBOX_BIN:-$SCRIPT_DIR/fm-inbox.sh}"
 
 die() {
   printf 'fm-todoist-replies: %s\n' "$*" >&2
@@ -133,14 +133,18 @@ while IFS= read -r event; do
     printf '%s' "$event" | jq -r '.text'
   } >"$body"
 
-  if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$INBOX_BIN" note - <"$body" >"$tmpdir/inbox.out" 2>"$tmpdir/inbox.error"; then
-    die "captain inbox filing failed"
-  fi
-
-  # Mark the event before the acknowledgement so a crash after this point can
-  # safely retry only the acknowledgement without filing the note twice.
   printf '%s\n' "$id" >>"$SEEN_FILE" || die "reply seen-list could not be updated"
+
+  inbox_err="$tmpdir/inbox.error"
+  if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$INBOX_BIN" note - <"$body" >"$tmpdir/inbox.out" 2>"$inbox_err"; then
+    if grep -F ' is saved at ' "$inbox_err" >/dev/null 2>&1 &&
+      grep -F ' but firstmate was NOT woken' "$inbox_err" >/dev/null 2>&1; then
+      :
+    else
+      die "captain inbox filing failed"
+    fi
+  fi
   ack=$(printf '%s' "$event" | jq -c '{id:.id}')
   if ! printf '%s' "$ack" | curl --fail --silent --show-error \
     --max-time "${FM_CHECK_TIMEOUT:-30}" --request POST \
