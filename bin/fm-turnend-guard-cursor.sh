@@ -273,7 +273,17 @@ prepare_pending_wake_slot() {
     fm_lock_release "$OWNER_LOCK"
     return 2
   fi
-  rm -f "$PENDING_WAKE_FILE" 2>/dev/null || true
+  if [ -e "$PENDING_WAKE_FILE" ] || [ -L "$PENDING_WAKE_FILE" ]; then
+    [ -f "$PENDING_WAKE_FILE" ] && [ ! -L "$PENDING_WAKE_FILE" ] || {
+      fm_lock_release "$OWNER_LOCK"
+      return 1
+    }
+    if ! rm -f "$PENDING_WAKE_FILE" 2>/dev/null \
+      || [ -e "$PENDING_WAKE_FILE" ] || [ -L "$PENDING_WAKE_FILE" ]; then
+      fm_lock_release "$OWNER_LOCK"
+      return 1
+    fi
+  fi
   fm_lock_release "$OWNER_LOCK"
   return 0
 }
@@ -282,7 +292,8 @@ claim_pending_wake_slot() {
   local tmp="$PENDING_WAKE_FILE.tmp.${BASHPID:-$$}"
   if ! printf 'session=%s\ngeneration=%s\nloop_count=%s\n' \
     "$SESSION_ID" "$GENERATION_ID" "$LOOP_COUNT" > "$tmp" 2>/dev/null \
-    || ! mv -f "$tmp" "$PENDING_WAKE_FILE" 2>/dev/null; then
+    || ! mv -f "$tmp" "$PENDING_WAKE_FILE" 2>/dev/null \
+    || ! cursor_pending_wake_matches_current_turn; then
     rm -f "$tmp" 2>/dev/null || true
     return 1
   fi

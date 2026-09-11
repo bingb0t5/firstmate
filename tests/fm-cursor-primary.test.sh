@@ -314,6 +314,21 @@ test_park_coalesces_one_pending_watcher_wake_per_cursor_turn() {
   pass "cursor park: one pending watcher wake is coalesced until the next Cursor turn"
 }
 
+test_park_rejects_a_nonregular_pending_wake_slot() {
+  local dir out
+  dir=$(make_primary_dir "$TMP_ROOT/park-wake-slot-directory")
+  : > "$dir/state/task1.meta"
+  mkdir "$dir/state/.cursor-wake-pending"
+  write_arm_fixture "$dir" actionable
+
+  out=$(run_park "$dir")
+  [ -z "$out" ] \
+    || fail "a nonregular pending wake slot must not emit a follow-up: $out"
+  [ ! -e "$dir/state/arm-ran" ] \
+    || fail "a nonregular pending wake slot must defer before arming"
+  pass "cursor park: nonregular pending wake slot fails closed"
+}
+
 test_park_never_exits_two() {
   local dir status
   dir=$(make_primary_dir "$TMP_ROOT/park-exit")
@@ -670,6 +685,7 @@ test_cd_guard_renders_cursor_deny
 test_park_silent_when_nothing_in_flight
 test_park_delivers_actionable_wake_as_followup
 test_park_coalesces_one_pending_watcher_wake_per_cursor_turn
+test_park_rejects_a_nonregular_pending_wake_slot
 test_park_never_exits_two
 test_park_repair_nag_is_bounded
 test_park_repair_nag_requires_a_persisted_budget
