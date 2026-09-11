@@ -98,6 +98,15 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
   zellij, orca, and cmux are refused rather than reported as successful blind.
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts.
+- A ship task whose durable record already carries `spawn_gen=` is refused **before** the running agent is stopped unless a Sol spec exists at `data/<task-id>/spec.md`, so a second implementation worker cannot start on the same unspecified problem; scout relaunches remain ungated (`bin/fm-second-attempt-lib.sh`).
+  The gated task id is not the scaffolding vehicle: it already has a brief, and `fm-brief.sh` refuses to scaffold over one.
+  Commission the spec through the existing scout path under a *fresh* task id - `fm-brief.sh <new-scout-id> <repo> --scout --sol-spec` - let that scout write its own `data/<new-scout-id>/spec.md`, then install it for the gated task with `fm-promote.sh <new-scout-id> --sol-spec-for <task-id>` and repeat the refused action.
+  That install promotes the artifact rather than the task, so nothing is stranded: the gated task keeps its worktree, branch, commits, no-mistakes run, PR, and implementation identity, and the scout stays `kind=scout` for ordinary teardown - its `spec.md` is the declared work product that non-force scout teardown requires, so the recovery never needs `--force` (`bin/fm-scout-artifact-lib.sh`).
+  It fails closed before touching anything - the source must be a scout that was *commissioned* as a Sol spec scout, proven by its declared `spec.md` deliverable rather than by the presence of a file, so an ordinary scout's scratch `spec.md` can never clear the gate; it must carry that non-empty `spec.md`; the target must be a ship task that is actually gated; and a target that already holds a *different* `spec.md` is refused rather than overwritten - and the install itself is an atomic same-directory rename under both tasks' lifecycle locks.
+  Promoting the scout in place with `--mode`/`--yolo` instead would start a new implementation task from a clean default-branch base and leave the gated task's branch and PR behind, which is why the artifact mode exists.
+  Ordinary scouts still write `report.md`, which does not satisfy this gate.
+  Before a ship lifecycle action proceeds, Firstmate attributes the active no-mistakes run by branch and code identity and records `state/<task-id>.nm-third-fix-round` with the highest active fix round it observed when that round is 3 or later; teardown removes it with the rest of the task's state.
+  A recorded no-mistakes third-fix-round marker refuses on the same missing spec; a marker whose round cannot be read refuses too, saying so rather than claiming a round it never read.
 - `fm-spawn --relaunch` independently refuses unless the recorded endpoint is positively agent-free and its shell is sitting in the recorded worktree.
   An authoritatively missing endpoint counts as agent-free only after the recorded worktree passes the isolation proof, and is recreated before launch.
 
@@ -120,4 +129,5 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 
 - `tests/fm-control.test.sh` - the adapter contract for every verified harness, the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, missing-endpoint idempotent exit, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
 - `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, missing-endpoint recreation with worktree preservation, and rollback after a failed launch.
+- `tests/fm-second-attempt.test.sh` - the ship-only Sol-spec gate across both relaunch entry points, including the `spec.md`-only artifact contract, scout and secondmate exemptions, automatic attributed third-fix-round recording at the highest active round, fail-closed marker handling, and missing-endpoint recreation.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.

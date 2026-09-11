@@ -964,7 +964,7 @@ SH
 }
 
 test_stopped_watcher_is_live_but_stale_then_exit_is_classified() {
-  local dir state fakebin armout armpid watcher_pid i status
+  local dir state fakebin armout armpid watcher_pid stale_beacon i status
   dir=$(make_case stopped-watcher)
   state="$dir/state"
   fakebin="$dir/fakebin"
@@ -982,7 +982,9 @@ test_stopped_watcher_is_live_but_stale_then_exit_is_classified() {
   grep -qF "watcher: started pid=$watcher_pid" "$armout" || fail "load counterfactual watcher did not start"
 
   kill -STOP "$watcher_pid" 2>/dev/null || fail "could not SIGSTOP watcher"
+  stale_beacon="$dir/stale-beacon"
   touch -t 200001010000 "$state/.last-watcher-beat"
+  touch -t 200001010000 "$stale_beacon"
   FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_alive "$2"' _ "$LIB" "$watcher_pid" \
     || fail "SIGSTOP watcher was not classified as a live pid"
   if FM_HOME="$dir" FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_watcher_healthy "$2" "$3" 300 "$4"' _ "$LIB" "$state" "$WATCH" "$dir"; then
@@ -990,6 +992,18 @@ test_stopped_watcher_is_live_but_stale_then_exit_is_classified() {
   fi
 
   kill -CONT "$watcher_pid" 2>/dev/null || true
+  # The resumed watcher can only touch the beacon at the TOP of its next cycle,
+  # so the first fresh heartbeat is structurally at least one FM_POLL (5s) away.
+  # Bound the barrier well above that (20s) so a loaded runner cannot turn the
+  # race this barrier removes into a timing failure; the assertion stays
+  # deterministic because the beacon is backdated and any fresh touch wins.
+  i=0
+  while [ "$i" -lt 200 ] && [ ! "$state/.last-watcher-beat" -nt "$stale_beacon" ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ "$state/.last-watcher-beat" -nt "$stale_beacon" ] \
+    || fail "resumed watcher did not publish a fresh heartbeat before termination"
   kill -TERM "$watcher_pid" 2>/dev/null || true
   wait_for_exit "$armpid" 80
   status=$?

@@ -56,7 +56,25 @@
 #     consumed by pull and fresh ordinary spawn transactions.
 #   pull: {eligible[],ineligible[],rows[]} - local backlog rows with mechanical
 #     eligibility reasons, ordered by priority, since date, and id.
-#   scout_reports[]: present data/<id>/report.md pointers.
+#     paths.report and hints.scout_report_present are SCOUT readiness, so they
+#     follow the declared surviving artifact (bin/fm-scout-artifact-lib.sh) only
+#     for kind=scout: report.md for an ordinary scout, spec.md where the owning
+#     script declared it, so a Sol spec scout reports readiness on the spec it
+#     actually writes while it is still in flight. Every other kind stays on
+#     data/<id>/report.md; a gated ship carrying an installed Sol spec is not a
+#     scout with a deliverable ready to relay, and must not read as one.
+#   scout_reports[]: present pointers to each task's surviving artifacts under
+#     data/<id>/, one entry per artifact. A real data/<id>/report.md is always
+#     listed, whatever the task's kind is now - promotion in place leaves the
+#     scout's report untouched, and it stays the deliverable it always was. A
+#     declared spec.md (bin/fm-scout-artifact-lib.sh) is listed IN ADDITION, and
+#     only on positive kind=scout evidence from a live meta or a backlog row.
+#     Unknown kind excludes the spec: consumers project this list as the
+#     scout-report inventory and some drop the kind field, so a gated ship's
+#     installed spec must never appear there as a deliverable ready to relay, and
+#     a torn-down ship leaves state byte-identical to a torn-down Sol spec scout.
+#     A landed Sol spec scout stays discoverable through its own artifact once its
+#     backlog row records (kind: scout), and through that row's report_path.
 #   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
 #     main-home current-inventory checks shared with secondmate_home_summary_json
 #     (orphan structured in-flight ids with no state/<id>.meta, and unstructured
@@ -166,6 +184,9 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 # shellcheck source=bin/fm-pr-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-scout-artifact-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-scout-artifact-lib.sh"
 # shellcheck source=bin/fm-ff-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-ff-lib.sh"  # validate_secondmate_home: shared seeded-home boundary checks
@@ -367,14 +388,19 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
     def metadata_word($rest; $key):
       cap($rest; ".*(?:\\(|,[[:space:]]*)" + $key + "[[:space:]]+(?<v>[^,)]*)");
     def url_pattern: "https?://[^[:space:])\"<>]+";
+    def artifact_path($rest; $id):
+      ([$rest | scan("data/[^[:space:])]+/(?:report|spec)\\.md")]
+       | map(select(. == ("data/" + $id + "/report.md")
+                      or . == ("data/" + $id + "/spec.md")))
+       | .[0]) // null;
     def wrapped_url_pattern: "<?" + url_pattern + ">?";
     def links($rest): [$rest | scan(url_pattern)];
     def strip_trailing_metadata:
       reduce range(0; 20) as $_ (.;
         sub("[[:space:]]*\\([[:space:]]*(?:(?:repo|kind|priority|hold|hold-kind|hold-until):[[:space:]]*[^)]*|(?:since|merged|reported|done)[[:space:]]+[^)]*)[[:space:]]*\\)[[:space:]]*$"; ""));
     def strip_title_artifacts:
-      sub("[[:space:]]+-[[:space:]]+data/[^[:space:])]+/report\\.md$"; "")
-      | sub("[[:space:]]+data/[^[:space:])]+/report\\.md$"; "")
+      sub("[[:space:]]+-[[:space:]]+data/[^[:space:])]+/(?:report|spec)\\.md$"; "")
+      | sub("[[:space:]]+data/[^[:space:])]+/(?:report|spec)\\.md$"; "")
       | sub("[[:space:]]+-[[:space:]]+local main$"; "")
       | sub("[[:space:]]+local main$"; "")
       | sub("[[:space:]]+-[[:space:]]*$"; "");
@@ -444,7 +470,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
              completion:completion($rest),
              links:links($rest),
              pr_url:((links($rest) | map(select(test("/pull/[0-9]+"))) | .[0]) // null),
-             report_path:cap($rest; ".*(?<v>data/[^[:space:])]+/report\\.md).*"),
+             report_path:artifact_path($rest; ($m.id | trim)),
              local_note:local_note($rest),
              raw:$line,
              body_lines:[],
@@ -535,7 +561,11 @@ task_json_lines() {
       target=$(fm_backend_target_of_meta "$meta")
     fi
     status_log="$STATE/$id.status"
-    report_path="$DATA/$id/report.md"
+    if [ "$kind" = scout ]; then
+      report_path=$(fm_scout_deliverable_path "$DATA" "$id")
+    else
+      report_path="$DATA/$id/report.md"
+    fi
     last_changed_at=$(task_last_changed_at "$meta" "$status_log")
     pr=$(meta_value "$meta" pr)
     pr_source=meta
@@ -1615,17 +1645,33 @@ secondmate_landed_from_current_json() {  # <secondmate-current-json-file>
     | .records |= sort_by([(.completion.date // ""), .id]) | .records |= reverse'
 }
 
+# A real data/<id>/report.md is an artifact in its own right and is always
+# enumerated, whatever the task's kind is now: promoting a scout in place leaves
+# its report untouched, and that report stays the scout deliverable it always
+# was. A declared spec.md is enumerated as a SECOND entry, tagged so the
+# kind-aware filter downstream - which is where task kind is actually known -
+# can drop it for anything that is not positively a scout.
 scout_report_lines() {
-  local report id
+  local dir id report artifact spec
   if [ ! -d "$DATA" ]; then
     jq -n '[]'
     return 0
   fi
-  LC_ALL=C find "$DATA" -mindepth 2 -maxdepth 2 -type f -name report.md -print \
+  LC_ALL=C find "$DATA" -mindepth 1 -maxdepth 1 -type d -print \
     | sort \
-    | while IFS= read -r report; do
-      id=$(basename "$(dirname "$report")")
-      jq -n --arg id "$id" --arg path "$report" '{id:$id,path:$path}'
+    | while IFS= read -r dir; do
+      id=$(basename "$dir")
+      report="$DATA/$id/$FM_SCOUT_ARTIFACT_DEFAULT"
+      if [ -f "$report" ]; then
+        jq -n --arg id "$id" --arg path "$report" --arg artifact "$FM_SCOUT_ARTIFACT_DEFAULT" \
+          '{id:$id,path:$path,artifact:$artifact}'
+      fi
+      artifact=$(fm_scout_deliverable_name "$DATA" "$id")
+      [ "$artifact" != "$FM_SCOUT_ARTIFACT_DEFAULT" ] || continue
+      spec=$(fm_scout_deliverable_path "$DATA" "$id")
+      [ -f "$spec" ] || continue
+      jq -n --arg id "$id" --arg path "$spec" --arg artifact "$artifact" \
+        '{id:$id,path:$path,artifact:$artifact}'
     done \
     | jq -s 'sort_by(.id)'
 }
@@ -1734,6 +1780,7 @@ jq -n \
    | def backlog_by_id($id): ($backlog.records[]? | select(.structured == true and .id == $id) | .) // null;
    def task_by_id($id): ($tasks[]? | select(.id == $id) | .) // null;
    def report_kind($id): (task_by_id($id).kind // backlog_by_id($id).kind // "scout");
+   def kind_evidence($id): (task_by_id($id).kind // backlog_by_id($id).kind);
    {
      schema:"fm-fleet-snapshot.v1",
      generated:$generated,
@@ -1744,7 +1791,10 @@ jq -n \
      main_inventory:$main_inventory,
      attention:$attention,
      pull:$pull,
-     scout_reports:($scout_reports | map(. + {kind:report_kind(.id)})),
+     scout_reports:($scout_reports
+       | map(. + {kind:report_kind(.id)})
+       | map(select(.artifact == "report.md" or kind_evidence(.id) == "scout"))
+       | map(del(.artifact))),
      secondmate_current:$secondmate_current,
      secondmate_landed:$secondmate_landed,
      secondmate_guidance:{

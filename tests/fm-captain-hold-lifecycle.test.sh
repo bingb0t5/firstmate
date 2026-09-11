@@ -1168,6 +1168,48 @@ EOF
   pass "a captain call with no routed work, a verified transfer, an open decision, and an answered call all stay silent"
 }
 
+# The completion gate accepts a surviving data/<id>/ artifact as proof that this
+# home owns the origin, which is what lets a visual review complete after
+# teardown removed state/<id>.meta. Which file counts is the declared-artifact
+# contract (bin/fm-scout-artifact-lib.sh): a Sol-spec scout writes only spec.md
+# and must still prove its own origin, an ordinary scout stays on report.md, and
+# an undeclared stray spec.md proves nothing. Each fixture has no meta and no
+# tasks-axi task, so the artifact is the only evidence left.
+test_declared_artifact_proves_a_torn_down_origin() {
+  local home out rc
+  home=$(make_home declared-artifact-origin)
+  mkdir -p "$home/data/sol-scout" "$home/data/plain-scout" "$home/data/stray-spec"
+  printf 'spec.md\n' > "$home/data/sol-scout/.deliverable"
+  printf '# Sol spec\n' > "$home/data/sol-scout/spec.md"
+  printf '# Plain scout report\n' > "$home/data/plain-scout/report.md"
+  printf '# undeclared spec\n' > "$home/data/stray-spec/spec.md"
+
+  out=$(run_captain "$home" complete sol-scout --none 2>&1) \
+    || fail "a torn-down Sol-spec scout's declared spec.md must prove its own origin: $out"
+  assert_contains "$out" "complete: sol-scout captain-call inventory reviewed" \
+    "the declared-artifact completion did not record the reviewed inventory"
+
+  out=$(run_captain "$home" complete plain-scout --none 2>&1) \
+    || fail "an ordinary scout's report.md must still prove its own origin: $out"
+  assert_contains "$out" "complete: plain-scout captain-call inventory reviewed" \
+    "the report.md completion did not record the reviewed inventory"
+
+  set +e
+  out=$(run_captain "$home" complete stray-spec --none 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "an undeclared stray spec.md proved an origin"
+  assert_contains "$out" "origin stray-spec is not owned by the active home" \
+    "the undeclared-spec refusal did not name the ownership failure"
+
+  set +e
+  out=$(run_captain "$home" complete never-existed --none 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "an origin with no surviving artifact proved itself"
+  pass "the completion gate proves a torn-down origin from its declared artifact only"
+}
+
 test_uninventoried_report_decision_refuses_completion
 test_completion_gate_attests_and_transfers
 test_answer_records_and_closes
@@ -1182,6 +1224,7 @@ test_bound_channel_answers_close_at_answer_time
 test_unbound_source_closes_no_hold
 test_legacy_identities_keep_working
 test_chat_channel_feeds_the_same_keyed_answer_intake
+test_declared_artifact_proves_a_torn_down_origin
 test_origin_slug_validation_precedes_path_construction
 test_status_resolution_over_an_open_hold_is_signalled
 test_legitimate_holds_produce_no_divergence_signal
