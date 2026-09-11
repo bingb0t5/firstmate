@@ -77,6 +77,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-watch-arm.sh`        | Verified home-scoped watcher arm wrapper; normal mode forks a tracked child, `--detached` gives Stop hooks a new-session watcher with closed descriptors, and both modes keep loud cycle endings and a bounded lifecycle ledger |
 | `fm-home-wake.sh`        | Deliver queued Codex secondmate home wakes and detached watcher completion through a bounded checkpoint or launch record, with confirmed backend submit |
 | `fm-watch-config-lib.sh` | Parse optional home-local `config/watch.env` watcher defaults without executing shell      |
+| `fm-watch-launch-lib.sh` | Shared detached watcher launch identity, handoff lock, owner retirement, and completion-record helpers for `fm-watch-arm.sh` and `fm-home-wake.sh` |
 | `fm-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |
 | `fm-watch.sh`            | Singleton-safe watcher: absorb benign wakes, page a cadence-aware local-secondmate wake-queue stall, and exit on actionable ones |
 | `fm-inactive-reconcile.sh` | Run the bounded active-management due-work scan and reconcile inactive direct-crewmate terminal outcomes without forge access |

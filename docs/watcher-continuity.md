@@ -19,6 +19,7 @@ A cycle-end failure is benign when that live-watcher predicate is true, and the 
 Only an exhausted failure with no verified watcher emits one last-resort notice for the continuous failure episode; later consecutive Stop cycles exit 2 to guarantee another Stop-owned retry without repeating the notice until the turn-end guard consumes the attended fail-open.
 The Claude turn-end guard owns the monotonic failure progression, one-time attended fail-open, post-alarm continuation suppression, and positive recovery reset described in [`turnend-guard.md`](turnend-guard.md#harness-integrations).
 While supervision is still needed and away mode remains inactive, an actionable close wakes the idle session through exit 2.
+Marked Codex secondmate homes arm through the lock-owning session's Stop hook using `bin/fm-watch-arm.sh --detached`; [`turnend-guard.md`](turnend-guard.md#harness-integrations) owns the bounded return, launch handoff, settle window, and completion delivery contract.
 
 ## Actionable wake ordering
 
@@ -78,6 +79,9 @@ Because branch claims contain no check-kind rows, a branch acknowledgement skips
 `tests/fm-pi-branch-extension.test.sh` pins extension-side classification, claim publication and release, and the pre-drain recheck.
 
 ## Arm-layer cycle contract
+
+`--detached` is the Stop-hook entry point: it confirms one new-session watcher with closed descriptors, publishes identity-bound launch and handoff records under `state/.watch-arm-detached.*`, and returns without following the child; later wakes and failures deliver through `bin/fm-home-wake.sh --watcher-complete`.
+[`turnend-guard.md`](turnend-guard.md#harness-integrations) owns the Stop-side settle, session rebind, and callback contract.
 
 `bin/fm-watch-arm.sh` never returns a clean empty success.
 An actionable child output returns that reason normally.

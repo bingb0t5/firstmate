@@ -72,6 +72,7 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
   The callback stays silent for an empty queue, leaves an existing watcher in charge, and defers busy or occupied composers and away mode.
   It never publishes a child-task signal; ordinary Codex crew notifications retain their task markers.
   With an explicit `--codex` registration in a marked secondmate home, the lock-owning session invokes the bounded detached `fm-watch-arm.sh --detached` path inside Stop, including when only queued home wakes remain or the home is idle.
+  A successful detached arm that finds no queued wake may wait up to `FM_CODEX_STOP_DETACHED_SETTLE_MS` (default 0; [configuration.md](configuration.md#environment-variables)) for a wake to appear before returning cleanly; a wake during that window still exits 2 with the handling instruction.
   An actionable close returns exit 2 with the durable wake and handling instruction, and the next Stop owns re-arming without publishing any child-task marker.
   Away mode skips normal arming and retains the shared strict watcher health check and daemon-specific recovery instruction.
   Each Stop makes at most two arm attempts, including in queued-only homes.
