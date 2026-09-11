@@ -844,6 +844,11 @@ do_relaunch() {
     die "the replacement agent for $ID could not be launched on $TARGET_HARNESS"
   fi
 
+  fm_backend_validate_task_endpoint "$META" "$ID" || \
+    die "the replacement agent for $ID published an invalid endpoint"
+  BACKEND=$FM_BACKEND_VALIDATED_BACKEND
+  T=$FM_BACKEND_VALIDATED_TARGET
+
   state=$(wait_agent_state "$LAUNCH_WAIT" alive) || {
     die "the replacement agent for $ID did not come up within ${LAUNCH_WAIT}s (endpoint reads '$state')"
   }
