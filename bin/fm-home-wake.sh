@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # fm-home-wake.sh - Codex secondmate home notification callback.
 # Usage: fm-home-wake.sh <backend> <target> [notify-json]
+#        fm-home-wake.sh <backend> <target> --watcher-complete <launch-dir>
 # The endpoint is bound by fm-spawn.sh; a supplied JSON payload must identify
-# agent-turn-complete. docs/turnend-guard.md owns the delivery and drain contract.
+# agent-turn-complete, and --watcher-complete delivers detached watcher completion.
+# docs/turnend-guard.md owns the delivery and drain contract.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

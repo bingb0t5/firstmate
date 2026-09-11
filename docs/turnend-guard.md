@@ -188,6 +188,8 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 
 ## Regression coverage
 
+`tests/fm-codex-stop-detach.test.sh` covers the tracked Codex Stop hook path with no pre-existing watcher: bounded `--detached` return, healthy-watcher deduplication, inherited hook-pipe and stdio closure, launch identity and handoff records, lock and generation behavior, queued-wake and failure delivery through the home callback, and fixture-owned process cleanup.
+`FM_CODEX_STOP_DETACH_LIVE_E2E=1 tests/fm-codex-stop-detach-live-e2e.test.sh` is the opt-in guard that proves the same contract against an installed Codex binary and fails naming the harness and version.
 `tests/fm-wake-queue.test.sh --secondmate` covers Codex Stop-owned home wakes, repeated re-arming, bounded failure recovery, away-mode health checks, parent stall cadence, and safe watcher defaults.
 It also exercises the cached no-flag Stop in a marked linked home with a 30-second deadline, delayed wakes with an initially empty queue and an existing healthy watcher, durable acknowledgement, and exclusion of unmarked primary, child, lockless, and other-harness invocations from promotion.
 `tests/fm-spawn-dispatch-profile.test.sh --codex-secondmate` exercises generated Codex launches and notification callbacks, including empty-queue silence, busy and occupied-composer deferral, unconfirmed submission, and preservation of queued rows and unread status context until the handling turn drains them.

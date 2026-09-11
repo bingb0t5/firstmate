@@ -39,7 +39,7 @@ The model no longer re-arms after ordinary wakes.
 No PreToolUse hook denies fleet commands based on watcher status.
 A genuine auto-arm failure describes the automatic mechanism as broken and never directs a routine manual background arm.
 Terminal arm-output classification (`started`, `attached`, or `FAILED`) remains defense in depth for the manual recovery path.
-[`supervision-protocols/codex.md`](supervision-protocols/codex.md) owns Codex foreground checkpoint instructions and routes marked secondmate homes to the Stop-owned between-turn contract.
+[`supervision-protocols/codex.md`](supervision-protocols/codex.md) owns main-home foreground checkpoint instructions; marked secondmate homes use the bounded detached Stop-owned between-turn contract in [`turnend-guard.md`](turnend-guard.md#harness-integrations).
 Grok retains its tracked background-task notification protocol.
 No adapter starts a replacement with shell `&`.
 
@@ -114,6 +114,6 @@ The goal is continuity without a Pi or OpenCode model-memory re-arm step.
 No zero-latency guarantee is claimed because lock verification, watcher startup, and bounded retry delays remain deliberate safety work.
 OpenCode support targets persistent TUI sessions rather than headless `opencode run`.
 Claude depends on the Stop `asyncRewake` rewake, Cursor depends on its awaited stop-hook park, and Grok retains native background-completion notifications.
-Codex checkpoint and secondmate hook requirements follow the [protocol](supervision-protocols/codex.md).
+Codex main-home checkpoint instructions follow the [protocol](supervision-protocols/codex.md); marked secondmate Stop-owned arming follows [`turnend-guard.md`](turnend-guard.md#harness-integrations).
 
 [`verification/supervision.md`](verification/supervision.md#watcher-continuity) records the current five-harness live evidence, the 2026-07-24 Stop-owned Claude auto-arm results, and exact opt-in commands.

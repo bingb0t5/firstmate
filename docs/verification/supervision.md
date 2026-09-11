@@ -314,9 +314,11 @@ Current entry points:
 
 ```sh
 tests/fm-turnend-guard.test.sh
+tests/fm-codex-stop-detach.test.sh
 tests/fm-supervision-instructions.test.sh
 FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh
 FM_GROK_STOP_LIVE_E2E=1 FM_GROK_NATIVE_BIN="$native_grok" FM_GROK_LEGACY_BIN="$pre_native_grok" tests/fm-grok-stop-live-e2e.test.sh
+FM_CODEX_STOP_DETACH_LIVE_E2E=1 tests/fm-codex-stop-detach-live-e2e.test.sh
 ```
 
 The Claude auto-arm false-failure, guard-predicate, and monotonic bounded fail-open correction was verified on 2026-08-02 with the installed ShellCheck 0.11.0 and isolated behavior suites.
