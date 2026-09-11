@@ -18,7 +18,8 @@
 #   refused as a flag value.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
-#   task's own recorded endpoint and worktree instead of creating either. It is
+#   task's recorded worktree and endpoint identity rather than allocating a new
+#   copy. It is
 #   the launch half of the control plane (bin/fm-control.sh relaunch), which
 #   owns the checkpoint, the progress note, stopping the previous agent, and the
 #   transaction; call fm-control rather than this flag directly unless you are
