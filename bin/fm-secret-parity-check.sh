@@ -43,6 +43,7 @@
 # Coolify applications use /api/v1/applications/<uuid>/envs, and the n8n
 # resource is the Coolify service /api/v1/services/kr2enxkgumv2eph6a4i1sibj/envs.
 # Coolify values are unwrapped by one matching quote layer before comparison.
+# Empty provider values are treated as missing.
 # Render uses /v1/services/<id>/env-vars/<key>.
 #
 # FM_SECRET_PARITY_INTERVAL defaults to 900 seconds; 0 runs every invocation.
@@ -76,6 +77,8 @@ Usage:
   fm-secret-parity-check.sh arm       write and register state/secret-parity.check.sh
   fm-secret-parity-check.sh disarm    remove the private shim, trust binding, and record
   fm-secret-parity-check.sh --help    print this help
+
+Release preflight and repair: docs/deployment-secret-parity.md
 
 The operator-home registration path is:
   FM_HOME=/path/to/firstmate-home bin/fm-secret-parity-check.sh arm
