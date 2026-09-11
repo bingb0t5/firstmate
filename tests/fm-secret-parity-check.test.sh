@@ -178,6 +178,19 @@ run_check() {
   expect_code 0 "$status" "secret parity check exit"
 }
 
+run_preflight() {
+  local home=$1 out=$2
+  PREFLIGHT_STATUS=0
+  FM_HOME="$home" \
+    FM_SECRET_PARITY_COOLIFY_ENV_FILE="$home/config/coolify.env" \
+    FM_SECRET_PARITY_RENDER_ENV_FILE="$home/config/render.env" \
+    FM_SECRET_PARITY_INTERVAL=0 \
+    FM_FAKE_COOLIFY_FIXTURES="$home/coolify" \
+    FM_FAKE_RENDER_FIXTURES="$home/render" \
+    PATH="$FAKEBIN:$PATH" \
+    "$CHECK" preflight >"$out" 2>&1 || PREFLIGHT_STATUS=$?
+}
+
 test_equal_values_are_silent() {
   local home out
   QUOTED=0
@@ -187,6 +200,53 @@ test_equal_values_are_silent() {
   run_check "$home" "$out"
   [ ! -s "$out" ] || fail "equal provider values produced an alert: $(cat "$out")"
   pass "equal approved values produce no alert"
+}
+
+test_preflight_passes_equal_values() {
+  local home out
+  QUOTED=0
+  make_home preflight-pass
+  home=$MADE_HOME
+  out="$home/out"
+  run_preflight "$home" "$out"
+  expect_code 0 "$PREFLIGHT_STATUS" "equal-value preflight exit"
+  assert_contains "$(cat "$out")" 'secret parity preflight passed' \
+    "equal-value preflight did not report a pass"
+  pass "release preflight passes equal approved values"
+}
+
+test_preflight_rejects_mismatch() {
+  local home out report
+  QUOTED=0
+  make_home preflight-mismatch
+  home=$MADE_HOME
+  jq -cn --arg key LALO_ASSISTANT_API_KEY --arg value "fixture-mismatch-$$-$RANDOM" \
+    '{key:$key,value:$value}' > "$home/render/LALO_ASSISTANT_API_KEY.json"
+  out="$home/out"
+  run_preflight "$home" "$out"
+  expect_code 1 "$PREFLIGHT_STATUS" "mismatched-value preflight exit"
+  report=$(cat "$out")
+  assert_contains "$report" 'secret parity preflight failed: LALO_ASSISTANT_API_KEY [admin-prod, render-llalo]' \
+    "mismatched-value preflight omitted the tuple"
+  assert_not_contains "$report" "$V_ASSISTANT" \
+    "mismatched-value preflight exposed a credential value"
+  pass "release preflight rejects mismatched approved values"
+}
+
+test_preflight_rejects_empty_required_value() {
+  local home out report
+  QUOTED=0
+  make_home preflight-empty
+  home=$MADE_HOME
+  jq -cn --arg key STRIPE_SECRET_KEY '{key:$key,value:""}' \
+    > "$home/render/STRIPE_SECRET_KEY.json"
+  out="$home/out"
+  run_preflight "$home" "$out"
+  expect_code 1 "$PREFLIGHT_STATUS" "empty-value preflight exit"
+  report=$(cat "$out")
+  assert_contains "$report" 'secret parity preflight failed: STRIPE_SECRET_KEY [admin-prod, render-llalo]' \
+    "empty required value was treated as healthy"
+  pass "release preflight rejects an empty required value"
 }
 
 test_quoted_coolify_values_are_unwrapped() {
@@ -328,6 +388,25 @@ test_partial_mismatch_survives_later_probe_failure() {
   pass "earlier mismatches are still alerted when a later probe fails"
 }
 
+test_preflight_reports_mismatch_when_sweep_incomplete() {
+  local home out report
+  QUOTED=0
+  make_home preflight-partial-probe-failure
+  home=$MADE_HOME
+  jq -cn --arg key LALO_ASSISTANT_API_KEY --arg value "fixture-mismatch-$$-$RANDOM" \
+    '{key:$key,value:$value}' > "$home/render/LALO_ASSISTANT_API_KEY.json"
+  out="$home/out"
+  FM_FAKE_FAIL_URL_SUBSTR=/api/v1/services/ \
+    run_preflight "$home" "$out"
+  expect_code 1 "$PREFLIGHT_STATUS" "incomplete preflight with mismatch exit"
+  report=$(cat "$out")
+  assert_contains "$report" 'secret parity preflight failed: LALO_ASSISTANT_API_KEY [admin-prod, render-llalo]' \
+    "incomplete preflight hid an earlier mismatch after a later probe failed"
+  assert_not_contains "$report" 'secret parity preflight unavailable' \
+    "incomplete preflight replaced a known mismatch with unavailable"
+  pass "release preflight names earlier mismatches when a later probe fails"
+}
+
 test_incomplete_sweep_preserves_prior_findings() {
   local home out status=0 stored
   QUOTED=0
@@ -412,6 +491,9 @@ test_unavailable_sweep_records_cadence() {
 }
 
 test_equal_values_are_silent
+test_preflight_passes_equal_values
+test_preflight_rejects_mismatch
+test_preflight_rejects_empty_required_value
 test_quoted_coolify_values_are_unwrapped
 test_mismatch_is_one_redacted_alert
 test_duplicate_alert_is_suppressed
@@ -420,6 +502,7 @@ test_n8n_membership_is_checked
 test_pins_are_checked
 test_operator_arm_registers_private_check
 test_partial_mismatch_survives_later_probe_failure
+test_preflight_reports_mismatch_when_sweep_incomplete
 test_incomplete_sweep_preserves_prior_findings
 test_intra_tuple_mismatch_survives_probe_failure
 test_unavailable_sweep_records_cadence

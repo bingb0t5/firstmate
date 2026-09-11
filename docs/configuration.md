@@ -503,6 +503,7 @@ Because the cut-budget disclosure describes a setting rather than an event, it r
 [`bin/fm-secret-parity-check.sh`](../bin/fm-secret-parity-check.sh) compares approved shared deployment secrets across Render, Coolify, and n8n without exposing secret values, hashes, fingerprints, or value-derived strings.
 It is detection only: it never changes provider configuration.
 The approved secret tuples, membership rules, and pin values are owned by that script's header and `--help`; this section owns operator setup and watcher behavior only.
+The release preflight and repair procedure, including tuple ownership, rotation order, rollback, and verification, is documented in [`docs/deployment-secret-parity.md`](deployment-secret-parity.md).
 
 Provider credential paths, direct overrides, and env-file field names are owned by that script's header and `--help`.
 `FM_SECRET_PARITY_COOLIFY_ENV_FILE` and `FM_SECRET_PARITY_RENDER_ENV_FILE` override the default Coolify and Render credential files.
@@ -517,7 +518,7 @@ The operator-home registration path is `FM_HOME=/path/to/firstmate-home bin/fm-s
 The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required.
 
 The check prints nothing when every approved tuple matches and the same finding set is still present.
-A new or changed mismatch prints one line beginning with `secret parity mismatch:` and naming each secret plus its affected environments only.
+A new or changed mismatch, including a missing or empty required value, prints one line beginning with `secret parity mismatch:` and naming each secret plus its affected environments only.
 When credentials or runtime dependencies are missing and no prior finding is on record, it prints one `secret parity check unavailable` line.
 `state/.secret-parity` records the finding set the last alert was made from so an unchanged mismatch is reported once instead of on every poll; a complete sweep with no mismatches clears the record so a later mismatch alerts again.
 A sweep interrupted by probe failure or budget exhaustion still alerts mismatches found before the interruption and preserves prior recorded findings until a complete sweep clears them.
