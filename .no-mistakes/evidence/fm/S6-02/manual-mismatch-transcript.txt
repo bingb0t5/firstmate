@@ -1,0 +1,1 @@
+skip manual - e2e already covered

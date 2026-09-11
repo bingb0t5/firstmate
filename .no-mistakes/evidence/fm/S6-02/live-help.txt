@@ -1,0 +1,16 @@
+Usage:
+  fm-secret-parity-check.sh [check]   compare approved deployment secrets
+  fm-secret-parity-check.sh arm       write and register state/secret-parity.check.sh
+  fm-secret-parity-check.sh disarm    remove the private shim, trust binding, and record
+  fm-secret-parity-check.sh --help    print this help
+
+The operator-home registration path is:
+  FM_HOME=/path/to/firstmate-home bin/fm-secret-parity-check.sh arm
+The arm action calls bin/fm-check-register.sh for that home; it never creates
+private registration artifacts in the repository.
+
+Credential stores:
+  FM_SECRET_PARITY_COOLIFY_ENV_FILE  default ~/.config/beanz/coolify.env
+  FM_SECRET_PARITY_RENDER_ENV_FILE   default ~/.config/lalo/render-api.env
+  FM_SECRET_PARITY_INTERVAL           default 900, or 0 for every run
+  FM_SECRET_PARITY_PROBE_SECS         default 15, range 1..60

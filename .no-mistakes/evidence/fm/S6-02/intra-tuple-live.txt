@@ -1,0 +1,3 @@
+OUTPUT: secret parity check unavailable
+CONTAINS BEANBOT: 0
+CONTAINS MISMATCH VAL: 0

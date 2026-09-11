@@ -1,0 +1,12 @@
+ok - equal approved values produce no alert
+ok - quoted Coolify values compare equal after unwrapping
+ok - a mismatch produces one redacted alert and value-free record
+ok - the same mismatch produces only one alert until it changes
+ok - a missing secret is reported without its value
+ok - n8n token membership is checked against brain's token-name list
+ok - the signals URL pins are checked without exposing their values
+ok - operator arm uses the existing fm-check-register path in the home
+ok - earlier mismatches are still alerted when a later probe fails
+ok - incomplete sweeps preserve prior mismatch records
+ok - intra-tuple mismatches survive a later probe failure in the same tuple
+ok - unavailable sweeps advance the cadence record without spamming wakes

@@ -1,0 +1,8 @@
+=== stdout bytes: 0
+=== stderr bytes: 0
+=== record file:
+fm-secret-parity-v1
+1789132098
+
+=== redaction scan (sk_, eyJ, Bearer, sha256):
+PASS

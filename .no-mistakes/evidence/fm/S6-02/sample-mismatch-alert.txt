@@ -1,0 +1,7 @@
+=== Mismatch alert output (single line expected) ===
+secret parity mismatch: BEANBOT_PLATFORM_SYNC_TOKEN [admin-prod, admin-staging, signals, render-llalo]; LALO_ASSISTANT_API_KEY [admin-prod, render-llalo]; PLATFORM_SUPABASE_URL [admin-prod, admin-staging, signals, render-llalo]; PLATFORM_SUPABASE_SERVICE_ROLE_KEY [admin-prod, admin-staging, signals, render-llalo]; STRIPE_SECRET_KEY [admin-prod, render-llalo]; STRIPE_WEBHOOK_SECRET [admin-prod, render-llalo]; STRIPE_PAID_BETA_PRICE_ID [admin-prod, render-llalo]; BRAIN_TOKEN_N8N [n8n, brain]; LALO_APP_API_URL [signals]; LALO_DIRECTORY_MATCH_URL [signals]
+
+=== Redaction check: secret values must NOT appear ===
+V_ASSIST present: 0
+V_MISMATCH present: 0
+sha256 present: 0

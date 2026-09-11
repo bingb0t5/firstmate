@@ -1,0 +1,12 @@
+https://ops.llalo.app/api/v1/applications/ga48pn39tt4b9bswgsuaqu7v/envs
+https://ops.llalo.app/api/v1/applications/o13agfus3ladxv4zpii2x792/envs
+https://ops.llalo.app/api/v1/applications/ywlch69qmlddbx611t6h01dh/envs
+https://api.render.com/v1/services/srv-d6ndnintskes73ed4hrg/env-vars/BEANBOT_PLATFORM_SYNC_TOKEN
+https://api.render.com/v1/services/srv-d6ndnintskes73ed4hrg/env-vars/LALO_ASSISTANT_API_KEY
+https://api.render.com/v1/services/srv-d6ndnintskes73ed4hrg/env-vars/PLATFORM_SUPABASE_URL
+https://api.render.com/v1/services/srv-d6ndnintskes73ed4hrg/env-vars/PLATFORM_SUPABASE_SERVICE_ROLE_KEY
+https://api.render.com/v1/services/srv-d6ndnintskes73ed4hrg/env-vars/STRIPE_SECRET_KEY
+https://api.render.com/v1/services/srv-d6ndnintskes73ed4hrg/env-vars/STRIPE_WEBHOOK_SECRET
+https://api.render.com/v1/services/srv-d6ndnintskes73ed4hrg/env-vars/STRIPE_PAID_BETA_PRICE_ID
+https://ops.llalo.app/api/v1/services/kr2enxkgumv2eph6a4i1sibj/envs
+https://ops.llalo.app/api/v1/applications/funzds3h0heoscr1h0ppw0ya/envs

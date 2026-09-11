@@ -1,0 +1,10 @@
+=== Production equal-secrets check (silent = pass) ===
+exit: 0
+output bytes: 0
+output: (empty - no alert)
+
+=== Record file redaction check ===
+sk_ markers: 0
+0
+sha256 markers: 0
+0

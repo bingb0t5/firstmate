@@ -1,0 +1,11 @@
+ok - live mock mismatch produces one redacted alert
+ok - live mock duplicate mismatch alert is suppressed
+ok - live mock mismatch alerts again after reappearance
+ok - live mock missing secret is named without its value
+ok - live mock quoted Coolify values compare equal after unwrapping
+ok - live mock n8n membership mismatch is named without token value
+ok - live mock pin mismatch is named without exposing URL value
+ok - live mock earlier mismatches survive a later probe failure
+ok - live unavailable sweep advances cadence without repeat spam
+ok - live production equal secrets stay silent with redacted record
+# fm-secret-parity-check-live-e2e.test.sh: all live assertions passed

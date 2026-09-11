@@ -1,0 +1,5 @@
+total 16
+drwxrwxr-x 2 rich rich 4096 Sep 11 20:08 .
+drwx------ 3 rich rich 4096 Sep 11 20:08 ..
+-rw------- 1 rich rich   84 Sep 11 20:08 secret-parity.check-trust
+-rwx------ 1 rich rich  271 Sep 11 20:08 secret-parity.check.sh

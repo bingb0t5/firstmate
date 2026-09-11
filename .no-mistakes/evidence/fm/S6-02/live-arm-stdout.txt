@@ -1,0 +1,1 @@
+armed: state/secret-parity.check.sh
