@@ -60,6 +60,9 @@ else
   status=404
   body='{"message":"not found"}'
 fi
+if [ -n "${FM_FAKE_FAIL_URL_SUBSTR:-}" ] && [[ "$url" == *"$FM_FAKE_FAIL_URL_SUBSTR"* ]]; then
+  exit 1
+fi
 printf '%s' "$body"
 if [ -n "$writeout" ]; then
   printf '\n%s' "$status"
@@ -306,6 +309,55 @@ test_operator_arm_registers_private_check() {
   pass "operator arm uses the existing fm-check-register path in the home"
 }
 
+test_partial_mismatch_survives_later_probe_failure() {
+  local home out report
+  QUOTED=0
+  make_home partial-probe-failure
+  home=$MADE_HOME
+  jq -cn --arg key LALO_ASSISTANT_API_KEY --arg value "fixture-mismatch-$$-$RANDOM" \
+    '{key:$key,value:$value}' > "$home/render/LALO_ASSISTANT_API_KEY.json"
+  out="$home/out"
+  FM_FAKE_FAIL_URL_SUBSTR=/api/v1/services/ \
+    run_check "$home" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" 'LALO_ASSISTANT_API_KEY [admin-prod, render-llalo]' \
+    "partial sweep dropped an earlier mismatch after a later probe failed"
+  pass "earlier mismatches are still alerted when a later probe fails"
+}
+
+test_unavailable_sweep_records_cadence() {
+  local home out status=0 epoch
+  QUOTED=0
+  make_home unavailable-cadence
+  home=$MADE_HOME
+  rm -f "$home/config/render.env"
+  out="$home/out1"
+  FM_HOME="$home" \
+    FM_SECRET_PARITY_COOLIFY_ENV_FILE="$home/config/coolify.env" \
+    FM_SECRET_PARITY_RENDER_ENV_FILE="$home/config/missing-render.env" \
+    FM_SECRET_PARITY_INTERVAL=900 \
+    FM_SECRET_PARITY_NOW=1000 \
+    PATH="$FAKEBIN:$PATH" \
+    "$CHECK" >"$out" 2>&1 || status=$?
+  expect_code 0 "$status" "unavailable check exit"
+  assert_contains "$(cat "$out")" 'secret parity check unavailable' \
+    "missing credentials did not report unavailable"
+  assert_present "$home/state/.secret-parity" "unavailable sweep did not record cadence state"
+  epoch=$(sed -n '2p' "$home/state/.secret-parity")
+  [ "$epoch" = 1000 ] || fail "unavailable sweep did not bump the record epoch"
+  : > "$out"
+  FM_HOME="$home" \
+    FM_SECRET_PARITY_COOLIFY_ENV_FILE="$home/config/coolify.env" \
+    FM_SECRET_PARITY_RENDER_ENV_FILE="$home/config/missing-render.env" \
+    FM_SECRET_PARITY_INTERVAL=900 \
+    FM_SECRET_PARITY_NOW=1500 \
+    PATH="$FAKEBIN:$PATH" \
+    "$CHECK" >"$out" 2>&1 || status=$?
+  expect_code 0 "$status" "second unavailable check exit"
+  [ ! -s "$out" ] || fail "unavailable alert repeated before the interval elapsed: $(cat "$out")"
+  pass "unavailable sweeps advance the cadence record without spamming wakes"
+}
+
 test_equal_values_are_silent
 test_quoted_coolify_values_are_unwrapped
 test_mismatch_is_one_redacted_alert
@@ -314,3 +366,5 @@ test_missing_secret_is_named_without_value
 test_n8n_membership_is_checked
 test_pins_are_checked
 test_operator_arm_registers_private_check
+test_partial_mismatch_survives_later_probe_failure
+test_unavailable_sweep_records_cadence

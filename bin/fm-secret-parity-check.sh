@@ -110,6 +110,18 @@ case "$PROBE_SECS" in
 esac
 [ "$PROBE_SECS" -le 60 ] || die_usage "FM_SECRET_PARITY_PROBE_SECS must be a whole number from 1 to 60"
 
+PROBE_MIN_SECS=1
+CLOCK_ROUNDING_SECS=1
+KILL_GRACE_SECS=1
+
+CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}
+case "$CHECK_TIMEOUT" in
+  ''|*[!0-9]*|0) CHECK_TIMEOUT=30 ;;
+esac
+BUDGET_MAX=$((CHECK_TIMEOUT - PROBE_MIN_SECS - CLOCK_ROUNDING_SECS - KILL_GRACE_SECS))
+[ "$BUDGET_MAX" -ge 1 ] || BUDGET_MAX=1
+BUDGET_SECS=$BUDGET_MAX
+
 coolify_env_file() {
   printf '%s\n' "${FM_SECRET_PARITY_COOLIFY_ENV_FILE:-${HOME:-}/.config/beanz/coolify.env}"
 }
@@ -153,6 +165,33 @@ epoch_now() {
   esac
 }
 
+real_epoch() { date +%s; }
+
+DEADLINE=0
+SWEEP_UNAVAILABLE=0
+
+budget_exhausted() {
+  [ "$(real_epoch)" -ge "$DEADLINE" ]
+}
+
+budget_allows() {
+  budget_exhausted || return 0
+  SWEEP_UNAVAILABLE=1
+  return 1
+}
+
+probe_bound() {
+  local left
+  left=$((DEADLINE - $(real_epoch)))
+  if [ "$left" -lt "$PROBE_MIN_SECS" ]; then
+    printf '%s\n' "$PROBE_MIN_SECS"
+  elif [ "$left" -lt "$PROBE_SECS" ]; then
+    printf '%s\n' "$left"
+  else
+    printf '%s\n' "$PROBE_SECS"
+  fi
+}
+
 record_read() {
   RECORD_LAST=
   RECORD_FINDINGS=
@@ -194,7 +233,7 @@ COOLIFY_N8N=
 
 coolify_payload() {
   local kind=$1 id=$2 payload
-  payload=$(curl -fsS --max-time "$PROBE_SECS" \
+  payload=$(curl -fsS --max-time "$(probe_bound)" \
     -H "Authorization: Bearer $COOLIFY_TOKEN_VALUE" \
     "$COOLIFY_URL_VALUE/api/v1/$kind/$id/envs" 2>/dev/null) || return 1
   printf '%s' "$payload" | jq -e 'type == "array"' >/dev/null 2>&1 || return 1
@@ -274,7 +313,7 @@ coolify_env_value() {
 
 render_env_value() {
   local key=$1 response body status row
-  response=$(curl -sS --max-time "$PROBE_SECS" \
+  response=$(curl -sS --max-time "$(probe_bound)" \
     -H 'Accept: application/json' \
     -H "Authorization: Bearer $RENDER_TOKEN_VALUE" \
     -w $'\n%{http_code}' \
@@ -389,52 +428,91 @@ compare_pin() {
   fi
 }
 
-action_check() {
-  local rc
-  due_for_sweep || return 0
-  command -v curl >/dev/null 2>&1 || {
-    printf '%s\n' 'secret parity check unavailable'
-    return 1
-  }
-  command -v jq >/dev/null 2>&1 || {
-    printf '%s\n' 'secret parity check unavailable'
-    return 1
-  }
-  load_provider_settings || {
-    printf '%s\n' 'secret parity check unavailable'
-    return 1
-  }
-
-  MISMATCHES=
-  compare_secret BEANBOT_PLATFORM_SYNC_TOKEN admin-prod admin-staging signals render-llalo
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-  compare_secret LALO_ASSISTANT_API_KEY admin-prod render-llalo
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-  compare_secret PLATFORM_SUPABASE_URL admin-prod admin-staging signals render-llalo
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-  compare_secret PLATFORM_SUPABASE_SERVICE_ROLE_KEY admin-prod admin-staging signals render-llalo
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-  compare_secret STRIPE_SECRET_KEY admin-prod render-llalo
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-  compare_secret STRIPE_WEBHOOK_SECRET admin-prod render-llalo
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-  compare_secret STRIPE_PAID_BETA_PRICE_ID admin-prod render-llalo
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-  compare_n8n_token
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-  compare_pin signals LALO_APP_API_URL https://admin.laloapp.co
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-  compare_pin signals LALO_DIRECTORY_MATCH_URL \
-    https://admin.laloapp.co/api/internal/local-signals/directory-match
-  rc=$?; [ "$rc" -eq 0 ] || { printf '%s\n' 'secret parity check unavailable'; return 1; }
-
+finish_sweep() {
   record_read
   if [ -n "$MISMATCHES" ]; then
     if [ "$MISMATCHES" != "$RECORD_FINDINGS" ]; then
       printf 'secret parity mismatch: %s\n' "$MISMATCHES"
     fi
+  elif [ "$SWEEP_UNAVAILABLE" -eq 1 ]; then
+    printf '%s\n' 'secret parity check unavailable'
   fi
   record_write "$MISMATCHES" || true
+}
+
+sweep_step() {
+  local rc
+  budget_allows "$1" || return 1
+  "$@"
+  rc=$?
+  [ "$rc" -eq 2 ] && SWEEP_UNAVAILABLE=1
+  return 0
+}
+
+action_check() {
+  due_for_sweep || return 0
+  MISMATCHES=
+  SWEEP_UNAVAILABLE=0
+  command -v curl >/dev/null 2>&1 || {
+    SWEEP_UNAVAILABLE=1
+    finish_sweep
+    return 0
+  }
+  command -v jq >/dev/null 2>&1 || {
+    SWEEP_UNAVAILABLE=1
+    finish_sweep
+    return 0
+  }
+  load_provider_settings || {
+    SWEEP_UNAVAILABLE=1
+    finish_sweep
+    return 0
+  }
+
+  DEADLINE=$(($(real_epoch) + BUDGET_SECS))
+  sweep_step compare_secret BEANBOT_PLATFORM_SYNC_TOKEN admin-prod admin-staging signals render-llalo || {
+    finish_sweep
+    return 0
+  }
+  sweep_step compare_secret LALO_ASSISTANT_API_KEY admin-prod render-llalo || {
+    finish_sweep
+    return 0
+  }
+  sweep_step compare_secret PLATFORM_SUPABASE_URL admin-prod admin-staging signals render-llalo || {
+    finish_sweep
+    return 0
+  }
+  sweep_step compare_secret PLATFORM_SUPABASE_SERVICE_ROLE_KEY admin-prod admin-staging signals render-llalo || {
+    finish_sweep
+    return 0
+  }
+  sweep_step compare_secret STRIPE_SECRET_KEY admin-prod render-llalo || {
+    finish_sweep
+    return 0
+  }
+  sweep_step compare_secret STRIPE_WEBHOOK_SECRET admin-prod render-llalo || {
+    finish_sweep
+    return 0
+  }
+  sweep_step compare_secret STRIPE_PAID_BETA_PRICE_ID admin-prod render-llalo || {
+    finish_sweep
+    return 0
+  }
+  sweep_step compare_n8n_token || {
+    finish_sweep
+    return 0
+  }
+  sweep_step compare_pin signals LALO_APP_API_URL https://admin.laloapp.co || {
+    finish_sweep
+    return 0
+  }
+  sweep_step compare_pin signals LALO_DIRECTORY_MATCH_URL \
+    https://admin.laloapp.co/api/internal/local-signals/directory-match || {
+    finish_sweep
+    return 0
+  }
+
+  finish_sweep
   return 0
 }
 
