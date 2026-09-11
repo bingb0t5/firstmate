@@ -1,0 +1,7 @@
+preflight pass exit: 0
+preflight mismatch exit: 1
+preflight empty exit: 1
+preflight quoted pass exit: 0
+preflight n8n membership exit: 1
+preflight unavailable exit: 2
+preflight partial probe mismatch exit: 1
