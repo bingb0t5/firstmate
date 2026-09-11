@@ -249,6 +249,70 @@ JSON
   pass "replies tolerate inbox wake failure without duplicating notes"
 }
 
+test_replies_prefix_event_ids_do_not_collide() {
+  local home out notes status=0
+  home=$(make_home replies-prefix-id)
+  bridge_env "$home"
+  make_fake_curl "$home"
+  mkdir -p "$home/state/inbox"
+  cat >"$home/state/inbox/prior-note.note" <<'EOF'
+id=prior-note
+at=2026-09-10T00:00:00Z
+source=text
+--
+todoist-bridge-event-id: r10
+todoist captain-10 comment: prior event
+EOF
+  cat >"$home/response.json" <<'JSON'
+[
+  {"id":"r1","card_key":"captain-1","kind":"comment","text":"new comment","author":"captain","at":"2026-09-10T00:00:00Z"}
+]
+JSON
+  : >"$home/posts"
+  out="$home/out"
+  env FM_HOME="$home" FM_CONFIG_OVERRIDE="$home/config" FM_STATE_OVERRIDE="$home/state" \
+    FAKE_CURL_RESPONSE="$home/response.json" FAKE_CURL_POSTS="$home/posts" \
+    PATH="$home/fakebin:$PATH" "$REPLIES" >"$out" 2>&1 || status=$?
+  [ "$status" -eq 0 ] || fail "prefix-id poll failed: $(cat "$out")"
+  notes=$(find "$home/state/inbox" -maxdepth 1 -name '*.note' | wc -l | tr -d ' ')
+  [ "$notes" = 2 ] || fail "prefix id collision skipped filing r1"
+  pass "replies treat distinct event ids as distinct when one id is a prefix of another"
+}
+
+test_replies_skip_duplicate_in_handled_inbox() {
+  local home out notes status=0
+  home=$(make_home replies-handled-inbox)
+  bridge_env "$home"
+  make_fake_curl "$home"
+  mkdir -p "$home/state/inbox/handled"
+  cat >"$home/state/inbox/handled/drained-note.note" <<'EOF'
+id=drained-note
+at=2026-09-10T00:00:00Z
+source=text
+--
+todoist-bridge-event-id: handled-before-seen
+todoist captain-4 comment: already drained
+EOF
+  cat >"$home/response.json" <<'JSON'
+[
+  {"id":"handled-before-seen","card_key":"captain-4","kind":"comment","text":"already drained","author":"captain","at":"2026-09-10T00:00:00Z"}
+]
+JSON
+  : >"$home/posts"
+  out="$home/out"
+  env FM_HOME="$home" FM_CONFIG_OVERRIDE="$home/config" FM_STATE_OVERRIDE="$home/state" \
+    FAKE_CURL_RESPONSE="$home/response.json" FAKE_CURL_POSTS="$home/posts" \
+    PATH="$home/fakebin:$PATH" "$REPLIES" >"$out" 2>&1 || status=$?
+  [ "$status" -eq 0 ] || fail "handled-inbox poll failed: $(cat "$out")"
+  notes=$(find "$home/state/inbox" -maxdepth 1 -name '*.note' | wc -l | tr -d ' ')
+  [ "$notes" = 0 ] || fail "handled inbox note was duplicated in the active inbox"
+  grep -F handled-before-seen "$home/state/todoist-bridge-replies.seen" >/dev/null \
+    || fail "handled inbox path did not record the event as seen"
+  [ "$(grep -c '"id":"handled-before-seen"' "$home/posts")" = 1 ] \
+    || fail "handled inbox path did not acknowledge the event"
+  pass "replies skip duplicate notes already moved to handled inbox"
+}
+
 test_replies_skip_duplicate_after_crash_before_seen() {
   local home out notes status=0
   home=$(make_home replies-crash-seen)
@@ -288,4 +352,6 @@ test_publish_projects_stages_dates_options_and_hide_list
 test_publish_never_outputs_token_on_network_failure
 test_replies_file_once_and_ack_idempotently
 test_replies_tolerate_inbox_wake_failure_without_duplicating
+test_replies_prefix_event_ids_do_not_collide
+test_replies_skip_duplicate_in_handled_inbox
 test_replies_skip_duplicate_after_crash_before_seen

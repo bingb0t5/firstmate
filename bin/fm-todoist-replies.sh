@@ -74,11 +74,15 @@ command -v curl >/dev/null 2>&1 || die "curl not found"
 [ -x "$INBOX_BIN" ] || die "captain inbox is unavailable"
 
 inbox_has_event() { # <event-id>
-  local event_id=$1 note
-  [ -d "$STATE/inbox" ] || return 1
-  for note in "$STATE/inbox"/*.note; do
-    [ -e "$note" ] || continue
-    grep -F -q -- "todoist-bridge-event-id: $event_id" "$note" && return 0
+  local event_id=$1 note dir
+  local -a dirs=("$STATE/inbox")
+  [ -d "$STATE/inbox/handled" ] && dirs+=("$STATE/inbox/handled")
+  for dir in "${dirs[@]}"; do
+    [ -d "$dir" ] || continue
+    for note in "$dir"/*.note; do
+      [ -e "$note" ] || continue
+      grep -F -x -q -- "todoist-bridge-event-id: $event_id" "$note" && return 0
+    done
   done
   return 1
 }
