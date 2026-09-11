@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Shared detached watcher launch helpers for fm-watch-arm.sh and fm-home-wake.sh.
+# docs/watcher-continuity.md owns the arm-layer launch records; docs/turnend-guard.md
+# owns the Stop-side detached contract.
 
 fm_watch_launch_record() {
   local dir=$1 status=$2 reason=$3 tmp

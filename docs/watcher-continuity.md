@@ -44,7 +44,7 @@ Terminal arm-output classification (`started`, `attached`, or `FAILED`) remains 
 Grok retains its tracked background-task notification protocol.
 No adapter starts a replacement with shell `&`.
 
-The shared turn-end predicate remains the final backstop and cooperates with the auto-arm in its `--claude` mode; the Codex secondmate integration also owns normal arming as described in [`turnend-guard.md`](turnend-guard.md#harness-integrations).
+The shared turn-end predicate remains the final backstop and cooperates with the auto-arm in its `--claude` mode; the Codex secondmate integration also owns bounded detached between-turn arming as described in [`turnend-guard.md`](turnend-guard.md#harness-integrations).
 
 ## Recovery episode acknowledgement
 

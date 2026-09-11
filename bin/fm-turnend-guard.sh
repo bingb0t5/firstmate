@@ -33,8 +33,8 @@
 # stay a silent, fast no-op inside child task worktrees.
 #
 # Explicit --codex and eligible legacy invocations in a marked secondmate home
-# use the Stop-owned arm and recovery contract in docs/turnend-guard.md outside
-# away mode.
+# use the bounded detached fm-watch-arm.sh --detached path and recovery contract
+# in docs/turnend-guard.md outside away mode.
 # Loop-guard, default mode (including Grok and other Codex Stops): never block
 # twice in the same turn.
 # Codex uses stop_hook_active and Grok uses stopHookActive; typed camel-case

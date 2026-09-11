@@ -15,7 +15,7 @@ Do not infer this guard's scope, loop safety, or compatibility tradeoffs for tho
 The turn-end guard closes the remaining gap at the primary's own turn boundary.
 When work, a process-event source, or Relay polling needs supervision at that boundary and either active direct work exceeds due-work capacity or no identity-matched watcher has a fresh beacon, the harness integration must either block the turn end or force one bounded follow-up that uses the recovery instruction from the emitted session-start protocol.
 The mid-turn pull warning uses the model-aware supervision verdict described below, while the turn-end guard keeps the PID-strict watcher predicate.
-The shared predicate remains a backstop; the marked Codex secondmate integration below also owns normal between-turn arming.
+The shared predicate remains a backstop; the marked Codex secondmate integration below also owns bounded detached between-turn arming.
 [`watcher-continuity.md`](watcher-continuity.md) routes the other continuity mechanisms.
 
 ## Guard predicates
