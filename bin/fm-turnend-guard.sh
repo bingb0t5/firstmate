@@ -33,8 +33,8 @@
 # stay a silent, fast no-op inside child task worktrees.
 #
 # Explicit --codex and eligible legacy invocations in a marked secondmate home
-# use the Stop-owned arm and recovery contract in docs/turnend-guard.md outside
-# away mode.
+# use the bounded detached fm-watch-arm.sh --detached path and recovery contract
+# in docs/turnend-guard.md outside away mode.
 # Loop-guard, default mode (including Grok and other Codex Stops): never block
 # twice in the same turn.
 # Codex uses stop_hook_active and Grok uses stopHookActive; typed camel-case
@@ -87,9 +87,11 @@ CODEX_LEGACY_MODE=0
 SYNC_WAIT_MS=${FM_CLAUDE_AUTOARM_SYNC_WAIT_MS:-800}
 EPOCH_FRESH=${FM_CLAUDE_AUTOARM_EPOCH_FRESH:-15}
 BLOCK_BUDGET=${FM_CLAUDE_TURNEND_BLOCK_BUDGET:-3}
+CODEX_DETACHED_SETTLE_MS=${FM_CODEX_STOP_DETACHED_SETTLE_MS:-0}
 case "$SYNC_WAIT_MS" in ''|*[!0-9]*) SYNC_WAIT_MS=800 ;; esac
 case "$EPOCH_FRESH" in ''|*[!0-9]*|0) EPOCH_FRESH=15 ;; esac
 case "$BLOCK_BUDGET" in ''|*[!0-9]*|0) BLOCK_BUDGET=3 ;; esac
+case "$CODEX_DETACHED_SETTLE_MS" in ''|*[!0-9]*) CODEX_DETACHED_SETTLE_MS=0 ;; esac
 
 for arg in "$@"; do
   case "$arg" in
@@ -176,7 +178,7 @@ if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
   . "$SCRIPT_DIR/fm-session-lock-lib.sh"
   fm_session_lock_owned_by_self "$STATE" || exit 0
   if [ ! -e "$STATE/.afk" ]; then
-    ARM_COMMAND=("$SCRIPT_DIR/fm-watch-arm.sh")
+    ARM_COMMAND=("$SCRIPT_DIR/fm-watch-arm.sh" --detached)
     if [ "$CODEX_LEGACY_MODE" -eq 1 ]; then
       ARM_COMMAND=("$SCRIPT_DIR/fm-watch-checkpoint.sh" --arm --seconds 5)
     fi
@@ -184,18 +186,28 @@ if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
     PREVIOUS_REASON=$(printf '%s\n' "$PREVIOUS_CYCLE" | awk -F '\t' '{for (i=1; i<=NF; i++) if ($i ~ /^reason=/) print substr($i,8)}')
     PREVIOUS_FAILED=0
     case "$PREVIOUS_REASON" in
-      nonzero-exit|signal-exit|confirmation-timeout|unexpected-clean-exit|attached-cycle-ended|handling-handoff-failed) PREVIOUS_FAILED=1 ;;
+      nonzero-exit|signal-exit|confirmation-timeout|unexpected-clean-exit|attached-cycle-ended|handling-handoff-failed|detached-start-failed) PREVIOUS_FAILED=1 ;;
     esac
     OUT=$(mktemp "$STATE/.codex-stop-output.XXXXXX") || OUT=
     trap '[ -z "$OUT" ] || rm -f "$OUT"' EXIT
     ARM_ATTEMPT=0
+    QUEUE_WAS_PENDING=0
+    [ -s "$STATE/.wake-queue" ] && QUEUE_WAS_PENDING=1
     while [ "$ARM_ATTEMPT" -lt 2 ]; do
       ARM_ATTEMPT=$((ARM_ATTEMPT + 1))
       if [ -n "$OUT" ]; then
-        "${ARM_COMMAND[@]}" > "$OUT" 2>&1
+        if [ "$CODEX_LEGACY_MODE" -eq 1 ]; then
+          "${ARM_COMMAND[@]}" > "$OUT" 2>&1
+        else
+          FM_WATCH_NOTIFY_REQUIRED=1 "${ARM_COMMAND[@]}" > "$OUT" 2>&1
+        fi
         ARM_RC=$?
       else
-        "${ARM_COMMAND[@]}" >&2
+        if [ "$CODEX_LEGACY_MODE" -eq 1 ]; then
+          "${ARM_COMMAND[@]}" >&2
+        else
+          FM_WATCH_NOTIFY_REQUIRED=1 "${ARM_COMMAND[@]}" >&2
+        fi
         ARM_RC=$?
       fi
       fm_session_lock_owned_by_self "$STATE" || exit 0
@@ -211,6 +223,26 @@ if [ "$CODEX_MODE" -eq 1 ] && fm_root_is_secondmate_home "$FM_HOME"; then
         grep -E '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" >&2
         printf '%s\n' 'Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.' >&2
         exit 2
+      fi
+      if [ "$ARM_RC" -eq 0 ]; then
+        [ -z "$OUT" ] || cat "$OUT" >&2
+        if [ "$QUEUE_WAS_PENDING" -eq 1 ] || [ -s "$STATE/.wake-queue" ]; then
+          printf '%s\n' 'check: rearm-resurface' >&2
+          printf '%s\n' 'Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.' >&2
+          exit 2
+        fi
+        CODEX_SETTLE_TICKS=$(( (CODEX_DETACHED_SETTLE_MS + 99) / 100 ))
+        CODEX_SETTLE_TICK=0
+        while [ "$CODEX_SETTLE_TICK" -lt "$CODEX_SETTLE_TICKS" ]; do
+          [ -s "$STATE/.wake-queue" ] && {
+            printf '%s\n' 'check: rearm-resurface' >&2
+            printf '%s\n' 'Run bin/fm-wake-drain.sh, handle the queued wakes, then run its exact WAKE_ACK_REQUIRED acknowledgement command. The next Stop re-arms home supervision.' >&2
+            exit 2
+          }
+          sleep 0.1
+          CODEX_SETTLE_TICK=$((CODEX_SETTLE_TICK + 1))
+        done
+        exit 0
       fi
       [ -z "$OUT" ] || cat "$OUT" >&2
     done

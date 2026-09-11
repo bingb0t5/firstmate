@@ -970,6 +970,7 @@ SH
   cat > "$CASE_DIR/probe.sh" <<'SH'
 #!/usr/bin/env bash
 set -u
+[ "${FM_HOME_WAKE_BACKEND:-}" = tmux ] && [ -n "${FM_HOME_WAKE_TARGET:-}" ] || exit 14
 printf '%s\n' "$$" > "$FM_HOME/state/.lock"
 printf 'kind=ship\n' > "$FM_HOME/state/child.meta"
 : > "$FM_HOME/state/.inactive-outcome-reconcile"

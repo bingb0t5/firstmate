@@ -101,6 +101,14 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 mkdir -p "$STATE"
 
+if [ "${BASH_SOURCE[0]}" = "$0" ] && [ -n "${FM_WATCH_LAUNCH_DIR:-}" ]; then
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$SCRIPT_DIR/fm-wake-lib.sh"
+  # shellcheck source=bin/fm-watch-launch-lib.sh
+  . "$SCRIPT_DIR/fm-watch-launch-lib.sh"
+  fm_watch_launch_begin || exit 1
+fi
+
 # Optional home-local watcher defaults are data-only and preserve explicit
 # environment values. The loader never evaluates config/watch.env as shell.
 # shellcheck source=bin/fm-watch-config-lib.sh
@@ -1249,6 +1257,9 @@ trap 'exit 1' HUP INT TERM
 WATCHER_PID=${BASHPID:-$$}
 printf '%s\n' "$FM_HOME" > "$WATCH_LOCK/fm-home" || true
 printf '%s\n' "$WATCH_PATH" > "$WATCH_LOCK/watcher-path" || true
+if [ -n "${WATCH_LAUNCH_DIR:-}" ]; then
+  printf '%s\n' "$WATCH_LAUNCH_DIR" > "$WATCH_LOCK/watcher-launch" || exit 1
+fi
 # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
 FM_WATCH_DELIVERY_PID=$WATCHER_PID
 FM_WATCH_DELIVERY_IDENTITY=$(fm_pid_identity "$WATCHER_PID" 2>/dev/null || true)

@@ -19,6 +19,7 @@ A cycle-end failure is benign when that live-watcher predicate is true, and the 
 Only an exhausted failure with no verified watcher emits one last-resort notice for the continuous failure episode; later consecutive Stop cycles exit 2 to guarantee another Stop-owned retry without repeating the notice until the turn-end guard consumes the attended fail-open.
 The Claude turn-end guard owns the monotonic failure progression, one-time attended fail-open, post-alarm continuation suppression, and positive recovery reset described in [`turnend-guard.md`](turnend-guard.md#harness-integrations).
 While supervision is still needed and away mode remains inactive, an actionable close wakes the idle session through exit 2.
+Marked Codex secondmate homes arm through the lock-owning session's Stop hook using `bin/fm-watch-arm.sh --detached`; [`turnend-guard.md`](turnend-guard.md#harness-integrations) owns the bounded return, launch handoff, settle window, and completion delivery contract.
 
 ## Actionable wake ordering
 
@@ -39,11 +40,11 @@ The model no longer re-arms after ordinary wakes.
 No PreToolUse hook denies fleet commands based on watcher status.
 A genuine auto-arm failure describes the automatic mechanism as broken and never directs a routine manual background arm.
 Terminal arm-output classification (`started`, `attached`, or `FAILED`) remains defense in depth for the manual recovery path.
-[`supervision-protocols/codex.md`](supervision-protocols/codex.md) owns Codex foreground checkpoint instructions and routes marked secondmate homes to the Stop-owned between-turn contract.
+[`supervision-protocols/codex.md`](supervision-protocols/codex.md) owns main-home foreground checkpoint instructions; marked secondmate homes use the bounded detached Stop-owned between-turn contract in [`turnend-guard.md`](turnend-guard.md#harness-integrations).
 Grok retains its tracked background-task notification protocol.
 No adapter starts a replacement with shell `&`.
 
-The shared turn-end predicate remains the final backstop and cooperates with the auto-arm in its `--claude` mode; the Codex secondmate integration also owns normal arming as described in [`turnend-guard.md`](turnend-guard.md#harness-integrations).
+The shared turn-end predicate remains the final backstop and cooperates with the auto-arm in its `--claude` mode; the Codex secondmate integration also owns bounded detached between-turn arming as described in [`turnend-guard.md`](turnend-guard.md#harness-integrations).
 
 ## Recovery episode acknowledgement
 
@@ -78,6 +79,9 @@ Because branch claims contain no check-kind rows, a branch acknowledgement skips
 `tests/fm-pi-branch-extension.test.sh` pins extension-side classification, claim publication and release, and the pre-drain recheck.
 
 ## Arm-layer cycle contract
+
+`--detached` is the Stop-hook entry point: it confirms one new-session watcher with closed descriptors, publishes identity-bound launch and handoff records under `state/.watch-arm-detached.*`, and returns without following the child; later wakes and failures deliver through `bin/fm-home-wake.sh --watcher-complete`.
+[`turnend-guard.md`](turnend-guard.md#harness-integrations) owns the Stop-side settle, session rebind, and callback contract.
 
 `bin/fm-watch-arm.sh` never returns a clean empty success.
 An actionable child output returns that reason normally.
@@ -114,6 +118,6 @@ The goal is continuity without a Pi or OpenCode model-memory re-arm step.
 No zero-latency guarantee is claimed because lock verification, watcher startup, and bounded retry delays remain deliberate safety work.
 OpenCode support targets persistent TUI sessions rather than headless `opencode run`.
 Claude depends on the Stop `asyncRewake` rewake, Cursor depends on its awaited stop-hook park, and Grok retains native background-completion notifications.
-Codex checkpoint and secondmate hook requirements follow the [protocol](supervision-protocols/codex.md).
+Codex main-home checkpoint instructions follow the [protocol](supervision-protocols/codex.md); marked secondmate Stop-owned arming follows [`turnend-guard.md`](turnend-guard.md#harness-integrations).
 
 [`verification/supervision.md`](verification/supervision.md#watcher-continuity) records the current five-harness live evidence, the 2026-07-24 Stop-owned Claude auto-arm results, and exact opt-in commands.

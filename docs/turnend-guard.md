@@ -15,7 +15,7 @@ Do not infer this guard's scope, loop safety, or compatibility tradeoffs for tho
 The turn-end guard closes the remaining gap at the primary's own turn boundary.
 When work, a process-event source, or Relay polling needs supervision at that boundary and either active direct work exceeds due-work capacity or no identity-matched watcher has a fresh beacon, the harness integration must either block the turn end or force one bounded follow-up that uses the recovery instruction from the emitted session-start protocol.
 The mid-turn pull warning uses the model-aware supervision verdict described below, while the turn-end guard keeps the PID-strict watcher predicate.
-The shared predicate remains a backstop; the marked Codex secondmate integration below also owns normal between-turn arming.
+The shared predicate remains a backstop; the marked Codex secondmate integration below also owns bounded detached between-turn arming.
 [`watcher-continuity.md`](watcher-continuity.md) routes the other continuity mechanisms.
 
 ## Guard predicates
@@ -62,11 +62,17 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
   A quiet checkpoint returns exit 2 with `CODEX_WATCH_CONTINUE`, directing the same session into the existing [foreground checkpoint loop](supervision-protocols/codex.md); each checkpoint's output returns through the foreground tool call, so wakes arriving after the old hook deadline remain observable without a restart.
   This continuation requires the agent to execute the emitted command and keep following that loop; the hook does not extend its cached timeout or detach a background watcher.
   `fm-spawn.sh` gives Codex secondmates a home-scoped CLI `notify` callback through `bin/fm-home-wake.sh`, bound to the launched backend endpoint.
+  The same launch exports that endpoint for Stop-owned detached completion; a session without a binding receives an actionable relaunch error instead of claiming unattended supervision.
+  The detached arm waits for its own watcher and delivers later wakes and failures through the existing home callback, after verifying the original home-session PID and process identity.
+  Startup and completion transfer ownership under a per-launch lock: the watcher publishes its post-exec identity before preparation, and the arm publishes its identity-bound exit result before the Stop caller or detached completion path may consume it.
+  Confirmation failure cancels the identity-owned detached arm, which retires its own watcher process group even before watcher lock metadata exists.
+  A later lock-owning Stop can rebind a surviving detached watcher to its current session under the same handoff lock.
   With queued home wakes, a lock-owning idle session runs a bounded watcher checkpoint before submitting a handling notification through the backend.
   The handling turn owns the normal drain and acknowledgement; the callback leaves queued rows and unread status presentation untouched even when submission fails or the composer becomes occupied.
   The callback stays silent for an empty queue, leaves an existing watcher in charge, and defers busy or occupied composers and away mode.
   It never publishes a child-task signal; ordinary Codex crew notifications retain their task markers.
-  With an explicit `--codex` registration in a marked secondmate home, the lock-owning session foregrounds `fm-watch-arm.sh` inside the Stop process tree, including when only queued home wakes remain or the home is idle.
+  With an explicit `--codex` registration in a marked secondmate home, the lock-owning session invokes the bounded detached `fm-watch-arm.sh --detached` path inside Stop, including when only queued home wakes remain or the home is idle.
+  A successful detached arm that finds no queued wake may wait up to `FM_CODEX_STOP_DETACHED_SETTLE_MS` (default 0; [configuration.md](configuration.md#environment-variables)) for a wake to appear before returning cleanly; a wake during that window still exits 2 with the handling instruction.
   An actionable close returns exit 2 with the durable wake and handling instruction, and the next Stop owns re-arming without publishing any child-task marker.
   Away mode skips normal arming and retains the shared strict watcher health check and daemon-specific recovery instruction.
   Each Stop makes at most two arm attempts, including in queued-only homes.
@@ -183,6 +189,8 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 
 ## Regression coverage
 
+`tests/fm-codex-stop-detach.test.sh` covers the tracked Codex Stop hook path with no pre-existing watcher: bounded `--detached` return, healthy-watcher deduplication, inherited hook-pipe and stdio closure, launch identity and handoff records, lock and generation behavior, queued-wake and failure delivery through the home callback, and fixture-owned process cleanup.
+`FM_CODEX_STOP_DETACH_LIVE_E2E=1 tests/fm-codex-stop-detach-live-e2e.test.sh` is the opt-in guard that proves the same contract against an installed Codex binary and fails naming the harness and version.
 `tests/fm-wake-queue.test.sh --secondmate` covers Codex Stop-owned home wakes, repeated re-arming, bounded failure recovery, away-mode health checks, parent stall cadence, and safe watcher defaults.
 It also exercises the cached no-flag Stop in a marked linked home with a 30-second deadline, delayed wakes with an initially empty queue and an existing healthy watcher, durable acknowledgement, and exclusion of unmarked primary, child, lockless, and other-harness invocations from promotion.
 `tests/fm-spawn-dispatch-profile.test.sh --codex-secondmate` exercises generated Codex launches and notification callbacks, including empty-queue silence, busy and occupied-composer deferral, unconfirmed submission, and preservation of queued rows and unread status context until the handling turn drains them.

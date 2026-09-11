@@ -16,6 +16,19 @@ DRAIN="$ROOT/bin/fm-wake-drain.sh"
 GRANT="$ROOT/bin/fm-wake-grant.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-wake-tests)
+# shellcheck source=tests/codex-stop-detach-helpers.sh
+. "$(dirname "${BASH_SOURCE[0]}")/codex-stop-detach-helpers.sh"
+
+cleanup_wake_processes() {
+  local rc=$?
+  trap - EXIT INT TERM
+  codex_stop_cleanup_processes "$TMP_ROOT" || exit 1
+  fm_test_cleanup
+  exit "$rc"
+}
+trap cleanup_wake_processes EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 
 test_concurrent_append_and_drain() {
@@ -750,7 +763,7 @@ test_busy_grok_pi_and_live_branch_keep_their_cadence() {
 }
 
 test_codex_secondmate_stop_arms_and_self_wakes() {
-  local dir state stop pid i cycle rc
+  local dir state cycle rc
   dir=$(make_case codex-secondmate-stop)
   state="$dir/state"
   mkdir -p "$dir/.codex"
@@ -761,7 +774,6 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
   ln -s "$ROOT/bin" "$dir/bin"
   : > "$dir/AGENTS.md"
   printf 'mate\n' > "$dir/.fm-secondmate-home"
-  stop=$(jq -r '.hooks.Stop[0].hooks[0].command' "$dir/.codex/hooks.json")
   # End-user reproduction: a row can already be aged in the secondmate home's
   # queue when Codex reaches its turn boundary. The Stop-owned arm must wake the
   # idle home from that durable row before any parent-side stall observation is
@@ -781,32 +793,12 @@ test_codex_secondmate_stop_arms_and_self_wakes() {
     || fail "could not acknowledge the pre-existing secondmate home row"
   [ ! -s "$state/.wake-queue" ] || fail "the pre-existing home row remained after acknowledgement"
   for cycle in 1 2; do
-    (
-      cd "$dir" || exit 1
-      # shellcheck disable=SC2016 # The child shell evaluates this program's variables.
-      FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$state" \
-        BASH_ENV="$dir/bash-env" FM_BACKEND=tmux FM_CONFIG_OVERRIDE="$dir/config" FM_POLL=1 FM_SIGNAL_GRACE=0 \
-        FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-        "$dir/codex" -c '
-          printf "%s\n" "$$" > "$FM_HOME/state/.lock"
-          printf "{\"stop_hook_active\":true}" | bash -c "$1"
-          rc=$?
-          printf "%s\n" "$rc" > "$FM_HOME/stop.rc"
-        ' _ "$stop"
-    ) > "$dir/stop.out" 2> "$dir/stop.err" &
-    pid=$!
-    for i in $(seq 1 150); do
-      [ -f "$state/.watch.lock/pid-identity" ] && [ -e "$state/.last-watcher-beat" ] && break
-      sleep 0.1
-    done
-    if ! [ -f "$state/.watch.lock/pid-identity" ] || ! kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null
-      fail "registered Codex Stop did not arm idle home supervision: $(cat "$dir/stop.err")"
-    fi
+    append_wake "$state" check "home-row-$cycle" "check: idle home row $cycle" \
+      || fail "could not queue home work before Stop"
+    FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+      run_codex_stop_case "$dir" true
+    rc=$?
     [ ! -e "$state/mate.turn-ended" ] || fail "primary Stop published a child marker"
-    append_wake "$state" check "home-row-$cycle" "check: idle home row $cycle"
-    wait_for_exit "$pid" 40 || fail "registered Stop did not return a home wake"
-    rc=$(cat "$dir/stop.rc")
     [ "$rc" = 2 ] || fail "Stop did not request a handling turn: rc=$rc $(cat "$dir/stop.err")"
     grep -qF 'check: rearm-resurface' "$dir/stop.err" \
       || fail "Stop feedback omitted the queued home wake notification: $(cat "$dir/stop.err")"
@@ -1166,6 +1158,7 @@ run_codex_stop_case() {
     env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
       FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" \
       FM_CONFIG_OVERRIDE="$dir/config" BASH_ENV="$dir/bash-env" \
+      FM_HOME_WAKE_BACKEND=tmux FM_HOME_WAKE_TARGET=codex-stop-test \
       "$dir/codex" -c '
         printf "%s\n" "$$" > "$FM_HOME/state/.lock"
         printf "{\"stop_hook_active\":%s}" "$2" | bash -c "$1"
@@ -1182,14 +1175,27 @@ test_codex_stop_failure_recovery_is_bounded() {
   rm "$dir/bin/fm-watch.sh"
   cat > "$dir/bin/fm-watch.sh" <<'SH'
 #!/usr/bin/env bash
+. "$FM_TEST_WAKE_LIB"
+. "${FM_TEST_WAKE_LIB%/*}/fm-watch-launch-lib.sh"
+fm_watch_launch_begin || exit 1
 printf 'attempt\n' >> "$FM_HOME/attempts"
 if [ -e "$FM_HOME/fail-watch" ]; then
   printf 'watcher: FAILED - injected startup failure\n'
   exit 3
 fi
+identity=$(fm_pid_identity "$$")
+mkdir -p "$FM_HOME/state/.watch.lock"
+printf '%s\n' "$$" > "$FM_HOME/state/.watch.lock/pid"
+printf '%s\n' "$FM_HOME" > "$FM_HOME/state/.watch.lock/fm-home"
+printf '%s\n' "$0" > "$FM_HOME/state/.watch.lock/watcher-path"
+printf '%s\n' "$identity" > "$FM_HOME/state/.watch.lock/pid-identity"
+touch "$FM_HOME/state/.last-watcher-beat"
+printf '%s\t%s\tcheck: completed productive cycle\n' "$$" "$identity" >> "$FM_HOME/state/.watch-deliveries.log"
 printf 'check: completed productive cycle\n'
+sleep 0.5
 SH
   chmod +x "$dir/bin/fm-watch.sh"
+  export FM_TEST_WAKE_LIB="$ROOT/bin/fm-wake-lib.sh"
   append_wake "$state" check pending 'check: pending home work'
   cp "$state/.wake-queue" "$dir/queue.before"
   run_codex_stop_case "$dir" false; rc=$?

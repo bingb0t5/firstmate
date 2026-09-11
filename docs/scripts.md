@@ -74,9 +74,10 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm_procevent_telegram_state.py` | The Telegram adapter's sole reader and writer of live channel state, driven only through that adapter |
 | `fm-procevent-when.sh`   | Fire a trust-bound deterministic action at most once when its registered condition holds, then wake with the outcome |
 | `fm-gate-refuse-lib.sh`  | Shared no-mistakes gate-context refusal for fleet lifecycle entrypoints               |
-| `fm-watch-arm.sh`        | Verified home-scoped watcher arm wrapper with loud cycle endings and bounded lifecycle ledger |
-| `fm-home-wake.sh`        | Deliver queued Codex secondmate home wakes through a bounded watcher checkpoint and confirmed backend submit |
+| `fm-watch-arm.sh`        | Verified home-scoped watcher arm wrapper; normal mode forks a tracked child, `--detached` gives Stop hooks a new-session watcher with closed descriptors, and both modes keep loud cycle endings and a bounded lifecycle ledger |
+| `fm-home-wake.sh`        | Deliver queued Codex secondmate home wakes and detached watcher completion through a bounded checkpoint or launch record, with confirmed backend submit |
 | `fm-watch-config-lib.sh` | Parse optional home-local `config/watch.env` watcher defaults without executing shell      |
+| `fm-watch-launch-lib.sh` | Shared detached watcher launch identity, handoff lock, owner retirement, and completion-record helpers for `fm-watch-arm.sh` and `fm-home-wake.sh` |
 | `fm-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |
 | `fm-watch.sh`            | Singleton-safe watcher: absorb benign wakes, page a cadence-aware local-secondmate wake-queue stall, and exit on actionable ones |
 | `fm-inactive-reconcile.sh` | Run the bounded active-management due-work scan and reconcile inactive direct-crewmate terminal outcomes without forge access |

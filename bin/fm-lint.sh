@@ -8,8 +8,9 @@
 # The explicit --fast mode is local-only and disables ShellCheck's extended
 # dataflow analysis while preserving ordinary shell lint checks. CI and
 # no-mistakes keep the full-analysis no-argument default.
-# Tests stop source analysis at imported production modules because every
-# production shell is already a canonical, source-aware root of this same run.
+# Each canonical production shell is linted as its own root with source
+# directives followed only for that root, so imported modules stay covered
+# without multiplying one shard-wide source graph.
 # The default (no explicit-path) path also runs bin/fm-lint-workflows.sh so a
 # malformed GitHub workflow, including a self-broken ci.yml, fails locally
 # before merge instead of only failing to run as CI.
@@ -31,6 +32,11 @@
 # Each shard writes separate diagnostics, and the parent replays those outputs in
 # deterministic shard and root order after every worker finishes. FM_LINT_JOBS=1
 # runs the same shards serially with byte-identical diagnostics and exit selection.
+# Each ShellCheck child is capped at FM_LINT_SHELLCHECK_VMEM_KIB virtual-memory
+# kibibytes (default 4,000,000), so one pathological source graph cannot OOM-kill
+# the host or hide the lint failure. When a capped full-analysis run still OOMs,
+# that root alone retries once with extended analysis disabled while keeping
+# source-directive following.
 #
 # Optional quiet telemetry writes one bounded TSV snapshot of content and source
 # graph identity, wall/CPU/RSS, shard load, and competing ShellCheck processes.
@@ -47,6 +53,7 @@
 set -u
 
 REQUIRED_SHELLCHECK=0.11.0
+SHELLCHECK_VMEM_KIB=${FM_LINT_SHELLCHECK_VMEM_KIB:-4000000}
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF="$SELF_DIR/fm-lint.sh"
 ROOT="$(cd "$SELF_DIR/.." && pwd)"
@@ -59,6 +66,49 @@ fm_lint_worker_stop() {
   kill "$FM_LINT_WORKER_SHELLCHECK_PID" 2>/dev/null || true
   wait "$FM_LINT_WORKER_SHELLCHECK_PID" 2>/dev/null || true
   FM_LINT_WORKER_SHELLCHECK_PID=
+}
+
+# fm_lint_shellcheck_root runs one capped ShellCheck invocation for a single root.
+# When extended analysis is enabled and the run OOMs under the cap, it retries once
+# with extended analysis disabled while preserving source-directive following.
+fm_lint_shellcheck_root() {  # <path> <output-file> <extended-analysis: 0|1>
+  local path=$1 output_file=$2 extended=$3
+  local -a shellcheck_args
+  local file_rc=0 start_bytes oom=0
+
+  shellcheck_args=(--norc --external-sources)
+  if [ "$extended" -eq 0 ]; then
+    shellcheck_args+=(--extended-analysis=false)
+  fi
+  start_bytes=$(wc -c < "$output_file" 2>/dev/null | tr -d '[:space:]')
+  case "$start_bytes" in ''|*[!0-9]*) start_bytes=0 ;; esac
+  (
+    if ! ulimit -v "$SHELLCHECK_VMEM_KIB" 2>/dev/null; then
+      printf 'fm-lint.sh: unable to cap ShellCheck virtual memory at %s KiB\n' \
+        "$SHELLCHECK_VMEM_KIB" >&2
+      exit 125
+    fi
+    exec "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "$path"
+  ) >> "$output_file" 2>&1 &
+  FM_LINT_WORKER_SHELLCHECK_PID=$!
+  wait "$FM_LINT_WORKER_SHELLCHECK_PID" || file_rc=$?
+  FM_LINT_WORKER_SHELLCHECK_PID=
+  if [ "$file_rc" -ge 128 ]; then
+    printf 'fm-lint.sh: ShellCheck was terminated under the %s KiB virtual-memory cap (exit %s)\n' \
+      "$SHELLCHECK_VMEM_KIB" "$file_rc" >> "$output_file"
+  fi
+  if [ "$extended" -eq 1 ] && { [ "$file_rc" -eq 251 ] || [ "$file_rc" -ge 128 ]; }; then
+    if tail -c +"$((start_bytes + 1))" "$output_file" 2>/dev/null | grep -Fq 'out of memory'; then
+      oom=1
+    fi
+  fi
+  if [ "$oom" -eq 1 ]; then
+    printf 'fm-lint.sh: retrying %s with extended analysis disabled after ShellCheck OOM\n' \
+      "$path" >> "$output_file"
+    fm_lint_shellcheck_root "$path" "$output_file" 0
+    return $?
+  fi
+  return "$file_rc"
 }
 
 fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
@@ -75,14 +125,17 @@ fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
     trap 'fm_lint_worker_stop; exit 129' HUP
     trap 'fm_lint_worker_stop; exit 130' INT
     trap 'fm_lint_worker_stop; exit 143' TERM
-    shellcheck_args=(--norc --external-sources)
-    if [ "${FM_LINT_INTERNAL_FAST:-0}" -eq 1 ]; then
-      shellcheck_args+=(--extended-analysis=false)
-    fi
-    "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "${roots[@]}" > "$output.out" 2>&1 &
-    FM_LINT_WORKER_SHELLCHECK_PID=$!
-    wait "$FM_LINT_WORKER_SHELLCHECK_PID" || rc=$?
-    FM_LINT_WORKER_SHELLCHECK_PID=
+    : > "$output.out"
+    for path in "${roots[@]}"; do
+      local file_rc=0 extended=1
+      if [ "${FM_LINT_INTERNAL_FAST:-0}" -eq 1 ]; then
+        extended=0
+      fi
+      fm_lint_shellcheck_root "$path" "$output.out" "$extended" || file_rc=$?
+      if [ "$rc" -eq 0 ] && [ "$file_rc" -ne 0 ]; then
+        rc=$file_rc
+      fi
+    done
     trap - HUP INT TERM
   else
     : > "$output.out"
@@ -455,7 +508,7 @@ else
 fi
 
 # Replay both stable shards in deterministic order and select the first nonzero
-# shard status. ShellCheck processes every root in a shard after earlier findings.
+# shard status. Each root in a shard is linted in its own capped ShellCheck run.
 overall_rc=0
 worker=0
 while [ "$worker" -lt "$SHARD_COUNT" ]; do

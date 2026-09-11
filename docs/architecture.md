@@ -24,7 +24,7 @@ A declared external-wait recheck is expected parked work for the secondmate's ow
 The parent pages only when the oldest unclaimed non-parked row exceeds that mate's recorded wake cadence plus grace, or when the mate's watcher beacon is stale.
 Cadence comes from recorded supervision state: the parent `harness=` field, or a live Pi branch grant in the mate home, never from pane text.
 [`configuration.md`](configuration.md#environment-variables) owns cadence defaults, backend-busy suppression, and operator override precedence.
-Codex secondmates re-arm home supervision through the primary Stop boundary; [`turnend-guard.md`](turnend-guard.md) owns the hook contract.
+Codex secondmates re-arm home supervision through a bounded detached Stop path; [`turnend-guard.md`](turnend-guard.md) owns the hook contract.
 Rows a live Pi branch or main actor has already claimed stay with that actor unless the mate's watcher beacon is stale; parent receipts plus queued-key deduplication suppress repeats for the same row across watcher and handling crashes, while empty and younger queues remain silent.
 Endpointless registered mates remain outside this scan because startup secondmate-liveness owns dead or missing endpoint recovery, and remote homes retain their host-local supervision boundary.
 `tests/fm-wake-queue.test.sh` pins the notification, idempotence, parked-recheck filtering, cadence-aware Grok and Pi waits, stale-beacon paging, claimed-row skip, quiet-queue, and byte-for-byte foreign-row preservation guarantees.
@@ -99,7 +99,7 @@ Optional Relay integrates with the watcher only after explicit opt-in; [configur
 
 At session start, `bin/fm-session-start.sh` emits exactly one primary-harness supervision block rendered by `bin/fm-supervision-instructions.sh` from `docs/supervision-protocols/`.
 That block owns the live wait instructions for the running primary harness; [`turnend-guard.md`](turnend-guard.md#harness-integrations) owns hook-managed turn boundaries.
-`bin/fm-watch-arm.sh` remains the verified arm wrapper for protocols that call it; it forks the watcher as a tracked child, verifies it is genuinely alive with a fresh liveness beacon, and prints an honest `started`, `attached`, or nonzero `FAILED` status.
+`bin/fm-watch-arm.sh` remains the verified arm wrapper for protocols that call it; its normal mode forks the watcher as a tracked child, while `--detached` gives Stop hooks a new-session watcher with closed descriptors, and both modes verify a fresh liveness beacon before printing an honest `started`, `attached`, or nonzero `FAILED` status.
 [`watcher-continuity.md`](watcher-continuity.md#arm-layer-cycle-contract) owns the arm layer's successor, terminal-delivery, re-arm recovery, and typed clean-close failure contract.
 The arm layer records one bounded lifecycle row per observed cycle in `state/.watch-cycle-exits.log`; `state/.watch-triage.log` remains exclusively the absorbed-wake debug log.
 Pi and OpenCode verify session-lock ownership and launch one singleton successor from their child-close handlers before delivering an actionable wake prompt, with bounded exponential retry for failed restoration.
