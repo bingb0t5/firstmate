@@ -75,8 +75,8 @@ cat <<'JSON'
   "tasks": [
     {"id":"validation","kind":"ship","harness":"cursor","current_state":{"state":"fixing","source":"run-step","detail":"tests running"},"pr":{"url":null},"hints":{"last_event_text":"working [at=123]: validation started","blocked_event":false}},
     {"id":"reviewer","kind":"scout","harness":"cursor","current_state":{"state":"working","source":"pane","detail":"reviewing"},"pr":{"url":null},"hints":{"last_event_text":"working [at=124]: review started","blocked_event":false}},
-    {"id":"ready","kind":"ship","harness":"cursor","current_state":{"state":"done","source":"pane","detail":"checks green"},"pr":{"url":"https://github.com/example/alpha/pull/1"},"hints":{"last_event_text":"done [at=125]: checks green","blocked_event":false}},
-    {"id":"merged","kind":"ship","harness":"cursor","current_state":{"state":"done","source":"pane","detail":"merged"},"pr":{"url":"https://github.com/example/alpha/pull/2"},"hints":{"last_event_text":"done [at=126]: merged","blocked_event":false}},
+    {"id":"ready","kind":"ship","harness":"cursor","current_state":{"state":"done","source":"run-step","detail":"checks green"},"pr":{"url":"https://github.com/example/alpha/pull/1"},"hints":{"last_event_text":"done [at=125]: checks green","blocked_event":false}},
+    {"id":"merged","kind":"ship","harness":"cursor","current_state":{"state":"done","source":"run-step","detail":"merged"},"pr":{"url":"https://github.com/example/alpha/pull/2"},"hints":{"last_event_text":"done [at=126]: merged","blocked_event":false}},
     {"id":"blocked","kind":"ship","harness":"cursor","current_state":{"state":"blocked","source":"run-step","detail":"needs a fix"},"pr":{"url":null},"hints":{"last_event_text":"blocked [at=127]: needs a fix","blocked_event":true}},
     {"id":"pane-blocked","kind":"ship","harness":"cursor","current_state":{"state":"blocked","source":"pane","detail":"waiting on upstream"},"pr":{"url":null},"hints":{"last_event_text":"blocked [at=129]: waiting on upstream","blocked_event":true}},
     {"id":"orphan","kind":"ship","harness":"cursor","current_state":{"state":"working","source":"pane","detail":"coding"},"pr":{"url":null},"hints":{"last_event_text":"working [at=128]: coding","blocked_event":false}}
@@ -144,7 +144,9 @@ test_publish_projects_stages_dates_options_and_hide_list() {
       | .stage == "Queued" and .stage_reason == "Waiting (external): Upstream release until 2026-09-20")
     and ([.items[] | select(.key == "validation")][0].stage == "Validation")
     and ([.items[] | select(.key == "reviewer")][0].stage == "UI review")
-    and ([.items[] | select(.key == "ready")][0].stage == "Waiting for captain")
+    and ([.items[] | select(.key == "ready")][0]
+      | .stage == "Waiting for captain"
+      and .stage_reason == "Ready for the captain merge word")
     and ([.items[] | select(.key == "merged")][0].stage == "Done this week")
     and ([.items[] | select(.key == "blocked")][0].blocked == true)
     and ([.items[] | select(.key == "pane-blocked")][0]

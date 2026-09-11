@@ -160,9 +160,9 @@ jq -n \
          elif $hold_kind == "captain" then "Waiting for captain"
          elif $hold_kind != null and $hold_reason != null then "Queued"
          elif $b.state == "queued" then "Queued"
-         elif ($source == "run-step") then "Validation"
          elif ($state == "done" and $pr != "") then
            if merged($b; $t) then "Done this week" else "Waiting for captain" end
+         elif ($source == "run-step") then "Validation"
          else "In progress"
          end) as $base_stage
       | (if (($b.kind // $t.kind // "") == "scout"
@@ -176,10 +176,10 @@ jq -n \
          elif $hold_kind != null and $hold_reason != null then
            ("Waiting (" + $hold_kind + "): " + $hold_reason +
             (if $b.hold_until == null then "" else " until " + $b.hold_until end))
-         elif $source == "run-step" then
-           ("Validation " + $state + (if ($current.detail // "") == "" then "" else ": " + $current.detail end))
          elif $state == "done" and $pr != "" and ($stage == "Waiting for captain") then
            "Ready for the captain merge word"
+         elif $source == "run-step" then
+           ("Validation " + $state + (if ($current.detail // "") == "" then "" else ": " + $current.detail end))
          elif ($current.detail // "") != "" then $current.detail
          elif $b.state == "queued" then "Queued, not started"
          else ($b.title // $key)
