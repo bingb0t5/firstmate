@@ -110,9 +110,11 @@ if [ "$FAILURE" -eq 0 ]; then
   if ! "$SCRIPT_DIR/fm-watch-checkpoint.sh" --seconds 30 > "$OUT" 2>&1; then
     [ -s "$FM_WAKE_QUEUE" ] || home_finish settled
     cat "$OUT" >&2
-    exit 1
+    FAILURE=1
   fi
-  grep -Eq '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" || home_defer
+  if [ "$FAILURE" -eq 0 ]; then
+    grep -Eq '^(signal:|stale:|check:|heartbeat($|:))' "$OUT" || home_defer
+  fi
 fi
 home_ready || home_defer
 [ -s "$FM_WAKE_QUEUE" ] || home_finish settled

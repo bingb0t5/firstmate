@@ -460,6 +460,15 @@ bind_detached_session() {
     && mv -f "$dir/session.tmp.$ARM_PID" "$dir/session"
 }
 
+session_binding_is_current() {
+  local dir=$1 lock_pid lock_identity
+  fm_watch_launch_session "$dir" || return 1
+  lock_pid=$(cat "$STATE/.lock" 2>/dev/null || true)
+  [ "$lock_pid" = "$LAUNCH_SESSION_PID" ] || return 1
+  lock_identity=$(fm_pid_identity "$lock_pid" 2>/dev/null || true)
+  [ -n "$lock_identity" ] && [ "$lock_identity" = "$LAUNCH_SESSION_IDENTITY" ]
+}
+
 bind_healthy_completion() {
   local source_dir=${1:-} pid=$HEALTHY_PID identity=$HEALTHY_IDENTITY dir lock_dir i=0 created=0 rc=0
   until fm_lock_try_acquire "$STATE/.watch-attach.lock"; do
@@ -485,9 +494,13 @@ bind_healthy_completion() {
   done
   if [ "$rc" -eq 0 ]; then
     if [ -n "$source_dir" ]; then
-      if [ -f "$source_dir/session" ]; then
+      if session_binding_is_current "$dir"; then
+        :
+      elif session_binding_is_current "$source_dir"; then
         cat "$source_dir/session" > "$dir/session.tmp.$ARM_PID" \
           && mv -f "$dir/session.tmp.$ARM_PID" "$dir/session" || rc=1
+      else
+        rc=1
       fi
     else
       bind_detached_session "$dir" || rc=1

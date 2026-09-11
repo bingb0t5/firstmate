@@ -95,6 +95,11 @@ watcher_pid() {
   sed -n '1p' "$1/state/.watch.lock/pid" 2>/dev/null || true
 }
 
+identity_for_pid() {
+  local dir=$1 pid=$2
+  FM_STATE_OVERRIDE="$dir/state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$pid"
+}
+
 wait_for_watcher() {
   local dir=$1 pid i
   # shellcheck disable=SC2034 # The loop variable only bounds the polling count.
@@ -192,6 +197,51 @@ test_existing_watcher_attaches_without_duplicate() {
   count=$(count_watchers "$dir")
   [ "$count" -eq 1 ] || fail "existing-watcher Stop created a duplicate watcher: count=$count"
   pass "Codex Stop attaches to a healthy watcher and returns without a duplicate"
+}
+
+test_replacement_session_binding_survives_old_completion() {
+  local dir current_dir source_dir current_pid current_identity old_pid old_identity owner_pid owner_identity rc
+  dir=$(make_codex_case replacement-binding)
+  mkdir -p "$dir/state/.watch.lock"
+  sleep 60 &
+  current_pid=$!
+  CHILD_PIDS="$CHILD_PIDS $current_pid"
+  current_identity=$(identity_for_pid "$dir" "$current_pid") \
+    || fail "could not identify the current replacement watcher"
+  sleep 60 &
+  old_pid=$!
+  CHILD_PIDS="$CHILD_PIDS $old_pid"
+  old_identity=$(identity_for_pid "$dir" "$old_pid") \
+    || fail "could not identify the old completion watcher"
+  owner_pid=$$
+  owner_identity=$(identity_for_pid "$dir" "$owner_pid") \
+    || fail "could not identify the completion owner"
+  current_dir="$dir/state/.watch-arm-detached.current"
+  source_dir="$dir/state/.watch-arm-detached.source"
+  mkdir "$current_dir" "$source_dir"
+  printf '%s\t%s\n' "$current_pid" "$current_identity" > "$current_dir/identity"
+  printf '%s\t%s\n' "$owner_pid" "$owner_identity" > "$current_dir/owner"
+  printf '%s\t%s\t%s\t%s\n' "$owner_pid" "$owner_identity" tmux detach-test > "$current_dir/session"
+  printf '%s\t%s\n' "$old_pid" "$old_identity" > "$source_dir/identity"
+  printf '%s\t%s\n' "$owner_pid" "$owner_identity" > "$source_dir/owner"
+  printf '%s\t%s\t1\t\n' "$old_pid" "$old_identity" > "$source_dir/result"
+  printf '%s\t%s\t%s\t%s\n' "$old_pid" "$old_identity" tmux old-session > "$source_dir/session"
+  : > "$source_dir/accepted"
+  printf '%s\n' "$owner_pid" > "$dir/state/.lock"
+  printf '%s\n' "$current_pid" > "$dir/state/.watch.lock/pid"
+  printf '%s\n' "$dir" > "$dir/state/.watch.lock/fm-home"
+  printf '%s\n' "$dir/bin/fm-watch.sh" > "$dir/state/.watch.lock/watcher-path"
+  printf '%s\n' "$current_identity" > "$dir/state/.watch.lock/pid-identity"
+  printf '%s\n' "$current_dir" > "$dir/state/.watch.lock/watcher-launch"
+  touch "$dir/state/.last-watcher-beat"
+  FM_HOME="$dir" FM_ROOT_OVERRIDE="$dir" FM_STATE_OVERRIDE="$dir/state" FM_CONFIG_OVERRIDE="$dir/config" \
+    FM_GUARD_GRACE=300 "$dir/bin/fm-watch-arm.sh" --detached-complete "$source_dir" > "$dir/completion.out" 2>&1
+  rc=$?
+  [ "$rc" -eq 0 ] || fail "completion handoff failed: $(cat "$dir/completion.out")"
+  [ ! -e "$source_dir" ] || fail "old completion record was not retired"
+  [ "$(cat "$current_dir/session")" = "$(printf '%s\t%s\t%s\t%s' "$owner_pid" "$owner_identity" tmux detach-test)" ] \
+    || fail "old completion overwrote the current replacement session binding"
+  pass "old detached completion preserves the current replacement session binding"
 }
 
 run_arm() {
@@ -358,7 +408,7 @@ SH
 
 test_late_completion_handoff() {
   local dir scenario child executable
-  local scenarios=(wake failure persistent-failure callback-contention replaced-session rebound direct direct-failure direct-stale direct-successor race)
+  local scenarios=(wake failure persistent-failure checkpoint-failure callback-contention replaced-session rebound direct direct-failure direct-stale direct-successor race)
   [ "$#" -eq 0 ] || scenarios=("$@")
   for scenario in "${scenarios[@]}"; do
     dir=$(make_codex_case "late-$scenario")
@@ -427,6 +477,11 @@ case "$1" in
     printf '#!/usr/bin/env bash\nprintf "refused migration\n" > "$FM_HOME/migration-attempt"\nexit 73\n' > "$FM_HOME/bin/fm-pr-check-migrate.sh"
     chmod +x "$FM_HOME/bin/fm-pr-check-migrate.sh"
     kill -KILL "$watcher" ;;
+  checkpoint-failure)
+    rm "$FM_HOME/bin/fm-pr-check-migrate.sh"
+    printf '#!/usr/bin/env bash\nprintf "refused checkpoint migration\\n" > "$FM_HOME/checkpoint-migration-attempt"\nexit 73\n' > "$FM_HOME/bin/fm-pr-check-migrate.sh"
+    chmod +x "$FM_HOME/bin/fm-pr-check-migrate.sh"
+    printf 'done: completed after Stop\n' > "$FM_HOME/state/live.status" ;;
   callback-contention)
     launch_dir=$(cat "$FM_HOME/state/.watch.lock/watcher-launch")
     kill -STOP "$watcher"
@@ -461,6 +516,9 @@ for ((i=0; i<150; i++)); do
       persistent-failure)
         [ ! -e "$FM_HOME/migration-attempt" ] || exit 20
         grep -q 'Watcher supervision failed' "$FM_HOME/submissions" || exit 21 ;;
+      checkpoint-failure)
+        [ -s "$FM_HOME/checkpoint-migration-attempt" ] || exit 25
+        grep -q 'Watcher supervision failed' "$FM_HOME/submissions" || exit 26 ;;
       direct-stale)
         kill -0 "$watcher" || exit 22
         [ "$(cat "$FM_HOME/state/.watch.lock/pid")" = "$watcher" ] || exit 23
@@ -522,9 +580,14 @@ if [ "${1:-}" = --late-completion ]; then
   test_late_completion_handoff "$@"
   exit
 fi
+if [ "${1:-}" = --replacement-binding ]; then
+  test_replacement_session_binding_survives_old_completion
+  exit
+fi
 
 test_detached_start_and_pipe_closure
 test_existing_watcher_attaches_without_duplicate
+test_replacement_session_binding_survives_old_completion
 test_high_inherited_descriptor
 test_prelock_confirmation_failure
 test_exec_boundary_cancellation
