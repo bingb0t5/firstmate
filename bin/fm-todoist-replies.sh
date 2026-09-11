@@ -133,8 +133,6 @@ while IFS= read -r event; do
     printf '%s' "$event" | jq -r '.text'
   } >"$body"
 
-  printf '%s\n' "$id" >>"$SEEN_FILE" || die "reply seen-list could not be updated"
-
   inbox_err="$tmpdir/inbox.error"
   if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$INBOX_BIN" note - <"$body" >"$tmpdir/inbox.out" 2>"$inbox_err"; then
@@ -145,6 +143,7 @@ while IFS= read -r event; do
       die "captain inbox filing failed"
     fi
   fi
+  printf '%s\n' "$id" >>"$SEEN_FILE" || die "reply seen-list could not be updated"
   ack=$(printf '%s' "$event" | jq -c '{id:.id}')
   if ! printf '%s' "$ack" | curl --fail --silent --show-error \
     --max-time "${FM_CHECK_TIMEOUT:-30}" --request POST \

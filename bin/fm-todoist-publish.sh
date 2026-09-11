@@ -167,8 +167,7 @@ jq -n \
          end) as $base_stage
       | (if (($b.kind // $t.kind // "") == "scout"
              and (($key + " " + ($b.title // "")) | test("review"; "i"))
-             and $base_stage != "archive"
-             and $b.state != "done")
+             and $base_stage == "In progress")
          then "UI review"
          else $base_stage
          end) as $stage
