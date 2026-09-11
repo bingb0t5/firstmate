@@ -733,8 +733,14 @@ task_json_lines() {
   jq -s 'sort_by(.id)' < "$rows_file"
 }
 
-attention_json() {  # <backlog-json> <tasks-json> <inventory-valid>
-  jq -n --argjson backlog "$1" --argjson tasks "$2" --argjson inventory_valid "$3" '
+attention_json() {  # <backlog-json-file> <tasks-json-file> <inventory-valid>
+  jq -n \
+    --slurpfile backlog "$1" \
+    --slurpfile tasks "$2" \
+    --argjson inventory_valid "$3" '
+    ($backlog[0]) as $backlog
+    | ($tasks[0]) as $tasks
+    |
     def attention_class($task):
       ($task.current_state.state // "unknown") as $state
       | ($task.current_state.source // "none") as $source
@@ -753,9 +759,9 @@ attention_json() {  # <backlog-json> <tasks-json> <inventory-valid>
        | {id,kind,state:(.current_state.state // "unknown"),source:(.current_state.source // "none"),class:attention_class(.)}
        | .counts = (.class == "validating" or .class == "working" or .class == "unknown" or .class == "failed_uncleaned") ]) as $task_rows
     | ([ $backlog.records[]?
-       | select(.structured == true and .state == "in_flight" and (.kind == "ship" or .kind == "scout"))
+       | select(.structured == true and .state == "in_flight" and .current_role == "worker")
        | select(.id as $id | ($tasks | map(.id) | index($id) | not))
-       | {id,kind,state:"in_flight",source:"backlog",class:"unknown_reservation",counts:true} ]) as $reservations
+       | {id,kind:(.kind // null),state:"in_flight",source:"backlog",class:"unknown_reservation",counts:true} ]) as $reservations
     | ($task_rows + $reservations) as $all
     | ([ $all[] | select(.counts == true) ]) as $workers
     | {limit:4,count:($workers | length),remaining:(4 - ($workers | length)),valid:$inventory_valid,
@@ -764,8 +770,10 @@ attention_json() {  # <backlog-json> <tasks-json> <inventory-valid>
   '
 }
 
-pull_json() {  # <backlog-json>
-  jq -n --argjson backlog "$1" '
+pull_json() {  # <backlog-json-file>
+  jq -n --slurpfile backlog "$1" '
+    ($backlog[0]) as $backlog
+    |
     def priority_number:
       if (.priority | type) == "string" then (.priority | tonumber?)
       elif (.priority | type) == "number" then .priority
@@ -834,7 +842,7 @@ main_inventory_json() {  # <backlog-json-file> <tasks-json-file>
 # validated parent read needs.
 # This mode never reads parent events or terminal text and never aggregates
 # nested secondmates.
-secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
+secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file> <inventory-valid>
   jq -n \
     --arg generated "$SNAPSHOT_NOW" \
     --arg home "$FM_HOME" \
@@ -842,6 +850,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
     --argjson queued_n "$FM_SNAPSHOT_SECONDMATE_QUEUED" \
     --argjson decisions_n "$FM_SNAPSHOT_SECONDMATE_DECISIONS" \
     --argjson landed_n "$FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME" \
+    --argjson inventory_complete "$3" \
     --slurpfile backlog "$1" \
     --slurpfile tasks "$2" '
     ($backlog[0]) as $backlog
@@ -882,7 +891,10 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
          | $tasks[]
          | select(.id == $work.id and (.current_state.state == "done" or .current_state.state == "failed"))
          | {id,state:.current_state.state} ]) as $terminal_in_flight
-    | ([if $backlog.present != true then
+    | ([if $inventory_complete | not then
+          {kind:"incomplete_inventory",ids:[],reason:"worker metadata inventory is incomplete"}
+        else empty end,
+        if $backlog.present != true then
           {kind:"missing_backlog",ids:[],reason:"missing structured backlog"}
         else empty end,
         if ($unstructured_current | length) > 0 then
@@ -925,7 +937,8 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
            | {id,title:((.backlog.title // .id) | trunc(90)),blocked_by:null,
               blocked_by_ids:[],unresolved_blocker_ids:[],
               reason:((.current_state.detail // .current_state.state) | trunc(120)),source:"child-state"} ]) as $holds_all
-    | ($backlog.present == true
+    | ($inventory_complete
+       and $backlog.present == true
        and ($unstructured_current | length) == 0
        and ($unknown_children | length) == 0
        and ($orphan_in_flight | length) == 0
@@ -1618,42 +1631,44 @@ scout_report_lines() {
 }
 
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
+BACKLOG_JSON_FILE="$SNAPSHOT_TMPDIR/backlog"
+TASKS_JSON_FILE="$SNAPSHOT_TMPDIR/tasks"
+snapshot_write_json "$BACKLOG_JSON_FILE" "$BACKLOG_JSON"
 INVENTORY_VALID=true
-META_PATHS=()
+VALID_META_PATHS=()
 if [ ! -d "$STATE" ] || [ ! -r "$STATE" ] || [ ! -x "$STATE" ]; then
   INVENTORY_VALID=false
 else
   shopt -s nullglob dotglob
-  META_PATHS=("$STATE"/*.meta)
-  shopt -u nullglob dotglob
-  for meta in ${META_PATHS[@]+"${META_PATHS[@]}"}; do
+  for meta in "$STATE"/*.meta; do
     id=$(basename "$meta" .meta)
     if [ -L "$meta" ] || [ ! -f "$meta" ] || [ ! -r "$meta" ] ||
        ! fm_task_id_creation_valid "$id"; then
       INVENTORY_VALID=false
-      break
+    else
+      VALID_META_PATHS+=("$meta")
     fi
   done
+  shopt -u nullglob dotglob
 fi
-if [ "$INVENTORY_VALID" = true ]; then
-  TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
-else
-  TASKS_JSON='[]'
-fi
-BACKLOG_JSON_FILE="$SNAPSHOT_TMPDIR/backlog"
-TASKS_JSON_FILE="$SNAPSHOT_TMPDIR/tasks"
-snapshot_write_json "$BACKLOG_JSON_FILE" "$BACKLOG_JSON"
+META_PATHS=("${VALID_META_PATHS[@]}")
+TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
 snapshot_write_json "$TASKS_JSON_FILE" "$TASKS_JSON"
 
 if [ "$OUTPUT_MODE" = secondmate-home-summary ]; then
   secondmate_home_summary_json "$BACKLOG_JSON_FILE" "$TASKS_JSON_FILE" \
+    "$(bool_json "$([ "$INVENTORY_VALID" = true ] && printf 1 || printf 0)")" \
     || { echo "fm-fleet-snapshot: secondmate home summary failed" >&2; exit 1; }
   exit 0
 fi
 
-ATTENTION_JSON=$(attention_json "$BACKLOG_JSON" "$TASKS_JSON" "$INVENTORY_VALID") \
+ATTENTION_FILE="$SNAPSHOT_TMPDIR/attention"
+PULL_FILE="$SNAPSHOT_TMPDIR/pull"
+attention_json "$BACKLOG_JSON_FILE" "$TASKS_JSON_FILE" \
+  "$(bool_json "$([ "$INVENTORY_VALID" = true ] && printf 1 || printf 0)")" \
+  > "$ATTENTION_FILE" \
   || { echo "fm-fleet-snapshot: local attention summary failed" >&2; exit 1; }
-PULL_JSON=$(pull_json "$BACKLOG_JSON") \
+pull_json "$BACKLOG_JSON_FILE" > "$PULL_FILE" \
   || { echo "fm-fleet-snapshot: pull summary failed" >&2; exit 1; }
 if [ "$OUTPUT_MODE" = local ]; then
   jq -n \
@@ -1661,14 +1676,18 @@ if [ "$OUTPUT_MODE" = local ]; then
     --arg fm_home "$FM_HOME" \
     --arg state "$STATE" \
     --arg data "$DATA" \
-    --argjson backlog "$BACKLOG_JSON" \
-    --argjson tasks "$TASKS_JSON" \
-    --argjson attention "$ATTENTION_JSON" \
-    --argjson pull "$PULL_JSON" \
-    '{schema:"fm-fleet-snapshot.v1",local:true,generated:$generated,fm_home:$fm_home,
-      roots:{state:$state,data:$data},backlog:$backlog,
-      tasks:($tasks | map(. as $task | . + {backlog:([$backlog.records[]? | select(.structured == true and .id == $task.id)][0] // null)})),
-      attention:$attention,pull:$pull}'
+    --slurpfile backlog "$BACKLOG_JSON_FILE" \
+    --slurpfile tasks "$TASKS_JSON_FILE" \
+    --slurpfile attention "$ATTENTION_FILE" \
+    --slurpfile pull "$PULL_FILE" \
+    '($backlog[0]) as $backlog
+     | ($tasks[0]) as $tasks
+     | ($attention[0]) as $attention
+     | ($pull[0]) as $pull
+     | {schema:"fm-fleet-snapshot.v1",local:true,generated:$generated,fm_home:$fm_home,
+        roots:{state:$state,data:$data},backlog:$backlog,
+        tasks:($tasks | map(. as $task | . + {backlog:([$backlog.records[]? | select(.structured == true and .id == $task.id)][0] // null)})),
+        attention:$attention,pull:$pull}'
   exit 0
 fi
 
@@ -1687,10 +1706,6 @@ SECONDMATE_LANDED_FILE="$SNAPSHOT_TMPDIR/secondmate-landed"
 snapshot_write_json "$SECONDMATE_LANDED_FILE" "$SECONDMATE_LANDED_JSON"
 SCOUT_REPORTS_FILE="$SNAPSHOT_TMPDIR/scout-reports"
 snapshot_write_json "$SCOUT_REPORTS_FILE" "$SCOUT_REPORTS_JSON"
-ATTENTION_FILE="$SNAPSHOT_TMPDIR/attention"
-snapshot_write_json "$ATTENTION_FILE" "$ATTENTION_JSON"
-PULL_FILE="$SNAPSHOT_TMPDIR/pull"
-snapshot_write_json "$PULL_FILE" "$PULL_JSON"
 
 jq -n \
   --arg generated "$SNAPSHOT_NOW" \

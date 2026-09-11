@@ -523,10 +523,16 @@ outbox_item_count() { # <path>
 
 remote_deliver_outbox() { # <secondmate-id> <outbox-path>
   local id=$1 outbox=$2 remote_rel receive_out snapshot bytes hash generation counter counter_tmp current marker
+  local -a outbox_keys
   [ -f "$outbox" ] && [ ! -L "$outbox" ] || {
     echo "error: pending outbox is unavailable or unsafe: $outbox" >&2
     return 1
   }
+  mapfile -t outbox_keys < <(outbox_queued_keys "$outbox")
+  if [ "${#outbox_keys[@]}" -gt 0 ]; then
+    validate_handoff_queued_only "$outbox" "${outbox_keys[@]}" || return 1
+    validate_handoff_priorities "$outbox" "${outbox_keys[@]}" || return 1
+  fi
   snapshot=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-handoff-payload.XXXXXX") || return 1
   if ! cp -p -- "$outbox" "$snapshot"; then
     rm -f -- "$snapshot"
@@ -614,28 +620,83 @@ remove_interrupted_source_duplicates() { # <outbox> <keys...>
 }
 
 validate_handoff_priorities() { # <backlog-path> <queued-key>...
-  local backlog=$1 key priority
+  local backlog=$1 result key reason
+  shift
+  [ "$#" -gt 0 ] || return 0
+  result=$(jq -n --rawfile backlog "$backlog" --args '
+    def trim: gsub("^[[:space:]]+|[[:space:]]+$"; "");
+    def row_match($line):
+      ((($line | capture("^[-*][[:space:]]+\\[(?<check>[ xX])\\][[:space:]]+(?<id>[^[:space:]]+)[[:space:]]+-[[:space:]]+(?<rest>.*)$")?) // null) //
+       ((($line | capture("^[-*][[:space:]]+\\*\\*(?<id>[^*]+)\\*\\*[[:space:]]+-[[:space:]]+(?<rest>.*)$")?) // null)
+        | if . == null then null else . + {check:" "} end));
+    def priority_tokens($rest):
+      [ $rest
+        | scan("(?:\\(|,[[:space:]]*)priority:[[:space:]]*([^,)]*)")
+        | .[0]
+        | trim ];
+    def valid_priority($rest):
+      (priority_tokens($rest)) as $tokens
+      | if ($tokens | length) == 0 then "missing"
+        elif (($tokens | map(tonumber?)) | any(. == null)) then "invalid"
+        elif (($tokens | unique | length) > 1) then "conflict"
+        else ($tokens[-1] | tonumber) as $n
+        | if ($n < 0) or ($n > 4) or ($n != ($n | floor)) then "invalid"
+          else null end end;
+    ($ARGS.positional) as $keys
+    | reduce ($backlog | split("\n")[]) as $line ({};
+        (row_match($line)) as $m
+        | if $m != null and ($keys | index($m.id)) != null then . + {($m.id): $m.rest}
+          else . end)
+    | [ $keys[] as $key
+        | if .[$key] == null then {key:$key, reason:"missing_row"}
+          else (valid_priority(.[$key])) as $err
+          | if $err == null then empty else {key:$key, reason:$err} end
+          end
+      ]' --args "$@") || return 1
+  if [ "$(printf '%s' "$result" | jq 'length')" -gt 0 ]; then
+    while IFS= read -r line; do
+      key=$(printf '%s' "$line" | jq -r '.key')
+      reason=$(printf '%s' "$line" | jq -r '.reason')
+      case "$reason" in
+        missing_row)
+          echo "error: refusing to hand off $key: backlog row not found" >&2
+          ;;
+        conflict)
+          echo "error: refusing to hand off $key: conflicting priority metadata; assign exactly one priority 0..4 before routing" >&2
+          ;;
+        *)
+          echo "error: refusing to hand off $key: structured priority is missing or invalid; assign priority 0..4 before routing" >&2
+          ;;
+      esac
+    done < <(printf '%s' "$result" | jq -c '.[]')
+    return 1
+  fi
+}
+
+validate_handoff_queued_only() { # <backlog-path> <key>...
+  local backlog=$1 section
   shift
   [ "$#" -gt 0 ] || return 0
   for key in "$@"; do
-    priority=$(awk -v key="$key" '
-      /^- \[[ x]\] / {
-        line=$0; id=$0
-        sub(/^- \[[ x]\] +/, "", id); sub(/[ \t].*/, "", id)
-        if (id == key) {
-          if (match(line, /\(priority: [0-4]\)/)) print substr(line, RSTART + 11, 1)
-          exit
-        }
-      }
-    ' "$backlog")
-    case "$priority" in
-      0|1|2|3|4) ;;
-      *)
-        echo "error: refusing to hand off $key: structured priority is missing or invalid; assign priority 0..4 before routing" >&2
-        return 1
-        ;;
-    esac
+    section=$(backlog_key_section "$backlog" "$key" 2>/dev/null || true)
+    [ "$section" = '## Queued' ] || {
+      echo "error: refusing to hand off $key: only Queued items may be handed off (found in ${section:-missing})" >&2
+      return 1
+    }
   done
+}
+
+outbox_queued_keys() { # <path>
+  awk '
+    /^## Queued$/ { queued=1; next }
+    /^## / { queued=0 }
+    queued && /^- \[[ x]\] / {
+      line=$0
+      sub(/^- \[[ x]\] +/, "", line)
+      sub(/[ \t].*/, "", line)
+      print line
+    }
+  ' "$1"
 }
 
 resolve_handoff_move_closure() { # <queued-key>...
@@ -719,6 +780,7 @@ remote_handoff() { # <secondmate-id> <keys...>
   if [ "${#to_move[@]}" -gt 0 ]; then
     closure=$(resolve_handoff_move_closure "${to_move[@]}") || return 1
     mapfile -t to_move <<< "$closure"
+    validate_handoff_queued_only "$MAIN_BACKLOG" "${to_move[@]}" || return 1
   fi
   validate_handoff_priorities "$MAIN_BACKLOG" "${to_move[@]}" || return 1
   validate_handoff_priorities "$outbox" "${already[@]}" || return 1
@@ -880,6 +942,10 @@ if [ "${#TO_MOVE[@]}" -gt 0 ]; then
     exit 1
   }
   mapfile -t TO_MOVE <<< "$MOVE_CLOSURE"
+  validate_handoff_queued_only "$MAIN_BACKLOG" "${TO_MOVE[@]}" || {
+    echo "       nothing was moved." >&2
+    exit 1
+  }
 fi
 validate_handoff_priorities "$MAIN_BACKLOG" "${TO_MOVE[@]}" || {
   echo "       nothing was moved." >&2

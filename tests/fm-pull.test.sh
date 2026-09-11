@@ -164,6 +164,32 @@ test_spawn_backstops_refuse_at_four() {
   pass "direct and batch fresh spawn enforce the hard-four backstop"
 }
 
+test_untyped_inflight_reservation_counts_toward_cap() {
+  local home out rc=0
+  home=$(make_home untyped-reservation)
+  {
+    printf '## In flight\n'
+    i=1
+    while [ "$i" -le 3 ]; do
+      printf -- '- [ ] reservation-%s - reserved (kind: ship) (priority: 1)\n' "$i"
+      i=$((i + 1))
+    done
+    printf -- '- [ ] untyped-reservation - reserved without kind metadata (priority: 1)\n'
+    printf '## Queued\n## Done\n'
+  } > "$home/data/backlog.md"
+  mkdir -p "$home/data/fifth"
+  printf '# brief\n' > "$home/data/fifth/brief.md"
+  add_task "$home" fifth 1
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
+  printf '%s' "$out" | jq -e '.attention.count == 4 and (.attention.reservations | map(.id) | index("untyped-reservation"))' >/dev/null \
+    || fail "untyped in-flight reservation was omitted from attention count: $out"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" \
+    start fifth "$ROOT" --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "start succeeded with four reservations including an untyped row"
+  assert_contains "$out" 'attention limit reached' "untyped reservation cap refusal was not explicit"
+  pass "untyped in-flight reservations consume attention capacity"
+}
+
 test_same_id_reservation_retry() {
   local home out rc=0
   home=$(make_home retry)
@@ -222,6 +248,39 @@ SH
   pass "two concurrent starts at count three reserve only one slot"
 }
 
+test_incomplete_inventory_retains_readable_tasks_in_summary() {
+  local home out
+  home=$(make_home partial-inventory)
+  mkdir -p "$home/projects/visible"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] visible-ship - Structured with meta (repo: alpha) (kind: ship) (since 2026-07-11)
+
+## Queued
+## Done
+EOF
+  fm_write_meta "$home/state/visible-ship.meta" \
+    "window=firstmate:fm-visible-ship" \
+    "worktree=$home/projects/visible" \
+    "project=alpha" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=ship"
+  printf 'working: visible\n' > "$home/state/visible-ship.status"
+  ln -s "$home/state/missing-target" "$home/state/broken.meta"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == false
+      and .invalidity.kind == "incomplete_inventory"
+      and ([.endpoints[].id] == ["visible-ship"])
+      and .state == "unknown"
+  ' >/dev/null || fail "partial inventory summary hid readable workers: $out"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
+  printf '%s' "$out" | jq -e '.attention.valid == false and ([.tasks[].id] == ["visible-ship"])' >/dev/null \
+    || fail "partial inventory local snapshot dropped readable tasks: $out"
+  pass "incomplete inventory retains readable tasks and surfaces the fact"
+}
+
 test_nested_secondmate_refusals() {
   local home peer out rc=0
   home=$(make_home nested)
@@ -253,6 +312,8 @@ test_start_refuses_at_four_before_mutation
 test_snapshot_attention_and_local_mode
 test_unreadable_inventory_fails_closed
 test_spawn_backstops_refuse_at_four
+test_untyped_inflight_reservation_counts_toward_cap
+test_incomplete_inventory_retains_readable_tasks_in_summary
 test_same_id_reservation_retry
 test_two_concurrent_starts_at_three
 test_nested_secondmate_refusals

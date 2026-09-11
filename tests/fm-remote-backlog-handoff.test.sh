@@ -228,6 +228,25 @@ assert_absent "$PARENT/data/handoff/ios.outbox.md" "remote closure priority refu
 [ ! -s "$WAKE_LOG" ] || fail "remote closure priority refusal notified the receiver"
 pass "dependency closure priorities are validated before remote staging or notification"
 
+mkdir -p "$PARENT/data/handoff"
+cat > "$PARENT/data/handoff/ios.outbox.md" <<'EOF'
+## Queued
+- [ ] legacy-outbox - migrated without priority (repo: alpha) (kind: ship)
+
+## Done
+EOF
+set +e
+handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending > "$TMP_ROOT/outbox-priority.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || fail "resume-pending delivered an outbox row missing structured priority"
+assert_contains "$(cat "$TMP_ROOT/outbox-priority.out")" 'structured priority is missing or invalid' \
+  "pending outbox priority refusal was not explicit"
+assert_present "$PARENT/data/handoff/ios.outbox.md" "pending outbox priority refusal removed the outbox"
+[ ! -s "$WAKE_LOG" ] || fail "pending outbox priority refusal notified the receiver"
+rm -f "$PARENT/data/handoff/ios.outbox.md"
+pass "pending outbox rows require structured priority before delivery"
+
 # Completion can become unknown after the remote atomic move. The local outbox
 # remains the whole recovery record, the primary dispatch queue is already
 # empty, and a blind retry is not performed inside the transport call.

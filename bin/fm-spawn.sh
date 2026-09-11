@@ -283,7 +283,12 @@ fm_spawn_attention_guard() {
   count=$(printf '%s' "$attention" | jq -r '.count')
   reservation=$(printf '%s' "$attention" | jq -r --arg id "$ID" \
     'any(.reservations[]?; .id == $id)')
-  if [ "$reservation" != true ] && [ "$count" -ge 4 ]; then
+  if [ "$reservation" = true ]; then
+    if [ "$count" -gt 4 ]; then
+      echo "error: local attention limit would exceed four on reservation retry (count=$count limit=4); refusing spawn" >&2
+      return 1
+    fi
+  elif [ "$count" -ge 4 ]; then
     echo "error: local attention limit reached (count=$count limit=4); refusing fresh spawn before endpoint or metadata publication" >&2
     return 1
   fi

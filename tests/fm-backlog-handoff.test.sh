@@ -143,6 +143,56 @@ test_already_done_refuses_without_wake() {
   pass "completed destination items cannot become handoff retries"
 }
 
+test_dependency_closure_refuses_inflight_blocker() {
+  local home="$TMP_ROOT/closure-inflight-main" sub="$TMP_ROOT/closure-inflight-sub" fakebin out rc=0
+  setup_homes "$home" "$sub"
+  mkdir -p "$sub/data"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] live-blocker - active blocker (repo: alpha) (kind: ship) (priority: 2)
+
+## Queued
+- [ ] dep-task - routed work blocked-by: live-blocker (repo: alpha) (kind: ship) (priority: 1)
+
+## Done
+EOF
+  printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
+  cp "$home/data/backlog.md" "$home/backlog.before"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/closure-inflight-fake")
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/closure-inflight-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design dep-task 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "dependency closure relocated an in-flight blocker"
+  assert_contains "$out" 'refusing to hand off live-blocker' "in-flight blocker refusal was not explicit"
+  cmp -s "$home/backlog.before" "$home/data/backlog.md" || fail "in-flight blocker refusal mutated the source backlog"
+  assert_no_grep 'live-blocker' "$sub/data/backlog.md" "in-flight blocker appeared in the destination backlog"
+  assert_absent "$TMP_ROOT/closure-inflight-tmux.log" "in-flight blocker refusal notified the receiver"
+  pass "dependency closure refuses in-flight blockers without mutation"
+}
+
+test_conflicting_priority_metadata_refuses_handoff() {
+  local home="$TMP_ROOT/conflict-priority-main" sub="$TMP_ROOT/conflict-priority-sub" fakebin out rc=0
+  setup_homes "$home" "$sub"
+  mkdir -p "$sub/data"
+  cat > "$home/data/backlog.md" <<'EOF'
+## Queued
+- [ ] conflict-item - dual priority (repo: alpha) (kind: ship) (priority: 2), priority: 9
+
+## Done
+EOF
+  printf '## Queued\n\n## Done\n' > "$sub/data/backlog.md"
+  cp "$home/data/backlog.md" "$home/backlog.before"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/conflict-priority-fake")
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/conflict-priority-tmux.log" \
+    "$ROOT/bin/fm-backlog-handoff.sh" design conflict-item 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "conflicting priority metadata was handed off"
+  assert_contains "$out" 'conflicting priority metadata' "conflicting priority refusal was not explicit"
+  cmp -s "$home/backlog.before" "$home/data/backlog.md" || fail "conflicting priority refusal mutated the source backlog"
+  assert_absent "$TMP_ROOT/conflict-priority-tmux.log" "conflicting priority refusal notified the receiver"
+  pass "conflicting priority metadata refuses handoff without mutation"
+}
+
 test_dependency_closure_requires_priority_without_mutation() {
   local home="$TMP_ROOT/closure-priority-main" sub="$TMP_ROOT/closure-priority-sub" fakebin out rc=0
   setup_homes "$home" "$sub"
@@ -1394,6 +1444,8 @@ EOF
 test_handoff_wakes_live_local_receiver
 test_already_present_missing_priority_refuses_without_wake
 test_already_done_refuses_without_wake
+test_dependency_closure_refuses_inflight_blocker
+test_conflicting_priority_metadata_refuses_handoff
 test_dependency_closure_requires_priority_without_mutation
 test_failed_wake_retries_when_the_item_is_already_present
 test_known_receiver_failure_remains_retryable_after_grace

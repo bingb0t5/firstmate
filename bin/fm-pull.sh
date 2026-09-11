@@ -61,10 +61,17 @@ ready_command() {
     return 1
   }
   if [ "${1:-}" = --json ]; then
+    local snapshot_file
     [ "$#" -eq 1 ] || { usage; return 2; }
-    jq -n --argjson snapshot "$snapshot" \
-      '{schema:"fm-pull.v1",fm_home:$snapshot.fm_home,generated:$snapshot.generated,
-        attention:$snapshot.attention,pull:$snapshot.pull}'
+    snapshot_file=$(mktemp "${TMPDIR:-/tmp}/fm-pull-snapshot.XXXXXX") \
+      || { echo "error: temporary snapshot file could not be created" >&2; return 1; }
+    printf '%s' "$snapshot" > "$snapshot_file" \
+      || { rm -f -- "$snapshot_file"; echo "error: snapshot payload could not be written" >&2; return 1; }
+    jq -n --slurpfile snapshot "$snapshot_file" \
+      '($snapshot[0]) as $snapshot
+       | {schema:"fm-pull.v1",fm_home:$snapshot.fm_home,generated:$snapshot.generated,
+          attention:$snapshot.attention,pull:$snapshot.pull}'
+    rm -f -- "$snapshot_file"
     return 0
   fi
   [ "$#" -eq 0 ] || { usage; return 2; }
