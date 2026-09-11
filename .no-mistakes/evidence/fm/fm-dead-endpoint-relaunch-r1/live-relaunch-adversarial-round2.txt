@@ -1,0 +1,25 @@
+=== Scenario A: missing-endpoint relaunch preserves worktree ===
+agent_state_after_kill=missing
+exit_out=already-stopped livet1 harness=claude backend=tmux endpoint=fmses:fm-livet1 worktree=/tmp/fm-relaunch-live.cwTGct/wt
+exit_rc=0
+meta_wt_before=/tmp/fm-relaunch-live.cwTGct/wt
+relaunch_out=relaunched livet1 harness=claude from=claude model=default effort=default backend=tmux endpoint=fmses:fm-livet1 worktree=/tmp/fm-relaunch-live.cwTGct/wt
+relaunch_rc=0
+meta_wt_after=/tmp/fm-relaunch-live.cwTGct/wt
+treehouse_get_absent=PASS
+new_window=fmses:fm-livet1
+pane_cwd=/tmp/fm-relaunch-live.cwTGct/wt
+recorded_wt=/tmp/fm-relaunch-live.cwTGct/wt
+fm-livet1_window_count=1
+SCENARIO A PASS
+=== Scenario B: relaunch refuses with live agent (no fork) ===
+live_agent_state=alive
+windows_before=3
+spawn_relaunch_out=error: task livet2's endpoint reads 'alive'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh livet2 exit)
+spawn_relaunch_rc=1
+refusal_message=PASS
+no_launch_bytes=PASS
+windows_after=3
+agent_state_after_refusal=alive
+SCENARIO B PASS
+ALL LIVE ADVERSARIAL SCENARIOS PASSED

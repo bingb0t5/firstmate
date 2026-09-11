@@ -1,0 +1,3 @@
+agent_state=missing
+exit_rc=1
+error: task livet3's endpoint reads 'ambiguous' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint

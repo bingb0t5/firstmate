@@ -1,0 +1,16 @@
+=== Step 1: vanished endpoint classified as missing ===
+agent_state=missing
+=== Step 2: fm-control exit idempotent on missing endpoint ===
+already-stopped livet1 harness=claude backend=tmux endpoint=fmses:fm-livet1 worktree=/tmp/fm-live-missing-kgApCA/wt
+=== Step 3: fm-control relaunch recreates endpoint and preserves worktree ===
+warning: /tmp/fm-live-missing-kgApCA/home/data/livet1/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched livet1 harness=claude from=claude model=default effort=default backend=tmux endpoint=firstmate:fm-livet1 worktree=/tmp/fm-live-missing-kgApCA/wt
+relaunch_exit_code=0
+new_window=firstmate:fm-livet1
+worktree_preserved=/home/rich/.treehouse/proj-e13ae9/1/proj
+FAIL: worktree changed from /tmp/fm-live-missing-kgApCA/wt to /home/rich/.treehouse/proj-e13ae9/1/proj
+=== Ambiguous endpoint adversarial test ===
+agent_state=ambiguous
+exit_rc=1
+error: task livet2's endpoint reads 'ambiguous' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint
+AMBIGUOUS REFUSAL PASS
