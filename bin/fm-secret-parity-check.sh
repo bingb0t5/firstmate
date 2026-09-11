@@ -3,7 +3,7 @@
 # exposing secret values, hashes, fingerprints, or value-derived strings.
 #
 # Usage:
-#   fm-secret-parity-check.sh [check]
+#   fm-secret-parity-check.sh [check|preflight]
 #   fm-secret-parity-check.sh arm
 #   fm-secret-parity-check.sh disarm
 #   fm-secret-parity-check.sh --help
@@ -11,6 +11,8 @@
 # `check` performs one bounded read-only provider sweep. It prints exactly one
 # redacted alert line when a new approved tuple is missing or differs, and is
 # silent when all approved tuples match or the same finding is still present.
+# `preflight` performs the same sweep for release use and exits nonzero when
+# any required variable is unavailable, missing, or mismatched.
 # `arm` creates state/secret-parity.check.sh and binds its bytes with
 # fm-check-register.sh so the normal watcher schedule runs `check`.
 # `disarm` removes the private shim, trust binding, and finding record.
@@ -70,6 +72,7 @@ usage() {
   cat <<'EOF'
 Usage:
   fm-secret-parity-check.sh [check]   compare approved deployment secrets
+  fm-secret-parity-check.sh preflight refuse an unhealthy release
   fm-secret-parity-check.sh arm       write and register state/secret-parity.check.sh
   fm-secret-parity-check.sh disarm    remove the private shim, trust binding, and record
   fm-secret-parity-check.sh --help    print this help
@@ -99,7 +102,7 @@ die_usage() {
 
 ACTION=${1:-check}
 case "$ACTION" in
-  check|arm|disarm) ;;
+  check|preflight|arm|disarm) ;;
   -h|--help)
     usage
     exit 0
@@ -334,9 +337,9 @@ render_env_value() {
     200)
       row=$(printf '%s' "$body" | jq -c --arg key "$key" '
         if type == "object" and .key == $key then
-          {present:true,value:(.value // "")}
+          {present:((.value // "") != ""),value:(.value // "")}
         elif type == "object" and .envVar.key == $key then
-          {present:true,value:(.envVar.value // "")}
+          {present:((.envVar.value // "") != ""),value:(.envVar.value // "")}
         else {present:false,value:""} end
       ' 2>/dev/null) || return 1
       ;;
@@ -509,6 +512,25 @@ sweep_step() {
   return 0
 }
 
+run_sweep() {
+  sweep_step compare_secret BEANBOT_PLATFORM_SYNC_TOKEN admin-prod admin-staging signals render-llalo || return 1
+  sweep_step compare_secret LALO_ASSISTANT_API_KEY admin-prod render-llalo || return 1
+  sweep_step compare_secret PLATFORM_SUPABASE_URL admin-prod admin-staging signals render-llalo || return 1
+  sweep_step compare_secret PLATFORM_SUPABASE_SERVICE_ROLE_KEY admin-prod admin-staging signals render-llalo || return 1
+  sweep_step compare_secret STRIPE_SECRET_KEY admin-prod render-llalo || return 1
+  sweep_step compare_secret STRIPE_WEBHOOK_SECRET admin-prod render-llalo || return 1
+  sweep_step compare_secret STRIPE_PAID_BETA_PRICE_ID admin-prod render-llalo || return 1
+  sweep_step compare_n8n_token || return 1
+  sweep_step compare_pin signals LALO_APP_API_URL \
+    https://admin.laloapp.co || return 1
+  sweep_step compare_pin signals LALO_DIRECTORY_MATCH_URL \
+    https://admin.laloapp.co/api/internal/local-signals/directory-match || return 1
+
+  if [ "$SWEEP_UNAVAILABLE" -eq 0 ]; then
+    SWEEP_COMPLETE=1
+  fi
+}
+
 action_check() {
   due_for_sweep || return 0
   MISMATCHES=
@@ -531,52 +553,33 @@ action_check() {
   }
 
   DEADLINE=$(($(real_epoch) + BUDGET_SECS))
-  sweep_step compare_secret BEANBOT_PLATFORM_SYNC_TOKEN admin-prod admin-staging signals render-llalo || {
-    finish_sweep
-    return 0
-  }
-  sweep_step compare_secret LALO_ASSISTANT_API_KEY admin-prod render-llalo || {
-    finish_sweep
-    return 0
-  }
-  sweep_step compare_secret PLATFORM_SUPABASE_URL admin-prod admin-staging signals render-llalo || {
-    finish_sweep
-    return 0
-  }
-  sweep_step compare_secret PLATFORM_SUPABASE_SERVICE_ROLE_KEY admin-prod admin-staging signals render-llalo || {
-    finish_sweep
-    return 0
-  }
-  sweep_step compare_secret STRIPE_SECRET_KEY admin-prod render-llalo || {
-    finish_sweep
-    return 0
-  }
-  sweep_step compare_secret STRIPE_WEBHOOK_SECRET admin-prod render-llalo || {
-    finish_sweep
-    return 0
-  }
-  sweep_step compare_secret STRIPE_PAID_BETA_PRICE_ID admin-prod render-llalo || {
-    finish_sweep
-    return 0
-  }
-  sweep_step compare_n8n_token || {
-    finish_sweep
-    return 0
-  }
-  sweep_step compare_pin signals LALO_APP_API_URL https://admin.laloapp.co || {
-    finish_sweep
-    return 0
-  }
-  sweep_step compare_pin signals LALO_DIRECTORY_MATCH_URL \
-    https://admin.laloapp.co/api/internal/local-signals/directory-match || {
-    finish_sweep
-    return 0
-  }
-
-  if [ "$SWEEP_UNAVAILABLE" -eq 0 ]; then
-    SWEEP_COMPLETE=1
-  fi
+  run_sweep || true
   finish_sweep
+  return 0
+}
+
+action_preflight() {
+  MISMATCHES=
+  SWEEP_UNAVAILABLE=0
+  SWEEP_COMPLETE=0
+  command -v curl >/dev/null 2>&1 || SWEEP_UNAVAILABLE=1
+  command -v jq >/dev/null 2>&1 || SWEEP_UNAVAILABLE=1
+  if [ "$SWEEP_UNAVAILABLE" -eq 0 ]; then
+    load_provider_settings || SWEEP_UNAVAILABLE=1
+  fi
+  if [ "$SWEEP_UNAVAILABLE" -eq 0 ]; then
+    DEADLINE=$(($(real_epoch) + BUDGET_SECS))
+    run_sweep || true
+  fi
+  if [ "$SWEEP_UNAVAILABLE" -ne 0 ] || [ "$SWEEP_COMPLETE" -ne 1 ]; then
+    printf '%s\n' 'secret parity preflight unavailable'
+    return 2
+  fi
+  if [ -n "$MISMATCHES" ]; then
+    printf 'secret parity preflight failed: %s\n' "$MISMATCHES"
+    return 1
+  fi
+  printf '%s\n' 'secret parity preflight passed'
   return 0
 }
 
@@ -620,6 +623,7 @@ action_disarm() {
 
 case "$ACTION" in
   check) action_check ;;
+  preflight) action_preflight ;;
   arm) action_arm ;;
   disarm) action_disarm ;;
 esac

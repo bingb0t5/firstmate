@@ -503,6 +503,7 @@ Because the cut-budget disclosure describes a setting rather than an event, it r
 [`bin/fm-secret-parity-check.sh`](../bin/fm-secret-parity-check.sh) compares approved shared deployment secrets across Render, Coolify, and n8n without exposing secret values, hashes, fingerprints, or value-derived strings.
 It is detection only: it never changes provider configuration.
 The approved secret tuples, membership rules, and pin values are owned by that script's header and `--help`; this section owns operator setup and watcher behavior only.
+The release preflight and repair procedure, including tuple ownership, rotation order, rollback, and verification, is documented in [`docs/deployment-secret-parity.md`](deployment-secret-parity.md).
 
 Provider credential paths, direct overrides, and env-file field names are owned by that script's header and `--help`.
 `FM_SECRET_PARITY_COOLIFY_ENV_FILE` and `FM_SECRET_PARITY_RENDER_ENV_FILE` override the default Coolify and Render credential files.
