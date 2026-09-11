@@ -1,0 +1,12 @@
+ok - ready orders by priority and exposes missing-priority rows
+ok - lowercase compatibility markers remain ineligible for pull
+ok - start refuses a fifth worker before backlog or launch side effects
+ok - local snapshot reports attention without cross-home aggregation
+ok - snapshot, direct spawn, and batch spawn fail closed on incomplete inventory
+ok - direct and batch fresh spawn enforce the hard-four backstop
+ok - untyped in-flight reservations consume attention capacity
+ok - incomplete inventory retains readable tasks and surfaces the fact
+ok - same-id retries resume their visible reservation
+ok - two concurrent starts at count three reserve only one slot
+ok - secondmate homes cannot create nested secondmates
+ALL TESTS PASSED

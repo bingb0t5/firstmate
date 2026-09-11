@@ -1,0 +1,1 @@
+- design - Design delivery (home: /home/rich/.no-mistakes/evidence/01M27QXWPS5380C600P58RS94J/live-closure-priority-sub; scope: design; projects: alpha; added 2026-08-02)

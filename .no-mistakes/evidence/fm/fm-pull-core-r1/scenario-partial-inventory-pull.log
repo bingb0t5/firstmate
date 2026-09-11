@@ -1,0 +1,4 @@
+=== SCENARIO: partial-inventory-pull ===
+=== 2026-09-11T15:57:27+07:00 ===
+error: local attention facts are invalid; refusing to pull admit-task
+=== EXIT: 1 ===

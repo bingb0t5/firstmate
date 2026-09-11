@@ -1,0 +1,10 @@
+handed off 2 item(s) to design: routed-blocker routed-dependent
+  into /tmp/live-routed-sub.KJJsDq/data/backlog.md
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision is owned by the stop-hook park; inspect the hook registration and watcher startup path before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+fm-send: doorbell did not reach firstmate:fm-design; the steer is durably recorded at /tmp/live-routed-main.bSi3gd/state/design.inbox/001.msg and the watcher will re-ring

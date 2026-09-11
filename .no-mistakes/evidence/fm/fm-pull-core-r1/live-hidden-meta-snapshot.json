@@ -1,0 +1,95 @@
+{
+  "schema": "fm-fleet-snapshot.v1",
+  "local": true,
+  "generated": "2026-09-11T08:28:41Z",
+  "fm_home": "/tmp/tmp.VLarrUiykn/hidden",
+  "roots": {
+    "state": "/tmp/tmp.VLarrUiykn/hidden/state",
+    "data": "/tmp/tmp.VLarrUiykn/hidden/data"
+  },
+  "backlog": {
+    "path": "/tmp/tmp.VLarrUiykn/hidden/data/backlog.md",
+    "present": true,
+    "records": [
+      {
+        "order": 1,
+        "state": "queued",
+        "structured": true,
+        "id": "queued-task",
+        "checked": false,
+        "title": "queued",
+        "repo": "demo",
+        "kind": "ship",
+        "priority": "1",
+        "hold_reason": null,
+        "hold_kind": null,
+        "hold_until": null,
+        "blocked_by": null,
+        "blocked_by_ids": [],
+        "blocked_reason": null,
+        "since": "2026-09-11",
+        "merged": null,
+        "reported": null,
+        "done": null,
+        "completion": {
+          "verb": null,
+          "date": null
+        },
+        "links": [],
+        "pr_url": null,
+        "report_path": null,
+        "local_note": null,
+        "raw": "- [ ] queued-task - queued (repo: demo) (kind: ship) (priority: 1) (since 2026-09-11)",
+        "body_lines": [],
+        "body_excerpt": null,
+        "unresolved_blocker_ids": [],
+        "current_role": "queued",
+        "requires_child_metadata": false,
+        "captain_actionable": false,
+        "deferred_marker": false,
+        "authorization_marker": false
+      }
+    ]
+  },
+  "tasks": [],
+  "attention": {
+    "limit": 4,
+    "count": 0,
+    "remaining": 4,
+    "valid": false,
+    "workers": [],
+    "reservations": [],
+    "reported": []
+  },
+  "pull": {
+    "eligible": [
+      {
+        "id": "queued-task",
+        "title": "queued",
+        "kind": "ship",
+        "repo": "demo",
+        "priority": 1,
+        "since": "2026-09-11",
+        "state": "queued",
+        "pull_eligible": true,
+        "pull_reason": null,
+        "next_action": "spawn"
+      }
+    ],
+    "ineligible": [],
+    "rows": [
+      {
+        "id": "queued-task",
+        "title": "queued",
+        "kind": "ship",
+        "repo": "demo",
+        "priority": 1,
+        "since": "2026-09-11",
+        "state": "queued",
+        "pull_eligible": true,
+        "pull_reason": null,
+        "next_action": "spawn"
+      }
+    ]
+  }
+}

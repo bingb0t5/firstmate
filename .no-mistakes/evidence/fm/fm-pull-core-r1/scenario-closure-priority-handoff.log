@@ -1,0 +1,5 @@
+=== SCENARIO: closure-priority-handoff ===
+=== 2026-09-11T15:57:31+07:00 ===
+error: refusing to hand off closure-blocker: structured priority is missing or invalid; assign priority 0..4 before routing
+       nothing was moved.
+=== EXIT: 1 ===

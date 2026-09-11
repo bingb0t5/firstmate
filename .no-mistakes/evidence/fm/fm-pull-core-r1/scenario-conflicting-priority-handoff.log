@@ -1,0 +1,5 @@
+=== SCENARIO: conflicting-priority-handoff ===
+=== 2026-09-11T15:57:29+07:00 ===
+error: refusing to hand off conflict-item: conflicting priority metadata; assign exactly one priority 0..4 before routing
+       nothing was moved.
+=== EXIT: 1 ===

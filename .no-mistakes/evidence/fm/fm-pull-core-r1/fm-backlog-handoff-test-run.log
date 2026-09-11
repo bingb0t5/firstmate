@@ -1,0 +1,17 @@
+ok - a routed handoff wakes once and a successful rerun stays idempotent
+ok - already-routed items require structured priority before reconciliation
+ok - completed destination items cannot become handoff retries
+ok - dependency closure refuses in-flight blockers without mutation
+ok - conflicting priority metadata refuses handoff without mutation
+ok - dependency closure priorities are validated before local mutation or notification
+ok - dependency closure follows an already-routed blocker without re-validating it on main
+ok - a failed receiver wake is loud and retries from an already-present handoff
+ok - a failed advisory doorbell leaves the inbox delivery successful and idempotent
+ok - concurrent reconciliation treats enqueue as delivery despite a failed advisory ring
+tests/fm-backlog-handoff.test.sh: line 400: 3017432 Killed                  FM_REAL_TASKS_AXI="$real_tasks" PATH="$fakebin:$PATH" FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design crash-item > "$TMP_ROOT/move-crash.out" 2>&1
+ok - a post-move crash preserves wake intent for an idempotent retry
+tests/fm-backlog-handoff.test.sh: line 474: 3032037 Killed                  FM_REAL_TASKS_AXI="$real_tasks" PATH="$fakebin:$PATH" FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" design pre-move-crash > "$TMP_ROOT/pre-move-crash.out" 2>&1
+not ok - pre-move crash recovery failed: error: "Task \"pre-move-crash\" not found in this backlog"
+code: NOT_FOUND
+help[1]: Run `tasks-axi list --file=/tmp/fm-backlog-handoff.LTvT45/pre-move-crash-main/data/backlog.md` to see existing tasks
+error: tasks-axi mv failed; nothing was moved.

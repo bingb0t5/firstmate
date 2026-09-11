@@ -1,0 +1,6 @@
+=== SCENARIO: retry-resume ===
+=== 2026-09-11T15:57:26+07:00 ===
+resuming unknown reservation retry-task
+/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M27QXWPS5380C600P58RS94J/bin/fm-spawn.sh: line 1697: cd: /tmp/live-retry.Cv4nRk/missing-project: No such file or directory
+error: spawn for retry-task failed; its In flight row remains as a visible unknown reservation
+=== EXIT: 1 ===

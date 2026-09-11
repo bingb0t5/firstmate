@@ -1,0 +1,93 @@
+{
+  "schema": "fm-pull.v1",
+  "fm_home": "/tmp/live-ready.AaFUgT",
+  "generated": "2026-09-11T08:57:59Z",
+  "attention": {
+    "limit": 4,
+    "count": 0,
+    "remaining": 4,
+    "valid": true,
+    "workers": [],
+    "reservations": [],
+    "reported": []
+  },
+  "pull": {
+    "eligible": [
+      {
+        "id": "urgent",
+        "title": "urgent title",
+        "kind": "ship",
+        "repo": "demo",
+        "priority": 0,
+        "since": "2026-09-11",
+        "state": "queued",
+        "pull_eligible": true,
+        "pull_reason": null,
+        "next_action": "spawn"
+      },
+      {
+        "id": "normal",
+        "title": "normal title",
+        "kind": "ship",
+        "repo": "demo",
+        "priority": 2,
+        "since": "2026-09-11",
+        "state": "queued",
+        "pull_eligible": true,
+        "pull_reason": null,
+        "next_action": "spawn"
+      },
+      {
+        "id": "low",
+        "title": "low title",
+        "kind": "ship",
+        "repo": "demo",
+        "priority": 4,
+        "since": "2026-09-11",
+        "state": "queued",
+        "pull_eligible": true,
+        "pull_reason": null,
+        "next_action": "spawn"
+      }
+    ],
+    "ineligible": [],
+    "rows": [
+      {
+        "id": "urgent",
+        "title": "urgent title",
+        "kind": "ship",
+        "repo": "demo",
+        "priority": 0,
+        "since": "2026-09-11",
+        "state": "queued",
+        "pull_eligible": true,
+        "pull_reason": null,
+        "next_action": "spawn"
+      },
+      {
+        "id": "normal",
+        "title": "normal title",
+        "kind": "ship",
+        "repo": "demo",
+        "priority": 2,
+        "since": "2026-09-11",
+        "state": "queued",
+        "pull_eligible": true,
+        "pull_reason": null,
+        "next_action": "spawn"
+      },
+      {
+        "id": "low",
+        "title": "low title",
+        "kind": "ship",
+        "repo": "demo",
+        "priority": 4,
+        "since": "2026-09-11",
+        "state": "queued",
+        "pull_eligible": true,
+        "pull_reason": null,
+        "next_action": "spawn"
+      }
+    ]
+  }
+}

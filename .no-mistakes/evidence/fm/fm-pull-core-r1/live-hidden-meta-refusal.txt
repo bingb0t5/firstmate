@@ -1,0 +1,2 @@
+error: local attention facts are invalid; refusing to pull queued-task
+exit=1

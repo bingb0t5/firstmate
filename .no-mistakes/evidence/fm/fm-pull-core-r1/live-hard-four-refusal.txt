@@ -1,0 +1,2 @@
+error: local attention limit reached (count=4 limit=4); refusing before backlog mutation
+exit=1

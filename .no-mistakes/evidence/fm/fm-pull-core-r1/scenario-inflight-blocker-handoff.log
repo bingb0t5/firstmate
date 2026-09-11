@@ -1,0 +1,5 @@
+=== SCENARIO: inflight-blocker-handoff ===
+=== 2026-09-11T15:57:28+07:00 ===
+error: refusing to hand off live-blocker: only Queued items may be handed off (found in ## In flight)
+       nothing was moved.
+=== EXIT: 1 ===

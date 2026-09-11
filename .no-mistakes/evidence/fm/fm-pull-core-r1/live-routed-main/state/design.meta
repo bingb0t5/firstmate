@@ -1,0 +1,6 @@
+window=firstmate:fm-design
+kind=secondmate
+harness=claude
+backend=tmux
+home=/home/rich/.no-mistakes/evidence/01M27QXWPS5380C600P58RS94J/live-routed-sub
+worktree=/home/rich/.no-mistakes/evidence/01M27QXWPS5380C600P58RS94J/live-routed-sub

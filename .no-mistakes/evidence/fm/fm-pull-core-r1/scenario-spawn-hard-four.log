@@ -1,0 +1,4 @@
+=== SCENARIO: spawn-hard-four ===
+=== 2026-09-11T15:57:28+07:00 ===
+error: local attention limit reached (count=4 limit=4); refusing fresh spawn before endpoint or metadata publication
+=== EXIT: 1 ===

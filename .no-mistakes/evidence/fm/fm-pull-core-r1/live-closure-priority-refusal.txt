@@ -1,0 +1,4 @@
+error: refusing to hand off closure-blocker: structured priority is missing or invalid; assign priority 0..4 before routing
+       nothing was moved.
+exit=1
+backlog unchanged
