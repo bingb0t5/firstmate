@@ -100,6 +100,13 @@
 #   even when they select different backends. A fresh spawn first takes the
 #   per-home task-set lock and refuses rather than waits when forced teardown owns
 #   it; relaunch is exempt because the existing task's control lock covers it.
+#   Fresh ordinary ship and scout spawns also recompute fm-fleet-snapshot.sh
+#   --local-json attention facts under that same task-set lock and refuse when
+#   inventory is invalid or the fixed four-worker limit is already reached.
+#   A reservation retry for the same id is allowed only while count stays at or
+#   below four; --secondmate and --relaunch bypass this backstop.
+#   A home marked .fm-secondmate-home refuses fresh --secondmate spawns; only the
+#   primary home may create a domain mate.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
 #   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch
@@ -262,6 +269,39 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+
+fm_spawn_attention_guard() {
+  [ "$KIND" = secondmate ] && return 0
+  [ "$RELAUNCH" -eq 1 ] && return 0
+  local snapshot attention count reservation
+  snapshot=$(FM_ROOT_OVERRIDE="$FM_ROOT" FM_HOME="$FM_HOME" \
+    FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+    FM_CONFIG_OVERRIDE="$CONFIG" FM_PROJECTS_OVERRIDE="$PROJECTS" \
+    "$SCRIPT_DIR/fm-fleet-snapshot.sh" --local-json 2>/dev/null) || {
+    echo "error: local attention facts could not be read; refusing fresh spawn" >&2
+    return 1
+  }
+  attention=$(printf '%s' "$snapshot" | jq -c '.attention' 2>/dev/null) || {
+    echo "error: local attention facts were malformed; refusing fresh spawn" >&2
+    return 1
+  }
+  [ "$(printf '%s' "$attention" | jq -r '.valid // false')" = true ] || {
+    echo "error: local attention facts are invalid; refusing fresh spawn" >&2
+    return 1
+  }
+  count=$(printf '%s' "$attention" | jq -r '.count')
+  reservation=$(printf '%s' "$attention" | jq -r --arg id "$ID" \
+    'any(.reservations[]?; .id == $id)')
+  if [ "$reservation" = true ]; then
+    if [ "$count" -gt 4 ]; then
+      echo "error: local attention limit would exceed four on reservation retry (count=$count limit=4); refusing spawn" >&2
+      return 1
+    fi
+  elif [ "$count" -ge 4 ]; then
+    echo "error: local attention limit reached (count=$count limit=4); refusing fresh spawn before endpoint or metadata publication" >&2
+    return 1
+  fi
+}
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -397,6 +437,14 @@ else
       exit 1
     }
   fi
+fi
+
+# A marked secondmate home has no authority to create a fresh domain mate.
+# Enforce this before backend or harness preparation so missing local runtime
+# tools cannot mask the primary-only domain boundary.
+if [ "$KIND" = secondmate ] && [ "$RELAUNCH" -ne 1 ] && [ -f "$FM_HOME/$SUB_HOME_MARKER" ]; then
+  echo "error: a secondmate home cannot seed or spawn another secondmate; only the primary home may create a domain mate" >&2
+  exit 1
 fi
 
 spawn_remote_secondmate() {
@@ -881,9 +929,9 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
       rc=2
       continue
     elif [ "$KIND" = scout ]; then
-      if FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "${pair%%=*}" "${pair#*=}" "${shared_args[@]+"${shared_args[@]}"}" --scout; then :; else echo "batch: FAILED to spawn ${pair%%=*} (${pair#*=})" >&2; rc=1; fi
+      if "$FM_ROOT/bin/fm-spawn.sh" "${pair%%=*}" "${pair#*=}" "${shared_args[@]+"${shared_args[@]}"}" --scout; then :; else echo "batch: FAILED to spawn ${pair%%=*} (${pair#*=})" >&2; rc=1; fi
     else
-      if FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "${pair%%=*}" "${pair#*=}" "${shared_args[@]+"${shared_args[@]}"}"; then :; else echo "batch: FAILED to spawn ${pair%%=*} (${pair#*=})" >&2; rc=1; fi
+      if "$FM_ROOT/bin/fm-spawn.sh" "${pair%%=*}" "${pair#*=}" "${shared_args[@]+"${shared_args[@]}"}"; then :; else echo "batch: FAILED to spawn ${pair%%=*} (${pair#*=})" >&2; rc=1; fi
     fi
   done
   exit "$rc"
@@ -946,6 +994,7 @@ if [ "$RELAUNCH" -eq 0 ]; then
     exit 1
   fi
   SPAWN_TASK_SET_LOCK_HELD=1
+  fm_spawn_attention_guard || exit 1
 fi
 if [ "$KIND" = secondmate ]; then
   if spawn_remote_secondmate "$ID"; then

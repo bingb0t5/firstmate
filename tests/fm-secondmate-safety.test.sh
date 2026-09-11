@@ -1420,7 +1420,8 @@ SH
     "$ROOT/bin/fm-spawn.sh" domain "$home" codex --secondmate >/dev/null 2>"$err"; then
     fail "secondmate spawn accepted the active home"
   fi
-  grep -F 'secondmate home cannot be the active firstmate home' "$err" >/dev/null || fail "spawn did not reject active home"
+  grep -F 'only the primary home may create a domain mate' "$err" >/dev/null || fail "spawn did not apply the nested-secondmate refusal before active-home validation"
+  rm -f "$home/.fm-secondmate-home"
 
   if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/spawn-validate-fake/pane.txt" \
     "$ROOT/bin/fm-spawn.sh" domain "$ROOT" codex --secondmate >/dev/null 2>"$err"; then
@@ -2847,10 +2848,10 @@ test_backlog_handoff_aborts_safely() {
   printf -- '- design - feature work (home: %s; scope: feature work; projects: alpha; added 2026-06-22)\n' "$subhome_abs" > "$home/data/secondmates.md"
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
-- [ ] live-task - active work (repo: alpha, since 2026-06-20)
+- [ ] live-task - active work (repo: alpha, since 2026-06-20) (priority: 2)
 
 ## Queued
-- [ ] bug-z - fix bug z (repo: gamma)
+- [ ] bug-z - fix bug z (repo: gamma) (priority: 2)
 
 ## Done
 - [x] old-task - shipped thing - local main (merged 2026-06-19)
@@ -2892,7 +2893,7 @@ test_backlog_handoff_refuses_done_items_and_non_secondmate_homes() {
 
   seed_secondmate_home_marker "$subhome" archive
   subhome_abs=$(cd "$subhome" && pwd -P)
-  printf '## Queued\n- [ ] keep-me - stays (repo: alpha)\n' > "$subhome/data/backlog.md"
+  printf '## Queued\n- [ ] keep-me - stays (repo: alpha) (priority: 2)\n' > "$subhome/data/backlog.md"
   printf -- '- archive - archival (home: %s; scope: archival; projects: alpha; added 2026-06-22)\n' "$subhome_abs" > "$home/data/secondmates.md"
   printf '##\tDone\n- [x] shipped-task - shipped thing - local main (merged 2026-06-19)\n' > "$home/data/backlog.md"
   before_main="$TMP_ROOT/handoff-safety-main.before"
@@ -2927,7 +2928,7 @@ test_backlog_handoff_refuses_done_items_and_non_secondmate_homes() {
   printf -- '- marker-sm - bogus (home: %s; scope: bogus; projects: alpha; added 2026-06-22)\n' "$markerhome_abs" >> "$home/data/secondmates.md"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] marker-task - should not move (repo: alpha)
+- [ ] marker-task - should not move (repo: alpha) (priority: 2)
 EOF
   if FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" marker-sm marker-task >/dev/null 2>&1; then
     fail "handoff accepted a marker-only directory as a secondmate home"
@@ -2943,7 +2944,7 @@ EOF
   printf -- '- symlink-sm - bogus (home: %s; scope: bogus; projects: alpha; added 2026-06-22)\n' "$symlinkhome_abs" >> "$home/data/secondmates.md"
   cat > "$home/data/backlog.md" <<'EOF'
 ## Queued
-- [ ] symlink-task - should not move (repo: alpha)
+- [ ] symlink-task - should not move (repo: alpha) (priority: 2)
 EOF
   if FM_HOME="$home" "$ROOT/bin/fm-backlog-handoff.sh" symlink-sm symlink-task >/dev/null 2>&1; then
     fail "handoff accepted a secondmate home with data outside the home"

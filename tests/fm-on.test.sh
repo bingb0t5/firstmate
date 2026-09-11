@@ -11,7 +11,24 @@ TMP_ROOT=$(fm_test_tmproot fm-on)
 # and physicalize macOS's /var -> /private/var alias before transport validation.
 mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
-trap 'if [ -f "$TMP_ROOT/remote-jobs/worker.pid" ]; then kill "$(cat "$TMP_ROOT/remote-jobs/worker.pid")" 2>/dev/null || true; fi; rm -rf -- "$TMP_ROOT"' EXIT
+# shellcheck source=bin/fm-remote-job-lib.sh
+. "$ROOT/bin/fm-remote-job-lib.sh"
+# worker.pid names the serving child, not its restart supervisor; stop the whole tree.
+stop_remote_job_fixture() {
+  if [ -f "$TMP_ROOT/remote-jobs/worker.pid" ]; then
+    fm_remote_job_stop_worker_tree "$(cat "$TMP_ROOT/remote-jobs/worker.pid")" || true
+    local i=0
+    while [ -f "$TMP_ROOT/remote-jobs/worker.pid" ] && [ "$i" -lt 50 ]; do
+      i=$((i + 1))
+      sleep 0.1
+    done
+  fi
+}
+cleanup_fm_on_fixture() {
+  stop_remote_job_fixture
+  rm -rf -- "$TMP_ROOT"
+}
+trap cleanup_fm_on_fixture EXIT
 LOCAL_HOME="$TMP_ROOT/local-home"
 REMOTE_ROOT="$TMP_ROOT/remote-root"
 REMOTE_HOME="$TMP_ROOT/remote-home"
@@ -260,7 +277,7 @@ done
 pass "the entrypoint composes a deduplicated discovered child PATH (kept $PRESENT_CHECKED existing, omitted $ABSENT_CHECKED absent)"
 
 WORKER_PID=$(cat "$TMP_ROOT/remote-jobs/worker.pid")
-kill -TERM "$WORKER_PID"
+fm_remote_job_stop_worker_tree "$WORKER_PID" || fail "the worker did not stop for the doctor bootstrap fixture"
 for _ in $(seq 1 100); do
   [ ! -f "$TMP_ROOT/remote-jobs/worker.pid" ] && break
   sleep 0.05
@@ -488,5 +505,7 @@ set -e
 [ "$(cat "$SSH_COUNT")" -eq 1 ] || fail "ambiguous completion was retried"
 [ "$(grep -c mutation "$REMOTE_HOME/mutations")" -eq 1 ] || fail "ambiguous mutation did not execute exactly once"
 pass "unreachable and ambiguous transport failures are surfaced without retry"
+
+stop_remote_job_fixture
 
 echo "ALL TESTS PASSED"

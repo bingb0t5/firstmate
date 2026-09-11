@@ -30,6 +30,8 @@
 #       Refuse records that operational consumers cannot parse, unavailable or
 #       unsafe registry files when present, non-absolute or unresolvable homes,
 #       duplicate ids or homes, and nested or overlapping homes.
+#   Provisioning commands refuse when FM_HOME is already marked
+#   .fm-secondmate-home; only the primary home may create a domain mate.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,6 +56,16 @@ usage() {
   echo "usage: fm-home-seed.sh <id> <home|-> {<project>...|--no-projects}" >&2
   echo "       fm-home-seed.sh validate" >&2
 }
+
+case "${1:-}" in
+  validate) ;;
+  *)
+    if [ -f "$FM_HOME/$SUB_HOME_MARKER" ]; then
+      echo "error: a secondmate home cannot seed another secondmate; only the primary home may create a domain mate" >&2
+      exit 1
+    fi
+    ;;
+esac
 
 validate_registry_home_text() {
   local home=$1

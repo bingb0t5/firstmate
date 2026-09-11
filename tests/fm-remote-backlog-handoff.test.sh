@@ -215,10 +215,68 @@ $1
 EOF
 }
 
+write_backlog $'- [ ] remote-blocker - missing migration priority (repo: alpha) (kind: ship)\n- [ ] remote-dependent - routed work blocked-by: remote-blocker (repo: alpha) (kind: ship) (priority: 1)'
+remote_before=$(sha256_file "$PARENT/data/backlog.md")
+set +e
+handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios remote-dependent > "$TMP_ROOT/closure-priority.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || fail "remote dependency closure with an unprioritized blocker was staged"
+assert_contains "$(cat "$TMP_ROOT/closure-priority.out")" 'refusing to hand off remote-blocker' "remote closure priority refusal did not name the blocker"
+[ "$(sha256_file "$PARENT/data/backlog.md")" = "$remote_before" ] || fail "remote closure priority refusal mutated the source backlog"
+assert_absent "$PARENT/data/handoff/ios.outbox.md" "remote closure priority refusal created an outbox"
+[ ! -s "$WAKE_LOG" ] || fail "remote closure priority refusal notified the receiver"
+pass "dependency closure priorities are validated before remote staging or notification"
+
+write_backlog $'- [ ] outbox-dependent - routed work blocked-by: outbox-blocker (repo: alpha) (kind: ship) (priority: 1)'
+printf '## In flight\n\n## Queued\n\n## Done\n' > "$REMOTE/data/backlog.md"
+mkdir -p "$PARENT/data/handoff"
+cat > "$PARENT/data/handoff/ios.outbox.md" <<'EOF'
+## Queued
+- [ ] outbox-blocker - blocker already staged (repo: alpha) (kind: ship) (priority: 2)
+
+## Done
+EOF
+remote_before=$(sha256_file "$PARENT/data/backlog.md")
+set +e
+handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios outbox-dependent > "$TMP_ROOT/closure-outbox.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || fail "remote dependency closure refused a dependent whose blocker is already in the outbox: $(cat "$TMP_ROOT/closure-outbox.out")"
+assert_grep 'outbox-dependent' "$REMOTE/data/backlog.md" \
+  "dependent did not reach the remote backlog"
+assert_grep 'outbox-blocker' "$REMOTE/data/backlog.md" \
+  "blocker did not remain on the remote backlog"
+assert_no_grep 'outbox-dependent' "$PARENT/data/backlog.md" \
+  "dependent remained in the source backlog after outbox closure handoff"
+[ "$(sha256_file "$PARENT/data/backlog.md")" != "$remote_before" ] \
+  || fail "outbox closure handoff did not remove the dependent from the source backlog"
+pass "dependency closure follows an already-staged outbox blocker"
+: > "$WAKE_LOG"
+
+mkdir -p "$PARENT/data/handoff"
+cat > "$PARENT/data/handoff/ios.outbox.md" <<'EOF'
+## Queued
+- [ ] legacy-outbox - migrated without priority (repo: alpha) (kind: ship)
+
+## Done
+EOF
+set +e
+handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending > "$TMP_ROOT/outbox-priority.out" 2>&1
+rc=$?
+set -e
+[ "$rc" -ne 0 ] || fail "resume-pending delivered an outbox row missing structured priority"
+assert_contains "$(cat "$TMP_ROOT/outbox-priority.out")" 'structured priority is missing or invalid' \
+  "pending outbox priority refusal was not explicit"
+assert_present "$PARENT/data/handoff/ios.outbox.md" "pending outbox priority refusal removed the outbox"
+[ ! -s "$WAKE_LOG" ] || fail "pending outbox priority refusal notified the receiver"
+rm -f "$PARENT/data/handoff/ios.outbox.md"
+pass "pending outbox rows require structured priority before delivery"
+
 # Completion can become unknown after the remote atomic move. The local outbox
 # remains the whole recovery record, the primary dispatch queue is already
 # empty, and a blind retry is not performed inside the transport call.
-write_backlog $'- [ ] ios-a - first iOS task (repo: alpha)\n- [ ] ios-b - dependent iOS task (repo: alpha) blocked-by: ios-a - waits'
+write_backlog $'- [ ] ios-a - first iOS task (repo: alpha) (priority: 2)\n- [ ] ios-b - dependent iOS task (repo: alpha) (priority: 2) blocked-by: ios-a - waits'
 : > "$SSH_COUNT"
 set +e
 FM_FAKE_SSH_MODE=after-receive handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios ios-a ios-b \
@@ -238,6 +296,7 @@ if ! grep -F ios-a "$REMOTE/data/backlog.md" >/dev/null; then
   fail "remote atomic receipt did not deliver ios-a before the dropped acknowledgement"
 fi
 assert_grep 'ios-b' "$REMOTE/data/backlog.md" "remote atomic receipt did not deliver ios-b before the dropped acknowledgement"
+assert_grep 'ios-a - first iOS task (repo: alpha) (priority: 2)' "$REMOTE/data/backlog.md" "remote receipt did not preserve structured priority"
 [ "$(cat "$SSH_COUNT")" -eq 2 ] || fail "transport retried an ambiguously completed command"
 pass "ambiguous receipt leaves one durable outbox and no duplicate dispatchable source"
 
@@ -256,7 +315,7 @@ pass "re-delivery after unknown completion converges without duplication"
 # cannot apply half a backlog mutation. The next explicit recovery overwrites
 # that scratch and receives it normally.
 rm -f "$REMOTE/data/backlog.md"
-write_backlog '- [ ] transfer-cut - survives a dropped transfer (repo: alpha)'
+write_backlog '- [ ] transfer-cut - survives a dropped transfer (repo: alpha) (priority: 2)'
 : > "$SSH_COUNT"
 set +e
 FM_FAKE_SSH_MODE=after-put handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios transfer-cut \
@@ -276,7 +335,7 @@ pass "dropped transfer recovery overwrites scratch and delivers exactly once"
 
 rm -f "$REMOTE/data/backlog.md" "$TMP_ROOT/serialize.entered" "$TMP_ROOT/serialize.release"
 rm -rf "$TMP_ROOT/serialize.once"
-write_backlog '- [ ] serialized-a - first concurrent handoff (repo: alpha)'
+write_backlog '- [ ] serialized-a - first concurrent handoff (repo: alpha) (priority: 2)'
 FM_FAKE_SSH_MODE=serialize handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios serialized-a \
   > "$TMP_ROOT/serialized-a.out" 2>&1 &
 handoff_a=$!
@@ -287,7 +346,7 @@ while [ ! -f "$TMP_ROOT/serialize.entered" ]; do
   [ "$wait_for_serialization" -le 250 ] || fail "first serialized handoff never reached receipt"
   sleep 0.02
 done
-write_backlog '- [ ] serialized-b - second concurrent handoff (repo: alpha)'
+write_backlog '- [ ] serialized-b - second concurrent handoff (repo: alpha) (priority: 2)'
 FM_FAKE_SSH_MODE=serialize handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios serialized-b \
   > "$TMP_ROOT/serialized-b.out" 2>&1 &
 handoff_b=$!
@@ -309,7 +368,7 @@ pass "concurrent handoffs serialize staging through confirmed cleanup"
 # A stale tasks-axi lock is removed only on the destination host after the first
 # move refusal proves a retry is needed. The dead pid and age satisfy the same
 # conservative procedure tasks-axi prints.
-write_backlog '- [ ] stale-lock-item - remote stale lock recovery (repo: alpha)'
+write_backlog '- [ ] stale-lock-item - remote stale lock recovery (repo: alpha) (priority: 2)'
 printf '999999:abandoned:0:1\n' > "$REMOTE/data/backlog.md.lock"
 if [ "$(uname 2>/dev/null)" = Darwin ]; then
   touch -t 202001010000 "$REMOTE/data/backlog.md.lock"
@@ -323,7 +382,7 @@ assert_absent "$REMOTE/data/backlog.md.lock" "stale destination lock survived su
 pass "receiver removes one proven dead stale lock and retries once"
 
 # Unreachable delivery keeps the backlog-format outbox visible to bootstrap.
-write_backlog '- [ ] pending-offline - waits for the remote Mac (repo: alpha)'
+write_backlog '- [ ] pending-offline - waits for the remote Mac (repo: alpha) (priority: 2)'
 set +e
 FM_FAKE_SSH_MODE=unreachable handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios pending-offline \
   > "$TMP_ROOT/offline.out" 2>&1
@@ -338,7 +397,7 @@ handoff_env "$ROOT/bin/fm-backlog-handoff.sh" --resume-pending >/dev/null \
   || fail "pending bootstrap-visible outbox did not later converge"
 pass "bootstrap detects pending outbox handoffs without a journal"
 
-write_backlog '- [ ] remote-wake-fail - receiver failure stays recoverable (repo: alpha)'
+write_backlog '- [ ] remote-wake-fail - receiver failure stays recoverable (repo: alpha) (priority: 2)'
 set +e
 FM_FAKE_REMOTE_WAKE_RC=1 handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios remote-wake-fail \
   > "$TMP_ROOT/remote-wake-fail.out" 2>&1
@@ -367,7 +426,7 @@ fi
 exec "$FM_REAL_RM" "$@"
 SH
 chmod +x "$RM_FAKEBIN/rm"
-write_backlog '- [ ] cleanup-retry - confirmed wake survives cleanup retry (repo: alpha)'
+write_backlog '- [ ] cleanup-retry - confirmed wake survives cleanup retry (repo: alpha) (priority: 2)'
 wakes_before=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
 set +e
 PATH="$RM_FAKEBIN:$PATH" FM_REAL_RM="$REAL_RM" \
@@ -386,7 +445,7 @@ esac
 wakes_after=$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")
 [ "$wakes_after" -eq $((wakes_before + 1)) ] \
   || fail "remote cleanup failure did not perform exactly one receiver wake"
-write_backlog '- [ ] after-cleanup - fresh work after confirmed cleanup failure (repo: alpha)'
+write_backlog '- [ ] after-cleanup - fresh work after confirmed cleanup failure (repo: alpha) (priority: 2)'
 handoff_env "$ROOT/bin/fm-backlog-handoff.sh" ios after-cleanup >/dev/null \
   || fail "fresh handoff did not converge an older confirmed cleanup failure"
 [ "$(grep -cF fm-remote-secondmate-control.sh "$WAKE_LOG")" -eq $((wakes_after + 1)) ] \
@@ -401,7 +460,7 @@ assert_absent "$PARENT/state/.backlog-handoff-ios.wake-pending" \
   "fresh handoff left confirmed wake state behind"
 pass "fresh remote work gets a new wake after confirmed cleanup recovery"
 
-write_backlog '- [ ] route-race - remains dispatchable through retirement (repo: alpha)'
+write_backlog '- [ ] route-race - remains dispatchable through retirement (repo: alpha) (priority: 2)'
 registry_lock="$PARENT/state/.secondmate-registry.lock"
 handoff_lock="$PARENT/state/.backlog-handoff-ios.lock"
 FM_HOME="$PARENT" /bin/bash -c '
