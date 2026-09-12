@@ -1886,6 +1886,95 @@ SH
   pass "the portable timeout path force-kills a command that ignores TERM"
 }
 
+make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
+  local dir=$1 tb="$1/notimeoutbin" tool real
+  mkdir -p "$tb"
+  for tool in bash perl ps sleep kill env sed awk tr; do
+    real=$(command -v "$tool" || true)
+    [ -n "$real" ] || fail "missing tool for no-timeout path: $tool"
+    ln -s "$real" "$tb/$tool"
+  done
+  printf '%s\n' "$tb"
+}
+
+test_abnormal_parent_does_not_leave_real_helper_descendants() {
+  local driver="$TMP_ROOT/abnormal-parent-driver.sh" pids_file parent helper_pid shell_pid pgid
+  local mode label alive=0 stat comm group_count perl_toolbin mechanism
+  perl_toolbin=$(make_no_timeout_toolbin "$TMP_ROOT/abnormal-parent-perl-fixture")
+  mechanism=$(PATH="$perl_toolbin" bash -c ". \"$ROOT/bin/fm-timeout-lib.sh\"; fm_timeout_mechanism")
+  [ "$mechanism" = perl ] || fail "no-timeout PATH fixture did not select perl mechanism (got $mechanism)"
+  cat > "$driver" <<'SH'
+#!/usr/bin/env bash
+set -u
+. "$1"
+fm_run_timed 30 bash -c '
+  shell_pid=$BASHPID
+  printf "%s\n" "$shell_pid" > "$1"
+  printf "%s\n" "$(ps -o pgid= -p "$shell_pid" | tr -d '[:space:]')" >> "$1"
+  sleep 600 &
+  helper_pid=$!
+  printf "%s\n" "$helper_pid" >> "$1"
+  wait "$helper_pid"
+' _ "$2"
+SH
+  chmod +x "$driver"
+
+  for mode in default bash perl; do
+    pids_file="$TMP_ROOT/abnormal-parent-$mode.pids"
+    if [ "$mode" = default ]; then
+      label=external
+      env_args=()
+    elif [ "$mode" = bash ]; then
+      label=pure-bash
+      env_args=(FM_TIMEOUT_MECHANISM_OVERRIDE=bash)
+    else
+      label=perl
+      env_args=(PATH="$perl_toolbin")
+    fi
+    env "${env_args[@]}" "$driver" "$ROOT/bin/fm-timeout-lib.sh" "$pids_file" >"$TMP_ROOT/abnormal-parent-$mode.out" 2>&1 &
+    parent=$!
+    for _ in {1..100}; do
+      [ -s "$pids_file" ] && [ "$(wc -l < "$pids_file" | tr -d ' ')" -eq 3 ] && break
+      sleep 0.02
+    done
+    [ -s "$pids_file" ] || fail "$label timeout did not start the real helper fixture"
+    [ "$(wc -l < "$pids_file" | tr -d ' ')" -eq 3 ] || fail "$label timeout did not record both real process IDs and their process group"
+    shell_pid=$(sed -n '1p' "$pids_file")
+    pgid=$(sed -n '2p' "$pids_file")
+    helper_pid=$(sed -n '3p' "$pids_file")
+    [ -n "$pgid" ] || fail "$label timeout fixture did not expose its process group"
+    comm=$(ps -o comm= -p "$helper_pid" 2>/dev/null | tr -d ' ')
+    [ "$comm" = sleep ] || fail "$label timeout fixture did not observe a real sleep helper (comm=$comm)"
+    kill -0 "$helper_pid" 2>/dev/null || fail "$label timeout helper exited before the abnormal-parent kill"
+
+    kill -KILL "$parent"
+    wait "$parent" 2>/dev/null || true
+    alive=1
+    group_count=1
+    for _ in {1..100}; do
+      alive=0
+      while read -r pid; do
+        [ -n "$pid" ] || continue
+        [ "$pid" = "$pgid" ] && continue
+        stat=$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]')
+        case "$stat" in
+          ''|Z*) ;;
+          *) alive=1 ;;
+        esac
+      done < "$pids_file"
+      group_count=$(ps -eo pgid= | awk -v group="$pgid" '$1 == group { count++ } END { print count + 0 }')
+      [ "$alive" -eq 0 ] && [ "$group_count" -eq 0 ] && break
+      sleep 0.02
+    done
+    [ "$alive" -eq 0 ] && [ "$group_count" -eq 0 ] || {
+      ps -o pid,ppid,pgid,sid,stat,comm -p "$shell_pid,$helper_pid" >&2 || true
+      fail "$label timeout left a real helper descendant or process-group member after its parent was SIGKILLed"
+    }
+  done
+
+  pass "abnormal parent death reaps real helper descendants through external, pure-Bash, and perl timeout paths"
+}
+
 test_runtime_bound_leaves_a_healthy_digest_untouched() {
   local rec root home fakebin out
   rec=$(new_world runtime-bound-healthy)
@@ -2792,6 +2881,7 @@ test_pi_diagnostic_rejects_missing_turnend_guard_marker
 test_pi_diagnostic_rejects_previous_session_loaded_marker
 test_runtime_bound_truncates_loudly_and_exits_zero
 test_portable_timeout_escalates_term_resistant_process
+test_abnormal_parent_does_not_leave_real_helper_descendants
 test_runtime_bound_leaves_a_healthy_digest_untouched
 test_runtime_bound_leaves_harness_ancestry_headroom
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain

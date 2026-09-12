@@ -91,7 +91,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-nm-recover.sh`       | Read structured no-mistakes status and apply only its guarded terminal custody recovery |
 | [`fm-nm-pr-preflight.sh`](../bin/fm-nm-pr-preflight.sh) | Check Firstmate PR communication before pipeline delivery |
 | `fm-tangle-lib.sh`       | Shared default-branch resolution and primary-checkout tangle classification          |
-| `fm-timeout-lib.sh`      | Single owner of hard-bounded command execution and its fallback watchdog |
+| `fm-timeout-lib.sh`      | Single owner of hard-bounded command execution: process-group timeout escalation and caller-death helper cleanup across timeout, gtimeout, perl, and bash mechanisms |
 | `fm-repo-slug-lib.sh`    | Single owner of the GitHub remote/PR URL to `owner/repo` parse shared by bearings and the PR conflict watch |
 | `fm-timing-lib.sh`       | Single owner of the deferred network stage's per-step elapsed-time records, inert unless a run asks for them |
 | `fm-supervision-lib.sh`  | Shared in-flight-work-without-fresh-watcher-beacon predicate                         |
