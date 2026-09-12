@@ -379,11 +379,15 @@ test_portable_shard_union_and_coverage_guard() {
   [ "$(printf '%s\n' "$s1" "$s2" | LC_ALL=C sort -u)" = \
     "$(printf '%s\n' "$proven" | LC_ALL=C sort -u)" ] \
     || fail "shard union must equal proven-isolated set"
-  # No herdr in portable lanes.
+  # No real-Herdr E2E in portable lanes.
   printf '%s\n' "$s1" "$s2" "$serial" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
     && fail "portable lanes must not include real-herdr-gated smoke"
   printf '%s\n' "$herdr" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
     || fail "herdr family must include smoke"
+  printf '%s\n' "$s1" "$s2" "$serial" | grep -Fq 'tests/fm-backend-herdr-focus-flash-e2e.test.sh' \
+    && fail "portable lanes must not include the real-Herdr focus E2E"
+  printf '%s\n' "$herdr" | grep -Fq 'tests/fm-backend-herdr-focus-flash-e2e.test.sh' \
+    || fail "herdr family must include the real-Herdr focus E2E"
   out=$("$RUNNER" --check-coverage)
   assert_contains "$out" "FM_TEST_COVERAGE ok" "coverage guard success marker"
   all_count=$("$RUNNER" --list --all | wc -l | tr -d ' ')

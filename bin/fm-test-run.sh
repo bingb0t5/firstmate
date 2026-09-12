@@ -165,6 +165,7 @@ family_for_basename() {
       ;;
     fm-afk-inject-herdr-e2e.test.sh|fm-afk-launch.test.sh|fm-backend-autodetect-smoke.test.sh|\
     fm-backend-herdr-eventwait-smoke.test.sh|fm-backend-herdr-presentation-e2e.test.sh|\
+    fm-backend-herdr-focus-flash-e2e.test.sh|\
     fm-backend-herdr-launcher-workspace-e2e.test.sh|\
     fm-backend-herdr-prune-safety-e2e.test.sh|fm-backend-herdr-respawn-idem-e2e.test.sh|\
     fm-herdr-session-cleanup-e2e.test.sh|\
@@ -393,7 +394,6 @@ tests/fm-afk-return.test.sh 2174
 tests/fm-ask-user-authority.test.sh 98
 tests/fm-backend-cmux-smoke.test.sh 33
 tests/fm-backend-cmux.test.sh 3419
-tests/fm-backend-herdr-focus-flash-e2e.test.sh 22
 tests/fm-backend-orca.test.sh 17002
 tests/fm-backend-tmux-smoke.test.sh 669
 tests/fm-backend-zellij-smoke.test.sh 17
