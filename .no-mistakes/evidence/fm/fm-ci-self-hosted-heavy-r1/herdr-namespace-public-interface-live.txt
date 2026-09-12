@@ -1,0 +1,8 @@
+effective_uid=1001
+resolved_namespace=/tmp/firstmate-herdr-presentation-1001
+legacy_namespace=/tmp/firstmate-herdr-presentation
+PASS default: current effective UID resolves to its suffixed namespace, not legacy
+PASS owned-0700-directory: accepted
+PASS symlink: rejected
+PASS non-directory: rejected
+PASS wrong-mode-0755: rejected

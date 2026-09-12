@@ -1,0 +1,14 @@
+{
+  "scenario": "Herdr presentation namespace live public-interface validation",
+  "effective_uid": 1001,
+  "lab_session": "{\"name\":\"fm-lab-ci67-namespace-923855-16730\",\"running\":true,\"default\":false,\"socket_path\":\"/home/rich/.config/herdr/sessions/fm-lab-ci67-namespace-923855-16730/herdr.sock\"}",
+  "resolved_namespace": "/tmp/firstmate-herdr-presentation-1001",
+  "legacy_namespace_reused": false,
+  "namespace_owner_uid": 1001,
+  "namespace_mode": 700,
+  "session_lock_path": "/tmp/firstmate-herdr-presentation-1001/order-a63431ec8d348c0688d4529c7df1c7e0.lock",
+  "owned_selected_namespace": "accepted",
+  "symlink_selected_namespace": "rejected",
+  "regular_file_selected_namespace": "rejected",
+  "default_session_tripwire": "preserved by guarded lab teardown"
+}

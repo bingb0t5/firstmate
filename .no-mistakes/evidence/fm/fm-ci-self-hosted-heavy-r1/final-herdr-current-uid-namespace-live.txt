@@ -1,0 +1,8 @@
+scenario=real_named_herdr_lab_current_uid_namespace
+session=fm-lab-nm-final-namespa-997883-800
+uid=1001
+legacy_namespace=/tmp/firstmate-herdr-presentation
+selected_namespace=/tmp/firstmate-herdr-presentation-1001
+namespace_owner_mode=1001:700
+public_lock_path=/tmp/firstmate-herdr-presentation-1001/order-207a4c8e89df4fd00361830b7ba3fa6f.lock
+result=PASS

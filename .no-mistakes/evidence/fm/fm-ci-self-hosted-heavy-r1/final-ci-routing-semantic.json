@@ -1,0 +1,36 @@
+{
+  "conditions_unchanged_from_base": [
+    "tests-portable-serial",
+    "tests-herdr"
+  ],
+  "contract": "GitHub Actions workflow semantic routing",
+  "herdr": {
+    "runner_labels": [
+      "self-hosted",
+      "linux",
+      "firstmate"
+    ]
+  },
+  "macos_stock_bash_if": "github.event_name == 'workflow_dispatch'",
+  "portable_parallel": {
+    "one": "ubuntu-latest",
+    "two": "ubuntu-latest"
+  },
+  "result": "PASS",
+  "serial": {
+    "node_setup_versions": [
+      "22"
+    ],
+    "runner_labels": [
+      "self-hosted",
+      "linux",
+      "firstmate"
+    ],
+    "shards": [
+      1,
+      2,
+      3,
+      4
+    ]
+  }
+}

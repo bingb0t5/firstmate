@@ -1,0 +1,40 @@
+{
+  "consumer": "GitHub Actions workflow semantic model",
+  "tests-portable-serial": {
+    "runner_labels": [
+      "self-hosted",
+      "linux",
+      "firstmate"
+    ],
+    "matrix_shards": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "condition": "github.event_name != 'pull_request' || github.event.action == 'ready_for_review'",
+    "node_version": 22
+  },
+  "tests-herdr": {
+    "runner_labels": [
+      "self-hosted",
+      "linux",
+      "firstmate"
+    ],
+    "condition": "github.event_name != 'pull_request' || github.event.action == 'ready_for_review'"
+  },
+  "portable_parallel": {
+    "one": {
+      "runner": "ubuntu-latest",
+      "condition": "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+    },
+    "two": {
+      "runner": "ubuntu-latest",
+      "condition": "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+    }
+  },
+  "stock_macos_bash": {
+    "runner": "macos-latest",
+    "condition": "github.event_name == 'workflow_dispatch'"
+  }
+}
