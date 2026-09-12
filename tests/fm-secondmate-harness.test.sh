@@ -275,6 +275,55 @@ SH
   pass "harness identity: dash-leading ps command names are basename operands, not options"
 }
 
+test_harness_detection_reaches_wrapped_codex_ancestor() {
+  local dir got
+  dir="$TMP_ROOT/deep-codex-ancestry"
+  mkdir -p "$dir"
+  # A copied Bash executable named codex gives this portable process-tree test
+  # a real codex-named ancestor without substituting `ps` output. Seven wrapper
+  # shells put that ancestor at depth nine, like the Codex SessionStart hook.
+  cp "$(command -v bash)" "$dir/codex"
+  cat > "$dir/layer.sh" <<'SH'
+#!/usr/bin/env bash
+n=$1
+if [ "$n" -eq 0 ]; then
+  env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u CODEX_VERSION -u CODEX_CI \
+    -u CODEX_SESSION_ID -u CODEX_THREAD_ID \
+    FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT_OVERRIDE" \
+    "$FM_ROOT_OVERRIDE/bin/fm-harness.sh"
+  else
+    bash "$0" "$((n - 1))"
+  fi
+SH
+  chmod +x "$dir/layer.sh"
+  # shellcheck disable=SC2016 # The copied Bash process evaluates the positional chain parameters.
+  got=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u CODEX_VERSION -u CODEX_CI \
+    -u CODEX_SESSION_ID -u CODEX_THREAD_ID \
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$dir/codex" -c 'bash "$1" 6' _ "$dir/layer.sh")
+  [ "$got" = codex ] || fail "Codex at process ancestry depth nine resolved '$got', expected codex"
+
+  local fakebin
+  fakebin=$(fm_fakebin "$dir/missing")
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *'ppid='*) printf '%s\n' 1 ;;
+  *'comm='*) printf '%s\n' bash ;;
+  *'args='*) printf '%s\n' bash ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
+  got=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u CODEX_VERSION -u CODEX_CI \
+    -u CODEX_SESSION_ID -u CODEX_THREAD_ID -u CODEX_AGENT \
+    PATH="$fakebin:$BASE_PATH" "$ROOT/bin/fm-harness.sh")
+  [ "$got" = unknown ] || fail "missing harness identity resolved '$got', expected unknown"
+  pass "fm-harness: wrapped Codex ancestry is detected and absent identity remains unknown"
+}
+
 # ===========================================================================
 # B) propagate_inheritable_config unit behavior
 # ===========================================================================
@@ -2591,6 +2640,7 @@ test_cursor_marker_detection
 test_secondmate_model_effort_tokens
 test_pi_signed_detection_and_session_lock_identity
 test_dash_leading_process_names_are_basename_operands
+test_harness_detection_reaches_wrapped_codex_ancestor
 test_propagate_lib
 test_spawn_split_and_inherit
 test_spawn_backward_compat_crew_fallback
