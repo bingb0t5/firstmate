@@ -46,6 +46,7 @@ The following manifest represents the 2026-09-12 admin production cut without ma
 The previous live commit can remain incident evidence or a rollback reference, but it is not an accepted commit for a new manifest unless explicitly selected as `intended_commit`.
 A Render target uses `service_id` and optional `deploy_id` instead of `app_id`.
 Provider-specific status and build paths already used by an operator can be supplied as `status_url` and `build_id_url`.
+A `build_id_url` response may be plain text or JSON with a `build` or `build_id` field.
 
 ## Credentials and ledger sources
 
@@ -67,7 +68,7 @@ It never contains provider credentials.
 `app=healthy migration=verified` is the only complete result.
 `app=healthy migration=unverified` means the application is live at the intended build but the migration receipt is missing or unavailable.
 `waiting` means deployment or migration receipt evidence is not yet observable.
-During rollout, a provider status that looks complete while the deployed commit is still empty stays waiting rather than mismatch.
+During rollout, a provider status that looks complete before the deployed commit is an observable SHA stays waiting rather than mismatch.
 A stale build id also stays waiting until the commit is observable, and again while the commit already matches `intended_commit` but the build id has not yet caught up.
 `mismatch` is reported only once the observable commit or build id definitively differs from the manifest, or when deployment status or migration commit evidence conflicts.
 The audit action prints the current result and exits nonzero unless the complete result is present.

@@ -535,7 +535,9 @@ The manifest schema, provider paths, credential-source rules, audit outcomes, an
 
 Arm once per home with `FM_HOME=/path/to/firstmate-home bin/fm-release-receipt-check.sh arm`.
 That writes `state/release-receipt.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the existing watcher polls the release without creating a scheduler or control plane.
+The operator-home registration path is `FM_HOME=/path/to/firstmate-home bin/fm-release-receipt-check.sh arm`; it never creates private registration artifacts in the repository.
 `bin/fm-release-receipt-check.sh disarm` removes the watcher check and durable receipt.
+The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required.
 The armed check reports changed deployment or migration outcomes once and retains the redacted latest receipt in `state/.release-receipt`.
 
 `app=healthy migration=verified` is the only complete outcome.
