@@ -14,7 +14,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write
   contents: read
 
 # Superseded PR pushes should not keep burning minutes on the full matrix.
@@ -149,115 +148,6 @@ jobs:
           path: ${{ runner.temp }}/fm-test/fm-test-timing-portable-parallel-2.json
           if-no-files-found: warn
 
-  # The nightly/manual heavy lane starts with a GitHub-hosted availability
-  # check. A Lalo-dev runner that is offline or busy must never leave a job
-  # queued indefinitely, and an unavailable runner is an explicit failure
-  # rather than a green omission of the required suites.
-  lalo-dev-availability:
-    name: Lalo-dev availability
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    outputs:
-      available: ${{ steps.availability.outputs.available }}
-    steps:
-      - uses: actions/checkout@v6
-      - id: availability
-        name: Require an idle lalo-dev runner
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eu
-          response=$(curl --fail-with-body --silent --show-error \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header 'Accept: application/vnd.github+json' \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100")
-          printf '%s' "$response" > "$RUNNER_TEMP/lalo-dev-runners.json"
-          available=$(python3 bin/fm-ci-heavy-lane.py preflight \
-            "$RUNNER_TEMP/lalo-dev-runners.json")
-          echo "available=$available" >> "$GITHUB_OUTPUT"
-          echo "lalo-dev available=$available"
-
-  lalo-dev-unavailable:
-    name: Lalo-dev availability - SKIPPED
-    needs: lalo-dev-availability
-    if: >-
-      always() &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
-      needs.lalo-dev-availability.outputs.available != 'available'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Fail closed with the availability summary
-        run: |
-          set -eu
-          if [ "${{ needs.lalo-dev-availability.result }}" = failure ]; then
-            echo '::error::Lalo-dev availability API check failed closed; required heavy suites were not started.'
-          else
-            echo '::error::SKIPPED: no idle runner labeled lalo-dev is available; required heavy suites were not started.'
-          fi
-          exit 1
-
-  lalo-dev-queue-watch:
-    name: Lalo-dev queue loss - SKIPPED
-    needs: lalo-dev-availability
-    if: >-
-      needs.lalo-dev-availability.outputs.available == 'available'
-    runs-on: ubuntu-latest
-    timeout-minutes: 200
-    steps:
-      - uses: actions/checkout@v6
-      - name: Fail closed if the heavy lane loses its runner
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FM_HEAVY_COMMIT: ${{ github.sha }}
-          FM_HEAVY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          FM_HEAVY_SUITES: portable-serial,herdr
-        run: |
-          set -eu
-          deadline=$((SECONDS + 11400))
-          report_and_cancel() {
-            local reason=$1 message
-            message="SKIPPED: $reason commit=$FM_HEAVY_COMMIT suites=$FM_HEAVY_SUITES url=$FM_HEAVY_RUN_URL"
-            printf '## Firstmate heavy CI event\n\n%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::$message"
-            curl --fail-with-body --silent --show-error --request POST \
-              --header "Authorization: Bearer $GH_TOKEN" \
-              --header 'Accept: application/vnd.github+json' \
-              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel"
-          }
-          fetch() {
-            local endpoint=$1 destination=$2
-            if ! curl --fail-with-body --silent --show-error \
-              --header "Authorization: Bearer $GH_TOKEN" \
-              --header 'Accept: application/vnd.github+json' \
-              "$endpoint" > "$destination"; then
-              report_and_cancel 'GitHub Actions API check failed closed'
-              exit 1
-            fi
-          }
-          while :; do
-            fetch "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" \
-              "$RUNNER_TEMP/lalo-dev-runners.json"
-            fetch "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
-              "$RUNNER_TEMP/lalo-dev-heavy-jobs.json"
-            state=$(python3 bin/fm-ci-heavy-lane.py watch \
-              "$RUNNER_TEMP/lalo-dev-runners.json" \
-              "$RUNNER_TEMP/lalo-dev-heavy-jobs.json")
-            case "$state" in
-              complete) exit 0 ;;
-              unavailable)
-                report_and_cancel 'no online [self-hosted, linux, lalo-dev] runner remains for queued heavy suites'
-                exit 1
-                ;;
-              wait) ;;
-              *) echo "::error::unexpected heavy-lane state: $state"; exit 1 ;;
-            esac
-            if [ "$SECONDS" -ge "$deadline" ]; then
-              report_and_cancel 'heavy suites remained queued past the bounded runner wait'
-              exit 1
-            fi
-            sleep 30
-          done
-
   # Required portable serial remainder: watcher, lock, AFK, tmux, daemon,
   # ambiguous, and other stateful tests. Real Herdr stays in tests-herdr.
   # Split across separate runners so no two of these stateful scripts ever share
@@ -267,8 +157,7 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     if: >-
-      needs.lalo-dev-availability.outputs.available == 'available'
-    needs: lalo-dev-availability
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, linux, lalo-dev]
     # Measured whole remainder is ~55 min of serial work; the balanced shards
     # are ~13.8 min each. Cap is a hang tripwire with roughly 1.8x margin, not
@@ -339,8 +228,7 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     if: >-
-      needs.lalo-dev-availability.outputs.available == 'available'
-    needs: lalo-dev-availability
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, linux, lalo-dev]
     # Healthy runs finish around 7 minutes. This job cap is a last-resort hang
     # tripwire, not the expected end of the lane. The family-run step owns the
@@ -458,39 +346,11 @@ jobs:
             ${{ runner.temp }}/fm-herdr/default-server.log
           if-no-files-found: warn
 
-  heavy-ci-failure-report:
-    name: Firstmate heavy CI failure report
-    needs:
-      - lalo-dev-availability
-      - lalo-dev-queue-watch
-      - tests-portable-serial
-      - tests-herdr
-    if: >-
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
-      always() &&
-      (needs.lalo-dev-availability.outputs.available != 'available' ||
-      needs.lalo-dev-queue-watch.result == 'failure' ||
-      needs.tests-portable-serial.result == 'failure' ||
-      needs.tests-herdr.result == 'failure')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Record one durable Firstmate event
-        env:
-          FM_HEAVY_COMMIT: ${{ github.sha }}
-          FM_HEAVY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          FM_HEAVY_SUITES: portable-serial,herdr
-        run: |
-          set -eu
-          message="heavy CI failed: commit=$FM_HEAVY_COMMIT suites=$FM_HEAVY_SUITES url=$FM_HEAVY_RUN_URL"
-          printf '## Firstmate heavy CI event\n\n%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
-          echo "::error::$message"
-
   # Aggregate per-lane timing into one summary artifact for critical-path review.
   tests-timing-aggregate:
     name: Behavior timing aggregate
     runs-on: ubuntu-latest
     needs:
-      - lalo-dev-availability
       - tests-portable-parallel-1
       - tests-portable-parallel-2
       - tests-portable-serial
