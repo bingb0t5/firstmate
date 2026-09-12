@@ -227,6 +227,18 @@ test_changed_stale_fingerprint_alerts_again() {
   pass "new stale run fingerprint alerts again"
 }
 
+test_run_unavailable_reports_failure() {
+  local home out
+  make_home run-unavailable
+  home=$MADE_HOME
+  printf '{"status":"ok"}\n' > "$FM_REGISTRY_FIXTURE"
+  out="$home/out"
+  run_registry "$home" run "$FM_REGISTRY_FIXTURE" "$out"
+  assert_contains "$(cat "$out")" 'automation health unavailable' \
+    "run did not report unavailable registry"
+  pass "run reports unavailable registry"
+}
+
 test_registry_report_lists_open_failure() {
   local home out report
   make_home registry-open-failure
@@ -295,6 +307,7 @@ test_lifecycle_uses_registry_and_receipt_schema
 test_registry_report_lists_canonical_health_metrics
 test_stale_heartbeat_alerts_once_per_fingerprint
 test_changed_stale_fingerprint_alerts_again
+test_run_unavailable_reports_failure
 test_registry_report_lists_open_failure
 test_armed_check_alerts_once_per_fingerprint
 test_arm_registers_the_stale_heartbeat_runner

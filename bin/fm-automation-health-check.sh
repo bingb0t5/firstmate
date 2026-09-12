@@ -575,6 +575,7 @@ action_run() {
   load_settings
   if [ -z "$REGISTRY_URL" ] || ! request GET '' || ! registry_shape_valid "$json_body"; then
     cleanup_request
+    printf '%s\n' 'automation health unavailable'
     return 0
   fi
   process_stale_body "$json_body"
