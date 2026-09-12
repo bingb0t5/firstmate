@@ -1,0 +1,324 @@
+0 verbose cli /home/rich/.local/share/cursor-agent/versions/2026.09.10-fd3934a/node /home/rich/.nvm/versions/node/v22.23.2/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.8
+2 info using node@v24.5.0
+3 silly config load:file:/home/rich/.nvm/versions/node/v22.23.2/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M29XPWT9WNPZB3EWD8JRJS6G/.npmrc
+5 silly config load:file:/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npmrc
+6 silly config load:file:/home/rich/.local/share/cursor-agent/versions/etc/npmrc
+7 verbose title npm exec tsx /home/rich/firstmate/projects/mrbeanz-brains/scripts/n8n-ops.ts compare --repo /home/rich/firstmate/projects/mrbeanz-brains --output-json /tmp/fm-system-map.RYlIwj/n8n.json
+8 verbose argv "exec" "--yes" "--" "tsx" "/home/rich/firstmate/projects/mrbeanz-brains/scripts/n8n-ops.ts" "compare" "--repo" "/home/rich/firstmate/projects/mrbeanz-brains" "--output-json" "/tmp/fm-system-map.RYlIwj/n8n.json"
+9 verbose logfile logs-max:10 dir:/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_logs/2026-09-12T05_35_00_018Z-
+10 verbose logfile /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_logs/2026-09-12T05_35_00_018Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+13 http fetch GET 200 https://registry.npmjs.org/tsx 78ms (cache miss)
+14 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+15 http fetch GET 200 https://registry.npmjs.org/npm 141ms
+16 verbose Could not read global path /home/rich/.local/share/cursor-agent/versions/lib, ignoring
+17 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+18 silly idealTree buildDeps
+19 silly fetch manifest tsx@4.23.13
+20 silly packumentCache full:https://registry.npmjs.org/tsx cache-miss
+21 http fetch GET 200 https://registry.npmjs.org/tsx 43ms (cache miss)
+22 silly packumentCache full:https://registry.npmjs.org/tsx set size:undefined disposed:false
+23 silly placeDep ROOT tsx@4.23.13 OK for:  want: 4.23.13
+24 silly fetch manifest esbuild@~0.28.0
+25 silly packumentCache full:https://registry.npmjs.org/esbuild cache-miss
+26 silly fetch manifest fsevents@~2.3.3
+27 silly packumentCache full:https://registry.npmjs.org/fsevents cache-miss
+28 http fetch GET 200 https://registry.npmjs.org/fsevents 31ms (cache miss)
+29 silly packumentCache full:https://registry.npmjs.org/fsevents set size:undefined disposed:false
+30 http fetch GET 200 https://registry.npmjs.org/esbuild 90ms (cache miss)
+31 silly packumentCache full:https://registry.npmjs.org/esbuild set size:undefined disposed:false
+32 silly placeDep ROOT esbuild@0.28.2 OK for: tsx@4.23.13 want: ~0.28.0
+33 silly placeDep ROOT fsevents@2.3.3 OK for: tsx@4.23.13 want: ~2.3.3
+34 silly fetch manifest @esbuild/aix-ppc64@0.28.2
+35 silly packumentCache full:https://registry.npmjs.org/@esbuild%2faix-ppc64 cache-miss
+36 silly fetch manifest @esbuild/linux-arm@0.28.2
+37 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-arm cache-miss
+38 silly fetch manifest @esbuild/linux-x64@0.28.2
+39 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-x64 cache-miss
+40 silly fetch manifest @esbuild/sunos-x64@0.28.2
+41 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fsunos-x64 cache-miss
+42 silly fetch manifest @esbuild/win32-x64@0.28.2
+43 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-x64 cache-miss
+44 silly fetch manifest @esbuild/darwin-x64@0.28.2
+45 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fdarwin-x64 cache-miss
+46 silly fetch manifest @esbuild/linux-ia32@0.28.2
+47 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-ia32 cache-miss
+48 silly fetch manifest @esbuild/netbsd-x64@0.28.2
+49 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fnetbsd-x64 cache-miss
+50 silly fetch manifest @esbuild/win32-ia32@0.28.2
+51 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-ia32 cache-miss
+52 silly fetch manifest @esbuild/android-arm@0.28.2
+53 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-arm cache-miss
+54 silly fetch manifest @esbuild/android-x64@0.28.2
+55 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-x64 cache-miss
+56 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-arm 69ms (cache miss)
+57 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-arm set size:undefined disposed:false
+58 silly fetch manifest @esbuild/freebsd-x64@0.28.2
+59 silly packumentCache full:https://registry.npmjs.org/@esbuild%2ffreebsd-x64 cache-miss
+60 http fetch GET 200 https://registry.npmjs.org/@esbuild%2faix-ppc64 79ms (cache miss)
+61 silly packumentCache full:https://registry.npmjs.org/@esbuild%2faix-ppc64 set size:undefined disposed:false
+62 silly fetch manifest @esbuild/linux-arm64@0.28.2
+63 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-arm64 cache-miss
+64 http fetch GET 200 https://registry.npmjs.org/@esbuild%2ffreebsd-x64 97ms (cache miss)
+65 silly packumentCache full:https://registry.npmjs.org/@esbuild%2ffreebsd-x64 set size:undefined disposed:false
+66 silly fetch manifest @esbuild/linux-ppc64@0.28.2
+67 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-ppc64 cache-miss
+68 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-arm64 99ms (cache miss)
+69 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-arm64 set size:undefined disposed:false
+70 silly fetch manifest @esbuild/linux-s390x@0.28.2
+71 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-s390x cache-miss
+72 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fwin32-x64 184ms (cache miss)
+73 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-x64 set size:undefined disposed:false
+74 silly fetch manifest @esbuild/openbsd-x64@0.28.2
+75 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenbsd-x64 cache-miss
+76 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fdarwin-x64 185ms (cache miss)
+77 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fdarwin-x64 set size:undefined disposed:false
+78 silly fetch manifest @esbuild/win32-arm64@0.28.2
+79 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-arm64 cache-miss
+80 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-ia32 188ms (cache miss)
+81 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-ia32 set size:undefined disposed:false
+82 silly fetch manifest @esbuild/darwin-arm64@0.28.2
+83 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fdarwin-arm64 cache-miss
+84 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fandroid-x64 191ms (cache miss)
+85 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-x64 set size:undefined disposed:false
+86 silly fetch manifest @esbuild/netbsd-arm64@0.28.2
+87 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fnetbsd-arm64 cache-miss
+88 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fnetbsd-x64 197ms (cache miss)
+89 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fnetbsd-x64 set size:undefined disposed:false
+90 silly fetch manifest @esbuild/android-arm64@0.28.2
+91 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-arm64 cache-miss
+92 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-x64 202ms (cache miss)
+93 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-x64 set size:undefined disposed:false
+94 silly fetch manifest @esbuild/freebsd-arm64@0.28.2
+95 silly packumentCache full:https://registry.npmjs.org/@esbuild%2ffreebsd-arm64 cache-miss
+96 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fandroid-arm 200ms (cache miss)
+97 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-arm set size:undefined disposed:false
+98 silly fetch manifest @esbuild/linux-loong64@0.28.2
+99 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-loong64 cache-miss
+100 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fwin32-ia32 207ms (cache miss)
+101 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-ia32 set size:undefined disposed:false
+102 silly fetch manifest @esbuild/linux-riscv64@0.28.2
+103 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-riscv64 cache-miss
+104 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fsunos-x64 214ms (cache miss)
+105 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fsunos-x64 set size:undefined disposed:false
+106 silly fetch manifest @esbuild/openbsd-arm64@0.28.2
+107 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenbsd-arm64 cache-miss
+108 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-ppc64 51ms (cache miss)
+109 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-ppc64 set size:undefined disposed:false
+110 silly fetch manifest @esbuild/linux-mips64el@0.28.2
+111 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-mips64el cache-miss
+112 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-s390x 46ms (cache miss)
+113 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-s390x set size:undefined disposed:false
+114 silly fetch manifest @esbuild/openharmony-arm64@0.28.2
+115 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenharmony-arm64 cache-miss
+116 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fwin32-arm64 55ms (cache miss)
+117 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fwin32-arm64 set size:undefined disposed:false
+118 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fopenbsd-x64 59ms (cache miss)
+119 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenbsd-x64 set size:undefined disposed:false
+120 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fdarwin-arm64 74ms (cache miss)
+121 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fdarwin-arm64 set size:undefined disposed:false
+122 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fnetbsd-arm64 77ms (cache miss)
+123 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fnetbsd-arm64 set size:undefined disposed:false
+124 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fopenharmony-arm64 54ms (cache miss)
+125 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenharmony-arm64 set size:undefined disposed:false
+126 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fopenbsd-arm64 67ms (cache miss)
+127 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fopenbsd-arm64 set size:undefined disposed:false
+128 http fetch GET 200 https://registry.npmjs.org/@esbuild%2ffreebsd-arm64 81ms (cache miss)
+129 silly packumentCache full:https://registry.npmjs.org/@esbuild%2ffreebsd-arm64 set size:undefined disposed:false
+130 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-riscv64 75ms (cache miss)
+131 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-riscv64 set size:undefined disposed:false
+132 http fetch GET 200 https://registry.npmjs.org/@esbuild%2fandroid-arm64 90ms (cache miss)
+133 silly packumentCache full:https://registry.npmjs.org/@esbuild%2fandroid-arm64 set size:undefined disposed:false
+134 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-loong64 89ms (cache miss)
+135 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-loong64 set size:undefined disposed:false
+136 http fetch GET 200 https://registry.npmjs.org/@esbuild%2flinux-mips64el 75ms (cache miss)
+137 silly packumentCache full:https://registry.npmjs.org/@esbuild%2flinux-mips64el set size:undefined disposed:false
+138 silly placeDep ROOT @esbuild/aix-ppc64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+139 silly placeDep ROOT @esbuild/android-arm@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+140 silly placeDep ROOT @esbuild/android-arm64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+141 silly placeDep ROOT @esbuild/android-x64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+142 silly placeDep ROOT @esbuild/darwin-arm64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+143 silly placeDep ROOT @esbuild/darwin-x64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+144 silly placeDep ROOT @esbuild/freebsd-arm64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+145 silly placeDep ROOT @esbuild/freebsd-x64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+146 silly placeDep ROOT @esbuild/linux-arm@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+147 silly placeDep ROOT @esbuild/linux-arm64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+148 silly placeDep ROOT @esbuild/linux-ia32@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+149 silly placeDep ROOT @esbuild/linux-loong64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+150 silly placeDep ROOT @esbuild/linux-mips64el@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+151 silly placeDep ROOT @esbuild/linux-ppc64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+152 silly placeDep ROOT @esbuild/linux-riscv64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+153 silly placeDep ROOT @esbuild/linux-s390x@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+154 silly placeDep ROOT @esbuild/linux-x64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+155 silly placeDep ROOT @esbuild/netbsd-arm64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+156 silly placeDep ROOT @esbuild/netbsd-x64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+157 silly placeDep ROOT @esbuild/openbsd-arm64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+158 silly placeDep ROOT @esbuild/openbsd-x64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+159 silly placeDep ROOT @esbuild/openharmony-arm64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+160 silly placeDep ROOT @esbuild/sunos-x64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+161 silly placeDep ROOT @esbuild/win32-arm64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+162 silly placeDep ROOT @esbuild/win32-ia32@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+163 silly placeDep ROOT @esbuild/win32-x64@0.28.2 OK for: esbuild@0.28.2 want: 0.28.2
+164 silly reify moves {}
+165 silly audit bulk request {
+165 silly audit   tsx: [ '4.23.13' ],
+165 silly audit   esbuild: [ '0.28.2' ],
+165 silly audit   fsevents: [ '2.3.3' ],
+165 silly audit   '@esbuild/aix-ppc64': [ '0.28.2' ],
+165 silly audit   '@esbuild/android-arm': [ '0.28.2' ],
+165 silly audit   '@esbuild/android-arm64': [ '0.28.2' ],
+165 silly audit   '@esbuild/android-x64': [ '0.28.2' ],
+165 silly audit   '@esbuild/darwin-arm64': [ '0.28.2' ],
+165 silly audit   '@esbuild/darwin-x64': [ '0.28.2' ],
+165 silly audit   '@esbuild/freebsd-arm64': [ '0.28.2' ],
+165 silly audit   '@esbuild/freebsd-x64': [ '0.28.2' ],
+165 silly audit   '@esbuild/linux-arm': [ '0.28.2' ],
+165 silly audit   '@esbuild/linux-arm64': [ '0.28.2' ],
+165 silly audit   '@esbuild/linux-ia32': [ '0.28.2' ],
+165 silly audit   '@esbuild/linux-loong64': [ '0.28.2' ],
+165 silly audit   '@esbuild/linux-mips64el': [ '0.28.2' ],
+165 silly audit   '@esbuild/linux-ppc64': [ '0.28.2' ],
+165 silly audit   '@esbuild/linux-riscv64': [ '0.28.2' ],
+165 silly audit   '@esbuild/linux-s390x': [ '0.28.2' ],
+165 silly audit   '@esbuild/linux-x64': [ '0.28.2' ],
+165 silly audit   '@esbuild/netbsd-arm64': [ '0.28.2' ],
+165 silly audit   '@esbuild/netbsd-x64': [ '0.28.2' ],
+165 silly audit   '@esbuild/openbsd-arm64': [ '0.28.2' ],
+165 silly audit   '@esbuild/openbsd-x64': [ '0.28.2' ],
+165 silly audit   '@esbuild/openharmony-arm64': [ '0.28.2' ],
+165 silly audit   '@esbuild/sunos-x64': [ '0.28.2' ],
+165 silly audit   '@esbuild/win32-arm64': [ '0.28.2' ],
+165 silly audit   '@esbuild/win32-ia32': [ '0.28.2' ],
+165 silly audit   '@esbuild/win32-x64': [ '0.28.2' ]
+165 silly audit }
+166 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/win32-x64
+167 silly reify mark deleted [
+167 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/win32-x64'
+167 silly reify ]
+168 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/win32-ia32
+169 silly reify mark deleted [
+169 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/win32-ia32'
+169 silly reify ]
+170 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/win32-arm64
+171 silly reify mark deleted [
+171 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/win32-arm64'
+171 silly reify ]
+172 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/sunos-x64
+173 silly reify mark deleted [
+173 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/sunos-x64'
+173 silly reify ]
+174 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/openharmony-arm64
+175 silly reify mark deleted [
+175 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/openharmony-arm64'
+175 silly reify ]
+176 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/openbsd-x64
+177 silly reify mark deleted [
+177 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/openbsd-x64'
+177 silly reify ]
+178 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/openbsd-arm64
+179 silly reify mark deleted [
+179 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/openbsd-arm64'
+179 silly reify ]
+180 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/netbsd-x64
+181 silly reify mark deleted [
+181 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/netbsd-x64'
+181 silly reify ]
+182 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/netbsd-arm64
+183 silly reify mark deleted [
+183 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/netbsd-arm64'
+183 silly reify ]
+184 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-s390x
+185 silly reify mark deleted [
+185 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-s390x'
+185 silly reify ]
+186 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-riscv64
+187 silly reify mark deleted [
+187 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-riscv64'
+187 silly reify ]
+188 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-ppc64
+189 silly reify mark deleted [
+189 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-ppc64'
+189 silly reify ]
+190 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-mips64el
+191 silly reify mark deleted [
+191 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-mips64el'
+191 silly reify ]
+192 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-loong64
+193 silly reify mark deleted [
+193 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-loong64'
+193 silly reify ]
+194 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-ia32
+195 silly reify mark deleted [
+195 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-ia32'
+195 silly reify ]
+196 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-arm64
+197 silly reify mark deleted [
+197 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-arm64'
+197 silly reify ]
+198 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-arm
+199 silly reify mark deleted [
+199 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/linux-arm'
+199 silly reify ]
+200 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/freebsd-x64
+201 silly reify mark deleted [
+201 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/freebsd-x64'
+201 silly reify ]
+202 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/freebsd-arm64
+203 silly reify mark deleted [
+203 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/freebsd-arm64'
+203 silly reify ]
+204 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/darwin-x64
+205 silly reify mark deleted [
+205 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/darwin-x64'
+205 silly reify ]
+206 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/darwin-arm64
+207 silly reify mark deleted [
+207 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/darwin-arm64'
+207 silly reify ]
+208 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/android-x64
+209 silly reify mark deleted [
+209 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/android-x64'
+209 silly reify ]
+210 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/android-arm64
+211 silly reify mark deleted [
+211 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/android-arm64'
+211 silly reify ]
+212 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/android-arm
+213 silly reify mark deleted [
+213 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/android-arm'
+213 silly reify ]
+214 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/aix-ppc64
+215 silly reify mark deleted [
+215 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/@esbuild/aix-ppc64'
+215 silly reify ]
+216 verbose reify failed optional dependency /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/fsevents
+217 silly reify mark deleted [
+217 silly reify   '/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_npx/fd45a72a545557e9/node_modules/fsevents'
+217 silly reify ]
+218 http cache @esbuild/linux-x64@https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz 0ms (cache hit)
+219 http cache esbuild@https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz 0ms (cache hit)
+220 http cache tsx@https://registry.npmjs.org/tsx/-/tsx-4.23.13.tgz 0ms (cache hit)
+221 silly tarball no local data for @esbuild/linux-x64@https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz. Extracting by manifest.
+222 silly tarball no local data for esbuild@https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz. Extracting by manifest.
+223 silly tarball no local data for tsx@https://registry.npmjs.org/tsx/-/tsx-4.23.13.tgz. Extracting by manifest.
+224 http fetch GET 200 https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz 69ms (cache miss)
+225 http fetch GET 200 https://registry.npmjs.org/tsx/-/tsx-4.23.13.tgz 168ms (cache miss)
+226 http fetch POST 200 https://registry.npmjs.org/-/npm/v1/security/advisories/bulk 206ms
+227 silly audit report {}
+228 http fetch GET 200 https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz 416ms (cache miss)
+229 info run esbuild@0.28.2 postinstall node_modules/esbuild node install.js
+230 info run esbuild@0.28.2 postinstall { code: 0, signal: null }
+231 verbose cwd /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M29XPWT9WNPZB3EWD8JRJS6G
+232 verbose os Linux 6.8.0-138-generic
+233 verbose node v24.5.0
+234 verbose npm  v10.9.8
+235 notice
+235 notice New major version of npm available! 10.9.8 -> 12.0.2
+235 notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+235 notice To update run: npm install -g npm@12.0.2
+235 notice  { force: true, Symbol(proc-log.meta): true }
+236 verbose exit 0
+237 info ok

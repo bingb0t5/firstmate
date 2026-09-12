@@ -1,0 +1,32 @@
+{
+  "manifests": [
+    {
+      "manifest_id": "beanz-source-monitor",
+      "manifest_version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev"
+    },
+    {
+      "manifest_id": "fm-board-mirror",
+      "manifest_version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev"
+    },
+    {
+      "manifest_id": "team-inbox-intake",
+      "manifest_version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev"
+    },
+    {
+      "manifest_id": "team-inbox-reply-draft",
+      "manifest_version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev"
+    }
+  ]
+}

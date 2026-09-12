@@ -1,0 +1,23 @@
+0 verbose cli /home/rich/.local/share/cursor-agent/versions/2026.09.10-fd3934a/node /home/rich/.nvm/versions/node/v22.23.2/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.8
+2 info using node@v24.5.0
+3 silly config load:file:/home/rich/.nvm/versions/node/v22.23.2/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M29XPWT9WNPZB3EWD8JRJS6G/.npmrc
+5 silly config load:file:/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npmrc
+6 silly config load:file:/home/rich/.local/share/cursor-agent/versions/etc/npmrc
+7 verbose title npm exec tsx /home/rich/firstmate/projects/mrbeanz-brains/scripts/n8n-ops.ts compare --repo /home/rich/firstmate/projects/mrbeanz-brains --output-json /tmp/fm-system-map.JVK5u7/n8n.json
+8 verbose argv "exec" "--yes" "--" "tsx" "/home/rich/firstmate/projects/mrbeanz-brains/scripts/n8n-ops.ts" "compare" "--repo" "/home/rich/firstmate/projects/mrbeanz-brains" "--output-json" "/tmp/fm-system-map.JVK5u7/n8n.json"
+9 verbose logfile logs-max:10 dir:/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_logs/2026-09-12T05_35_26_892Z-
+10 verbose logfile /home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/live-home/.npm/_logs/2026-09-12T05_35_26_892Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+13 http fetch GET 200 https://registry.npmjs.org/tsx 148ms (cache revalidated)
+14 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+15 verbose Could not read global path /home/rich/.local/share/cursor-agent/versions/lib, ignoring
+16 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+17 verbose cwd /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M29XPWT9WNPZB3EWD8JRJS6G
+18 verbose os Linux 6.8.0-138-generic
+19 verbose node v24.5.0
+20 verbose npm  v10.9.8
+21 verbose exit 0
+22 info ok
