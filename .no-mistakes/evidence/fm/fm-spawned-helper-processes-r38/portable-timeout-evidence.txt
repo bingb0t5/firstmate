@@ -1,0 +1,3 @@
+TERM-resistant exit=124
+exit-137 preserved=137
+bash-path exit-137=137

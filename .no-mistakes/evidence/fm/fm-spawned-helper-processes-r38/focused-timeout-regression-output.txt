@@ -1,0 +1,4 @@
+fm_timeout_mechanism default: timeout
+ok - abnormal parent death reaps real helper descendants through external, pure-Bash, and perl timeout paths
+Unrecognized switch: -k  (-h will show valid options).
+not ok - portable timeout TERM-resistant escalation: expected exit 124, got 29

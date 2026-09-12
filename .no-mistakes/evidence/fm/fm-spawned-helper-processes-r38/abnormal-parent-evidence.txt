@@ -1,0 +1,15 @@
+=== external path ===
+mechanism=timeout
+parent_pid=1103209 shell_pid=1103399 helper_pid=1103511 pgid=1103289
+alive_after_kill=0 group_count_after_kill=0
+result=PASS
+=== pure-bash path ===
+mechanism=bash
+parent_pid=1104510 shell_pid=1104658 helper_pid=1104762 pgid=1104556
+alive_after_kill=0 group_count_after_kill=0
+result=PASS
+=== perl path ===
+mechanism=perl
+parent_pid=1105753 shell_pid=1105822 helper_pid=1105945 pgid=1105822
+alive_after_kill=0 group_count_after_kill=0
+result=PASS
