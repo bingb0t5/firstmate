@@ -1,0 +1,10 @@
+{
+  "status": null,
+  "git_commit_sha": null,
+  "commit_sha": null,
+  "commit": null,
+  "build_id": null,
+  "keys": [
+    "message"
+  ]
+}

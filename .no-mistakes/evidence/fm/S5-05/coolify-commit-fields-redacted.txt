@@ -1,0 +1,5 @@
+git_commit_sha: HEAD (no 40-char SHA in Coolify application JSON)
+git_branch: main
+git_repository: bingb0t5/lalo-admin
+status: running:healthy
+build_id_url live response: {"build":"dev-mty0b1u3"}
