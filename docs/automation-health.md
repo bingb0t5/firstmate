@@ -6,6 +6,7 @@ The `check` action retains the original rollup of source freshness age, queue ag
 
 The central `automation.registry.v1` projection also exposes `manifest_id`, `owner`, `cadence`, `last_start_at`, `last_success_at`, `terminal_outcome`, `retry_count`, `correlation_id`, `heartbeat_at`, `health`, and `last_run_id`.
 The `report` action prints every row as a compact table with manifest identity, owner, cadence, source freshness age, run age, heartbeat age, open failures, retry count, correlation id, last run id, and current health.
+The open_failures column is 1 when health or terminal_outcome is failed or timeout, otherwise 0.
 The `run` action reads only `GET /v1/automations` and never starts, retries, completes, or polls an automation source.
 
 The registry response is either an array or an object with an `automations` array.
@@ -41,7 +42,7 @@ The health rollup observes its registry projection and does not create a paralle
 
 A reachable empty registry reports green with no streams.
 
-When an active non-terminal row has not reported for longer than its manifest cadence plus `FM_REGISTRY_HEALTH_GRACE_SECS` (default 60 seconds), `run` and the armed `check` path print `<owner>'s <automation> has not reported for <age> (expected every <cadence>)`.
+Stale detection compares row age against manifest cadence plus grace; `run` and the armed `check` path emit one captain-readable alert per new fingerprint.
+Stale age uses `heartbeat_at` when present, otherwise `last_start_at`; the report heartbeat_age column uses `heartbeat_at` only.
 Rows with a terminal outcome or health `failed`/`timeout` are excluded because they are no longer active heartbeat runs.
-The stale heartbeat alert is deduplicated by `manifest_id`, `last_run_id`, and `health` in `state/.automation-health-stale`.
-Watcher arming, polling, deduplication, interval settings, and fingerprint format are documented in [`docs/configuration.md`](configuration.md) "Automation health rollup".
+Watcher arming, polling, stale-alert deduplication, interval settings, grace, alert format, and fingerprint format are documented in [`docs/configuration.md`](configuration.md) "Automation health rollup".

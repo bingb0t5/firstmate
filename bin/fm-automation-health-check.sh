@@ -30,6 +30,9 @@
 # `report`, `run`, and stale detection read automation.registry.v1 rows with
 # manifest_id, owner, cadence, last_start_at, last_success_at, terminal_outcome,
 # retry_count, correlation_id, heartbeat_at, health, and last_run_id.
+# Stale age uses heartbeat_at when present, otherwise last_start_at; report
+# heartbeat_age uses heartbeat_at only. open_failures is 1 when health or
+# terminal_outcome is failed or timeout, otherwise 0.
 # The lifecycle actions use POST /v1/automations/<stream>/{start,heartbeat,complete}.
 #
 # Registry credentials are read from direct environment values first, then from
