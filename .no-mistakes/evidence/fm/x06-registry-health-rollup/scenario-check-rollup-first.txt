@@ -1,0 +1,1 @@
+green automation health: secret-parity{fresh=12s queue=0s last=45s retries=1 alerts=0 receipt=ok}; digest{fresh=2s queue=4s last=8s retries=0 alerts=0 receipt=ok};

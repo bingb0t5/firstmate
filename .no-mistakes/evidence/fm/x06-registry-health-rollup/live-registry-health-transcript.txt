@@ -1,0 +1,34 @@
+SCENARIO: report canonical rows => pass
+automation owner cadence source_freshness_age run_age heartbeat_age open_failures retry_count correlation_id last_run_id health
+s6-02-secret-parity	infra	15 minutes	1440s	1500s	300s	0	0	corr-healthy	run-healthy	healthy
+---
+SCENARIO: stale alert first run => pass
+infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)
+---
+SCENARIO: stale dedupe same fingerprint => pass
+(empty output)
+---
+SCENARIO: stale new fingerprint alerts => pass
+infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)
+---
+SCENARIO: terminal failed no stale alert => pass
+(empty output)
+---
+SCENARIO: report open failure row => pass
+automation owner cadence source_freshness_age run_age heartbeat_age open_failures retry_count correlation_id last_run_id health
+s6-02-secret-parity	infra	15 minutes	?	600s	?	1	2	corr-failed	run-failed	failed
+---
+SCENARIO: armed check stale once => pass
+first: infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)
+red automation health: unknown{fresh=? queue=? last=? retries=0 alerts=? receipt=missing}; second: (empty)
+---
+SCENARIO: no credential leak => pass
+token absent from all scenario outputs
+---
+SCENARIO: check preserves rollup dedupe => pass
+first: green automation health: secret-parity{fresh=12s queue=0s last=45s retries=1 alerts=0 receipt=ok}; digest{fresh=2s queue=4s last=8s retries=0 alerts=0 receipt=ok}; second: (empty)
+---
+SCENARIO: adversarial failed terminal old heartbeat => pass
+(empty output)
+---
+SUMMARY: pass=10 fail=0

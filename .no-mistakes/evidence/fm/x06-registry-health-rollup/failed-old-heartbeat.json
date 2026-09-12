@@ -1,0 +1,1 @@
+{"automations":[{"schema":"automation.registry.v1","manifest_id":"s6-02-secret-parity","owner":"infra","cadence":"15 minutes","last_start_at":"2026-09-11T23:59:00.000Z","terminal_outcome":"failed","retry_count":1,"correlation_id":"corr-adv","heartbeat_at":"2026-09-12T00:00:00.000Z","health":"failed","last_run_id":"run-adv-failed"}]}
