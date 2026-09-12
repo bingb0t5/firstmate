@@ -842,24 +842,25 @@ test_fresh_progress_is_not_aged_from_task_creation() {
 }
 
 test_decision_backstop_commits_the_watcher_generation() {
-  local actor out pid i
+  local actor out pid i frames
   for actor in main away; do
     make_world "decision-generation-$actor"
-    write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
-    # Count completed polling opportunities instead of depending on how many
-    # watcher cycles this machine happens to squeeze into a three-second sleep.
+    # Keep pane staleness independent of the decision-generation assertion.
+    # A static fake pane can legitimately wake after three fast poll cycles.
     cat > "$WORLD/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   display-message) printf '%%1\n' ;;
   capture-pane)
-    printf 'capture\n' >> "$FM_HOME/captures"
-    # No readable pane: this case tests status-generation deduplication, while
-    # an unchanged idle pane would correctly produce a separate stale wake.
-    exit 1
+    frame_file="$FM_STATE_OVERRIDE/.test-pane-frame"
+    frame=$(cat "$frame_file" 2>/dev/null || echo 0)
+    frame=$((frame + 1))
+    printf '%s\n' "$frame" > "$frame_file"
+    printf 'frame %s\nidle\n> \n' "$frame"
     ;;
 esac
 SH
+    write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
     [ "$actor" != away ] || : > "$MAIN/state/.afk"
     out="$WORLD/first-watch.out"
     PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
@@ -876,27 +877,26 @@ SH
       || fail "$actor decision backstop did not queue exactly one wake"
     ack_wakes "$MAIN" || fail "$actor decision wake could not be acknowledged"
 
+    frames=$(cat "$MAIN/state/.test-pane-frame" 2>/dev/null || echo 0)
     out="$WORLD/second-watch.out"
     : > "$MAIN/captures"
     PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
       FM_STATE_OVERRIDE="$MAIN/state" FM_INACTIVE_RECONCILE_SECS=60 \
-      FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=1 \
+      FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_POLL=0.05 \
       FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
       FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" > "$out" 2>&1 &
     pid=$!
     i=0
-    while [ "$i" -lt 200 ] && kill -0 "$pid" 2>/dev/null; do
-      [ "$(wc -l < "$MAIN/captures")" -ge 4 ] && break
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 100 ]; do
+      [ "$(cat "$MAIN/state/.test-pane-frame" 2>/dev/null || echo 0)" -ge "$((frames + 4))" ] && break
       sleep 0.1
       i=$((i + 1))
     done
-    if ! kill -0 "$pid" 2>/dev/null; then
-      wait "$pid" || true
-      fail "$actor re-arm duplicated the handled decision: $(cat "$out")"
-    fi
+    kill -0 "$pid" 2>/dev/null \
+      || fail "$actor re-arm duplicated the handled decision: $(cat "$out")"
     reap "$pid"
-    [ "$(wc -l < "$MAIN/captures")" -ge 4 ] \
-      || fail "$actor re-arm did not complete repeated polling cycles: $(cat "$out")"
+    [ "$(cat "$MAIN/state/.test-pane-frame" 2>/dev/null || echo 0)" -ge "$((frames + 4))" ] \
+      || fail "$actor re-arm did not complete four pane captures"
     [ "$(wake_count "$MAIN" 'child.status')" = 0 ] \
       || fail "$actor re-arm queued a duplicate handled decision"
   done
