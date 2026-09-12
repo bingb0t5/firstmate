@@ -2507,8 +2507,46 @@ SH
   pass "herdr presentation ordering: missing owning parent is warning-only and read-only"
 }
 
+test_presentation_lock_namespace_is_per_user_and_rejects_unsafe_paths() {
+  local dir fb path_a path_b legacy owned symlink actual_uid foreign_uid
+  dir="$TMP_ROOT/presentation-lock-namespace"; mkdir -p "$dir"
+  fb=$(make_herdr_fakebin "$dir")
+  cat > "$fb/id" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${FM_FAKE_UID:?}"
+SH
+  chmod +x "$fb/id"
+  path_a=$(PATH="$fb:$PATH" FM_FAKE_UID=1000 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace' "$ROOT") \
+    || fail "UID 1000 namespace resolution failed"
+  path_b=$(PATH="$fb:$PATH" FM_FAKE_UID=999 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace' "$ROOT") \
+    || fail "UID 999 namespace resolution failed"
+  [ "$path_a" != "$path_b" ] || fail "different UIDs must not share a presentation namespace"
+  legacy=/tmp/firstmate-herdr-presentation
+  case "$path_b" in
+    "$legacy"|"$legacy"/*) fail "UID 999 reused the legacy namespace: $path_b" ;;
+  esac
+
+  owned="$dir/owned"; mkdir -m 700 "$owned"
+  actual_uid=$(id -u)
+  foreign_uid=$((actual_uid + 1))
+  if PATH="$fb:$PATH" FM_FAKE_UID="$foreign_uid" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace_valid "$1"' \
+    "$ROOT" "$owned"; then
+    fail "a namespace owned by another UID must be rejected"
+  fi
+  symlink="$dir/symlink"; ln -s "$owned" "$symlink"
+  if PATH="$fb:$PATH" FM_FAKE_UID="$actual_uid" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace_valid "$1"' \
+    "$ROOT" "$symlink"; then
+    fail "a symlink selected as the namespace must be rejected"
+  fi
+  pass "herdr presentation lock namespace: per-user paths isolate legacy ownership and retain safety checks"
+}
+
 test_presentation_session_lock_path_is_shared_across_homes() {
-  local dir log resp fb path_a path_b path_other path_tmp path_private
+  local dir log resp fb path_a path_b path_other path_tmp path_private namespace
   dir="$TMP_ROOT/presentation-session-lock"; mkdir -p "$dir/responses" "$dir/sockdir"
   log="$dir/log"; resp="$dir/responses"; : > "$log"
   : > "$dir/sockdir/fmtest.sock"
@@ -2524,9 +2562,11 @@ test_presentation_session_lock_path_is_shared_across_homes() {
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_session_lock_path fmtest' "$ROOT") \
     || fail "session lock path resolution failed for home B"
   [ "$path_a" = "$path_b" ] || fail "same session/socket must resolve one shared lock path"
+  namespace=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace' "$ROOT") \
+    || fail "presentation lock namespace resolution failed"
   case "$path_a" in
-    /tmp/firstmate-herdr-presentation/order-*.lock) ;;
-    *) fail "session lock path must use the shared machine namespace: $path_a" ;;
+    "$namespace"/order-*.lock) ;;
+    *) fail "session lock path must use the current user's namespace: $path_a" ;;
   esac
   case "$path_a" in
     */state/*) fail "session lock path must not live under a home state directory: $path_a" ;;
@@ -4517,6 +4557,7 @@ test_projection_order_ambiguous_existing_block_is_read_only
 test_projection_order_anchors_the_parent_by_exact_id
 test_projection_order_foreign_new_child_before_parent_is_read_only
 test_projection_order_missing_parent_is_read_only
+test_presentation_lock_namespace_is_per_user_and_rejects_unsafe_paths
 test_presentation_session_lock_path_is_shared_across_homes
 test_presentation_session_lock_path_rejects_malformed_socket
 test_projection_order_rejects_malformed_socket
