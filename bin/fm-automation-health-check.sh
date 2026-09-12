@@ -539,17 +539,9 @@ stale_fingerprint_seen() {
   return 1
 }
 
-action_run() {
+process_stale_body() {
   local line row stale id owner cadence age health fingerprint alert='' retained=''
-  load_settings
   stale_record_read
-  if [ -z "$REGISTRY_URL" ] || ! request GET '' || ! registry_shape_valid "$json_body"; then
-    cleanup_request
-    [ "$STALE_RECORD_FINGERPRINTS" = unavailable ] ||
-      printf '%s\n' 'automation health unavailable'
-    stale_record_write unavailable || true
-    return 0
-  fi
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     row=$(registry_row_json "$line") || continue
@@ -571,13 +563,22 @@ action_run() {
         fi
       fi
     fi
-  done < <(registry_rows "$json_body")
-  cleanup_request
+  done < <(registry_rows "$1")
   if [ -n "$alert" ]; then
     fm_cap_line_var "$alert" "$MAX_LINE"
     printf '%s\n' "$FM_LINE_CAP_LINE"
   fi
   stale_record_write "$retained" || true
+}
+
+action_run() {
+  load_settings
+  if [ -z "$REGISTRY_URL" ] || ! request GET '' || ! registry_shape_valid "$json_body"; then
+    cleanup_request
+    return 0
+  fi
+  process_stale_body "$json_body"
+  cleanup_request
 }
 
 action_report() {
@@ -606,6 +607,10 @@ action_check() {
     report='automation health: unavailable'
   else
     report=$(format_rollup "$json_body" 2>/dev/null) || report='automation health: unavailable'
+    if [ "$report" != 'automation health: unavailable' ] &&
+      registry_shape_valid "$json_body"; then
+      process_stale_body "$json_body"
+    fi
     cleanup_request
   fi
   if [ "$report" != "$RECORD_REPORTED" ]; then
@@ -689,10 +694,7 @@ action_disarm() {
 trap cleanup_request EXIT HUP INT TERM
 
 case "$ACTION" in
-  check)
-    action_check
-    action_run
-    ;;
+  check) action_check ;;
   run) action_run ;;
   report) action_report ;;
   start|heartbeat|complete)
