@@ -1,0 +1,7 @@
+=== LIVE normal timeout behavior 2026-09-12T12:03:25+07:00 ===
+Default mechanism: timeout
+Natural exit 137 -> status=137 (expect 137)
+TERM-resistant 1s bound -> status=124 (expect 124)
+Bash fallback exit 137 -> status=137 (expect 137)
+Bash fallback TERM-resistant -> status=124 (expect 124)
+PASS: normal timeout exit-status and escalation behavior preserved

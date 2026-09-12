@@ -1,0 +1,6 @@
+=== Focused timeout regression run 2026-09-12T12:02:06+07:00 ===
+Host default mechanism: timeout
+ok - the portable timeout path force-kills a command that ignores TERM
+ok - abnormal parent death reaps real helper descendants through external, pure-Bash, and perl timeout paths
+ok - the pure-Bash watchdog bounds session start, kills its hung grandchild, and emits the truncation contract
+# focused timeout regression: all assertions passed

@@ -1,0 +1,11 @@
+=== LIVE DEMO: external-default ===
+Mechanism: timeout
+Parent PID: 2273209
+Recorded shell=2273519 pgid=2273320 helper=2273732
+    PID    PPID    PGID     SID STAT COMMAND
+2273519 2273325 2273320 2271911 S    bash
+2273732 2273519 2273320 2271911 S    sleep
+Sending SIGKILL to parent 2273209
+Post-kill alive=0 group_count=0
+    PID    PPID    PGID     SID STAT COMMAND
+PASS: zero real helper descendants after abnormal parent death

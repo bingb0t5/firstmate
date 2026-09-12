@@ -1,0 +1,11 @@
+=== LIVE DEMO: pure-bash ===
+Mechanism: timeout
+Parent PID: 2275200
+Recorded shell=2275426 pgid=2275281 helper=2275552
+    PID    PPID    PGID     SID STAT COMMAND
+2275426 2275281 2275281 2271911 S    bash
+2275552 2275426 2275281 2271911 S    sleep
+Sending SIGKILL to parent 2275200
+Post-kill alive=0 group_count=0
+    PID    PPID    PGID     SID STAT COMMAND
+PASS: zero real helper descendants after abnormal parent death

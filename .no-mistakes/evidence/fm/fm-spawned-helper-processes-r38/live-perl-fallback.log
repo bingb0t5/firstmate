@@ -1,0 +1,11 @@
+=== LIVE DEMO: perl-fallback ===
+Mechanism: timeout
+Parent PID: 2276926
+Recorded shell=2276983 pgid=2276983 helper=2277108
+    PID    PPID    PGID     SID STAT COMMAND
+2276983 2276974 2276983 2271911 S    bash
+2277108 2276983 2276983 2271911 S    sleep
+Sending SIGKILL to parent 2276926
+Post-kill alive=0 group_count=0
+    PID    PPID    PGID     SID STAT COMMAND
+PASS: zero real helper descendants after abnormal parent death
