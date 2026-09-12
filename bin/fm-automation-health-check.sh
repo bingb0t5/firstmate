@@ -22,7 +22,7 @@
 # The registry projection fields are:
 #   id, source_freshness_age_seconds, queue_age_seconds,
 #   last_success_age_seconds, retry_count, open_alerts, last_terminal_receipt.
-# `last_terminal_receipt` must contain type, terminal=true, and status=success.
+# `last_terminal_receipt` must contain type, terminal=true, and status success or succeeded.
 # The lifecycle actions use POST /v1/automations/<stream>/{start,heartbeat,complete}.
 #
 # Registry credentials are read from direct environment values first, then from

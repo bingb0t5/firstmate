@@ -35,4 +35,6 @@ The secret-parity check remains the source check for host-local secret stores.
 
 The health rollup observes its registry projection and does not create a parallel n8n scheduler.
 
-An unchanged health line is suppressed by the private `state/.automation-health` record so the watcher receives one compact notification per change.
+A reachable empty registry reports green with no streams.
+
+Watcher arming, polling, deduplication, and interval settings are documented in [`docs/configuration.md`](configuration.md) "Automation health rollup".
