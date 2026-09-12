@@ -170,6 +170,12 @@ fm_composer_normalize_trim_var() {  # <varname>
   printf -v "$__fmnt_name" '%s' "$__fmnt_text"
 }
 
+# _fm_composer_is_codex_braille_placeholder: prove that the styled Codex `›`
+# row is its recognised `Ask Codex to do anything` placeholder after both the
+# ghost-stripped and unstripped paths discard Unicode Braille Patterns.
+# This narrow proof admits a Braille-only decoration as empty without teaching
+# the shared classifier that Braille means empty for another harness, an
+# unknown row, or a row containing any non-Braille typed content.
 _fm_composer_is_codex_braille_placeholder() {  # <raw-row> <ghost-stripped-row>
   local raw=$1 stripped=$2 plain glyph='' remainder pattern=$'\342[\240-\243][\200-\277]'
   fm_composer_leading_agent_glyph_var glyph "$stripped" || return 1
