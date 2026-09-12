@@ -536,8 +536,8 @@ write_atomic() {
 }
 
 write_markdown() {
-  local destination=$1 json=$2 status finding_count radar_status
-  mkdir -p "$(dirname "$destination")" || return 1
+  local destination=$1 json=$2 status finding_count radar_status markdown_file
+  markdown_file="$TMP_ROOT/report.md"
   status=$(jq -r '.score.status' "$json")
   finding_count=$(jq '.findings | length' "$json")
   radar_status=$(jq -r '.changed_this_week.status' "$json")
@@ -557,7 +557,8 @@ write_markdown() {
       else "No current weekly report was available." end' "$json"
     printf '\n## Sources\n\n'
     jq -r '.sources | to_entries[] | "- " + .key + ": " + (.value.status // "unknown")' "$json"
-  } > "$destination"
+  } > "$markdown_file" || return 1
+  write_atomic "$destination" "$markdown_file"
 }
 
 record_read() {
@@ -636,8 +637,24 @@ build_report() {
   printf '%s\n' "$digest"
 }
 
+due_for_sweep() {
+  local now
+  [ "$INTERVAL" -eq 0 ] && return 0
+  record_read
+  [ "$RECORD_EPOCH" -eq 0 ] && return 0
+  case "${FM_SYSTEM_MAP_NOW:-}" in
+    ''|*[!0-9]*) now=$(date +%s) ;;
+    *) now=$FM_SYSTEM_MAP_NOW ;;
+  esac
+  [ "$now" -ge "$RECORD_EPOCH" ] && [ $((now - RECORD_EPOCH)) -lt "$INTERVAL" ] && return 1
+  return 0
+}
+
 action_check() {
   local digest status finding_count now
+  if [ "$ACTION" != score ] && ! due_for_sweep; then
+    return 0
+  fi
   digest=$(build_report)
   status=$(jq -r '.score.status' "$TMP_ROOT/report.json")
   finding_count=$(jq '.findings | length' "$TMP_ROOT/report.json")
