@@ -276,34 +276,76 @@ SH
 }
 
 test_harness_detection_reaches_wrapped_codex_ancestor() {
-  local dir got
+  local dir depth old got status
   dir="$TMP_ROOT/deep-codex-ancestry"
   mkdir -p "$dir"
   # A copied Bash executable named codex gives this portable process-tree test
   # a real codex-named ancestor without substituting `ps` output. Seven wrapper
   # shells put that ancestor at depth nine, like the Codex SessionStart hook.
   cp "$(command -v bash)" "$dir/codex"
+  cat > "$dir/eight-hop-detector.sh" <<'SH'
+#!/usr/bin/env bash
+pid=$$
+for _ in 1 2 3 4 5 6 7 8; do
+  comm=$(ps -o comm= -p "$pid" 2>/dev/null) || break
+  case "$(basename -- "$comm")" in
+    *codex*) printf '%s\n' codex; exit 0 ;;
+  esac
+  pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -n "$pid" ] && [ "$pid" -gt 1 ] || break
+done
+printf '%s\n' unknown
+SH
+  chmod +x "$dir/eight-hop-detector.sh"
   cat > "$dir/layer.sh" <<'SH'
 #!/usr/bin/env bash
 n=$1
 if [ "$n" -eq 0 ]; then
+  pid=$$
+  depth=1
+  codex_depth=
+  while [ "$depth" -le 24 ]; do
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null) || break
+    case "$(basename -- "$comm")" in
+      *codex*) codex_depth=$depth; break ;;
+    esac
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [ -n "$pid" ] && [ "$pid" -gt 1 ] || break
+    depth=$((depth + 1))
+  done
+  [ -n "$codex_depth" ] || exit 1
+  detector_depth=$((codex_depth + 1))
+  "$FM_RESULT_DIR/eight-hop-detector.sh" > "$FM_RESULT_DIR/eight-hop.result"
+  old_status=$?
   env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u CODEX_VERSION -u CODEX_CI \
     -u CODEX_SESSION_ID -u CODEX_THREAD_ID \
     FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT_OVERRIDE" \
-    "$FM_ROOT_OVERRIDE/bin/fm-harness.sh"
+    "$FM_ROOT_OVERRIDE/bin/fm-harness.sh" > "$FM_RESULT_DIR/patched.result"
+  patched_status=$?
+  IFS= read -r old < "$FM_RESULT_DIR/eight-hop.result"
+  IFS= read -r patched < "$FM_RESULT_DIR/patched.result"
+  printf '%s %s %s\n' "$detector_depth" "$old" "$patched" > "$FM_RESULT_DIR/result"
+  [ "$old_status" -eq 0 ] && [ "$patched_status" -eq 0 ] || exit 1
   else
     bash "$0" "$((n - 1))"
+    status=$?
+    exit "$status"
   fi
 SH
   chmod +x "$dir/layer.sh"
   # shellcheck disable=SC2016 # The copied Bash process evaluates the positional chain parameters.
-  got=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+  env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u CODEX_VERSION -u CODEX_CI \
     -u CODEX_SESSION_ID -u CODEX_THREAD_ID \
-    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
-    "$dir/codex" -c 'bash "$1" 6' _ "$dir/layer.sh")
-  [ "$got" = codex ] || fail "Codex at process ancestry depth nine resolved '$got', expected codex"
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RESULT_DIR="$dir" \
+    "$dir/codex" -c 'bash "$1" 6; status=$?; exit "$status"' _ "$dir/layer.sh"
+  status=$?
+  [ "$status" -eq 0 ] || fail "wrapped Codex process-tree fixture failed with status $status"
+  IFS=' ' read -r depth old got < "$dir/result"
+  [ "$depth" -ge 9 ] || fail "Codex process ancestry depth was '$depth', expected at least nine"
+  [ "$old" = unknown ] || fail "former eight-hop detector resolved '$old', expected unknown"
+  [ "$got" = codex ] || fail "patched detector resolved '$got', expected codex"
 
   local fakebin
   fakebin=$(fm_fakebin "$dir/missing")
