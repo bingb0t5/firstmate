@@ -5,7 +5,7 @@
 The `check` action retains the original rollup of source freshness age, queue age, last successful run age, retry count, open-alert count, and terminal-receipt status for each stream.
 
 The central `automation.registry.v1` projection also exposes `manifest_id`, `owner`, `cadence`, `last_start_at`, `last_success_at`, `terminal_outcome`, `retry_count`, `correlation_id`, `heartbeat_at`, `health`, and `last_run_id`.
-The `report` action prints every row as a compact table with source freshness age, run age, heartbeat age, open failures, and owner.
+The `report` action prints every row as a compact table with manifest identity, owner, cadence, source freshness age, run age, heartbeat age, open failures, retry count, correlation id, last run id, and current health.
 The `run` action reads only `GET /v1/automations` and never starts, retries, completes, or polls an automation source.
 
 The registry response is either an array or an object with an `automations` array.

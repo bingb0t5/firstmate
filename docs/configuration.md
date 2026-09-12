@@ -531,17 +531,17 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); probe and budget s
 
 [`bin/fm-automation-health-check.sh`](../bin/fm-automation-health-check.sh) reads the live brain registry projection.
 Its `check` action retains the compact status for each registered stream, including source freshness age, queue age, last successful run age, retry count, open-alert count, and terminal-receipt status.
-Its `report` action prints every canonical `automation.registry.v1` row with owner, cadence, source freshness age, run age, heartbeat age, open failures, and current health.
+Its `report` action prints every canonical `automation.registry.v1` row with manifest identity, owner, cadence, source freshness age, run age, heartbeat age, open failures, retry count, correlation id, last run id, and current health.
 Its `run` action reads only `GET /v1/automations` and never starts, retries, completes, or polls an automation source.
 The full projection and lifecycle contract is documented in [`docs/automation-health.md`](automation-health.md).
 
 Arm once per home with `bin/fm-automation-health-check.sh arm`.
-That writes `state/automation-health.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence and turns a stale heartbeat into one `check:` wake line.
+That writes `state/automation-health.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence, retains the existing rollup alert, and turns a stale heartbeat into one `check:` wake line.
 The operator-home registration path is `FM_HOME=/path/to/firstmate-home bin/fm-automation-health-check.sh arm`; it never creates private registration artifacts in the repository.
 `bin/fm-automation-health-check.sh disarm` removes the shim, trust binding, and dedupe record.
 The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required.
 
-The check prints nothing when the formatted rollup is unchanged from the last report.
+The check prints nothing when the formatted rollup and stale-heartbeat fingerprints are unchanged.
 `state/.automation-health` records that last rollup so an unchanged status is reported once instead of on every poll; a changed rollup is reported again.
 `state/.automation-health-stale` records stale fingerprints as `manifest_id;last_run_id;health` tuples.
 A stale heartbeat older than the manifest cadence plus `FM_REGISTRY_HEALTH_GRACE_SECS` (default 60 seconds) prints `<owner>'s <automation> has not reported for <age> (expected every <cadence>)` once per fingerprint.
