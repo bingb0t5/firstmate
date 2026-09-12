@@ -19,9 +19,25 @@ cat > "$FAKEBIN/curl" <<'SH'
 set -u
 output=
 url=
+headers=
+for argument in "$@"; do
+  case "$argument" in
+    *fixture-*-token*|*coolify-secret*|*app-db-secret*)
+      [ -z "${FM_RELEASE_TEST_ARGV_MARKER:-}" ] || : > "$FM_RELEASE_TEST_ARGV_MARKER"
+      ;;
+  esac
+done
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -o) output=$2; shift 2 ;;
+    -H|--header)
+      if [ "$2" = @- ]; then
+        headers="$headers"$'\n'"$(cat)"
+      else
+        headers="$headers"$'\n'"$2"
+      fi
+      shift 2
+      ;;
     http://*|https://*) url=$1; shift ;;
     *) shift ;;
   esac
@@ -30,7 +46,26 @@ case "$url" in
   */api/v1/applications/*) body="$FM_RELEASE_COOLIFY_STATUS" ;;
   */api/build-id) body="$FM_RELEASE_BUILD_ID" ;;
   */v1/services/*/deploys/*|*/v1/services/*) body="$FM_RELEASE_RENDER_STATUS" ;;
-  */rest/v1/lalo_app_migration_ledger*) body="$FM_RELEASE_LEDGER" ;;
+  */rest/v1/lalo_app_migration_ledger*)
+    if [ "${FM_RELEASE_TEST_AUTH:-}" = 1 ]; then
+      expected=${FM_RELEASE_TEST_TOKEN:-fixture-app-token}
+      bearer_ok=false
+      apikey_ok=false
+      while IFS= read -r header; do
+        case "$header" in
+          "Authorization: Bearer $expected") bearer_ok=true ;;
+          "apikey: $expected") apikey_ok=true ;;
+        esac
+      done <<< "$headers"
+      if [[ "$url" != https://app-db.test/rest/v1/* ]] ||
+        [ "$bearer_ok" != true ] || [ "$apikey_ok" != true ]; then
+        printf '{}\n' > "$output"
+        printf '401'
+        exit 0
+      fi
+    fi
+    body="$FM_RELEASE_LEDGER"
+    ;;
   *) exit 1 ;;
 esac
 printf '%s\n' "$body" > "$output"
@@ -86,8 +121,8 @@ healthy_fixtures() {
   FM_RELEASE_BUILD_ID='dev-mty0b1u3'
   FM_RELEASE_RENDER_STATUS='{}'
   FM_RELEASE_LEDGER='[
-    {"name":"20260912120000_checkin_anomaly_review_items.sql"},
-    {"name":"20260912130000_whats_on_editor_decision_exceptions.sql"}
+    {"filename":"20260912120000_checkin_anomaly_review_items.sql","status":"applied"},
+    {"filename":"20260912130000_whats_on_editor_decision_exceptions.sql","status":"applied"}
   ]'
   export FM_RELEASE_COOLIFY_STATUS FM_RELEASE_BUILD_ID FM_RELEASE_RENDER_STATUS FM_RELEASE_LEDGER
 }
@@ -112,7 +147,7 @@ test_healthy_app_unverified_migration_is_distinct() {
   home=$MADE_HOME
   healthy_fixtures
   # shellcheck disable=SC2089,SC2090
-  FM_RELEASE_LEDGER='[{"name":"20260912120000_checkin_anomaly_review_items.sql"}]'
+  FM_RELEASE_LEDGER='[{"filename":"20260912120000_checkin_anomaly_review_items.sql","status":"applied"}]'
   export FM_RELEASE_LEDGER
   out="$home/out"
   run_check "$home" "$out"
@@ -349,6 +384,168 @@ test_arm_and_disarm_use_custom_check_registration() {
   pass "release receipt uses the existing watcher registration pattern"
 }
 
+make_auth_home() {
+  make_home "$1"
+  healthy_fixtures
+  jq 'del(.ledger.url)' "$MADE_HOME/config/release-receipt.json" > "$MADE_HOME/config/spec.next"
+  mv "$MADE_HOME/config/spec.next" "$MADE_HOME/config/release-receipt.json"
+  cat > "$MADE_HOME/config/operator db.env" <<'ENV'
+SUPABASE_URL=https://generic-db.test
+SUPABASE_SERVICE_ROLE_KEY=fixture-generic-token
+LALO_APP_SUPABASE_URL=https://app-db.test
+LALO_APP_SUPABASE_SERVICE_ROLE_KEY=fixture-app-token
+ENV
+}
+
+fresh_auth_check() {
+  local home=$1
+  shift
+  env -i HOME="$home" TMPDIR="$TMP_ROOT" PATH="$FAKEBIN:$PATH" \
+    FM_RELEASE_TEST_AUTH=1 FM_RELEASE_TEST_ARGV_MARKER="$home/argv-leak" \
+    FM_RELEASE_COOLIFY_STATUS="$FM_RELEASE_COOLIFY_STATUS" \
+    FM_RELEASE_BUILD_ID="$FM_RELEASE_BUILD_ID" FM_RELEASE_LEDGER="$FM_RELEASE_LEDGER" \
+    "$@" > "$home/out" 2>&1
+}
+
+test_app_db_names_and_overrides() {
+  local home
+  make_auth_home app-names
+  home=$MADE_HOME
+  fresh_auth_check "$home" FM_HOME="$home" \
+    FM_RELEASE_APP_DB_ENV_FILE="$home/config/operator db.env" "$CHECK" check
+  jq -e '.overall == "healthy" and .migration == "verified"' "$home/state/.release-receipt" >/dev/null \
+    || fail "App DB names did not select working credentials ahead of generic names"
+  fresh_auth_check "$home" FM_HOME="$home" \
+    FM_RELEASE_APP_DB_ENV_FILE="$home/config/operator db.env" \
+    FM_RELEASE_APP_DB_URL=https://app-db.test FM_RELEASE_APP_DB_TOKEN=fixture-explicit-token \
+    FM_RELEASE_TEST_TOKEN=fixture-explicit-token "$CHECK" check
+  jq -e '.migration == "verified"' "$home/state/.release-receipt" >/dev/null \
+    || fail "explicit receipt credentials did not override the App DB names"
+  fresh_auth_check "$home" FM_HOME="$home" \
+    FM_RELEASE_APP_DB_URL=https://app-db.test "$CHECK" check
+  jq -e '.migration == "unverified"' "$home/state/.release-receipt" >/dev/null \
+    || fail "absent auth was accepted"
+  fresh_auth_check "$home" FM_HOME="$home" \
+    FM_RELEASE_APP_DB_ENV_FILE="$home/config/operator db.env" \
+    FM_RELEASE_APP_DB_TOKEN=fixture-rejected-token "$CHECK" check
+  jq -e '.migration == "unverified"' "$home/state/.release-receipt" >/dev/null \
+    || fail "rejected explicit auth was replaced with fallback credentials"
+  fresh_auth_check "$home" FM_HOME="$home" \
+    FM_RELEASE_APP_DB_ENV_FILE="$home/config/operator db.env" \
+    FM_RELEASE_APP_DB_URL=https://wrong-db.test "$CHECK" check
+  jq -e '.migration == "unverified"' "$home/state/.release-receipt" >/dev/null \
+    || fail "explicit receipt URL was ignored"
+  cat > "$home/config/generic.env" <<'ENV'
+SUPABASE_URL=https://app-db.test
+SUPABASE_SERVICE_ROLE_KEY=fixture-app-token
+ENV
+  fresh_auth_check "$home" FM_HOME="$home" \
+    FM_RELEASE_APP_DB_ENV_FILE="$home/config/generic.env" "$CHECK" check
+  jq -e '.migration == "verified"' "$home/state/.release-receipt" >/dev/null \
+    || fail "generic credential fallback stopped working"
+  pass "App DB names, explicit overrides, and absent/rejected authentication are respected"
+}
+
+test_arm_preserves_lookup_across_processes() {
+  local home file
+  make_auth_home 'armed home'
+  home=$MADE_HOME
+  (
+    cd "$home" || exit 1
+    FM_HOME="$home" FM_RELEASE_APP_DB_ENV_FILE='config/operator db.env' \
+      FM_RELEASE_APP_DB_TOKEN=fixture-never-persist-token \
+      "$CHECK" arm --spec config/release-receipt.json > "$home/arm.out"
+  ) || fail "arming with relative input paths failed"
+  (
+    cd "$TMP_ROOT" || exit 1
+    fresh_auth_check "$home" "$home/state/release-receipt.check.sh"
+  ) || fail "fresh-process shim execution failed"
+  jq -e '.overall == "healthy" and .migration == "verified"' "$home/state/.release-receipt" >/dev/null \
+    || fail "arming did not retain env-file and manifest lookup outside the original cwd"
+  for file in "$home/state/release-receipt.check.sh" "$home/state/.release-receipt" "$home/out"; do
+    case "$(cat "$file")" in
+      *fixture-*-token*) fail "generated output serialized a credential" ;;
+    esac
+  done
+  assert_present "$home/state/release-receipt.check-trust" "arming did not register the new shim"
+  assert_absent "$home/argv-leak" "curl received credentials as command arguments"
+  pass "armed checks retain only normalized nonsecret paths and authenticate from a fresh process"
+}
+
+test_coolify_combined_status_requires_release_evidence() {
+  local home commit build expected
+  make_home combined-status
+  home=$MADE_HOME
+  healthy_fixtures
+  for expected in healthy head stale missing wrong; do
+    commit=ada46a5dda0a1d654c29acf82a6db20d8296c407
+    build=dev-mty0b1u3
+    case "$expected" in
+      head) commit=HEAD ;;
+      stale) build=prior-live-build ;;
+      missing) commit= ;;
+      wrong) commit=7576626447416cf71ea2aa92aafa15d75921ed16 ;;
+    esac
+    FM_RELEASE_COOLIFY_STATUS=$(jq -cn --arg commit "$commit" '{status:"running:healthy",git_commit_sha:$commit}')
+    FM_RELEASE_BUILD_ID=$build
+    export FM_RELEASE_COOLIFY_STATUS FM_RELEASE_BUILD_ID
+    run_check "$home" "$home/out"
+    case "$expected" in
+      healthy) expected=healthy ;;
+      wrong) expected=mismatch ;;
+      *) expected=waiting ;;
+    esac
+    jq -e --arg expected "$expected" '.overall == $expected' "$home/state/.release-receipt" >/dev/null \
+      || fail "running:healthy did not respect independent commit/build evidence"
+  done
+  pass "Coolify running:healthy requires observable matching commit and build"
+}
+
+test_ledger_requires_affirmative_applied_status() {
+  local home ledger_status
+  make_home applied-evidence
+  home=$MADE_HOME
+  for ledger_status in unapplied unknown missing null applied; do
+    healthy_fixtures
+    FM_RELEASE_LEDGER=$(jq -c --arg state "$ledger_status" '
+      if $state == "missing" then map(del(.status))
+      elif $state == "null" then map(.status = null)
+      else map(.status = $state) end' <<< "$FM_RELEASE_LEDGER")
+    export FM_RELEASE_LEDGER
+    run_check "$home" "$home/out"
+    if [ "$ledger_status" = applied ]; then
+      jq -e '.migration == "verified"' "$home/state/.release-receipt" >/dev/null \
+        || fail "applied ledger rows were not verified"
+    else
+      jq -e '.migration == "unverified" and .overall != "healthy"' "$home/state/.release-receipt" >/dev/null \
+        || fail "ledger row without affirmative applied evidence was verified"
+    fi
+  done
+  pass "unapplied, unknown, missing, and null ledger status cannot complete a release"
+}
+
+test_transport_keeps_credentials_out_of_argv() {
+  local home
+  make_home private-transport
+  home=$MADE_HOME
+  healthy_fixtures
+  FM_RELEASE_TEST_ARGV_MARKER="$home/argv-leak" run_check "$home" "$home/out"
+  assert_absent "$home/argv-leak" "curl received credentials as command arguments"
+  jq -e '.overall == "healthy"' "$home/state/.release-receipt" >/dev/null \
+    || fail "private header transport lost the release response"
+  pass "credential-bearing request headers never enter curl argv"
+}
+
+case "${1:-all}" in
+  auth) test_app_db_names_and_overrides; exit ;;
+  arm) test_arm_preserves_lookup_across_processes; exit ;;
+  coolify) test_coolify_combined_status_requires_release_evidence; exit ;;
+  ledger) test_ledger_requires_affirmative_applied_status; exit ;;
+  transport) test_transport_keeps_credentials_out_of_argv; exit ;;
+  all) ;;
+  *) fail "unknown release receipt test group" ;;
+esac
+
 test_healthy_release_is_complete
 test_healthy_app_unverified_migration_is_distinct
 test_commit_mismatch_is_reported
@@ -361,3 +558,8 @@ test_complete_status_without_commit_stays_waiting
 test_commit_placeholder_stays_waiting
 test_manifest_error_deduplicates
 test_arm_and_disarm_use_custom_check_registration
+test_app_db_names_and_overrides
+test_arm_preserves_lookup_across_processes
+test_coolify_combined_status_requires_release_evidence
+test_ledger_requires_affirmative_applied_status
+test_transport_keeps_credentials_out_of_argv

@@ -22,8 +22,11 @@
 #   ~/.config/lalo/render-api.env     RENDER_API_URL, RENDER_API_KEY
 # App DB credentials are read from the existing operator environment or the
 # existing FM_RELEASE_APP_DB_ENV_FILE; this script never creates a credential
-# store. Supported names are SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ACCESS_TOKEN,
-# APP_DB_SERVICE_ROLE_KEY, APP_DB_TOKEN, and SUPABASE_KEY.
+# store. The existing LALO_APP_SUPABASE_URL and
+# LALO_APP_SUPABASE_SERVICE_ROLE_KEY names precede generic Supabase fallbacks.
+# Explicit FM_RELEASE_APP_DB_URL and FM_RELEASE_APP_DB_TOKEN take precedence.
+# `arm` preserves the nonsecret env-file selector as an absolute path, never
+# the credential values. Relative manifest and env-file paths resolve at arm.
 #
 # A target may supply status_url and build_id_url in the manifest. If omitted,
 # Coolify uses /api/v1/applications/<app_id> and Render uses
@@ -68,7 +71,7 @@ Manifest:
   FM_RELEASE_SPEC_FILE                 default $FM_HOME/config/release-receipt.json
   FM_RELEASE_TIMEOUT_SECS              run timeout, default 900
   FM_RELEASE_POLL_SECS                 run interval, default 10
-  FM_RELEASE_APP_DB_ENV_FILE           existing App DB env file, optional
+  FM_RELEASE_APP_DB_ENV_FILE           existing App DB env file, preserved by arm
   FM_RELEASE_APP_DB_URL                existing App DB REST base URL
   FM_RELEASE_APP_DB_TOKEN              existing App DB bearer, never printed
 
@@ -76,7 +79,11 @@ The manifest fields are release_id, intended_commit, targets, migrations, and
 ledger. A target has provider, app_id or service_id, expected_build_id, and
 optional status_url, build_id_url, expected_commit, or deploy_id. A migration
 is a string or an object with name and optional commit. The ledger may provide
-url, project_ref, name_field, and commit_field.
+url, project_ref, name_field, and commit_field. Each ledger row must have
+status="applied" to verify a migration; a row without that evidence is missing
+an applied receipt. App DB lookup prefers LALO_APP_SUPABASE_URL and
+LALO_APP_SUPABASE_SERVICE_ROLE_KEY before the generic Supabase names.
+Relative manifest and env-file paths are resolved against the arming cwd.
 EOF
 }
 
@@ -194,8 +201,10 @@ load_credentials() {
   RENDER_TOKEN=$(read_setting FM_RELEASE_RENDER_API_KEY RENDER_API_KEY "$render_file")
 
   APP_DB_URL=$(read_setting FM_RELEASE_APP_DB_URL APP_DB_URL "$app_file")
+  [ -n "$APP_DB_URL" ] || APP_DB_URL=$(read_setting LALO_APP_SUPABASE_URL LALO_APP_SUPABASE_URL "$app_file")
   [ -n "$APP_DB_URL" ] || APP_DB_URL=$(read_setting SUPABASE_URL SUPABASE_URL "$app_file")
   APP_DB_TOKEN=$(read_setting FM_RELEASE_APP_DB_TOKEN APP_DB_TOKEN "$app_file")
+  [ -n "$APP_DB_TOKEN" ] || APP_DB_TOKEN=$(read_setting LALO_APP_SUPABASE_SERVICE_ROLE_KEY LALO_APP_SUPABASE_SERVICE_ROLE_KEY "$app_file")
   [ -n "$APP_DB_TOKEN" ] || APP_DB_TOKEN=$(read_setting SUPABASE_SERVICE_ROLE_KEY SUPABASE_SERVICE_ROLE_KEY "$app_file")
   [ -n "$APP_DB_TOKEN" ] || APP_DB_TOKEN=$(read_setting SUPABASE_ACCESS_TOKEN SUPABASE_ACCESS_TOKEN "$app_file")
   [ -n "$APP_DB_TOKEN" ] || APP_DB_TOKEN=$(read_setting APP_DB_SERVICE_ROLE_KEY APP_DB_SERVICE_ROLE_KEY "$app_file")
@@ -242,25 +251,29 @@ safe_url() {
 RESPONSE_BODY=
 RESPONSE_STATUS=
 request_get() {
-  local url=$1 token=$2 auth_style=${3:-bearer} headers=()
+  local url=$1 token=$2 auth_style=${3:-bearer} headers='Accept: application/json'
   RESPONSE_BODY=
   RESPONSE_STATUS=
   safe_url "$url" || return 2
+  case "$token" in
+    *$'\r'*|*$'\n'*) return 1 ;;
+  esac
   RESPONSE_BODY="$TMP_ROOT/response.$RANDOM"
   RESPONSE_STATUS="$TMP_ROOT/status.$RANDOM"
   if [ -n "$token" ]; then
     case "$auth_style" in
       supabase)
-        headers=(-H "apikey: $token" -H "Authorization: Bearer $token")
+        headers+=$'\n'"apikey: $token"$'\n'"Authorization: Bearer $token"
         ;;
       *)
-        headers=(-H "Authorization: Bearer $token")
+        headers+=$'\n'"Authorization: Bearer $token"
         ;;
     esac
   fi
-  if ! curl -sS --max-time "${FM_CHECK_TIMEOUT:-30}" \
-      "${headers[@]}" -H 'Accept: application/json' \
-      -o "$RESPONSE_BODY" -w '%{http_code}' "$url" >"$RESPONSE_STATUS" 2>/dev/null; then
+  # Keep credentials off argv and disable user curlrc tracing/configuration.
+  if ! curl -q -sS --max-time "${FM_CHECK_TIMEOUT:-30}" --header @- \
+      -o "$RESPONSE_BODY" -w '%{http_code}' "$url" \
+      >"$RESPONSE_STATUS" 2>/dev/null <<< "$headers"; then
     return 1
   fi
   RESPONSE_STATUS=$(cat "$RESPONSE_STATUS" 2>/dev/null)
@@ -378,6 +391,9 @@ target_observe() {
   failure=
   complete=false
   case "$status" in
+    running:healthy)
+      [ "$provider" != coolify ] || complete=true
+      ;;
     running|live|finished|success|succeeded|completed|deployed|healthy)
       complete=true
       ;;
@@ -466,7 +482,7 @@ migration_observe() {
     row=$(jq -c --arg field "$name_field" --arg wanted "$expected" '
       [ .[] | select((.[ $field ] // .migration_name // .filename // .version // "") == $wanted) ][0] // empty
     ' <<< "$rows")
-    if [ -z "$row" ]; then
+    if [ -z "$row" ] || ! jq -e '.status == "applied"' <<< "$row" >/dev/null 2>&1; then
       missing="${missing}${missing:+,}$expected"
       continue
     fi
@@ -637,22 +653,35 @@ action_run() {
   done
 }
 
+absolute_input_path() {
+  local path=$1 directory
+  directory=$(CDPATH='' cd -- "$(dirname -- "$path")" 2>/dev/null && pwd -P) || return 1
+  printf '%s/%s\n' "$directory" "$(basename -- "$path")"
+}
+
 shim_content() {
-  local home=$1 root=$2 spec=${3-}
+  local home=$1 root=$2 spec=${3-} app_env_file=${4-}
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     '# Auto-generated by fm-release-receipt-check.sh.' \
     '# The watcher validates these bytes before execution.' \
     "export FM_HOME=$(printf '%q' "$home")" \
-    "export FM_RELEASE_SPEC_FILE=$(printf '%q' "$spec")" \
-    "exec $(printf '%q' "$root/bin/fm-release-receipt-check.sh") check"
+    "export FM_RELEASE_SPEC_FILE=$(printf '%q' "$spec")"
+  if [ -n "$app_env_file" ]; then
+    printf 'export FM_RELEASE_APP_DB_ENV_FILE=%s\n' "$(printf '%q' "$app_env_file")"
+  fi
+  printf 'exec %s check\n' "$(printf '%q' "$root/bin/fm-release-receipt-check.sh")"
 }
 
 action_arm() {
-  local home tmp want device
+  local home tmp want device spec app_env_file=
   mkdir -p "$STATE" || return 1
   home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) || return 1
-  want=$(shim_content "$home" "$SCRIPT_DIR/.." "$SPEC_FILE")
+  spec=$(absolute_input_path "$SPEC_FILE") || return 1
+  if [ -n "${FM_RELEASE_APP_DB_ENV_FILE:-}" ]; then
+    app_env_file=$(absolute_input_path "$FM_RELEASE_APP_DB_ENV_FILE") || return 1
+  fi
+  want=$(shim_content "$home" "$SCRIPT_DIR/.." "$spec" "$app_env_file")
   device=$(fm_pr_file_device "$STATE") || return 1
   fm_pr_regular_destination_on_device_or_absent "$CHECK_SHIM" "$device" || return 1
   tmp=$(umask 077; mktemp "$STATE/.$CHECK_ID-check.XXXXXX") || return 1
@@ -661,7 +690,7 @@ action_arm() {
     rm -f -- "$tmp"
     return 1
   fi
-  if ! FM_HOME="$home" FM_RELEASE_SPEC_FILE="$SPEC_FILE" "$REGISTER_BIN" "$CHECK_ID" >/dev/null; then
+  if ! FM_HOME="$home" FM_RELEASE_SPEC_FILE="$spec" "$REGISTER_BIN" "$CHECK_ID" >/dev/null; then
     rm -f -- "$CHECK_SHIM"
     return 1
   fi
