@@ -664,9 +664,7 @@ action_check() {
   fi
   record_read
   if [ "$ACTION" = score ] ||
-    [ "$INTERVAL" -eq 0 ] ||
-    [ "$RECORD_DIGEST" != "$digest" ] ||
-    [ "$RECORD_EPOCH" -eq 0 ]; then
+    [ "$RECORD_DIGEST" != "$digest" ]; then
     printf 'system map: %s (%s findings)\n' "$status" "$finding_count"
   fi
   record_write "$digest" || true
