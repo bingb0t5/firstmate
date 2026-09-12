@@ -70,6 +70,7 @@ run_check() {
 run_registry() {
   local home=$1 action=$2 fixture=$3 out=$4 status=0
   FM_HOME="$home" \
+    FM_AUTOMATION_HEALTH_INTERVAL=0 \
     FM_REGISTRY_HEALTH_NOW="$(date -u -d '2026-09-12T00:20:00Z' +%s)" \
     FM_REGISTRY_HEALTH_GRACE_SECS=60 \
     FM_REGISTRY_FIXTURE="$fixture" \
@@ -240,8 +241,25 @@ test_registry_report_lists_open_failure() {
   pass "registry report exposes open failure rows"
 }
 
+test_armed_check_alerts_once_per_fingerprint() {
+  local home out first second
+  make_home armed-check
+  home=$MADE_HOME
+  out="$home/out"
+  run_registry "$home" check "$FIXTURES/registry-stale-heartbeat.json" "$out"
+  first=$(cat "$out")
+  assert_contains "$first" \
+    "infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)" \
+    "armed check path did not emit the stale heartbeat alert"
+  : > "$out"
+  run_registry "$home" check "$FIXTURES/registry-stale-heartbeat.json" "$out"
+  second=$(cat "$out")
+  [ -z "$second" ] || fail "armed check repeated the same stale fingerprint: $second"
+  pass "armed check preserves stale fingerprint deduplication"
+}
+
 test_arm_registers_the_stale_heartbeat_runner() {
-  local home status=0
+  local home out status=0
   make_home arm
   home=$MADE_HOME
   FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
@@ -250,9 +268,16 @@ test_arm_registers_the_stale_heartbeat_runner() {
     "arm did not create the watcher shim"
   assert_present "$home/state/automation-health.check-trust" \
     "arm did not create the trust binding"
-  assert_contains "$(cat "$home/state/automation-health.check.sh")" \
-    'fm-automation-health-check.sh check' \
-    "arm did not register the stale heartbeat runner"
+  out="$home/arm.out"
+  FM_REGISTRY_FIXTURE="$FIXTURES/registry-stale-heartbeat.json" \
+    FM_REGISTRY_HEALTH_NOW="$(date -u -d '2026-09-12T00:20:00Z' +%s)" \
+    FM_AUTOMATION_HEALTH_INTERVAL=0 \
+    PATH="$FAKEBIN:$PATH" \
+    "$home/state/automation-health.check.sh" >"$out" 2>&1 ||
+    fail "armed shim did not execute"
+  assert_contains "$(cat "$out")" \
+    "infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)" \
+    "armed shim did not run the stale heartbeat check"
   FM_HOME="$home" "$CHECK" disarm >/dev/null || fail "disarm failed"
   assert_absent "$home/state/automation-health.check.sh" \
     "disarm left the watcher shim"
@@ -271,6 +296,7 @@ test_registry_report_lists_canonical_health_metrics
 test_stale_heartbeat_alerts_once_per_fingerprint
 test_changed_stale_fingerprint_alerts_again
 test_registry_report_lists_open_failure
+test_armed_check_alerts_once_per_fingerprint
 test_arm_registers_the_stale_heartbeat_runner
 
 printf '# fm-automation-health-check.test.sh: all assertions passed\n'
