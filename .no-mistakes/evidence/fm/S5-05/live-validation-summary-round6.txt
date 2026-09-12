@@ -1,0 +1,20 @@
+Live validation round 6 (target be3f6cb)
+
+Driven live against production Coolify (ga48pn39tt4b9bswgsuaqu7v), admin.laloapp.co/api/build-id,
+App DB ledger (evvrlbeilubeggmrhjgs via lalo-admin env), and bin/fm-release-receipt-check.sh.
+
+Live passes:
+- Coolify git_commit_sha=HEAD → overall=waiting, failure="" (round-6 placeholder fix, not mismatch)
+- Live build-id {"build":"dev-mty0b1u3"} matches manifest expected_build_id
+- Bounded run times out waiting, no mismatch
+- Wrong intended_commit with HEAD still waiting (not mismatch)
+- Migration ledger verified with App DB credentials; fake migration → migration=unverified with missing list
+- Watcher shim executes live observation
+- Arm creates release-receipt.check.sh + check-trust; disarm removes
+- Check deduplicates unchanged receipt on second invocation
+
+Unit tests: 12/12 pass (tests/fm-release-receipt-check.test.sh)
+
+Blocked live (environment):
+- Coolify steady state returns HEAD only (no 40-char SHA) → cannot live-trigger commit mismatch or app=healthy
+- No active rollout → stale-build adversarial paths not live-triggerable (covered by unit tests)

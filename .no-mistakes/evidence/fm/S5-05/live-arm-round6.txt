@@ -1,0 +1,5 @@
+armed: state/release-receipt.check.sh
+-rw------- 1 rich rich  84 Sep 12 15:30 /home/rich/.no-mistakes/evidence/01M2A7331HNDCR80WF6E8SZN71/live-arm-round6/state/release-receipt.check-trust
+-rwx------ 1 rich rich 470 Sep 12 15:30 /home/rich/.no-mistakes/evidence/01M2A7331HNDCR80WF6E8SZN71/live-arm-round6/state/release-receipt.check.sh
+disarmed: state/release-receipt.check.sh
+shim removed

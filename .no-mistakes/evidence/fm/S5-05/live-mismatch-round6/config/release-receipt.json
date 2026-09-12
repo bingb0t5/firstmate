@@ -1,0 +1,21 @@
+{
+  "release_id": "admin-prod-2026-09-12",
+  "intended_commit": "7576626447416cf71ea2aa92aafa15d75921ed16",
+  "targets": [
+    {
+      "provider": "coolify",
+      "app_id": "ga48pn39tt4b9bswgsuaqu7v",
+      "build_id_url": "https://admin.laloapp.co/api/build-id",
+      "expected_build_id": "dev-mty0b1u3"
+    }
+  ],
+  "migrations": [
+    "20260912120000_checkin_anomaly_review_items.sql",
+    "20260912130000_whats_on_editor_decision_exceptions.sql"
+  ],
+  "ledger": {
+    "project_ref": "evvrlbeilubeggmrhjgs",
+    "name_field": "name",
+    "commit_field": "commit_sha"
+  }
+}
