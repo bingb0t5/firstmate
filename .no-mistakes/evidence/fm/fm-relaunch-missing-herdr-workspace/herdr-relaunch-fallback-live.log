@@ -1,0 +1,8 @@
+Created workspace=w1 tab=w1:t2 pane=w1:p2 container=fm-lab-relaunch-fallback-1782:w1
+Workspace presence after delete: dead
+--- fm-spawn output ---
+warning: /tmp/herdr-relaunch-live.5bTf6P/home/data/hr-live/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned hr-live harness=claude kind=ship mode=no-mistakes yolo=off window=fm-lab-relaunch-fallback-1782:w2:p2 worktree=/tmp/herdr-relaunch-live.5bTf6P/wt
+--- end output ---
+After relaunch: worktree=/tmp/herdr-relaunch-live.5bTf6P/wt workspace=w2 pane=w2:p2
+PASS: live Herdr relaunch fallback succeeded

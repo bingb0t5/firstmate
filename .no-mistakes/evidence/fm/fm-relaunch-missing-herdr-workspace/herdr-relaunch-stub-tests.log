@@ -1,0 +1,2 @@
+ok - fm-spawn relaunch: a missing Herdr workspace falls back to a fresh endpoint in the same worktree
+ok - fm-control relaunch: failed Herdr workspace fallback restores the prior record
