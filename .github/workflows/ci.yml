@@ -159,6 +159,8 @@ jobs:
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, linux, lalo-dev]
+    environment:
+      name: self-hosted-lalo-dev
     # Measured whole remainder is ~55 min of serial work; the balanced shards
     # are ~13.8 min each. Cap is a hang tripwire with roughly 1.8x margin, not
     # the expected healthy end of the lane. Balance depends on the duration
@@ -230,6 +232,8 @@ jobs:
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, linux, lalo-dev]
+    environment:
+      name: self-hosted-lalo-dev
     # Healthy runs finish around 7 minutes. This job cap is a last-resort hang
     # tripwire, not the expected end of the lane. The family-run step owns the
     # tighter bound so a wedged suite fails fast with always() cleanup and

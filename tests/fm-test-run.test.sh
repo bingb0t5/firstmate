@@ -813,6 +813,7 @@ for job_name in ("tests-portable-serial", "tests-herdr"):
     job = ci["jobs"][job_name]
     assert "needs" not in job
     assert job["runs-on"] == ["self-hosted", "linux", "lalo-dev"]
+    assert job["environment"] == {"name": "self-hosted-lalo-dev"}
     assert evaluate(
         job["if"], "schedule", "schedule", False, "refs/heads/main"
     )
