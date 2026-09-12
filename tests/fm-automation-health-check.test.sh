@@ -187,9 +187,9 @@ test_registry_report_lists_canonical_health_metrics() {
   run_registry "$home" report "$FIXTURES/registry-healthy.json" "$out"
   report=$(cat "$out")
   assert_contains "$report" \
-    'automation owner cadence source_freshness_age run_age heartbeat_age open_failures health' \
+    'automation owner cadence source_freshness_age run_age heartbeat_age open_failures retry_count correlation_id last_run_id health' \
     "registry report omitted metric headings"
-  assert_contains "$report" $'s6-02-secret-parity\tinfra\t15 minutes\t1440s\t1500s\t300s\t0\thealthy' \
+  assert_contains "$report" $'s6-02-secret-parity\tinfra\t15 minutes\t1440s\t1500s\t300s\t0\t0\tcorr-healthy\trun-healthy\thealthy' \
     "registry report omitted owner or canonical health ages"
   pass "registry report lists source, run, heartbeat, failure, health, and owner"
 }
@@ -235,8 +235,8 @@ test_registry_report_lists_open_failure() {
   report=$(cat "$out")
   assert_contains "$report" $'s6-02-secret-parity\tinfra\t15 minutes' \
     "open failure row was not included"
-  assert_contains "$report" $'\t1\tfailed' \
-    "failed terminal outcome did not produce one open failure"
+  assert_contains "$report" $'\t1\t2\tcorr-failed\trun-failed\tfailed' \
+    "failed terminal outcome did not produce one open failure or identity fields"
   pass "registry report exposes open failure rows"
 }
 
@@ -251,7 +251,7 @@ test_arm_registers_the_stale_heartbeat_runner() {
   assert_present "$home/state/automation-health.check-trust" \
     "arm did not create the trust binding"
   assert_contains "$(cat "$home/state/automation-health.check.sh")" \
-    'fm-automation-health-check.sh run' \
+    'fm-automation-health-check.sh check' \
     "arm did not register the stale heartbeat runner"
   FM_HOME="$home" "$CHECK" disarm >/dev/null || fail "disarm failed"
   assert_absent "$home/state/automation-health.check.sh" \
