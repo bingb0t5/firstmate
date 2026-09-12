@@ -1918,7 +1918,8 @@ herdr_projection_existing_meta_allows_flat() {  # <meta>
 }
 
 recreate_missing_relaunch_endpoint() {
-  local session container task_ids
+  local session container task_ids workspace_presence herdr_home relationship
+  local seeded_default_tab_id container_raw
   [ "$RELAUNCH_ENDPOINT_MISSING" = 1 ] || return 0
   # The endpoint is gone, so the recorded worktree is the remaining ownership
   # proof. Validate it before creating any replacement endpoint.
@@ -1943,8 +1944,42 @@ recreate_missing_relaunch_endpoint() {
         echo "error: task $ID's missing endpoint could not be inspected in its recorded Herdr session" >&2
         exit 1
       fi
-      container="$HERDR_SES:$HERDR_WORKSPACE_ID"
-      task_ids=$(fm_backend_herdr_create_task "$container" "$W" "$PROJ_ABS" "") || {
+      workspace_presence=$(fm_backend_herdr_workspace_presence_state \
+        "$HERDR_SES" "$HERDR_WORKSPACE_ID")
+      case "$workspace_presence" in
+        present)
+          container="$HERDR_SES:$HERDR_WORKSPACE_ID"
+          seeded_default_tab_id=
+          ;;
+        dead)
+          # The recorded workspace is no longer an endpoint container. Reuse
+          # the normal Herdr container-ensure and task-tab creation path, but
+          # keep the relaunch's recorded worktree and task identity intact.
+          herdr_home=$FM_HOME
+          relationship=launcher-home
+          if [ "$KIND" = secondmate ]; then
+            herdr_home=$PROJ_ABS
+            relationship=other-home
+          fi
+          container_raw=$(FM_HOME="$herdr_home" HERDR_SESSION="$HERDR_SES" \
+            HERDR_ENV='' HERDR_PANE_ID='' HERDR_TAB_ID='' HERDR_WORKSPACE_ID='' \
+            fm_backend_herdr_container_ensure \
+            "$PROJ_ABS" "$relationship") || {
+            echo "error: task $ID's missing endpoint could not ensure a replacement Herdr workspace" >&2
+            exit 1
+          }
+          container=${container_raw%%$'\t'*}
+          seeded_default_tab_id=${container_raw#*$'\t'}
+          printf 'working [at=%s]: relaunch fallback replaced missing Herdr workspace %s with %s\n' \
+            "$(date +%s)" "$HERDR_WORKSPACE_ID" "${container#*:}" >> "$STATE/$ID.status"
+          ;;
+        *)
+          echo "error: task $ID's missing endpoint could not be inspected in its recorded Herdr workspace" >&2
+          exit 1
+          ;;
+      esac
+      task_ids=$(FM_HOME="${herdr_home:-$FM_HOME}" fm_backend_herdr_create_task \
+        "$container" "$W" "$PROJ_ABS" "${seeded_default_tab_id:-}") || {
         echo "error: task $ID's missing endpoint could not be recreated in its recorded Herdr workspace" >&2
         exit 1
       }

@@ -147,6 +147,49 @@ SH
   chmod +x "$fb/sleep"
 }
 
+make_herdr_stub() {  # <dir>
+  local fb="$1/fakebin"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-} ${2:-}" in
+  "status --json")
+    printf '%s\n' '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}'
+    ;;
+  "workspace list")
+    printf '%s\n' '{"result":{"workspaces":[]}}'
+    ;;
+  "workspace create")
+    [ "${FM_FAKE_HERDR_FAIL_CREATE:-}" = 1 ] && exit 1
+    printf '%s\n' '{"result":{"workspace":{"workspace_id":"w2","label":"firstmate"},"tab":{"tab_id":"w2:t1"},"root_pane":{"pane_id":"w2:p1"}}}'
+    ;;
+  "tab list")
+    printf '%s\n' '{"result":{"tabs":[]}}'
+    ;;
+  "tab create")
+    printf '%s\n' '{"result":{"tab":{"tab_id":"w2:t2"},"root_pane":{"pane_id":"w2:p2"}}}'
+    ;;
+  "pane get")
+    case "${3:-}" in
+      w1:p1)
+        printf '%s\n' '{"error":{"code":"pane_not_found"}}'
+        exit 1
+        ;;
+      w2:p2)
+        jq -cn --arg cwd "${FM_FAKE_HERDR_WT:?}" \
+          '{result:{pane:{pane_id:"w2:p2",foreground_cwd:$cwd}}}'
+        ;;
+    esac
+    ;;
+  "agent get")
+    printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}'
+    ;;
+  *) ;;
+esac
+SH
+  chmod +x "$fb/herdr"
+}
+
 # new_case <name> [id] -> echoes a case dir with a live claude ship task.
 new_case() {
   local id=${2:-t1} dir="$TMP_ROOT/$1-$RANDOM"
@@ -190,6 +233,8 @@ run_control() {  # <case-dir> <args...>
   local dir=$1; shift
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
+    HERDR_SESSION=fake-session HERDR_ENV= HERDR_PANE_ID= \
+    HERDR_TAB_ID= HERDR_WORKSPACE_ID= FM_FAKE_HERDR_WT="$dir/wt" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_REAL_GIT="${FM_REAL_GIT:-}" FM_FAKE_GIT_FAILURE="${FM_FAKE_GIT_FAILURE:-}" \
     FM_REAL_MV="${FM_REAL_MV:-}" FM_FAKE_COMPLETE_JOURNAL_MV_FAIL="${FM_FAKE_COMPLETE_JOURNAL_MV_FAIL:-}" \
@@ -204,6 +249,8 @@ run_spawn() {  # <case-dir> <args...>
   local dir=$1; shift
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
+    HERDR_SESSION=fake-session HERDR_ENV= HERDR_PANE_ID= \
+    HERDR_TAB_ID= HERDR_WORKSPACE_ID= FM_FAKE_HERDR_WT="$dir/wt" \
     "$SPAWN" "$@" 2>&1
 }
 
@@ -1324,6 +1371,64 @@ test_relaunch_recreates_a_missing_endpoint_after_checkpoint() {
   pass "relaunch: a missing endpoint is agent-free after the worktree checkpoint and is recreated safely"
 }
 
+test_herdr_relaunch_falls_back_when_recorded_workspace_is_missing() {
+  local dir out rc old_wt
+  dir=$(new_case herdr-fallback hr37)
+  add_ship_task "$dir" hr37 claude
+  old_wt="$dir/wt"
+  sed -i.bak 's/^window=.*/window=fake-session:w1:p1/' "$dir/home/state/hr37.meta"
+  rm -f "$dir/home/state/hr37.meta.bak"
+  {
+    echo "backend=herdr"
+    echo "herdr_session=fake-session"
+    echo "herdr_workspace_id=w1"
+    echo "herdr_tab_id=w1:t1"
+    echo "herdr_pane_id=w1:p1"
+  } >> "$dir/home/state/hr37.meta"
+  make_herdr_stub "$dir"
+
+  out=$(run_spawn "$dir" hr37 --relaunch --harness claude); rc=$?
+  expect_code 0 "$rc" "a missing Herdr workspace should use a fresh endpoint"$'\n'"$out"
+  [ "$(meta_field "$dir" hr37 worktree)" = "$old_wt" ] \
+    || fail "a Herdr workspace fallback must keep the recorded worktree"
+  [ "$(meta_field "$dir" hr37 window)" = "fake-session:w2:p2" ] \
+    || fail "a Herdr workspace fallback must publish the replacement pane"
+  [ "$(meta_field "$dir" hr37 herdr_workspace_id)" = w2 ] \
+    || fail "a Herdr workspace fallback must publish the replacement workspace"
+  [ "$(meta_field "$dir" hr37 herdr_tab_id)" = w2:t2 ] \
+    || fail "a Herdr workspace fallback must publish the replacement tab"
+  [ "$(meta_field "$dir" hr37 herdr_pane_id)" = w2:p2 ] \
+    || fail "a Herdr workspace fallback must publish the replacement pane id"
+  assert_grep "missing Herdr workspace w1 with w2" "$dir/home/state/hr37.status" \
+    "a Herdr workspace fallback must be recorded in the status log"
+  pass "fm-spawn relaunch: a missing Herdr workspace falls back to a fresh endpoint in the same worktree"
+}
+
+test_herdr_relaunch_failure_restores_the_prior_record() {
+  local dir out rc before
+  dir=$(new_case herdr-rollback hr38)
+  add_ship_task "$dir" hr38 claude
+  sed -i.bak 's/^window=.*/window=fake-session:w1:p1/' "$dir/home/state/hr38.meta"
+  rm -f "$dir/home/state/hr38.meta.bak"
+  {
+    echo "backend=herdr"
+    echo "herdr_session=fake-session"
+    echo "herdr_workspace_id=w1"
+    echo "herdr_tab_id=w1:t1"
+    echo "herdr_pane_id=w1:p1"
+  } >> "$dir/home/state/hr38.meta"
+  make_herdr_stub "$dir"
+  before=$(cat "$dir/home/state/hr38.meta")
+
+  out=$(FM_FAKE_HERDR_FAIL_CREATE=1 run_control "$dir" hr38 relaunch --note "retry Herdr replacement"); rc=$?
+  expect_code 1 "$rc" "a failed Herdr workspace fallback should fail closed"$'\n'"$out"
+  [ "$(cat "$dir/home/state/hr38.meta")" = "$before" ] \
+    || fail "a failed Herdr replacement must restore the prior durable record"
+  [ "$(journal_field "$dir" hr38 rollback)" = prior-record-kept ] \
+    || fail "a failed Herdr replacement must record prior-record-kept rollback"
+  pass "fm-control relaunch: failed Herdr workspace fallback restores the prior record"
+}
+
 test_spawn_relaunch_refuses_contradicting_flags() {
   local dir out rc
   dir=$(new_case flags rl16)
@@ -1407,6 +1512,8 @@ test_direct_spawn_relaunch_participates_in_the_lifecycle_lock
 test_promotion_participates_in_the_lifecycle_lock_before_metadata_resolution
 test_spawn_relaunch_refuses_a_live_agent
 test_relaunch_recreates_a_missing_endpoint_after_checkpoint
+test_herdr_relaunch_falls_back_when_recorded_workspace_is_missing
+test_herdr_relaunch_failure_restores_the_prior_record
 test_spawn_relaunch_refuses_contradicting_flags
 test_spawn_relaunch_refuses_an_unrecorded_task
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree
