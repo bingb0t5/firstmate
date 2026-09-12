@@ -1,0 +1,3 @@
+=== LIVE RUN (bounded wait on HEAD placeholder) ===
+release receipt: waiting for deployment or migration receipt
+exit=1

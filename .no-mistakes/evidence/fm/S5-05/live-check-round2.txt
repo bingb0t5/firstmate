@@ -1,0 +1,2 @@
+=== LIVE CHECK (one-shot) ===
+exit_code=0

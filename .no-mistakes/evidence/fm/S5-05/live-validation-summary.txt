@@ -1,0 +1,18 @@
+Live validation round 2 (target d222f24)
+
+Driven live against production Coolify (ga48pn39tt4b9bswgsuaqu7v), admin.laloapp.co/api/build-id,
+and firstmate bin/fm-release-receipt-check.sh arm/disarm/run/audit/check.
+
+Key live results:
+- Coolify git_commit_sha=HEAD → overall=waiting, failure="" (not mismatch) ✓
+- Live build-id {"build":"dev-mty0b1u3"} matches manifest expected_build_id ✓
+- Bounded run times out waiting, no mismatch ✓
+- Watcher shim executes live observation ✓
+- Arm creates release-receipt.check.sh + check-trust; disarm removes ✓
+
+Blocked live (environment):
+- App DB service role for evvrlbeilubeggmrhjgs not in gate env → migration ledger unavailable
+- Coolify never exposes 40-char SHA in steady state → commit mismatch not live-triggerable
+- No active rollout → stale-build adversarial paths not live-triggerable
+
+Unit tests: 12/12 pass (tests/fm-release-receipt-check.test.sh)

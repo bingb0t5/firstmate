@@ -1,0 +1,4 @@
+=== LIVE COMMIT MISMATCH PROBE ===
+release receipt: waiting for deployment or migration receipt
+{"release_id":"admin-prod-2026-09-12","overall":"waiting","app":"waiting","migration":"unverified","intended_commit":"7576626447416cf71ea2aa92aafa15d75921ed16","targets":[{"provider":"coolify","status":"running:healthy","commit":"HEAD","build_id":"dev-mty0b1u3","expected_commit":"7576626447416cf71ea2aa92aafa15d75921ed16","expected_build_id":"dev-mty0b1u3","complete":false,"healthy":false,"failure":""}],"receipt":{"state":"unverified","missing":[],"mismatches":[],"failure":"migration ledger unavailable"}}
+exit=1

@@ -1,0 +1,6 @@
+=== LIVE ARM/DISARM ===
+armed: state/release-receipt.check.sh
+-rw------- 1 rich rich  84 Sep 12 15:05 /home/rich/.no-mistakes/evidence/01M2A7331HNDCR80WF6E8SZN71/live-arm-1789200318/state/release-receipt.check-trust
+-rwx------ 1 rich rich 478 Sep 12 15:05 /home/rich/.no-mistakes/evidence/01M2A7331HNDCR80WF6E8SZN71/live-arm-1789200318/state/release-receipt.check.sh
+disarmed: state/release-receipt.check.sh
+check.sh removed (expected)
