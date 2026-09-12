@@ -11,11 +11,9 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 RUNNER="$ROOT/bin/fm-test-run.sh"
-HEAVY_LANE="$ROOT/bin/fm-ci-heavy-lane.py"
 
 assert_present "$RUNNER" "bin/fm-test-run.sh is missing"
 [ -x "$RUNNER" ] || fail "bin/fm-test-run.sh must be executable"
-assert_present "$HEAVY_LANE" "bin/fm-ci-heavy-lane.py is missing"
 
 test_list_all_exact_suite_coverage() {
   local listed expected missing extra f
@@ -732,7 +730,7 @@ assert "**.md" in pull_request["paths-ignore"]
 group = ci["concurrency"]["group"]
 assert yaml.safe_load(open(f"{root}/.no-mistakes.yaml", encoding="utf-8"))["ci"]["revalidate_repairs"] is True
 
-def evaluate(expression, event_name, action, draft, ref, available=None):
+def evaluate(expression, event_name, action, draft, ref):
     expression = str(expression)
     expression = expression.replace(
         "github.event.pull_request.draft", repr(draft)
@@ -740,9 +738,6 @@ def evaluate(expression, event_name, action, draft, ref, available=None):
     expression = expression.replace("github.event.action", repr(action))
     expression = expression.replace("github.event_name", repr(event_name))
     expression = expression.replace("github.ref", repr(ref))
-    expression = expression.replace(
-        "needs.lalo-dev-availability.outputs.available", repr(available)
-    )
     expression = expression.replace("always()", "True")
     expression = expression.replace("&&", " and ").replace("||", " or ")
     expression = re.sub(r"(?<![=!])!(?!=)", " not ", expression)
@@ -751,7 +746,7 @@ def evaluate(expression, event_name, action, draft, ref, available=None):
 def enabled(job, event_name, action, draft, ref):
     condition = str(ci["jobs"][job].get("if", "True"))
     if ci["jobs"][job].get("needs"):
-        # Dependency outputs are only known after the availability gate runs.
+        # Dependency outputs are only known after their prerequisites run.
         return False
     return evaluate(
         condition,
@@ -777,12 +772,12 @@ assert selected("push", "push", False, "refs/heads/main") == (
      "tests-portable-parallel-2", "invariants"}
 )
 assert selected("schedule", "schedule", False, "refs/heads/main") == {
-    "lalo-dev-availability"
+    "tests-portable-serial", "tests-herdr"
 }
 assert selected("workflow_dispatch", "workflow_dispatch", False, "refs/heads/main") == {
     "lint", "test-coverage", "tests-portable-parallel-1",
-    "tests-portable-parallel-2", "lalo-dev-availability",
-    "macos-stock-bash", "invariants"
+    "tests-portable-parallel-2", "tests-portable-serial", "tests-herdr",
+    "macos-stock-bash", "invariants",
 }
 assert evaluate(
     ci["jobs"]["macos-stock-bash"]["if"],
@@ -812,49 +807,25 @@ assert ci["jobs"]["tests-portable-parallel-1"]["runs-on"] == "ubuntu-latest"
 assert ci["jobs"]["tests-portable-parallel-2"]["runs-on"] == "ubuntu-latest"
 assert ci["jobs"]["invariants"]["runs-on"] == "ubuntu-latest"
 
-availability = ci["jobs"]["lalo-dev-availability"]
-assert ci["permissions"]["actions"] == "write"
-assert availability["runs-on"] == "ubuntu-latest"
-assert set(availability["outputs"]) == {"available"}
-assert ci["jobs"]["lalo-dev-unavailable"]["needs"] == "lalo-dev-availability"
-assert ci["jobs"]["lalo-dev-unavailable"]["runs-on"] == "ubuntu-latest"
-unavailable = ci["jobs"]["lalo-dev-unavailable"]["if"]
-assert not evaluate(
-    unavailable, "pull_request", "synchronize", False,
-    "refs/pull/1/merge", available="unavailable"
-)
-assert evaluate(
-    unavailable, "schedule", "schedule", False,
-    "refs/heads/main", available="unavailable"
-)
-assert not evaluate(
-    unavailable, "schedule", "schedule", False,
-    "refs/heads/main", available="available"
-)
+assert ci["permissions"] == {"contents": "read"}
 
 for job_name in ("tests-portable-serial", "tests-herdr"):
     job = ci["jobs"][job_name]
-    assert job["needs"] == "lalo-dev-availability"
+    assert "needs" not in job
     assert job["runs-on"] == ["self-hosted", "linux", "lalo-dev"]
+    assert evaluate(
+        job["if"], "schedule", "schedule", False, "refs/heads/main"
+    )
+    assert evaluate(
+        job["if"], "workflow_dispatch", "workflow_dispatch", False,
+        "refs/heads/main"
+    )
+    assert not evaluate(
+        job["if"], "pull_request", "ready_for_review", False,
+        "refs/pull/1/merge"
+    )
 
 assert ci["jobs"]["tests-portable-serial"]["timeout-minutes"] == 25
-watch = ci["jobs"]["lalo-dev-queue-watch"]
-assert watch["needs"] == "lalo-dev-availability"
-assert watch["runs-on"] == "ubuntu-latest"
-assert watch["timeout-minutes"] == 200
-report = ci["jobs"]["heavy-ci-failure-report"]
-assert report["needs"] == [
-    "lalo-dev-availability", "lalo-dev-queue-watch",
-    "tests-portable-serial", "tests-herdr",
-]
-assert report["runs-on"] == "ubuntu-latest"
-event = next(
-    step for step in report["steps"]
-    if step.get("name") == "Record one durable Firstmate event"
-)
-assert set(event["env"]) == {
-    "FM_HEAVY_COMMIT", "FM_HEAVY_RUN_URL", "FM_HEAVY_SUITES"
-}
 assert "schedule" in ci.get("on", ci.get(True))
 
 group_start = group.index("${{")
@@ -881,41 +852,6 @@ assert render_group(37, "refs/pull/37/merge", "sha-a") == render_group(
 )
 PY
   pass "CI routes ordinary, draft, ready-for-review, and main events as intended"
-}
-
-test_ci_heavy_lane_api_contract() {
-  local tmp offline busy completed pending
-  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-ci-heavy-lane.XXXXXX")
-  offline="$tmp/offline.json"
-  busy="$tmp/busy.json"
-  completed="$tmp/completed.json"
-  pending="$tmp/pending.json"
-  cat >"$offline" <<'JSON'
-{"runners":[{"status":"offline","busy":false,"labels":[{"name":"self-hosted"},{"name":"linux"},{"name":"lalo-dev"}]}]}
-JSON
-  cat >"$busy" <<'JSON'
-{"runners":[{"status":"online","busy":true,"labels":[{"name":"self-hosted"},{"name":"linux"},{"name":"lalo-dev"}]}]}
-JSON
-  cat >"$completed" <<'JSON'
-{"jobs":[{"name":"Behavior portable serial 1","status":"completed"},{"name":"Behavior portable serial 2","status":"completed"},{"name":"Behavior portable serial 3","status":"completed"},{"name":"Behavior portable serial 4","status":"completed"},{"name":"Behavior tests (Herdr)","status":"completed"}]}
-JSON
-  cat >"$pending" <<'JSON'
-{"jobs":[{"name":"Behavior portable serial 1","status":"queued"}]}
-JSON
-  [ "$(python3 "$HEAVY_LANE" preflight "$offline")" = unavailable ] \
-    || { rm -rf "$tmp"; fail "offline runner passed heavy-lane preflight"; }
-  [ "$(python3 "$HEAVY_LANE" watch "$offline" "$completed")" = complete ] \
-    || { rm -rf "$tmp"; fail "completed lane was not terminal after runner loss"; }
-  if python3 "$HEAVY_LANE" watch "$offline" "$tmp/missing-jobs.json" >/dev/null 2>&1; then
-    rm -rf "$tmp"
-    fail "missing job snapshot was treated as safe"
-  fi
-  [ "$(python3 "$HEAVY_LANE" watch "$offline" "$pending")" = unavailable ] \
-    || { rm -rf "$tmp"; fail "post-check runner loss did not fail closed"; }
-  [ "$(python3 "$HEAVY_LANE" watch "$busy" "$pending")" = wait ] \
-    || { rm -rf "$tmp"; fail "busy matching runner did not preserve serial waiting"; }
-  rm -rf "$tmp"
-  pass "CI heavy lane rejects runner loss and preserves busy serial waits"
 }
 
 test_aggregate_json() {
@@ -978,5 +914,4 @@ test_jobs_requires_proven_isolated
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
 test_ci_workflow_routes_events_without_heavy_pr_matrix
-test_ci_heavy_lane_api_contract
 test_aggregate_json
