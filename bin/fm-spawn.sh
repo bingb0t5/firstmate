@@ -30,10 +30,15 @@
 #   model, and effort may change, which is what makes a harness switch one
 #   ordinary relaunch. A recovery-grade backend's authoritatively missing
 #   endpoint is agent-free after the recorded worktree passes the isolation
-#   proof, so fm-spawn recreates that endpoint before launching. Otherwise it
-#   requires a positively agent-free endpoint whose shell is sitting in the
-#   recorded worktree, and clears the previous harness's per-task wiring before
-#   arming the new incarnation.
+#   proof, so fm-spawn recreates that endpoint before launching. On Herdr, a
+#   still-present workspace gets a new task tab; a workspace confirmed absent
+#   from the session is replaced through the normal home container-ensure path,
+#   with fresh herdr_* metadata and a status fallback line (docs/herdr-backend.md
+#   "Relaunch with a missing workspace"). Ambiguous workspace inspection refuses.
+#   When the endpoint is not authoritatively missing, relaunch requires a
+#   positively agent-free endpoint whose shell is sitting in the recorded
+#   worktree, and clears the previous harness's per-task wiring before arming
+#   the new incarnation.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
@@ -1064,7 +1069,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fm_backend_validate_spawn "$BACKEND" || exit 1
   fm_backend_source "$BACKEND" || exit 1
   # A relaunch must PROVE the previous agent is gone before it launches another
-  # one into the same endpoint, and only tmux and herdr have a recovery-grade
+  # into the task endpoint, and only tmux and herdr have a recovery-grade
   # classifier that can (bin/fm-control-lib.sh owns that capability table).
   fm_control_backend_state_verified "$BACKEND" || {
     echo "error: backend '$BACKEND' has no recovery-grade agent-state classifier, so a relaunch cannot prove the previous agent exited; refusing rather than risking two agents in one endpoint" >&2
@@ -1918,7 +1923,8 @@ herdr_projection_existing_meta_allows_flat() {  # <meta>
 }
 
 recreate_missing_relaunch_endpoint() {
-  local session container task_ids
+  local session container task_ids workspace_presence herdr_home relationship
+  local seeded_default_tab_id container_raw herdr_replaced_workspace_id
   [ "$RELAUNCH_ENDPOINT_MISSING" = 1 ] || return 0
   # The endpoint is gone, so the recorded worktree is the remaining ownership
   # proof. Validate it before creating any replacement endpoint.
@@ -1943,8 +1949,41 @@ recreate_missing_relaunch_endpoint() {
         echo "error: task $ID's missing endpoint could not be inspected in its recorded Herdr session" >&2
         exit 1
       fi
-      container="$HERDR_SES:$HERDR_WORKSPACE_ID"
-      task_ids=$(fm_backend_herdr_create_task "$container" "$W" "$PROJ_ABS" "") || {
+      workspace_presence=$(fm_backend_herdr_workspace_presence_state \
+        "$HERDR_SES" "$HERDR_WORKSPACE_ID")
+      case "$workspace_presence" in
+        present)
+          container="$HERDR_SES:$HERDR_WORKSPACE_ID"
+          seeded_default_tab_id=
+          ;;
+        dead)
+          # The recorded workspace is no longer an endpoint container. Reuse
+          # the normal Herdr container-ensure and task-tab creation path, but
+          # keep the relaunch's recorded worktree and task identity intact.
+          herdr_home=$FM_HOME
+          relationship=launcher-home
+          if [ "$KIND" = secondmate ]; then
+            herdr_home=$PROJ_ABS
+            relationship=other-home
+          fi
+          container_raw=$(FM_HOME="$herdr_home" HERDR_SESSION="$HERDR_SES" \
+            HERDR_ENV='' HERDR_PANE_ID='' HERDR_TAB_ID='' HERDR_WORKSPACE_ID='' \
+            fm_backend_herdr_container_ensure \
+            "$PROJ_ABS" "$relationship") || {
+            echo "error: task $ID's missing endpoint could not ensure a replacement Herdr workspace" >&2
+            exit 1
+          }
+          container=${container_raw%%$'\t'*}
+          seeded_default_tab_id=${container_raw#*$'\t'}
+          herdr_replaced_workspace_id=$HERDR_WORKSPACE_ID
+          ;;
+        *)
+          echo "error: task $ID's missing endpoint could not be inspected in its recorded Herdr workspace" >&2
+          exit 1
+          ;;
+      esac
+      task_ids=$(FM_HOME="${herdr_home:-$FM_HOME}" fm_backend_herdr_create_task \
+        "$container" "$W" "$PROJ_ABS" "${seeded_default_tab_id:-}") || {
         echo "error: task $ID's missing endpoint could not be recreated in its recorded Herdr workspace" >&2
         exit 1
       }
@@ -1953,6 +1992,10 @@ $task_ids
 EOF
       HERDR_SES=${container%%:*}
       HERDR_WORKSPACE_ID=${container#*:}
+      if [ -n "${herdr_replaced_workspace_id:-}" ]; then
+        printf 'working [at=%s]: relaunch fallback replaced missing Herdr workspace %s with %s\n' \
+          "$(date +%s)" "$herdr_replaced_workspace_id" "$HERDR_WORKSPACE_ID" >> "$STATE/$ID.status"
+      fi
       T="$HERDR_SES:$HERDR_PANE_ID"
       WT_TARGET=$T
       ;;

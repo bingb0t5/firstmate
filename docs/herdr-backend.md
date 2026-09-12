@@ -66,6 +66,7 @@ Recovery and list-live still scan the first workspace matching the home label, b
 Existing task operations use recorded endpoint ids and do not move a live task when labels change.
 The per-home workspace is reused while it has task tabs.
 Closing its last tab can remove the workspace, and the next spawn recreates it.
+An existing-task relaunch into that situation uses the missing-workspace fallback under [Relaunch with a missing workspace](#relaunch-with-a-missing-workspace) rather than allocating a new worktree.
 
 ## Presentation spaces
 
@@ -270,6 +271,21 @@ Unlike tmux process-name inspection, native registration can classify Pi without
 
 The session-start sweep uses this probe.
 Mid-session secondmate agent-process liveness is not implemented because idle secondmates are deliberately exempt from stale-pane escalation and need a separate periodic identity signal.
+
+## Relaunch with a missing workspace
+
+When a recovery-grade relaunch finds the recorded pane authoritatively missing, [`agent-control.md`](agent-control.md#transactional-relaunch) owns the transaction; this section owns the Herdr recreation path in `bin/fm-spawn.sh --relaunch`.
+
+After the recorded worktree passes the isolation proof, the adapter inspects the recorded workspace id with `fm_backend_herdr_workspace_presence_state`:
+
+- **present** - recreate only the task tab and pane inside the recorded workspace.
+- **dead** - the workspace no longer exists in the session; use the normal home `container_ensure` path to obtain a replacement workspace, create the task tab there, publish fresh `herdr_*` and `window=` metadata, and append a status line recording the workspace replacement.
+- **unknown** - refuse with an inspection error rather than proceeding; duplicate workspace ids in the session list are ambiguity, not proof of presence.
+
+The relaunch never allocates a new worktree or touches the task branch.
+A failed replacement after the control-plane checkpoint restores the prior durable record; see [`agent-control.md`](agent-control.md#failure-and-rollback).
+
+`tests/fm-control-relaunch.test.sh` covers the workspace fallback and prior-record rollback.
 
 ## Push events and polling fallback
 
