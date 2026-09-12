@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  schedule:
+    - cron: '17 3 * * *'
   push:
     branches: [main]
   pull_request:
@@ -12,6 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 # Superseded PR pushes should not keep burning minutes on the full matrix.
@@ -23,8 +26,10 @@ jobs:
   lint:
     name: Lint
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' ||
       !github.event.pull_request.draft
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -49,7 +54,7 @@ jobs:
   # and that the portable serial CI shards partition that serial lane exactly.
   test-coverage:
     name: Test coverage guard
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -61,8 +66,10 @@ jobs:
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' ||
       !github.event.pull_request.draft
+      )
     runs-on: ubuntu-latest
     # Measured shard wall is ~1 min of serial sum on proven scripts; this cap is
     # a hang tripwire with margin, not the expected healthy end of the lane.
@@ -103,8 +110,10 @@ jobs:
   tests-portable-parallel-2:
     name: Behavior portable parallel 2
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' ||
       !github.event.pull_request.draft
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -140,6 +149,61 @@ jobs:
           path: ${{ runner.temp }}/fm-test/fm-test-timing-portable-parallel-2.json
           if-no-files-found: warn
 
+  # The nightly/manual heavy lane starts with a GitHub-hosted availability
+  # check. A Lalo-dev runner that is offline or busy must never leave a job
+  # queued indefinitely, and an unavailable runner is an explicit failure
+  # rather than a green omission of the required suites.
+  lalo-dev-availability:
+    name: Lalo-dev availability
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.availability.outputs.available }}
+    steps:
+      - id: availability
+        name: Require an idle lalo-dev runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          response=$(curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100")
+          available=$(printf '%s' "$response" | python3 -c '
+          import json
+          import sys
+
+          runners = json.load(sys.stdin).get("runners", [])
+          print("true" if any(
+              runner.get("status") == "online"
+              and not runner.get("busy", True)
+              and any(label.get("name") == "lalo-dev" for label in runner.get("labels", []))
+              for runner in runners
+          ) else "false")
+          ')
+          echo "available=$available" >> "$GITHUB_OUTPUT"
+          echo "lalo-dev available=$available"
+
+  lalo-dev-unavailable:
+    name: Lalo-dev availability - SKIPPED
+    needs: lalo-dev-availability
+    if: >-
+      always() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      needs.lalo-dev-availability.outputs.available != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed with the availability summary
+        run: |
+          set -eu
+          if [ "${{ needs.lalo-dev-availability.result }}" = failure ]; then
+            echo '::error::Lalo-dev availability API check failed closed; required heavy suites were not started.'
+          else
+            echo '::error::SKIPPED: no idle runner labeled lalo-dev is available; required heavy suites were not started.'
+          fi
+          exit 1
+
   # Required portable serial remainder: watcher, lock, AFK, tmux, daemon,
   # ambiguous, and other stateful tests. Real Herdr stays in tests-herdr.
   # Split across separate runners so no two of these stateful scripts ever share
@@ -149,9 +213,9 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     if: >-
-      github.event_name != 'pull_request' ||
-      github.event.action == 'ready_for_review'
-    runs-on: [self-hosted, linux, firstmate]
+      needs.lalo-dev-availability.outputs.available == 'true'
+    needs: lalo-dev-availability
+    runs-on: [self-hosted, linux, lalo-dev]
     # Measured whole remainder is ~55 min of serial work; the balanced shards
     # are ~13.8 min each. Cap is a hang tripwire with roughly 1.8x margin, not
     # the expected healthy end of the lane. Balance depends on the duration
@@ -221,9 +285,9 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     if: >-
-      github.event_name != 'pull_request' ||
-      github.event.action == 'ready_for_review'
-    runs-on: [self-hosted, linux, firstmate]
+      needs.lalo-dev-availability.outputs.available == 'true'
+    needs: lalo-dev-availability
+    runs-on: [self-hosted, linux, lalo-dev]
     # Healthy runs finish around 7 minutes. This job cap is a last-resort hang
     # tripwire, not the expected end of the lane. The family-run step owns the
     # tighter bound so a wedged suite fails fast with always() cleanup and
@@ -340,17 +404,48 @@ jobs:
             ${{ runner.temp }}/fm-herdr/default-server.log
           if-no-files-found: warn
 
+  nightly-heavy-failure-notification:
+    name: Firstmate nightly heavy CI failure
+    needs:
+      - tests-portable-serial
+      - tests-herdr
+    if: >-
+      github.event_name == 'schedule' &&
+      always() &&
+      (needs.tests-portable-serial.result == 'failure' ||
+      needs.tests-herdr.result == 'failure')
+    runs-on: [self-hosted, linux, lalo-dev]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Record one durable Firstmate event
+        env:
+          FM_NIGHTLY_COMMIT: ${{ github.sha }}
+          FM_NIGHTLY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FM_NIGHTLY_SUITES: portable-serial,herdr
+        run: |
+          set -eu
+          [ -n "${FM_HOME:-}" ] || {
+            echo '::error::FM_HOME must identify the Lalo-dev Firstmate home for durable failure delivery.'
+            exit 1
+          }
+          [ -d "$FM_HOME/state" ] || {
+            echo "::error::FM_HOME state directory is unavailable: $FM_HOME/state"
+            exit 1
+          }
+          bin/fm-inbox.sh note "nightly heavy CI failed: commit=$FM_NIGHTLY_COMMIT suites=$FM_NIGHTLY_SUITES url=$FM_NIGHTLY_RUN_URL"
+
   # Aggregate per-lane timing into one summary artifact for critical-path review.
   tests-timing-aggregate:
     name: Behavior timing aggregate
     runs-on: ubuntu-latest
     needs:
+      - lalo-dev-availability
       - tests-portable-parallel-1
       - tests-portable-parallel-2
       - tests-portable-serial
       - tests-herdr
     if: >-
-      github.event_name != 'pull_request' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       always()
     steps:
       - uses: actions/checkout@v6
@@ -431,7 +526,7 @@ jobs:
 
   invariants:
     name: Repo invariants
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
