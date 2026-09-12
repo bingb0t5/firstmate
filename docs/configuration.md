@@ -527,6 +527,18 @@ A sweep interrupted by probe failure or budget exhaustion still alerts mismatche
 The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); probe and budget sizing follow the same cut-to-fit pattern as the other armed custom checks rather than refusing an oversized setting outright.
 `FM_SECRET_PARITY_NOW` is a test-only whole-second clock override.
 
+## Automation health rollup
+
+[`bin/fm-automation-health-check.sh`](../bin/fm-automation-health-check.sh) reads the live brain registry projection and emits one compact status for each registered stream.
+The status includes source freshness age, queue age, last successful run age, retry count, open-alert count, and terminal-receipt status.
+The full projection and lifecycle contract is documented in [`docs/automation-health.md`](automation-health.md).
+
+Arm it with `FM_HOME=/path/to/firstmate-home bin/fm-automation-health-check.sh arm`.
+The registry URL and bearer token resolve from direct environment values or the local `FM_AUTOMATION_REGISTRY_ENV_FILE`, and credential values are never printed.
+The registry's `start`, `heartbeat`, and `complete` lifecycle endpoints remain the source of run truth.
+An `automation.run.receipt.v1` terminal receipt is required for green status, so an n8n execution count cannot make a stream green.
+The health rollup observes the armed `secret-parity` stream and does not schedule a second n8n worker for host-local secret stores.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
