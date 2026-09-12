@@ -11,9 +11,11 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 RUNNER="$ROOT/bin/fm-test-run.sh"
+HEAVY_LANE="$ROOT/bin/fm-ci-heavy-lane.py"
 
 assert_present "$RUNNER" "bin/fm-test-run.sh is missing"
 [ -x "$RUNNER" ] || fail "bin/fm-test-run.sh must be executable"
+assert_present "$HEAVY_LANE" "bin/fm-ci-heavy-lane.py is missing"
 
 test_list_all_exact_suite_coverage() {
   local listed expected missing extra f
@@ -811,7 +813,7 @@ assert ci["jobs"]["tests-portable-parallel-2"]["runs-on"] == "ubuntu-latest"
 assert ci["jobs"]["invariants"]["runs-on"] == "ubuntu-latest"
 
 availability = ci["jobs"]["lalo-dev-availability"]
-assert ci["permissions"]["actions"] == "read"
+assert ci["permissions"]["actions"] == "write"
 assert availability["runs-on"] == "ubuntu-latest"
 assert set(availability["outputs"]) == {"available"}
 assert ci["jobs"]["lalo-dev-unavailable"]["needs"] == "lalo-dev-availability"
@@ -819,15 +821,15 @@ assert ci["jobs"]["lalo-dev-unavailable"]["runs-on"] == "ubuntu-latest"
 unavailable = ci["jobs"]["lalo-dev-unavailable"]["if"]
 assert not evaluate(
     unavailable, "pull_request", "synchronize", False,
-    "refs/pull/1/merge", available="false"
+    "refs/pull/1/merge", available="unavailable"
 )
 assert evaluate(
     unavailable, "schedule", "schedule", False,
-    "refs/heads/main", available="false"
+    "refs/heads/main", available="unavailable"
 )
 assert not evaluate(
     unavailable, "schedule", "schedule", False,
-    "refs/heads/main", available="true"
+    "refs/heads/main", available="available"
 )
 
 for job_name in ("tests-portable-serial", "tests-herdr"):
@@ -836,15 +838,22 @@ for job_name in ("tests-portable-serial", "tests-herdr"):
     assert job["runs-on"] == ["self-hosted", "linux", "lalo-dev"]
 
 assert ci["jobs"]["tests-portable-serial"]["timeout-minutes"] == 25
-notification = ci["jobs"]["nightly-heavy-failure-notification"]
-assert notification["needs"] == ["tests-portable-serial", "tests-herdr"]
-assert notification["runs-on"] == ["self-hosted", "linux", "lalo-dev"]
+watch = ci["jobs"]["lalo-dev-queue-watch"]
+assert watch["needs"] == "lalo-dev-availability"
+assert watch["runs-on"] == "ubuntu-latest"
+assert watch["timeout-minutes"] == 200
+report = ci["jobs"]["heavy-ci-failure-report"]
+assert report["needs"] == [
+    "lalo-dev-availability", "lalo-dev-queue-watch",
+    "tests-portable-serial", "tests-herdr",
+]
+assert report["runs-on"] == "ubuntu-latest"
 event = next(
-    step for step in notification["steps"]
+    step for step in report["steps"]
     if step.get("name") == "Record one durable Firstmate event"
 )
 assert set(event["env"]) == {
-    "FM_NIGHTLY_COMMIT", "FM_NIGHTLY_RUN_URL", "FM_NIGHTLY_SUITES"
+    "FM_HEAVY_COMMIT", "FM_HEAVY_RUN_URL", "FM_HEAVY_SUITES"
 }
 assert "schedule" in ci.get("on", ci.get(True))
 
@@ -872,6 +881,41 @@ assert render_group(37, "refs/pull/37/merge", "sha-a") == render_group(
 )
 PY
   pass "CI routes ordinary, draft, ready-for-review, and main events as intended"
+}
+
+test_ci_heavy_lane_api_contract() {
+  local tmp offline busy completed pending
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-ci-heavy-lane.XXXXXX")
+  offline="$tmp/offline.json"
+  busy="$tmp/busy.json"
+  completed="$tmp/completed.json"
+  pending="$tmp/pending.json"
+  cat >"$offline" <<'JSON'
+{"runners":[{"status":"offline","busy":false,"labels":[{"name":"self-hosted"},{"name":"linux"},{"name":"lalo-dev"}]}]}
+JSON
+  cat >"$busy" <<'JSON'
+{"runners":[{"status":"online","busy":true,"labels":[{"name":"self-hosted"},{"name":"linux"},{"name":"lalo-dev"}]}]}
+JSON
+  cat >"$completed" <<'JSON'
+{"jobs":[{"name":"Behavior portable serial 1","status":"completed"},{"name":"Behavior portable serial 2","status":"completed"},{"name":"Behavior portable serial 3","status":"completed"},{"name":"Behavior portable serial 4","status":"completed"},{"name":"Behavior tests (Herdr)","status":"completed"}]}
+JSON
+  cat >"$pending" <<'JSON'
+{"jobs":[{"name":"Behavior portable serial 1","status":"queued"}]}
+JSON
+  [ "$(python3 "$HEAVY_LANE" preflight "$offline")" = unavailable ] \
+    || { rm -rf "$tmp"; fail "offline runner passed heavy-lane preflight"; }
+  [ "$(python3 "$HEAVY_LANE" watch "$offline" "$completed")" = complete ] \
+    || { rm -rf "$tmp"; fail "completed lane was not terminal after runner loss"; }
+  if python3 "$HEAVY_LANE" watch "$offline" "$tmp/missing-jobs.json" >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    fail "missing job snapshot was treated as safe"
+  fi
+  [ "$(python3 "$HEAVY_LANE" watch "$offline" "$pending")" = unavailable ] \
+    || { rm -rf "$tmp"; fail "post-check runner loss did not fail closed"; }
+  [ "$(python3 "$HEAVY_LANE" watch "$busy" "$pending")" = wait ] \
+    || { rm -rf "$tmp"; fail "busy matching runner did not preserve serial waiting"; }
+  rm -rf "$tmp"
+  pass "CI heavy lane rejects runner loss and preserves busy serial waits"
 }
 
 test_aggregate_json() {
@@ -934,4 +978,5 @@ test_jobs_requires_proven_isolated
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
 test_ci_workflow_routes_events_without_heavy_pr_matrix
+test_ci_heavy_lane_api_contract
 test_aggregate_json
