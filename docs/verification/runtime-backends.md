@@ -6,6 +6,14 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## Codex startup identity depth
+
+On 2026-09-12, codex-cli 0.154.0 placed Codex at depth 9 in the real SessionStart ancestry, beyond the detector's former 8-process bound.
+`CODEX_VERSION` and `CODEX_CI` were also inherited by the Herdr launcher, so they are not safe identity markers.
+The detector now uses the existing 16-process bound, while markerless sessions with no verified harness ancestor remain `unknown`.
+`tests/fm-secondmate-harness.test.sh` builds a portable executable process tree whose Codex ancestor is at least depth 9, proves the former eight-hop detector returns `unknown` for that exact tree, and proves the current detector returns `codex` while its missing-identity control remains `unknown`.
+`FM_CODEX_LIVE_E2E=1 tests/fm-codex-continuity-live-e2e.test.sh` calls the public detector through the installed Codex CLI's wrapped process path and requires the `codex` result.
+
 ## Local attention reservation guard
 
 The fixed four-worker reservation guard was verified on 2026-08-25 with the portable shell fixtures, before any backend or harness launch selection.
