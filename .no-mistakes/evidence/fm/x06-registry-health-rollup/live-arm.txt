@@ -1,0 +1,3 @@
+armed: state/automation-health.check.sh
+shim exists and executable
+disarmed: state/automation-health.check.sh
