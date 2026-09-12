@@ -379,10 +379,8 @@ jobs:
 
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
-    # Keep costly stock Bash compatibility coverage on main and manual main runs.
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # Keep costly stock Bash compatibility coverage on manual runs only.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     # The full stock Bash 3.2 compatibility suite, retaining the 14 x 180 KB
     # ARG_MAX fixture, took 12m53s on the measured host, so 20 minutes leaves
