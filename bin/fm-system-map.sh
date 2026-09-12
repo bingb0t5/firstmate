@@ -561,6 +561,13 @@ write_markdown() {
   write_atomic "$destination" "$markdown_file"
 }
 
+epoch_now() {
+  case "${FM_SYSTEM_MAP_NOW:-}" in
+    ''|*[!0-9]*) date +%s ;;
+    *) printf '%s\n' "$FM_SYSTEM_MAP_NOW" ;;
+  esac
+}
+
 record_read() {
   RECORD_EPOCH=0
   RECORD_DIGEST=
@@ -575,7 +582,7 @@ record_write() {
   local digest=$1 now temporary
   [ -d "$STATE" ] || return 1
   temporary=$(umask 077; mktemp "$STATE/.$CHECK_ID.XXXXXX") || return 1
-  now=$(date +%s)
+  now=$(epoch_now)
   if ! printf '%s\n%s\n%s\n' "$RECORD_SCHEMA" "$now" "$digest" > "$temporary" ||
     ! chmod 0600 "$temporary" || ! mv -f -- "$temporary" "$RECORD"; then
     rm -f -- "$temporary"
@@ -642,10 +649,7 @@ due_for_sweep() {
   [ "$INTERVAL" -eq 0 ] && return 0
   record_read
   [ "$RECORD_EPOCH" -eq 0 ] && return 0
-  case "${FM_SYSTEM_MAP_NOW:-}" in
-    ''|*[!0-9]*) now=$(date +%s) ;;
-    *) now=$FM_SYSTEM_MAP_NOW ;;
-  esac
+  now=$(epoch_now)
   [ "$now" -ge "$RECORD_EPOCH" ] && [ $((now - RECORD_EPOCH)) -lt "$INTERVAL" ] && return 1
   return 0
 }
