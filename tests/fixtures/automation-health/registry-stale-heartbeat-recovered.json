@@ -1,0 +1,20 @@
+{
+  "automations": [
+    {
+      "schema": "automation.registry.v1",
+      "manifest_id": "s6-02-secret-parity",
+      "manifest_version": "1",
+      "owner": "infra",
+      "cadence": "15 minutes",
+      "heartbeat_timeout_seconds": 300,
+      "last_start_at": "2026-09-11T23:59:00.000Z",
+      "last_success_at": null,
+      "terminal_outcome": null,
+      "retry_count": 0,
+      "correlation_id": "corr-stale",
+      "heartbeat_at": "2026-09-12T00:19:00.000Z",
+      "health": "stale",
+      "last_run_id": "run-stale"
+    }
+  ]
+}

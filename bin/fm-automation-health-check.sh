@@ -4,6 +4,8 @@
 #
 # Usage:
 #   fm-automation-health-check.sh [check]
+#   fm-automation-health-check.sh run
+#   fm-automation-health-check.sh report
 #   fm-automation-health-check.sh start <stream>
 #   fm-automation-health-check.sh heartbeat <stream> <run-id>
 #   fm-automation-health-check.sh complete <stream> <run-id> <success|failure>
@@ -11,18 +13,26 @@
 #   fm-automation-health-check.sh disarm
 #   fm-automation-health-check.sh --help
 #
-# `check` reads GET /v1/automations and emits one deduplicated line containing
-# source freshness, queue age, last successful run age, retry count, open-alert
-# count, and receipt status for every stream.
+# `check` reads GET /v1/automations and emits the existing deduplicated rollup
+# plus any new stale-heartbeat alerts.
+# `run` reads the same registry projection and emits one deduplicated stale
+# heartbeat alert per registry fingerprint.
+# `report` prints a compact table of every canonical registry row.
 # A stream is green only when its registry projection has an explicit terminal
 # automation.run.receipt.v1 with status success and no open alerts.
 # The registry owns scheduling and execution; this script never starts n8n or
 # creates a second scheduler for a host-local check such as secret-parity.
 #
-# The registry projection fields are:
+# The rollup reads stream projection fields:
 #   id, source_freshness_age_seconds, queue_age_seconds,
 #   last_success_age_seconds, retry_count, open_alerts, last_terminal_receipt.
 # `last_terminal_receipt` must contain type, terminal=true, and status success or succeeded.
+# `report`, `run`, and stale detection read automation.registry.v1 rows with
+# manifest_id, owner, cadence, last_start_at, last_success_at, terminal_outcome,
+# retry_count, correlation_id, heartbeat_at, health, and last_run_id.
+# Stale age uses heartbeat_at when present, otherwise last_start_at; report
+# heartbeat_age uses heartbeat_at only. open_failures is 1 when health or
+# terminal_outcome is failed or timeout, otherwise 0.
 # The lifecycle actions use POST /v1/automations/<stream>/{start,heartbeat,complete}.
 #
 # Registry credentials are read from direct environment values first, then from
@@ -40,8 +50,10 @@ CHECK_ID=automation-health
 CHECK_SHIM="$STATE/$CHECK_ID.check.sh"
 CHECK_TRUST="$STATE/$CHECK_ID.check-trust"
 RECORD="$STATE/.$CHECK_ID"
+STALE_RECORD="$STATE/.$CHECK_ID-stale"
 REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
 RECORD_SCHEMA=fm-automation-health-v1
+STALE_RECORD_SCHEMA=fm-automation-health-stale-v1
 MAX_LINE=1800
 
 # shellcheck source=bin/fm-x-lib.sh
@@ -57,6 +69,8 @@ usage() {
   cat <<'EOF'
 Usage:
   fm-automation-health-check.sh [check]   report registered automation health
+  fm-automation-health-check.sh run        alert stale registry heartbeats
+  fm-automation-health-check.sh report     print a compact registry table
   fm-automation-health-check.sh start <stream>
                                            start one registered automation run
   fm-automation-health-check.sh heartbeat <stream> <run-id>
@@ -64,7 +78,7 @@ Usage:
   fm-automation-health-check.sh complete <stream> <run-id> <success|failure>
                                            complete one run with a terminal receipt
   fm-automation-health-check.sh arm        register the health poll with the watcher
-  fm-automation-health-check.sh disarm     remove the health poll and its record
+  fm-automation-health-check.sh disarm     remove the health poll and dedupe records
   fm-automation-health-check.sh --help     print this help
 
 Registry settings:
@@ -72,6 +86,8 @@ Registry settings:
   FM_AUTOMATION_REGISTRY_TOKEN     bearer token
   FM_AUTOMATION_REGISTRY_ENV_FILE  .env file fallback (default: $FM_HOME/.env)
   FM_AUTOMATION_HEALTH_INTERVAL    seconds between reports (default: 300)
+  FM_REGISTRY_HEALTH_GRACE_SECS    stale heartbeat grace (default: 60)
+  FM_REGISTRY_HEALTH_NOW           test-only whole-second clock override
   FM_CHECK_TIMEOUT                  request bound (default: 30)
 
 The registry response must contain an `automations` array (or be an array).
@@ -87,7 +103,7 @@ die_usage() {
 
 ACTION=${1:-check}
 case "$ACTION" in
-  check|start|heartbeat|complete|arm|disarm) ;;
+  check|run|report|start|heartbeat|complete|arm|disarm) ;;
   -h|--help)
     usage
     exit 0
@@ -98,6 +114,11 @@ esac
 INTERVAL=${FM_AUTOMATION_HEALTH_INTERVAL:-300}
 case "$INTERVAL" in
   ''|*[!0-9]*) die_usage "FM_AUTOMATION_HEALTH_INTERVAL must be a whole number" ;;
+esac
+
+GRACE=${FM_REGISTRY_HEALTH_GRACE_SECS:-60}
+case "$GRACE" in
+  ''|*[!0-9]*) die_usage "FM_REGISTRY_HEALTH_GRACE_SECS must be a whole number" ;;
 esac
 
 REQUEST_TIMEOUT=${FM_CHECK_TIMEOUT:-30}
@@ -152,6 +173,76 @@ registry_base() {
   case "$url" in
     */v1/automations) printf '%s\n' "${url%/v1/automations}" ;;
     *) printf '%s\n' "$url" ;;
+  esac
+}
+
+epoch_now() {
+  case "${FM_REGISTRY_HEALTH_NOW:-}" in
+    ''|*[!0-9]*) date +%s ;;
+    *) printf '%s\n' "$FM_REGISTRY_HEALTH_NOW" ;;
+  esac
+}
+
+iso_epoch() {
+  local value=$1 parsed
+  [ -n "$value" ] && [ "$value" != null ] || return 1
+  parsed=$(date -u -d "$value" +%s 2>/dev/null) || \
+    parsed=$(date -u -j -f '%Y-%m-%dT%H:%M:%S.000Z' "$value" +%s 2>/dev/null) || return 1
+  case "$parsed" in
+    ''|*[!0-9-]*) return 1 ;;
+    *) printf '%s\n' "$parsed" ;;
+  esac
+}
+
+age_seconds() {
+  local value=$1 at now
+  at=$(iso_epoch "$value") || {
+    printf '%s\n' '?'
+    return 0
+  }
+  now=$(epoch_now)
+  if [ "$at" -gt "$now" ]; then
+    printf '0s\n'
+  else
+    printf '%ss\n' "$((now - at))"
+  fi
+}
+
+age_number() {
+  local value=$1 at now
+  at=$(iso_epoch "$value") || {
+    printf '%s\n' ''
+    return 0
+  }
+  now=$(epoch_now)
+  if [ "$at" -gt "$now" ]; then
+    printf '0\n'
+  else
+    printf '%s\n' "$((now - at))"
+  fi
+}
+
+cadence_seconds() {
+  local cadence=${1,,} number unit
+  cadence=${cadence#every }
+  case "$cadence" in
+    ''|manual|on-demand|event-driven) return 1 ;;
+  esac
+  if [[ "$cadence" =~ ^([0-9]+)[[:space:]]*([smhd])$ ]]; then
+    number=${BASH_REMATCH[1]}
+    unit=${BASH_REMATCH[2]}
+  elif [[ "$cadence" =~ ^([0-9]+)[[:space:]]*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)$ ]]; then
+    number=${BASH_REMATCH[1]}
+    unit=${BASH_REMATCH[2]}
+  else
+    return 1
+  fi
+  case "$unit" in
+    s|sec|secs|second|seconds) printf '%s\n' "$number" ;;
+    m|min|mins|minute|minutes) printf '%s\n' "$((number * 60))" ;;
+    h|hr|hrs|hour|hours) printf '%s\n' "$((number * 3600))" ;;
+    d|day|days) printf '%s\n' "$((number * 86400))" ;;
+    *) return 1 ;;
   esac
 }
 
@@ -318,6 +409,196 @@ format_rollup() {
   printf '%s\n' "$FM_LINE_CAP_LINE"
 }
 
+registry_rows() {
+  jq -c '
+    if type == "array" then .
+    elif (.automations | type) == "array" then .automations
+    else error("invalid registry shape")
+    end
+    | .[]
+  ' "$1"
+}
+
+registry_shape_valid() {
+  jq -e '
+    (type == "array") or ((.automations | type) == "array")
+  ' "$1" >/dev/null 2>&1
+}
+
+registry_row_json() {
+  local row=$1
+  jq -c '
+    (.manifest_id // "unknown") as $id |
+    (.owner // "unknown") as $owner |
+    (.cadence // "manual") as $cadence |
+    (.last_success_at // null) as $fresh |
+    (.last_start_at // null) as $run |
+    (.heartbeat_at // null) as $heartbeat |
+    (.health // "unknown") as $health |
+    (.last_run_id // "") as $last_run |
+    (.terminal_outcome // null) as $outcome |
+    (if ($health == "failed" or $health == "timeout" or
+           $outcome == "failed" or $outcome == "timeout") then 1
+     else 0 end) as $failures |
+    (.retry_count // 0) as $retries |
+    (.correlation_id // "") as $correlation |
+    {
+      id: ($id | tostring),
+      owner: ($owner | tostring),
+      cadence: ($cadence | tostring),
+      freshness: ($fresh | tostring),
+      run: ($run | tostring),
+      heartbeat: ($heartbeat | tostring),
+      failures: ($failures | tostring),
+      health: ($health | tostring),
+      terminal_outcome: ($outcome | tostring),
+      last_run: ($last_run | tostring),
+      retries: ($retries | tostring),
+      correlation: ($correlation | tostring)
+    }
+  ' <<< "$row"
+}
+
+registry_table_row() {
+  local row=$1 id owner cadence fresh run heartbeat failures health retries correlation last_run
+  id=$(jq -r '.id' <<< "$row")
+  owner=$(jq -r '.owner' <<< "$row")
+  cadence=$(jq -r '.cadence' <<< "$row")
+  fresh=$(age_seconds "$(jq -r '.freshness' <<< "$row")")
+  run=$(age_seconds "$(jq -r '.run' <<< "$row")")
+  heartbeat=$(age_seconds "$(jq -r '.heartbeat' <<< "$row")")
+  failures=$(jq -r '.failures' <<< "$row")
+  health=$(jq -r '.health' <<< "$row")
+  retries=$(jq -r '.retries' <<< "$row")
+  correlation=$(jq -r '.correlation' <<< "$row")
+  last_run=$(jq -r '.last_run' <<< "$row")
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$id" "$owner" "$cadence" "$fresh" "$run" "$heartbeat" \
+    "$failures" "$retries" "$correlation" "$last_run" "$health"
+}
+
+registry_report() {
+  local line row output='automation owner cadence source_freshness_age run_age heartbeat_age open_failures retry_count correlation_id last_run_id health'
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    row=$(registry_row_json "$line") || return 1
+    output="$output"$'\n'"$(registry_table_row "$row")"
+  done < <(registry_rows "$1")
+  printf '%s\n' "$output"
+}
+
+stale_registry_line() {
+  local row=$1 id owner cadence heartbeat reference age cadence_age outcome health
+  id=$(jq -r '.id' <<< "$row")
+  owner=$(jq -r '.owner' <<< "$row")
+  cadence=$(jq -r '.cadence' <<< "$row")
+  heartbeat=$(jq -r '.heartbeat' <<< "$row")
+  reference=$heartbeat
+  [ "$reference" != null ] && [ -n "$reference" ] || reference=$(jq -r '.run' <<< "$row")
+  cadence_age=$(cadence_seconds "$cadence") || return 1
+  age=$(age_number "$reference")
+  case "$age" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$age" -gt $((cadence_age + GRACE)) ] || return 1
+  outcome=$(jq -r '.terminal_outcome' <<< "$row")
+  case "$outcome" in
+    ''|null) ;;
+    *) return 1 ;;
+  esac
+  health=$(jq -r '.health' <<< "$row")
+  case "$health" in
+    failed|timeout) return 1 ;;
+  esac
+  [ "$(jq -r '.last_run' <<< "$row")" != null ] || return 1
+  [ -n "$(jq -r '.last_run' <<< "$row")" ] || return 1
+  printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$owner" "$cadence" "$age" "$health"
+}
+
+stale_record_read() {
+  STALE_RECORD_FINGERPRINTS=
+  [ -f "$STALE_RECORD" ] && [ ! -L "$STALE_RECORD" ] || return 0
+  [ "$(sed -n '1p' "$STALE_RECORD" 2>/dev/null)" = "$STALE_RECORD_SCHEMA" ] || return 0
+  STALE_RECORD_FINGERPRINTS=$(sed -n '2p' "$STALE_RECORD" 2>/dev/null)
+}
+
+stale_record_write() {
+  local fingerprints=$1 tmp
+  [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
+  tmp=$(umask 077; mktemp "$STATE/.$CHECK_ID-stale.XXXXXX") || return 1
+  if ! printf '%s\n%s\n' "$STALE_RECORD_SCHEMA" "$fingerprints" > "$tmp" ||
+    ! chmod 0600 "$tmp" || ! mv -f -- "$tmp" "$STALE_RECORD"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
+stale_fingerprint_in_list() {
+  local fingerprint=$1 existing=$2
+  while [ -n "$existing" ]; do
+    case "$existing" in
+      *';'*) [ "${existing%%;*}" = "$fingerprint" ] && return 0; existing=${existing#*;} ;;
+      *) [ "$existing" = "$fingerprint" ] && return 0; existing= ;;
+    esac
+  done
+  return 1
+}
+
+process_stale_body() {
+  local line row stale id owner cadence age health fingerprint alert='' retained=''
+  stale_record_read
+  retained=$STALE_RECORD_FINGERPRINTS
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    row=$(registry_row_json "$line") || continue
+    stale=$(stale_registry_line "$row" 2>/dev/null) || stale=
+    if [ -n "$stale" ]; then
+      IFS=$'\t' read -r id owner cadence age health <<< "$stale"
+      fingerprint="$id|$(jq -r '.last_run' <<< "$row")|$health"
+      if ! stale_fingerprint_in_list "$fingerprint" "$retained"; then
+        line="$owner's $id has not reported for ${age}s (expected every $cadence)"
+        if [ -z "$alert" ]; then
+          alert=$line
+        else
+          alert="$alert; $line"
+        fi
+        if [ -z "$retained" ]; then
+          retained=$fingerprint
+        else
+          retained="$retained;$fingerprint"
+        fi
+      fi
+    fi
+  done < <(registry_rows "$1")
+  if [ -n "$alert" ]; then
+    fm_cap_line_var "$alert" "$MAX_LINE"
+    printf '%s\n' "$FM_LINE_CAP_LINE"
+  fi
+  stale_record_write "$retained" || true
+}
+
+action_run() {
+  load_settings
+  if [ -z "$REGISTRY_URL" ] || ! request GET '' || ! registry_shape_valid "$json_body"; then
+    cleanup_request
+    printf '%s\n' 'automation health unavailable'
+    return 0
+  fi
+  process_stale_body "$json_body"
+  cleanup_request
+}
+
+action_report() {
+  load_settings
+  if [ -z "$REGISTRY_URL" ] || ! request GET '' || ! registry_shape_valid "$json_body"; then
+    cleanup_request
+    printf '%s\n' 'automation health unavailable'
+    return 0
+  fi
+  registry_report "$json_body" || printf '%s\n' 'automation health unavailable'
+  cleanup_request
+}
+
 action_check() {
   local report now
   load_settings
@@ -333,6 +614,9 @@ action_check() {
     report='automation health: unavailable'
   else
     report=$(format_rollup "$json_body" 2>/dev/null) || report='automation health: unavailable'
+    if registry_shape_valid "$json_body"; then
+      process_stale_body "$json_body"
+    fi
     cleanup_request
   fi
   if [ "$report" != "$RECORD_REPORTED" ]; then
@@ -409,7 +693,7 @@ action_arm() {
 }
 
 action_disarm() {
-  rm -f -- "$CHECK_SHIM" "$CHECK_TRUST" "$RECORD"
+  rm -f -- "$CHECK_SHIM" "$CHECK_TRUST" "$RECORD" "$STALE_RECORD"
   printf 'disarmed: state/%s.check.sh\n' "$CHECK_ID"
 }
 
@@ -417,6 +701,8 @@ trap cleanup_request EXIT HUP INT TERM
 
 case "$ACTION" in
   check) action_check ;;
+  run) action_run ;;
+  report) action_report ;;
   start|heartbeat|complete)
     [ "$#" -ge 2 ] || die_usage "$ACTION requires a stream"
     action_lifecycle "$ACTION" "$2" "${3-}" "${4-}" ;;
