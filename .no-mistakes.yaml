@@ -1,6 +1,6 @@
 # Per-repo no-mistakes overrides.
 
-agent: [cursor]
+agent: [codex]
 agent_config:
   cursor:
     model: composer-2.5
