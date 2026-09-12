@@ -170,15 +170,31 @@ fm_composer_normalize_trim_var() {  # <varname>
   printf -v "$__fmnt_name" '%s' "$__fmnt_text"
 }
 
-# _fm_composer_is_braille_only: true when the remaining text is only Unicode
-# Braille Patterns (U+2800..U+28FF) and whitespace. Match UTF-8 bytes under the C
-# locale so the range is exact and independent of the caller's locale.
-_fm_composer_is_braille_only() {  # <text>
-  local text=$1 pattern=$'\342[\240-\243][\200-\277]'
-  fm_composer_normalize_spaces_var text
-  text=$(printf '%s' "$text" | LC_ALL=C sed "s/$pattern//g")
-  fm_composer_normalize_trim_var text
-  [ -z "$text" ]
+_fm_composer_is_codex_braille_placeholder() {  # <raw-row> <ghost-stripped-row>
+  local raw=$1 stripped=$2 plain glyph='' remainder pattern=$'\342[\240-\243][\200-\277]'
+  fm_composer_leading_agent_glyph_var glyph "$stripped" || return 1
+  [ "$glyph" = '›' ] || return 1
+  remainder=${stripped#*"$glyph"}
+  fm_composer_normalize_spaces_var remainder
+  remainder=$(printf '%s' "$remainder" | LC_ALL=C sed "s/$pattern//g")
+  fm_composer_normalize_trim_var remainder
+  [ -z "$remainder" ] || return 1
+  plain=$(printf '%s\n' "$raw" | fm_composer_strip_ansi)
+  fm_composer_normalize_trim_var plain
+  case "$plain" in
+    '│'*'│') plain=${plain#│}; plain=${plain%│} ;;
+    '┃'*'┃') plain=${plain#┃}; plain=${plain%┃} ;;
+    '║'*'║') plain=${plain#║}; plain=${plain%║} ;;
+    '|'*'|') plain=${plain#|}; plain=${plain%|} ;;
+  esac
+  fm_composer_normalize_trim_var plain
+  fm_composer_leading_agent_glyph_var glyph "$plain" || return 1
+  [ "$glyph" = '›' ] || return 1
+  plain=${plain#*"$glyph"}
+  fm_composer_normalize_spaces_var plain
+  plain=$(printf '%s' "$plain" | LC_ALL=C sed "s/$pattern//g")
+  fm_composer_normalize_trim_var plain
+  [ "$plain" = 'Ask Codex to do anything' ]
 }
 
 # fm_composer_strip_ghost: the ONE fleet-wide ANSI-aware extractor of "real typed
@@ -888,15 +904,9 @@ _fm_composer_row_content() {  # <raw-row> <styled> -> content on stdout
     '|'*'|') stripped=${stripped#|}; stripped=${stripped%|} ;;
   esac
   fm_composer_normalize_trim_var stripped
-  local glyph='' braille_remainder=$stripped
-  if fm_composer_leading_agent_glyph_var glyph "$stripped"; then
-    braille_remainder=${stripped#*"$glyph"}
-    fm_composer_normalize_trim_var braille_remainder
-    if _fm_composer_is_braille_only "$braille_remainder"; then
-      stripped=$glyph
-    fi
-  elif _fm_composer_is_braille_only "$stripped"; then
-    stripped=
+  if [ "$styled" = 1 ] \
+     && _fm_composer_is_codex_braille_placeholder "$raw" "$stripped"; then
+    stripped='›'
   fi
   printf '%s' "$stripped"
 }

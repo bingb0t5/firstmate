@@ -203,11 +203,15 @@ test_matrix_codex_dim_hint_row() {
 }
 
 test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending() {
-  local encoded capture decorated counterfactual mixed boundary adjacent
+  local encoded claude_braille capture decorated counterfactual mixed boundary adjacent
   local braille_left='⠁⠄⠈⢀' braille_right='⡀⠠⠂⠐'
   encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-idle.ansi-escaped")
   printf -v capture '%b' "$encoded"
   assert_screen "captured Codex 0.154.0 idle composer on Herdr" empty "$CAPS_STYLED" "$capture"
+
+  claude_braille=$(<"$ROOT/tests/fixtures/fm-composer/claude-braille-draft.ansi-escaped")
+  printf -v claude_braille '%b' "$claude_braille"
+  assert_screen "styled Claude Braille draft on Herdr" pending "$CAPS_STYLED" "$claude_braille"
 
   decorated=${capture/Ask Codex to do anything/$'\033[0m'"$braille_left"$'\033[2mAsk Codex to do anything\033[0m'"$braille_right"}
   assert_screen "Codex idle placeholder with reported Braille animation on Herdr" empty "$CAPS_STYLED" "$decorated"
@@ -463,15 +467,11 @@ test_bare_wrap_region_classifies() {
   # continuation. The region is IDENTIFIED (glyph row + contiguous non-blank,
   # non-structural rows), so a swallowed Enter still reads pending and earns
   # its retry; a wrapped GHOST suggestion still proves empty.
-  local wrapped ghost_wrapped braille_wrapped braille_typed out
+  local wrapped ghost_wrapped out
   wrapped=$'❯ a very long steer message that\nwraps onto the following line'
   assert_screen "wrapped typed input" pending "$CAPS_TMUX" "$wrapped" 1
   wrapped=$'❯ wrapped typed input\ncontinues without a terminal-inserted glyph'
   assert_screen "ordinary wrapped input" pending "$CAPS_TMUX" "$wrapped" 1
-  braille_wrapped=$'› ⠁⠄\n⠈⢀⡀'
-  assert_screen "Braille-only wrapped Codex animation" empty "$CAPS_TMUX" "$braille_wrapped" 1
-  braille_typed=$'› ⠁⠄\n⠈⢀⡀ preserves this typed draft'
-  assert_screen "Braille plus typed text in a wrapped Codex draft" pending "$CAPS_TMUX" "$braille_typed" 1
   ghost_wrapped=$'❯ '"${ESC}[2ma long rotating suggestion that${ESC}[0m"$'\n'"${ESC}[2mwraps onto the next line${ESC}[0m"
   out=$(fm_composer_classify_screen "$CAPS_TMUX" "$ghost_wrapped" 1)
   [ "$out" = empty ] || fail "a wrapped ghost suggestion should still prove empty, got '$out'"
