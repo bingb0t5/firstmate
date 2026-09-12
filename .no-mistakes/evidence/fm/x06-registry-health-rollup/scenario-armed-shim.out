@@ -1,0 +1,2 @@
+infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)
+red automation health: unknown{fresh=? queue=? last=? retries=0 alerts=? receipt=missing};

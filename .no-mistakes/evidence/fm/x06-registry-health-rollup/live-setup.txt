@@ -1,0 +1,2 @@
+live home: /tmp/fm-registry-live-vHzEZK
+registry port: 57503

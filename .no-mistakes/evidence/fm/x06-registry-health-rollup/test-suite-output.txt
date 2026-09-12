@@ -1,0 +1,15 @@
+ok - green automation health requires and reports terminal receipts
+ok - an execution count without a terminal receipt cannot be green
+ok - reachable empty registry reports green with no streams
+ok - malformed registry response is not reported healthy
+ok - projection without id cannot produce false green
+ok - lifecycle actions reuse the registry and send a terminal receipt
+ok - registry report lists source, run, heartbeat, failure, health, and owner
+ok - stale heartbeat alerts once per registry fingerprint
+ok - new stale run fingerprint alerts again
+ok - stale fingerprint dedupe survives heartbeat recovery
+ok - run reports unavailable registry
+ok - registry report exposes open failure rows
+ok - armed check preserves stale fingerprint deduplication
+ok - arm registers the one stale-heartbeat check
+# fm-automation-health-check.test.sh: all assertions passed

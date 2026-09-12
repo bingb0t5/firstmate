@@ -1,0 +1,2 @@
+automation owner cadence source_freshness_age run_age heartbeat_age open_failures retry_count correlation_id last_run_id health
+s6-02-secret-parity	infra	15 minutes	1440s	1500s	300s	0	0	corr-healthy	run-healthy	healthy
