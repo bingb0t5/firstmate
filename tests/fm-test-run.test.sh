@@ -829,27 +829,34 @@ for job_name in ("tests-portable-serial", "tests-herdr"):
 assert ci["jobs"]["tests-portable-serial"]["timeout-minutes"] == 25
 assert "schedule" in ci.get("on", ci.get(True))
 
-group_start = group.index("${{")
-group_end = group.index("}}", group_start)
-group_expression = group[group_start + 3:group_end].strip()
-def render_group(pr_number, ref, sha):
-    expression = group_expression
-    expression = expression.replace(
-        "github.event.pull_request.number", repr(pr_number)
-    )
-    expression = expression.replace("github.ref", repr(ref))
-    expression = expression.replace("github.sha", repr(sha))
-    expression = expression.replace("||", " or ")
-    return (
-        group[:group_start]
-        + str(eval(expression, {"__builtins__": {}}, {}))
-        + group[group_end + 2:]
-    )
+def render_group(event_name, pr_number, ref, sha):
+    rendered = group
+    while "${{" in rendered:
+        group_start = rendered.index("${{")
+        group_end = rendered.index("}}", group_start)
+        expression = rendered[group_start + 3:group_end].strip()
+        expression = expression.replace("github.event_name", repr(event_name))
+        expression = expression.replace(
+            "github.event.pull_request.number", repr(pr_number)
+        )
+        expression = expression.replace("github.ref", repr(ref))
+        expression = expression.replace("github.sha", repr(sha))
+        expression = expression.replace("||", " or ")
+        rendered = (
+            rendered[:group_start]
+            + str(eval(expression, {"__builtins__": {}}, {}))
+            + rendered[group_end + 2:]
+        )
+    return rendered
 
-assert render_group(37, "refs/pull/37/merge", "sha-a") == "ci-37"
-assert render_group(None, "refs/heads/main", "sha-a") == "ci-refs/heads/main"
-assert render_group(37, "refs/pull/37/merge", "sha-a") == render_group(
-    37, "refs/pull/37/merge", "sha-b"
+assert render_group("pull_request", 37, "refs/pull/37/merge", "sha-a") == "ci-pull_request-37"
+assert render_group("push", None, "refs/heads/main", "sha-a") == "ci-push-refs/heads/main"
+assert render_group("schedule", None, "refs/heads/main", "sha-a") == "ci-schedule-refs/heads/main"
+assert render_group("push", None, "refs/heads/main", "sha-a") != render_group(
+    "schedule", None, "refs/heads/main", "sha-a"
+)
+assert render_group("pull_request", 37, "refs/pull/37/merge", "sha-a") == render_group(
+    "pull_request", 37, "refs/pull/37/merge", "sha-b"
 )
 PY
   pass "CI routes ordinary, draft, ready-for-review, and main events as intended"
