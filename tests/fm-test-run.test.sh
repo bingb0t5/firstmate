@@ -701,6 +701,108 @@ puts JSON.generate(
   pass "Herdr CI family-run step times out at 20 min under a 75 min job backstop"
 }
 
+test_ci_workflow_routes_events_without_heavy_pr_matrix() {
+  # Parse the workflow as YAML and evaluate its job conditions against event
+  # contexts so this test checks routing behavior rather than source text.
+  python3 - "$ROOT" <<'PY' \
+    || fail "CI workflow routing contract failed"
+import re
+import sys
+
+import yaml
+
+root = sys.argv[1]
+with open(f"{root}/.github/workflows/ci.yml", encoding="utf-8") as stream:
+    ci = yaml.safe_load(stream)
+with open(f"{root}/.github/workflows/windows-herdr-spike.yml", encoding="utf-8") as stream:
+    windows = yaml.safe_load(stream)
+
+trigger = ci.get("on", ci.get(True))
+pull_request = trigger["pull_request"]
+assert "ready_for_review" in pull_request["types"]
+assert "docs/**" in pull_request["paths-ignore"]
+assert "**.md" in pull_request["paths-ignore"]
+
+group = ci["concurrency"]["group"]
+assert yaml.safe_load(open(f"{root}/.no-mistakes.yaml", encoding="utf-8"))["ci"]["revalidate_repairs"] is True
+
+def evaluate(expression, event_name, action, draft, ref):
+    expression = str(expression)
+    expression = expression.replace(
+        "github.event.pull_request.draft", repr(draft)
+    )
+    expression = expression.replace("github.event.action", repr(action))
+    expression = expression.replace("github.event_name", repr(event_name))
+    expression = expression.replace("github.ref", repr(ref))
+    expression = expression.replace("always()", "True")
+    expression = expression.replace("&&", " and ").replace("||", " or ")
+    expression = re.sub(r"(?<![=!])!(?!=)", " not ", expression)
+    return bool(eval(expression, {"__builtins__": {}}, {}))
+
+def enabled(job, event_name, action, draft, ref):
+    return evaluate(
+        ci["jobs"][job].get("if", "True"),
+        event_name,
+        action,
+        draft,
+        ref,
+    )
+
+jobs = set(ci["jobs"])
+def selected(event_name, action, draft, ref):
+    return {
+        job for job in jobs
+        if enabled(job, event_name, action, draft, ref)
+    }
+
+cheap = {"lint", "tests-portable-parallel-1", "tests-portable-parallel-2"}
+assert selected("pull_request", "synchronize", False, "refs/pull/1/merge") == cheap
+assert selected("pull_request", "synchronize", True, "refs/pull/1/merge") == set()
+assert selected("pull_request", "ready_for_review", False, "refs/pull/1/merge") == (
+    cheap | {"tests-portable-serial", "tests-herdr"}
+)
+assert selected("push", "push", False, "refs/heads/main") == jobs
+assert evaluate(
+    windows["jobs"]["measure"]["if"],
+    "workflow_dispatch",
+    "workflow_dispatch",
+    False,
+    "refs/heads/main",
+)
+assert not evaluate(
+    windows["jobs"]["measure"]["if"],
+    "workflow_dispatch",
+    "workflow_dispatch",
+    False,
+    "refs/heads/feature",
+)
+
+group_start = group.index("${{")
+group_end = group.index("}}", group_start)
+group_expression = group[group_start + 3:group_end].strip()
+def render_group(pr_number, ref, sha):
+    expression = group_expression
+    expression = expression.replace(
+        "github.event.pull_request.number", repr(pr_number)
+    )
+    expression = expression.replace("github.ref", repr(ref))
+    expression = expression.replace("github.sha", repr(sha))
+    expression = expression.replace("||", " or ")
+    return (
+        group[:group_start]
+        + str(eval(expression, {"__builtins__": {}}, {}))
+        + group[group_end + 2:]
+    )
+
+assert render_group(37, "refs/pull/37/merge", "sha-a") == "ci-37"
+assert render_group(None, "refs/heads/main", "sha-a") == "ci-refs/heads/main"
+assert render_group(37, "refs/pull/37/merge", "sha-a") == render_group(
+    37, "refs/pull/37/merge", "sha-b"
+)
+PY
+  pass "CI routes ordinary, draft, ready-for-review, and main events as intended"
+}
+
 test_aggregate_json() {
   local tmp a b
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-aggjson.XXXXXX")
@@ -760,4 +862,5 @@ test_portable_serial_shard_lane_refusals
 test_jobs_requires_proven_isolated
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
+test_ci_workflow_routes_events_without_heavy_pr_matrix
 test_aggregate_json
