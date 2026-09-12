@@ -1,0 +1,96 @@
+{
+  "schema": "firstmate.system-map.v1",
+  "generated_at": "2026-09-12T06:05:56Z",
+  "score": {
+    "status": "pass",
+    "failed": false
+  },
+  "sources": {
+    "declared_manifests": {
+      "status": "available",
+      "path": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-radar/config/system-map-manifests.json",
+      "count": 1
+    },
+    "registry_outcomes": {
+      "status": "available",
+      "count": 1
+    },
+    "repo_exports": {
+      "status": "available",
+      "path": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-radar/repo",
+      "count": 1
+    },
+    "host_inventory": {
+      "status": "available",
+      "path": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-radar/config/host-inventory.json",
+      "count": 1
+    },
+    "live_n8n_workflows": {
+      "status": "available",
+      "count": 1
+    }
+  },
+  "declared_manifests": [
+    {
+      "id": "probe",
+      "version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev"
+    }
+  ],
+  "registry_outcomes": [
+    {
+      "id": "probe",
+      "version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev",
+      "health": "healthy",
+      "outcome": "succeeded",
+      "last_success_at": "2026-09-12T10:00:00.000Z"
+    }
+  ],
+  "host_inventory": [
+    {
+      "id": "lalo-dev",
+      "status": "healthy",
+      "reachable": true
+    }
+  ],
+  "repo_exports": {
+    "path": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-radar/repo",
+    "count": 1,
+    "committed_count": 1
+  },
+  "live_n8n_workflows": {
+    "schema": "n8n.workflow.comparison.v1",
+    "generated_at": "2026-09-12T00:00:00.000Z",
+    "committed_count": 1,
+    "live_count": 1,
+    "matching": [
+      "probe"
+    ],
+    "drifted": [],
+    "missing_live": [],
+    "extra_live": [],
+    "credential_values_checked": false
+  },
+  "changed_this_week": {
+    "source": "engineering-radar",
+    "root": "/home/rich/.treehouse/engineering-radar-4b96d4/1/engineering-radar",
+    "status": "available",
+    "report": "/home/rich/.treehouse/engineering-radar-4b96d4/1/engineering-radar/reports/weekly-2026-09-15.md",
+    "report_date": "2026-09-15",
+    "report_sha256": "1c16423a60b8aca45fee1541d3799799d1e3a4ac6b07df39ef23903a3fd38d41",
+    "items": [
+      "1. Ponytail: `experiment`",
+      "2. Caveman proxy: `reject`",
+      "3. Hierarchical ownership and durable contracts: `already-covered`",
+      "4. Grok 4.7 release watch: `watch`",
+      "5. Model and effort guide: `partial`"
+    ],
+    "excerpt": "# Engineering Radar: weekly 2026-09-15\n\n## Executive summary\n\nThe first scheduled weekly review finds a governed fleet with a useful\ncontrol-plane foundation and two bounded research candidates. Lalo already\nhas contract-first engineering, exact-commit validation rules, hierarchical\ndispatch, and real browser checks. The new evidence does not justify broad\nautonomy or a provider switch. It supports a beta-only ponytail comparison,\nrejects the caveman proxy on security and licensing grounds, and keeps Grok\n4.7 on a dated release watch.\n\nThis report covers the gap since the 2026-08-08 baseline. It uses the\nexisting source registry and the 2026-09-10 lookout design evidence, with\ndirect source URLs retained below. No Firecrawl search or scrape was used.\nThe radar remains proposal-only against the fleet.\n\n## Run metadata\n\n- Mode: weekly\n- Research period: 2026-08-09 through 2026-09-10; report scheduled for the 2026-09-15 cadence\n- Completed at: 2026-09-10T11:16:53.955Z\n- Prior successful run: `reports/exhaustive-foundational-review-2026-08-08.md`\n- Collection: 12 registered sources, the foundational corpus, current fleet\n  files, and the read-only lookout design report. No daily briefs existed at\n  the cutoff, so the absence of a daily item is not treated as evidence of no\n  upstream change.\n- Fleet baseline at cutoff: 175 merged PRs in the measured window; median\n  open-to-merge lead time 1.5 hours; p75 7.3 hours; at least 0.25 dated\n  captain decision events per merged PR. Codex and Cursor were at 0 percent\n  at the snapshot; Claude was at 82 percent and Fable at 65 percent.\n\n## Lalo evidence inspected\n\n- `/home/rich/firstmate/AGENTS.md`: project boundaries, proposal-only\n  authority, branch and PR delivery, and the no-agent-co-author rule.\n- `/home/rich/firstmate/config/crew-dispatch.json`: current Cursor Luna\n  dispatch, Composer 2.5 exception, Grok 4.7 watch, and the hierarchical\n  routing rules.\n- `/home/rich/firstmate/projects/lalo-platform/docs/agent-ops/AGENTS.md` and\n  `/home/rich/firstmate/projects/lalo-platform/docs/agent-ops/product/lalo-app/function-and-module-contract-standard.md`:\n  contract, test, exact-SHA, risk-class, and module-boundary requirements.\n- `/home/rich/firstmate/projects/llalo/.github/workflows/ci.yml`: blocking\n  lint, build, tests, secret scan, and a real guest browser smoke with desktop\n  and mobile screenshots.\n- `/home/rich/firstmate/projects/lalo-admin/.github/workflows/ci.yml`:\n  verify-admin, typecheck, build, secret scan, migration, and fresh-apply\n  gates. Signed-in UI remains credential and environment dependent.\n- `/home/rich/firstmate/projects/mrbeanz-brains/docs/source-monitor.md`:\n  immutable captures and provenance are implemented, while its scheduled\n  n8n poller remains inactive pending environment configuration.\n- `/home/rich/firstmate/projects/beanbot/README.md`: local-first collection,\n  isolated runtime data, and privacy limits for raw community content.\n- `/home/rich/firstmate/projects/viet-law/README.md`: a separate weekly\n  digest pattern with a bounded source profile and dated outputs.\n\n## External changes reviewed\n\n- OpenAI's harness engineering guidance continues to treat repository\n  legibility and fast feedback as the system-level constraint:\n  https://openai.com/index/harness-engineering/\n- Anthropic's long-running-agent guidance emphasizes durable state,\n  incremental progress, and context handoff:\n  https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents\n- Cursor's scaling-agents report supplies current evidence for hierarchical\n  ownership over a flat swarm:\n  https://cursor.com/blog/scaling-agents\n- Ponytail is a concrete MIT-licensed agent ruleset with hooks, adapters, and\n  a published agentic benchmark:\n  https://github.com/DietrichGebert/ponytail\n  https://raw.githubusercontent.com/DietrichGebert/ponytail/main/benchmarks/results/2026-06-18-agentic.md\n- Caveman is a concrete compression skill and proxy, but its repository\n  documents a local recovery database, telemetry controls, and a split MIT\n  plus BSL license:\n  https://github.com/JuliusBrussee/caveman\n  https://github.com/JuliusBrussee/caveman/blob/main/SECURITY.md\n- xAI's news page and Cursor's changelog had no confirmed Grok 4.7 model card\n  or model identifier at the cutoff:\n  https://x.ai/news\n  https://www.cursor.com/changelog"
+  },
+  "findings": []
+}

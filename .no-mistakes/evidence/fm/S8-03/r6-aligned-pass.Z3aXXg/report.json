@@ -1,0 +1,92 @@
+{
+  "schema": "firstmate.system-map.v1",
+  "generated_at": "2026-09-12T06:06:04Z",
+  "score": {
+    "status": "pass",
+    "failed": false
+  },
+  "sources": {
+    "declared_manifests": {
+      "status": "available",
+      "path": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-aligned-pass.Z3aXXg/config/system-map-manifests.json",
+      "count": 1
+    },
+    "registry_outcomes": {
+      "status": "available",
+      "count": 1
+    },
+    "repo_exports": {
+      "status": "available",
+      "path": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-aligned-pass.Z3aXXg/repo",
+      "count": 1
+    },
+    "host_inventory": {
+      "status": "available",
+      "path": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-aligned-pass.Z3aXXg/config/host-inventory.json",
+      "count": 1
+    },
+    "live_n8n_workflows": {
+      "status": "available",
+      "count": 1
+    }
+  },
+  "declared_manifests": [
+    {
+      "id": "daily-map",
+      "version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev"
+    }
+  ],
+  "registry_outcomes": [
+    {
+      "id": "daily-map",
+      "version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev",
+      "health": "healthy",
+      "outcome": "succeeded",
+      "last_success_at": "2026-09-11T10:00:00.000Z"
+    }
+  ],
+  "host_inventory": [
+    {
+      "id": "lalo-dev",
+      "status": "healthy",
+      "reachable": true
+    }
+  ],
+  "repo_exports": {
+    "path": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-aligned-pass.Z3aXXg/repo",
+    "count": 1,
+    "committed_count": 1
+  },
+  "live_n8n_workflows": {
+    "schema": "n8n.workflow.comparison.v1",
+    "generated_at": "2026-09-12T00:00:00.000Z",
+    "committed_count": 1,
+    "live_count": 1,
+    "matching": [
+      "daily-map"
+    ],
+    "drifted": [],
+    "missing_live": [],
+    "extra_live": [],
+    "credential_values_checked": false
+  },
+  "changed_this_week": {
+    "source": "engineering-radar",
+    "root": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-aligned-pass.Z3aXXg/radar",
+    "status": "available",
+    "report": "/home/rich/.no-mistakes/evidence/01M29XPWT9WNPZB3EWD8JRJS6G/r6-aligned-pass.Z3aXXg/radar/reports/weekly-2026-09-12.md",
+    "report_date": "2026-09-12",
+    "report_sha256": "8e3a3e74dd74cb37d86bc1898f652fdf656490593681e858588fe62ab46351c5",
+    "items": [
+      "Evidence manifests"
+    ],
+    "excerpt": "# Engineering Radar weekly report\n## Findings\n### Evidence manifests\nThe radar found a new evidence-manifest practice."
+  },
+  "findings": []
+}

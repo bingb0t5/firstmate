@@ -1,0 +1,15 @@
+# Print-gate live transcript (2026-09-12)
+# check dedup: first='system map: fail (4 findings)' second='' (silent)
+# interval0: first='system map: fail (4 findings)' second='' (silent)
+# score x2: both printed 'system map: fail (4 findings)'
+# sweep within interval: silent
+# digest change after 86401s: 'system map: fail (6 findings)'
+
+dedup_first=system map: fail (4 findings)
+dedup_second=
+interval0_first=system map: fail (4 findings)
+interval0_second=
+score_first=system map: fail (4 findings)
+score_second=system map: fail (4 findings)
+sweep_within=
+digest_changed=system map: fail (6 findings)

@@ -1,0 +1,40 @@
+try firstmate/.env
+exit=1 stdout=system map: fail (5 findings)
+{
+  "status": "empty",
+  "count": 0
+}
+[
+  {
+    "id": "registry.unavailable",
+    "message": "automation registry settings are unavailable"
+  },
+  {
+    "id": "registry.empty",
+    "message": "automation registry has no outcomes"
+  },
+  {
+    "id": "registry.missing.beanz-source-monitor",
+    "message": "declared manifest beanz-source-monitor has no registry outcome"
+  }
+]
+try brain-mcp.env
+exit=1 stdout=system map: fail (5 findings)
+{
+  "status": "empty",
+  "count": 0
+}
+[
+  {
+    "id": "registry.unavailable",
+    "message": "automation registry settings are unavailable"
+  },
+  {
+    "id": "registry.empty",
+    "message": "automation registry has no outcomes"
+  },
+  {
+    "id": "registry.missing.beanz-source-monitor",
+    "message": "declared manifest beanz-source-monitor has no registry outcome"
+  }
+]
