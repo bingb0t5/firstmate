@@ -175,8 +175,10 @@
 # sections that were therefore never emitted, and still exits 0. The child
 # records its progress in FM_SESSION_START_STAGE_FILE, which is also the flag
 # that tells a child it is the child - the parent never recurses.
-# Hosts without timeout, gtimeout, or perl use the shared pure-Bash watchdog, so
-# the digest never runs without the same hard bound and process-group cleanup.
+# Bounded execution is owned by bin/fm-timeout-lib.sh, which supplies the hard
+# bound, process-group timeout escalation, and caller-death helper cleanup on
+# every host, including the pure-Bash fallback when timeout, gtimeout, and perl
+# are unavailable.
 #
 # Usage: fm-session-start.sh [--reemit] [--source <source>]
 #   Prints the full ordered digest to stdout and always exits 0: this is a
