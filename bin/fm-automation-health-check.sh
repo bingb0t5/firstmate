@@ -260,7 +260,7 @@ projection_line() {
     def rows:
       if type == "array" then .
       elif (.automations | type) == "array" then .automations
-      else empty
+      else error("invalid registry shape")
       end;
     def value($a; $b): if ($a | type) == "number" then $a elif ($b | type) == "number" then $b else null end;
     rows[] |

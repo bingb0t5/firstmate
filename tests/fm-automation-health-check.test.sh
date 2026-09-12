@@ -116,6 +116,20 @@ test_empty_registry_is_green() {
   pass "reachable empty registry reports green with no streams"
 }
 
+test_malformed_registry_is_unavailable() {
+  local home out
+  make_home malformed-registry
+  home=$MADE_HOME
+  printf '{"status":"ok"}\n' > "$FM_REGISTRY_FIXTURE"
+  out="$home/out"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" 'unavailable' \
+    "malformed registry body was not reported unavailable"
+  assert_not_contains "$(cat "$out")" 'green' \
+    "malformed registry body produced false green"
+  pass "malformed registry response is not reported healthy"
+}
+
 test_missing_id_with_open_alerts_is_red() {
   local home out
   make_home missing-id
@@ -157,6 +171,7 @@ test_lifecycle_uses_registry_and_receipt_schema() {
 test_green_rollup_is_compact_and_receipt_backed
 test_missing_receipt_is_red
 test_empty_registry_is_green
+test_malformed_registry_is_unavailable
 test_missing_id_with_open_alerts_is_red
 test_lifecycle_uses_registry_and_receipt_schema
 
