@@ -227,6 +227,22 @@ test_changed_stale_fingerprint_alerts_again() {
   pass "new stale run fingerprint alerts again"
 }
 
+test_recovered_stale_fingerprint_stays_suppressed() {
+  local home out third
+  make_home stale-recovery
+  home=$MADE_HOME
+  out="$home/out"
+  run_registry "$home" run "$FIXTURES/registry-stale-heartbeat.json" "$out"
+  : > "$out"
+  run_registry "$home" run "$FIXTURES/registry-stale-heartbeat-recovered.json" "$out"
+  [ -z "$(cat "$out")" ] || fail "recovery cleared stale fingerprint dedupe: $(cat "$out")"
+  : > "$out"
+  run_registry "$home" run "$FIXTURES/registry-stale-heartbeat.json" "$out"
+  third=$(cat "$out")
+  [ -z "$third" ] || fail "same stale fingerprint alerted again after recovery: $third"
+  pass "stale fingerprint dedupe survives heartbeat recovery"
+}
+
 test_run_unavailable_reports_failure() {
   local home out
   make_home run-unavailable
@@ -307,6 +323,7 @@ test_lifecycle_uses_registry_and_receipt_schema
 test_registry_report_lists_canonical_health_metrics
 test_stale_heartbeat_alerts_once_per_fingerprint
 test_changed_stale_fingerprint_alerts_again
+test_recovered_stale_fingerprint_stays_suppressed
 test_run_unavailable_reports_failure
 test_registry_report_lists_open_failure
 test_armed_check_alerts_once_per_fingerprint

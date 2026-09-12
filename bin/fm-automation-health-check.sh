@@ -533,9 +533,8 @@ stale_record_write() {
   fi
 }
 
-stale_fingerprint_seen() {
-  local fingerprint=$1 existing
-  existing=$STALE_RECORD_FINGERPRINTS
+stale_fingerprint_in_list() {
+  local fingerprint=$1 existing=$2
   while [ -n "$existing" ]; do
     case "$existing" in
       *';'*) [ "${existing%%;*}" = "$fingerprint" ] && return 0; existing=${existing#*;} ;;
@@ -548,6 +547,7 @@ stale_fingerprint_seen() {
 process_stale_body() {
   local line row stale id owner cadence age health fingerprint alert='' retained=''
   stale_record_read
+  retained=$STALE_RECORD_FINGERPRINTS
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     row=$(registry_row_json "$line") || continue
@@ -555,17 +555,17 @@ process_stale_body() {
     if [ -n "$stale" ]; then
       IFS=$'\t' read -r id owner cadence age health <<< "$stale"
       fingerprint="$id|$(jq -r '.last_run' <<< "$row")|$health"
-      if [ -z "$retained" ]; then
-        retained=$fingerprint
-      else
-        retained="$retained;$fingerprint"
-      fi
-      if ! stale_fingerprint_seen "$fingerprint"; then
+      if ! stale_fingerprint_in_list "$fingerprint" "$retained"; then
         line="$owner's $id has not reported for ${age}s (expected every $cadence)"
         if [ -z "$alert" ]; then
           alert=$line
         else
           alert="$alert; $line"
+        fi
+        if [ -z "$retained" ]; then
+          retained=$fingerprint
+        else
+          retained="$retained;$fingerprint"
         fi
       fi
     fi
