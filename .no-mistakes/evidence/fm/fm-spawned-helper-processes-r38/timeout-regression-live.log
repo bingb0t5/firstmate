@@ -1,0 +1,5 @@
+=== Running test_portable_timeout_escalates_term_resistant_process ===
+ok - the portable timeout path force-kills a command that ignores TERM
+=== Running test_abnormal_parent_does_not_leave_real_helper_descendants ===
+ok - abnormal parent death reaps real helper descendants through external, pure-Bash, and perl timeout paths
+=== All targeted tests passed ===

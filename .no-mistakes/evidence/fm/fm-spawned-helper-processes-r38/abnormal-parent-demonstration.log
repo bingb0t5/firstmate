@@ -1,0 +1,34 @@
+=== Abnormal parent death demonstration ===
+Date: 2026-09-12T11:42:53+07:00
+Host mechanism: timeout
+
+--- Mode: default ---
+Before SIGKILL: parent=3078854 shell=3079037 pgid=3078934 helper=3079133
+    PID    PPID    PGID     SID STAT COMMAND
+3078854 3078787 3077743 3077743 S    bash
+3079037 3078935 3078934 3077743 S    bash
+3079133 3079037 3078934 3077743 S    sleep
+After SIGKILL (500ms):
+Remaining alive descendants: 0, pgid members: 0
+RESULT: PASS - zero survivors
+
+--- Mode: bash ---
+Before SIGKILL: parent=3080521 shell=3080689 pgid=3080585 helper=3080796
+    PID    PPID    PGID     SID STAT COMMAND
+3080521 3078787 3077743 3077743 S    bash
+3080689 3080585 3080585 3077743 S    bash
+3080796 3080689 3080585 3077743 S    sleep
+After SIGKILL (500ms):
+Remaining alive descendants: 0, pgid members: 0
+RESULT: PASS - zero survivors
+
+--- Mode: perl ---
+Before SIGKILL: parent=3083066 shell=3083148 pgid=3083148 helper=3083315
+    PID    PPID    PGID     SID STAT COMMAND
+3083066 3078787 3077743 3077743 S    bash
+3083148 3083135 3083148 3077743 S    bash
+3083315 3083148 3083148 3077743 S    sleep
+After SIGKILL (500ms):
+Remaining alive descendants: 0, pgid members: 0
+RESULT: PASS - zero survivors
+

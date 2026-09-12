@@ -1,0 +1,15 @@
+=== Mechanism detection on this host ===
+timeout
+
+=== Normal timeout: bound hit returns 124 ===
+exit status: 124 (expected 124)
+
+=== Normal timeout: command exit status preserved (137) ===
+exit status: 137 (expected 137)
+
+=== Perl path via no-timeout fixture ===
+perl fixture mechanism: perl
+perl path bound hit exit: 124 (expected 124)
+
+=== Bash override path ===
+bash override bound hit exit: 124 (expected 124)
