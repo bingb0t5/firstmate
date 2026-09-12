@@ -761,7 +761,16 @@ assert selected("pull_request", "synchronize", True, "refs/pull/1/merge") == set
 assert selected("pull_request", "ready_for_review", False, "refs/pull/1/merge") == (
     cheap | {"tests-portable-serial", "tests-herdr"}
 )
-assert selected("push", "push", False, "refs/heads/main") == jobs
+assert selected("push", "push", False, "refs/heads/main") == (
+    jobs - {"macos-stock-bash"}
+)
+assert evaluate(
+    ci["jobs"]["macos-stock-bash"]["if"],
+    "workflow_dispatch",
+    "workflow_dispatch",
+    False,
+    "refs/heads/main",
+)
 assert evaluate(
     windows["jobs"]["measure"]["if"],
     "workflow_dispatch",

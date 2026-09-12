@@ -527,6 +527,22 @@ A sweep interrupted by probe failure or budget exhaustion still alerts mismatche
 The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); probe and budget sizing follow the same cut-to-fit pattern as the other armed custom checks rather than refusing an oversized setting outright.
 `FM_SECRET_PARITY_NOW` is a test-only whole-second clock override.
 
+## Release and migration receipts
+
+[`bin/fm-release-receipt-check.sh`](../bin/fm-release-receipt-check.sh) observes an already-authorized Coolify or Render release, verifies the intended commit and build id, and checks the existing App DB migration ledger.
+It never starts, restarts, reconfigures, resizes, or rolls back a live service.
+The manifest schema, provider paths, credential-source rules, audit outcomes, and worker-1 ledger-file option are documented in [`docs/release-receipts.md`](release-receipts.md).
+
+Arm once per home with `FM_HOME=/path/to/firstmate-home bin/fm-release-receipt-check.sh arm`.
+That writes `state/release-receipt.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the existing watcher polls the release without creating a scheduler or control plane.
+The operator-home registration path is `FM_HOME=/path/to/firstmate-home bin/fm-release-receipt-check.sh arm`; it never creates private registration artifacts in the repository.
+`bin/fm-release-receipt-check.sh disarm` removes the watcher check and durable receipt.
+The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required.
+The armed check reports changed deployment or migration outcomes once and retains the redacted latest receipt in `state/.release-receipt`.
+
+`app=healthy migration=verified` is the only complete outcome.
+An app can be healthy while its migration remains unverified, and that result is never promoted to release complete.
+
 ## Automation health rollup
 
 [`bin/fm-automation-health-check.sh`](../bin/fm-automation-health-check.sh) reads the live brain registry projection.
