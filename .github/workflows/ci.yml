@@ -175,10 +175,13 @@ jobs:
           import sys
 
           runners = json.load(sys.stdin).get("runners", [])
+          required_labels = {"self-hosted", "linux", "lalo-dev"}
           print("true" if any(
               runner.get("status") == "online"
               and not runner.get("busy", True)
-              and any(label.get("name") == "lalo-dev" for label in runner.get("labels", []))
+              and required_labels.issubset(
+                  {label.get("name") for label in runner.get("labels", [])}
+              )
               for runner in runners
           ) else "false")
           ')
