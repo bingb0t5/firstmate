@@ -1,0 +1,3 @@
+mechanism=timeout
+exit_42=42
+timeout=124

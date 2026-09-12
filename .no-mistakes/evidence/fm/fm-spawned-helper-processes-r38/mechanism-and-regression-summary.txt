@@ -1,0 +1,11 @@
+=== Host timeout mechanism ===
+timeout
+
+=== Perl path forced via no-timeout fixture ===
+mechanism=perl
+
+=== Abnormal parent per-mode evidence from prior run ===
+MODE=default alive=0 group_count=0 shell_pid=667748 helper_pid=668027 pgid=667528
+MODE=bash alive=0 group_count=0 shell_pid=669620 helper_pid=669728 pgid=669309
+MODE=perl alive=0 group_count=0 shell_pid=670635 helper_pid=670715 pgid=670635
+ok - abnormal parent death reaps real helper descendants
