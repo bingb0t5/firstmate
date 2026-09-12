@@ -202,6 +202,35 @@ test_matrix_codex_dim_hint_row() {
   pass "matrix: codex's dim hint is empty when styling proves it, unknown (never pending) when it cannot"
 }
 
+test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending() {
+  local encoded claude_braille capture decorated counterfactual mixed boundary adjacent
+  local braille_left='⠁⠄⠈⢀' braille_right='⡀⠠⠂⠐'
+  encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-idle.ansi-escaped")
+  printf -v capture '%b' "$encoded"
+  assert_screen "captured Codex 0.154.0 idle composer on Herdr" empty "$CAPS_STYLED" "$capture"
+
+  claude_braille=$(<"$ROOT/tests/fixtures/fm-composer/claude-braille-draft.ansi-escaped")
+  printf -v claude_braille '%b' "$claude_braille"
+  assert_screen "styled Claude Braille draft on Herdr" pending "$CAPS_STYLED" "$claude_braille"
+
+  decorated=${capture/Ask Codex to do anything/$'\033[0m'"$braille_left"$'\033[2mAsk Codex to do anything\033[0m'"$braille_right"}
+  assert_screen "Codex idle placeholder with reported Braille animation on Herdr" empty "$CAPS_STYLED" "$decorated"
+
+  counterfactual=${decorated//"$braille_left"/}
+  counterfactual=${counterfactual//"$braille_right"/}
+  assert_screen "same Codex capture after removing only Braille decoration" empty "$CAPS_STYLED" "$counterfactual"
+
+  mixed=${decorated/$braille_right/$braille_right' preserve this typed draft'}
+  assert_screen "Codex Braille animation plus genuine typed draft on Herdr" pending "$CAPS_STYLED" "$mixed"
+
+  printf -v boundary '%b' "${capture/Ask Codex to do anything/\\033[0m\\342\\240\\200\\033[2mAsk Codex to do anything\\033[0m\\342\\243\\277}"
+  assert_screen "Braille block boundary patterns U+2800 and U+28FF" empty "$CAPS_STYLED" "$boundary"
+
+  printf -v adjacent '%b' "${capture/Ask Codex to do anything/\\033[0m\\342\\244\\200\\033[2mAsk Codex to do anything}"
+  assert_screen "non-Braille U+2900 neighboring the Braille block" pending "$CAPS_STYLED" "$adjacent"
+  pass "matrix: captured Codex idle is empty, Braille-only animation is ignored, and mixed or neighboring text stays pending"
+}
+
 test_matrix_muse_truecolor_glyph_survives_signal_loss() {
   # Real idle muse: truecolor `⟩` (38;2;90;160;255, luminance ~149.9) under a
   # TITLED rule. Two independent signals prove emptiness: the glyph surviving
@@ -619,6 +648,7 @@ test_idle_placeholder_case_mode_is_explicit
 test_real_text_is_pending
 test_matrix_claude_bare_nbsp_row
 test_matrix_codex_dim_hint_row
+test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending
 test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant
 test_matrix_herdr_halfblock_rule_bounds_bare_wrap

@@ -170,6 +170,39 @@ fm_composer_normalize_trim_var() {  # <varname>
   printf -v "$__fmnt_name" '%s' "$__fmnt_text"
 }
 
+# _fm_composer_is_codex_braille_placeholder: prove that the styled Codex `›`
+# row is its recognised `Ask Codex to do anything` placeholder after both the
+# ghost-stripped and unstripped paths discard Unicode Braille Patterns.
+# This narrow proof admits a Braille-only decoration as empty without teaching
+# the shared classifier that Braille means empty for another harness, an
+# unknown row, or a row containing any non-Braille typed content.
+_fm_composer_is_codex_braille_placeholder() {  # <raw-row> <ghost-stripped-row>
+  local raw=$1 stripped=$2 plain glyph='' remainder pattern=$'\342[\240-\243][\200-\277]'
+  fm_composer_leading_agent_glyph_var glyph "$stripped" || return 1
+  [ "$glyph" = '›' ] || return 1
+  remainder=${stripped#*"$glyph"}
+  fm_composer_normalize_spaces_var remainder
+  remainder=$(printf '%s' "$remainder" | LC_ALL=C sed "s/$pattern//g")
+  fm_composer_normalize_trim_var remainder
+  [ -z "$remainder" ] || return 1
+  plain=$(printf '%s\n' "$raw" | fm_composer_strip_ansi)
+  fm_composer_normalize_trim_var plain
+  case "$plain" in
+    '│'*'│') plain=${plain#│}; plain=${plain%│} ;;
+    '┃'*'┃') plain=${plain#┃}; plain=${plain%┃} ;;
+    '║'*'║') plain=${plain#║}; plain=${plain%║} ;;
+    '|'*'|') plain=${plain#|}; plain=${plain%|} ;;
+  esac
+  fm_composer_normalize_trim_var plain
+  fm_composer_leading_agent_glyph_var glyph "$plain" || return 1
+  [ "$glyph" = '›' ] || return 1
+  plain=${plain#*"$glyph"}
+  fm_composer_normalize_spaces_var plain
+  plain=$(printf '%s' "$plain" | LC_ALL=C sed "s/$pattern//g")
+  fm_composer_normalize_trim_var plain
+  [ "$plain" = 'Ask Codex to do anything' ]
+}
+
 # fm_composer_strip_ghost: the ONE fleet-wide ANSI-aware extractor of "real typed
 # content" from a captured, styled composer row. Reads the styled line on stdin
 # (from `tmux capture-pane -e`, `herdr pane read --format ansi`, or
@@ -877,6 +910,10 @@ _fm_composer_row_content() {  # <raw-row> <styled> -> content on stdout
     '|'*'|') stripped=${stripped#|}; stripped=${stripped%|} ;;
   esac
   fm_composer_normalize_trim_var stripped
+  if [ "$styled" = 1 ] \
+     && _fm_composer_is_codex_braille_placeholder "$raw" "$stripped"; then
+    stripped='›'
+  fi
   printf '%s' "$stripped"
 }
 

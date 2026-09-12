@@ -246,6 +246,7 @@ Identity stays a lazy second read, consulted only when a separator pair could ch
 
 ANSI capture preserves de-emphasized placeholder style.
 `bin/fm-composer-lib.sh` is the fleet-wide owner that strips dim or faint runs and dark truecolor placeholders while retaining bright typed input.
+Its only bright-content exception treats Unicode Braille Patterns as decoration after both paths prove the styled Codex `› Ask Codex to do anything` placeholder, so other harnesses and any non-Braille draft content remain pending.
 If the ANSI capture ever fails, the plain fallback declares itself unstyled and the classifier degrades a glyph row carrying trailing text to `unknown` instead of misreading ghost suggestions as typed input, which safely defers injection and eventually raises the wedge alarm.
 
 A bare shell prompt is never an empty agent composer.
