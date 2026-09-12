@@ -556,6 +556,29 @@ The health rollup observes the armed `secret-parity` stream and does not schedul
 `FM_REGISTRY_HEALTH_NOW` is a test-only whole-second clock override.
 The poll must finish inside `FM_CHECK_TIMEOUT` (default 30).
 
+## System map
+
+[`bin/fm-system-map.sh`](../bin/fm-system-map.sh) compares declared automation manifests, live registry outcomes, repository n8n exports, host inventory, live n8n workflows, and Engineering Radar's changed-this-week section into one redacted drift report.
+The full input shapes, comparison contract, and score rules are documented in [`docs/system-map.md`](system-map.md).
+
+Arm once per home with `bin/fm-system-map.sh arm`.
+That writes `state/system-map.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence and turns a changed map line into one `check:` wake line.
+The operator-home registration path is `FM_HOME=/path/to/firstmate-home bin/fm-system-map.sh arm`; it never creates private registration artifacts in the repository.
+`bin/fm-system-map.sh disarm` removes the shim, trust binding, and dedupe record.
+The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required.
+
+The armed check prints nothing when the digest is unchanged from the last report.
+`score` always prints its result and exits nonzero when drift exists.
+`state/.system-map` records the last digest so a stable map stays silent on subsequent polls; a changed digest is reported again.
+
+Registry URL and bearer token resolve the same way as the automation health rollup; credential values are never printed.
+The map reuses the X-05 n8n comparison and does not schedule or execute an automation.
+
+`FM_SYSTEM_MAP_INTERVAL` (default 86400 seconds, `0` to build on every run) sets how often sweeps run.
+An armed check that is not yet due for its next sweep prints nothing and does no work.
+The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a run the watcher kills prints nothing and records nothing and would then repeat that silence on every poll.
+`FM_SYSTEM_MAP_NOW` is a test-only whole-second clock override.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
@@ -865,6 +888,8 @@ FM_SECRET_PARITY_PROBE_SECS=15   # 1..60 seconds allowed for one Coolify or Rend
 FM_SECRET_PARITY_COOLIFY_ENV_FILE=   # optional override for the Coolify credential file; default ~/.config/beanz/coolify.env
 FM_SECRET_PARITY_RENDER_ENV_FILE=    # optional override for the Render credential file; default ~/.config/lalo/render-api.env
 FM_SECRET_PARITY_NOW=   # test-only whole-second clock override for secret parity sweeps
+FM_SYSTEM_MAP_INTERVAL=86400   # seconds between system map sweeps; 0 builds on every run
+FM_SYSTEM_MAP_NOW=   # test-only whole-second clock override for system map sweeps
 FM_PROCEVENT_MAX_OUTPUT_BYTES=1048576   # bound on one captured process-to-event result
 FM_PROCEVENT_CLAIM_ROOT=                # machine-wide source claim root; default $XDG_STATE_HOME/firstmate/procevent-claims
 FM_WHEN_OUTPUT_TAIL_BYTES=8192          # bound on the command-output tail inside one condition->action outcome document

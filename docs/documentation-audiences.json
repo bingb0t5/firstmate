@@ -289,6 +289,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/system-map.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/examples/crew-dispatch.json",
       "audience": "operator-example"
     },
