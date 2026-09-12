@@ -1170,6 +1170,7 @@ def parse_strict_json(text: str) -> Any:
     Oversized integer strings, decoder-depth/recursion failure, Unicode errors,
     OverflowError, and any other parser exception are damaged input: the strict
     parser reports ModelError, and the total loader maps that to UNCERTAIN.
+    JSON containers beyond MAX_JSON_NESTING are damaged input before decoding, so the verdict does not depend on the interpreter recursion limit.
     Duplicate object member names are refused at every nesting level.
     """
     if type(text) is not str:
