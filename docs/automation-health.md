@@ -2,7 +2,11 @@
 
 [`bin/fm-automation-health-check.sh`](../bin/fm-automation-health-check.sh) gives Firstmate one compact status line for every automation projection in the live brain registry.
 
-The rollup reports source freshness age, queue age, last successful run age, retry count, open-alert count, and terminal-receipt status for each stream.
+The `check` action retains the original rollup of source freshness age, queue age, last successful run age, retry count, open-alert count, and terminal-receipt status for each stream.
+
+The central `automation.registry.v1` projection also exposes `manifest_id`, `owner`, `cadence`, `last_start_at`, `last_success_at`, `terminal_outcome`, `retry_count`, `correlation_id`, `heartbeat_at`, `health`, and `last_run_id`.
+The `report` action prints every row as a compact table with source freshness age, run age, heartbeat age, open failures, and owner.
+The `run` action reads only `GET /v1/automations` and never starts, retries, completes, or polls an automation source.
 
 The registry response is either an array or an object with an `automations` array.
 
@@ -36,5 +40,8 @@ The secret-parity check remains the source check for host-local secret stores.
 The health rollup observes its registry projection and does not create a parallel n8n scheduler.
 
 A reachable empty registry reports green with no streams.
+
+When a non-terminal row has not reported for longer than its manifest cadence plus `FM_REGISTRY_HEALTH_GRACE_SECS` (default 60 seconds), `run` prints `<owner>'s <automation> has not reported for <age> (expected every <cadence>)`.
+The stale heartbeat alert is deduplicated by `manifest_id`, `last_run_id`, and `health` in `state/.automation-health-stale`, so a repeated fingerprint is silent while a new fingerprint alerts once.
 
 Watcher arming, polling, deduplication, and interval settings are documented in [`docs/configuration.md`](configuration.md) "Automation health rollup".
