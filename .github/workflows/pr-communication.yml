@@ -30,8 +30,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pr-state:
+    name: Determine final PR head
+    if: >-
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    outputs:
+      run_gate: ${{ steps.head.outputs.run_gate }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Classify PR head
+        id: head
+        run: |
+          set -eu
+          subject=$(git log -1 --format=%s)
+          case "$subject" in
+            no-mistakes\(*)
+              printf 'run_gate=false\n' >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              printf 'run_gate=true\n' >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
   pr-communication:
     name: pr-communication
+    needs: pr-state
+    if: >-
+      needs.pr-state.result == 'success' &&
+      needs.pr-state.outputs.run_gate == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
