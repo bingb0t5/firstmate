@@ -861,20 +861,6 @@ case "${1:-}" in
 esac
 SH
     write_child "$MAIN" child 'needs-decision [key=api-shape]: choose the API shape'
-    # Count completed polling opportunities instead of depending on how many
-    # watcher cycles this machine happens to squeeze into a three-second sleep.
-    cat > "$WORLD/fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-case "${1:-}" in
-  display-message) printf '%%1\n' ;;
-  capture-pane)
-    printf 'capture\n' >> "$FM_HOME/captures"
-    # No readable pane: this case tests status-generation deduplication, while
-    # an unchanged idle pane would correctly produce a separate stale wake.
-    exit 1
-    ;;
-esac
-SH
     [ "$actor" != away ] || : > "$MAIN/state/.afk"
     out="$WORLD/first-watch.out"
     PATH="$WORLD/fakebin:$PATH" FM_ROOT_OVERRIDE="$WORLD/root" FM_HOME="$MAIN" \
