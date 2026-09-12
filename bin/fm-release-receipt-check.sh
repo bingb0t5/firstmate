@@ -239,14 +239,21 @@ safe_url() {
 RESPONSE_BODY=
 RESPONSE_STATUS=
 request_get() {
-  local url=$1 token=$2 headers=()
+  local url=$1 token=$2 auth_style=${3:-bearer} headers=()
   RESPONSE_BODY=
   RESPONSE_STATUS=
   safe_url "$url" || return 2
   RESPONSE_BODY="$TMP_ROOT/response.$RANDOM"
   RESPONSE_STATUS="$TMP_ROOT/status.$RANDOM"
   if [ -n "$token" ]; then
-    headers=(-H "Authorization: Bearer $token")
+    case "$auth_style" in
+      supabase)
+        headers=(-H "apikey: $token" -H "Authorization: Bearer $token")
+        ;;
+      *)
+        headers=(-H "Authorization: Bearer $token")
+        ;;
+    esac
   fi
   if ! curl -sS --max-time "${FM_CHECK_TIMEOUT:-30}" \
       "${headers[@]}" -H 'Accept: application/json' \
@@ -351,7 +358,7 @@ target_observe() {
   ')
   build_url=$(jq -r '.build_id_url // empty' <<< "$target")
   if [ -n "$build_url" ]; then
-    request_get "$build_url" "$token" || {
+    request_get "$build_url" "" || {
       printf '{"provider":"%s","status":"%s","commit":%s,"build_id":"","complete":false,"failure":"build id unavailable"}\n' \
         "$provider" "$status" "$(jq -Rn --arg v "$commit" '$v')"
       return
@@ -421,7 +428,7 @@ ledger_rows() {
     return
   fi
   url=$(ledger_url "$ledger")
-  request_get "$url" "$APP_DB_TOKEN" || return 1
+  request_get "$url" "$APP_DB_TOKEN" supabase || return 1
   cat "$RESPONSE_BODY"
 }
 
