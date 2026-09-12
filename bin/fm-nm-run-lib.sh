@@ -21,7 +21,7 @@ fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
   shift 2
   cd "$dir" || return 1
   fm_run_timed "$timeout_secs" no-mistakes "$@" || rc=$?
-  cd "$previous_dir" || return "$rc"
+  cd "$previous_dir" || return 1
   return "$rc"
 }
 

@@ -60,7 +60,11 @@ fm_timeout_child() {
     local pid=$1 expected_start=$2 current_start state
     kill -0 "$pid" 2>/dev/null || return 1
     case "$expected_start" in
-      '') return 0 ;;
+      '')
+        state=$(ps -o state= -p "$pid" 2>/dev/null | tr -d '[:space:]')
+        case "$state" in Z*) return 1 ;; esac
+        return 0
+        ;;
       *)
         [ -r "/proc/$pid/stat" ] || return 1
         current_start=$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null) || return 1
@@ -232,7 +236,12 @@ fm_run_perl_timeout() {
       my $pid_alive = sub {
         my ($pid, $expected_start) = @_;
         return 0 unless kill 0, $pid;
-        return 1 unless length $expected_start;
+        unless (length $expected_start) {
+          my $state = `ps -o state= -p $pid 2>/dev/null`;
+          $state =~ s/\s+//g;
+          return 0 if $state =~ /^Z/;
+          return 1;
+        }
         open my $stat, "<", "/proc/$pid/stat" or return 0;
         my $line = <$stat>;
         close $stat;
