@@ -1886,9 +1886,23 @@ SH
   pass "the portable timeout path force-kills a command that ignores TERM"
 }
 
+make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
+  local dir=$1 tb="$1/notimeoutbin" tool real
+  mkdir -p "$tb"
+  for tool in bash perl ps sleep kill env sed awk tr; do
+    real=$(command -v "$tool" || true)
+    [ -n "$real" ] || fail "missing tool for no-timeout path: $tool"
+    ln -s "$real" "$tb/$tool"
+  done
+  printf '%s\n' "$tb"
+}
+
 test_abnormal_parent_does_not_leave_real_helper_descendants() {
   local driver="$TMP_ROOT/abnormal-parent-driver.sh" pids_file parent helper_pid shell_pid pgid
-  local mode label alive=0 stat comm group_count
+  local mode label alive=0 stat comm group_count perl_toolbin mechanism
+  perl_toolbin=$(make_no_timeout_toolbin "$TMP_ROOT/abnormal-parent-perl-fixture")
+  mechanism=$(PATH="$perl_toolbin" bash -c ". \"$ROOT/bin/fm-timeout-lib.sh\"; fm_timeout_mechanism")
+  [ "$mechanism" = perl ] || fail "no-timeout PATH fixture did not select perl mechanism (got $mechanism)"
   cat > "$driver" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -1905,14 +1919,17 @@ fm_run_timed 30 bash -c '
 SH
   chmod +x "$driver"
 
-  for mode in default bash; do
+  for mode in default bash perl; do
     pids_file="$TMP_ROOT/abnormal-parent-$mode.pids"
     if [ "$mode" = default ]; then
       label=external
       env_args=()
-    else
+    elif [ "$mode" = bash ]; then
       label=pure-bash
       env_args=(FM_TIMEOUT_MECHANISM_OVERRIDE=bash)
+    else
+      label=perl
+      env_args=(PATH="$perl_toolbin")
     fi
     env "${env_args[@]}" "$driver" "$ROOT/bin/fm-timeout-lib.sh" "$pids_file" >"$TMP_ROOT/abnormal-parent-$mode.out" 2>&1 &
     parent=$!
@@ -1955,7 +1972,7 @@ SH
     }
   done
 
-  pass "abnormal parent death reaps real helper descendants through external and pure-Bash timeout paths"
+  pass "abnormal parent death reaps real helper descendants through external, pure-Bash, and perl timeout paths"
 }
 
 test_runtime_bound_leaves_a_healthy_digest_untouched() {
