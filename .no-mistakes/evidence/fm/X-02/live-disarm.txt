@@ -1,0 +1,1 @@
+disarmed: state/automation-health.check.sh

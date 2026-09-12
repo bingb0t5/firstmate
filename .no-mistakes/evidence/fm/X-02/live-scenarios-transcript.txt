@@ -1,0 +1,21 @@
+Live automation health check validation transcript
+==================================================
+All scenarios driven against real fm-automation-health-check.sh with real curl
+against local HTTP mock registries on 127.0.0.1.
+
+S1 Green rollup: PASS
+S2 Dedup suppresses unchanged: PASS (0 lines on second check)
+S3 Lifecycle start/heartbeat/complete: PASS
+S4 No credential leak: PASS
+S5 Missing receipt -> red: PASS
+S6 Malformed registry -> unavailable: PASS
+S7 Alias-only fields -> red (canonical only): PASS
+S8 Arm/disarm shim: PASS
+S9 Empty registry -> green: see live-empty-registry-green.txt
+S10 Start rejects non-run_id response: see live-start-no-run-id-fail.txt
+S11 Armed shim executes check: see live-shim-exec.txt
+green automation health:
+---
+automation start returned no run id
+---
+green automation health: secret-parity{fresh=12s queue=0s last=45s retries=1 alerts=0 receipt=ok};

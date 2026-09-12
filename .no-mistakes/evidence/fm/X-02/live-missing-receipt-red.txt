@@ -1,0 +1,1 @@
+red automation health: secret-parity{fresh=12s queue=0s last=45s retries=0 alerts=0 receipt=missing};
