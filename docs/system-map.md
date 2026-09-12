@@ -22,7 +22,7 @@ Each manifest identifies `manifest_id`, `manifest_version`, `owner`, `cadence`, 
 
 The host inventory is either an array or an object with a `hosts` or `inventory` array.
 
-Each host identifies `id` or `host_id`, reports a healthy `status`, and must not set `reachable` to false.
+Each host identifies `id` or `host_id`, reports an operational `status` (`healthy`, `online`, `up`, `ready`, or `active`), and must not set `reachable` to false.
 
 The registry URL and bearer token resolve the same way as the automation health rollup (`FM_AUTOMATION_REGISTRY_URL`, `BRAIN_URL`, token settings, and `FM_AUTOMATION_REGISTRY_ENV_FILE`).
 
