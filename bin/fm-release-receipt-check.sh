@@ -203,9 +203,12 @@ load_credentials() {
   [ -n "$APP_DB_TOKEN" ] || APP_DB_TOKEN=$(read_setting SUPABASE_KEY SUPABASE_KEY "$app_file")
 }
 
+SPEC_ERROR=
+
 load_spec() {
+  SPEC_ERROR=
   [ -f "$SPEC_FILE" ] && [ ! -L "$SPEC_FILE" ] || {
-    printf 'release receipt unavailable: manifest is missing\n'
+    SPEC_ERROR='release receipt unavailable: manifest is missing'
     return 1
   }
   jq -e '
@@ -217,7 +220,7 @@ load_spec() {
         ((.expected_build_id // .build_id // "") | type == "string" and length > 0))) and
     ((.migrations // []) | type == "array" and length > 0)
   ' "$SPEC_FILE" >/dev/null 2>&1 || {
-    printf 'release receipt unavailable: manifest shape is invalid\n'
+    SPEC_ERROR='release receipt unavailable: manifest shape is invalid'
     return 1
   }
   SPEC=$(cat "$SPEC_FILE")
@@ -380,16 +383,20 @@ target_observe() {
     *) ;;
   esac
   if [ "$complete" = true ] || [ -n "$failure" ]; then
-    [ -n "$expected_commit" ] && [ "$commit" = "$expected_commit" ] || {
-      [ -n "$commit" ] || failure=${failure:-"deployed commit unavailable"}
-      [ -z "$commit" ] || [ "$commit" = "$expected_commit" ] ||
+    if [ -n "$expected_commit" ]; then
+      if [ -n "$commit" ] && [ "$commit" != "$expected_commit" ]; then
         failure=${failure:-"deployed commit mismatch"}
-    }
-    [ -n "$expected_build" ] && [ "$build" = "$expected_build" ] || {
-      [ -n "$build" ] || failure=${failure:-"deployed build id unavailable"}
-      [ -z "$build" ] || [ "$build" = "$expected_build" ] ||
+      elif [ -z "$commit" ] && [ "$complete" = true ] && [ -z "$failure" ]; then
+        complete=false
+      fi
+    fi
+    if [ -n "$expected_build" ]; then
+      if [ -n "$build" ] && [ "$build" != "$expected_build" ]; then
         failure=${failure:-"deployed build id mismatch"}
-    }
+      elif [ -z "$build" ] && [ "$complete" = true ] && [ -z "$failure" ]; then
+        complete=false
+      fi
+    fi
   fi
   jq -cn \
     --arg provider "$provider" --arg status "$status" --arg commit "$commit" \
@@ -477,6 +484,16 @@ migration_observe() {
 
 RESULT=
 REPORT=
+build_unavailable_result() {
+  REPORT=$SPEC_ERROR
+  RESULT=$(jq -cn --arg schema "$RECORD_SCHEMA" --arg observed_at "$(epoch_now)" \
+    --arg report "$REPORT" \
+    '{schema:$schema,observed_at:($observed_at|tonumber),overall:"waiting",
+      app:"waiting",migration:"unverified",release_id:"",intended_commit:"",
+      targets:[],receipt:{state:"unverified",missing:[],mismatches:[],failure:""},
+      report:$report}')
+}
+
 build_result() {
   local targets migration intended release_id app_state migration_state overall target row
   intended=$(jq -r '.intended_commit // .commit' <<< "$SPEC")
@@ -548,7 +565,11 @@ record_write() {
 
 observe_once() {
   load_credentials
-  load_spec || return 1
+  if ! load_spec; then
+    build_unavailable_result
+    record_write "$REPORT" || true
+    return 1
+  fi
   build_result
   record_write "$REPORT" || true
 }
@@ -560,13 +581,16 @@ print_result() {
 action_check() {
   local previous
   previous=$(record_read_report 2>/dev/null || true)
-  observe_once || return 0
-  [ "$REPORT" = "$previous" ] || print_result
+  observe_once || true
+  [ -n "${REPORT:-}" ] && [ "$REPORT" = "$previous" ] || print_result
   return 0
 }
 
 action_audit() {
-  observe_once || return 1
+  observe_once || {
+    print_result
+    return 1
+  }
   print_result
   jq -c '{release_id,overall,app,migration,intended_commit,targets,receipt}' <<< "$RESULT"
   [ "$(jq -r '.overall' <<< "$RESULT")" = healthy ]
@@ -575,7 +599,11 @@ action_audit() {
 action_run() {
   local start now deadline state
   load_credentials
-  load_spec || return 1
+  if ! load_spec; then
+    build_unavailable_result
+    print_result
+    return 1
+  fi
   start=$(epoch_now)
   deadline=$((start + TIMEOUT_SECS))
   while :; do

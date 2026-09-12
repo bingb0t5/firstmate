@@ -179,6 +179,62 @@ test_check_deduplicates_unchanged_receipt() {
   pass "watcher check deduplicates an unchanged durable receipt"
 }
 
+test_complete_status_without_commit_stays_waiting() {
+  local home out status=0
+  make_home waiting-commit
+  home=$MADE_HOME
+  healthy_fixtures
+  # shellcheck disable=SC2089,SC2090
+  FM_RELEASE_COOLIFY_STATUS='{"status":"running"}'
+  export FM_RELEASE_COOLIFY_STATUS
+  out="$home/out"
+  FM_HOME="$home" \
+    FM_RELEASE_COOLIFY_URL=https://coolify.test \
+    FM_RELEASE_COOLIFY_API_TOKEN=coolify-secret \
+    FM_RELEASE_APP_DB_TOKEN=app-db-secret \
+    FM_RELEASE_POLL_SECS=0 \
+    FM_RELEASE_TIMEOUT_SECS=1 \
+    FM_FAKE=1 \
+    PATH="$FAKEBIN:$PATH" \
+    "$CHECK" run >"$out" 2>&1 || status=$?
+  expect_code 1 "$status" "run should time out while commit is still empty"
+  assert_contains "$(cat "$out")" 'waiting for deployment or migration receipt' \
+    "empty commit during rollout was not treated as waiting"
+  case "$(cat "$out")" in
+    *mismatch*) fail "empty commit during rollout was mislabeled as mismatch" ;;
+  esac
+  pass "complete status with empty commit stays waiting until observable"
+}
+
+test_manifest_error_deduplicates() {
+  local home out first second
+  make_home manifest-dedupe
+  home=$MADE_HOME
+  rm -f "$home/config/release-receipt.json"
+  out="$home/out"
+  FM_HOME="$home" \
+    FM_RELEASE_COOLIFY_URL=https://coolify.test \
+    FM_RELEASE_COOLIFY_API_TOKEN=coolify-secret \
+    FM_RELEASE_APP_DB_TOKEN=app-db-secret \
+    FM_FAKE=1 \
+    PATH="$FAKEBIN:$PATH" \
+    "$CHECK" >"$out" 2>&1 || true
+  first=$(cat "$out")
+  : > "$out"
+  FM_HOME="$home" \
+    FM_RELEASE_COOLIFY_URL=https://coolify.test \
+    FM_RELEASE_COOLIFY_API_TOKEN=coolify-secret \
+    FM_RELEASE_APP_DB_TOKEN=app-db-secret \
+    FM_FAKE=1 \
+    PATH="$FAKEBIN:$PATH" \
+    "$CHECK" >"$out" 2>&1 || true
+  second=$(cat "$out")
+  assert_contains "$first" 'manifest is missing' \
+    "missing manifest did not alert once"
+  [ -z "$second" ] || fail "missing manifest alert was not deduplicated"
+  pass "manifest errors deduplicate like other watcher alerts"
+}
+
 test_arm_and_disarm_use_custom_check_registration() {
   local home out
   make_home arm
@@ -199,4 +255,6 @@ test_healthy_app_unverified_migration_is_distinct
 test_commit_mismatch_is_reported
 test_render_target_uses_deploy_completion_and_build
 test_check_deduplicates_unchanged_receipt
+test_complete_status_without_commit_stays_waiting
+test_manifest_error_deduplicates
 test_arm_and_disarm_use_custom_check_registration
