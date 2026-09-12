@@ -1,0 +1,11 @@
+=== check first (new digest) ===
+system map: pass (0 findings)
+=== check second stable bytes: 0 ===
+=== interval0 second stable ===
+bytes: 0
+=== score second ===
+system map: pass (0 findings)
+=== sweep within interval ===
+bytes: 0
+=== digest changed ===
+system map: fail (2 findings)

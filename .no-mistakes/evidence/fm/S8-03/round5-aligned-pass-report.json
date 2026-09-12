@@ -1,0 +1,106 @@
+{
+  "schema": "firstmate.system-map.v1",
+  "generated_at": "2026-09-12T05:54:39Z",
+  "score": {
+    "status": "fail",
+    "failed": true
+  },
+  "sources": {
+    "declared_manifests": {
+      "status": "available",
+      "path": "/tmp/fm-system-map-pass.Sfctmw/config/system-map-manifests.json",
+      "count": 1
+    },
+    "registry_outcomes": {
+      "status": "empty",
+      "count": 0
+    },
+    "repo_exports": {
+      "status": "available",
+      "path": "/tmp/fm-system-map-pass.Sfctmw/repo",
+      "count": 1
+    },
+    "host_inventory": {
+      "status": "available",
+      "path": "/tmp/fm-system-map-pass.Sfctmw/config/host-inventory.json",
+      "count": 1
+    },
+    "live_n8n_workflows": {
+      "status": "unavailable",
+      "count": null
+    }
+  },
+  "declared_manifests": [
+    {
+      "id": "beanz-source-monitor",
+      "version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev"
+    }
+  ],
+  "registry_outcomes": [],
+  "host_inventory": [
+    {
+      "id": "lalo-dev",
+      "status": "healthy",
+      "reachable": true
+    }
+  ],
+  "repo_exports": {
+    "path": "/tmp/fm-system-map-pass.Sfctmw/repo",
+    "count": 1,
+    "committed_count": null
+  },
+  "live_n8n_workflows": {},
+  "changed_this_week": {
+    "source": "engineering-radar",
+    "root": "/tmp/fm-system-map-pass.Sfctmw/radar",
+    "status": "available",
+    "report": "/tmp/fm-system-map-pass.Sfctmw/radar/reports/weekly-2026-09-12.md",
+    "report_date": "2026-09-12",
+    "report_sha256": "12e1064f0f6a355b4d57172bb2660999c065f3934a9e3035dd43aa327db50552",
+    "items": [
+      "Live validation item"
+    ],
+    "excerpt": "# Engineering Radar weekly report\n## Findings\n### Live validation item\nSystem map live validation exercised changed-this-week sourcing."
+  },
+  "findings": [
+    {
+      "id": "registry.unavailable",
+      "source": "registry",
+      "severity": "error",
+      "message": "automation registry settings are unavailable"
+    },
+    {
+      "id": "n8n.unavailable",
+      "source": "n8n",
+      "severity": "error",
+      "message": "X-05 n8n operations script is unavailable"
+    },
+    {
+      "id": "registry.empty",
+      "source": "registry",
+      "severity": "error",
+      "message": "automation registry has no outcomes"
+    },
+    {
+      "id": "registry.missing.beanz-source-monitor",
+      "source": "registry",
+      "severity": "error",
+      "message": "declared manifest beanz-source-monitor has no registry outcome"
+    },
+    {
+      "id": "exports.count",
+      "source": "exports",
+      "severity": "error",
+      "message": "X-05 committed workflow count disagrees with repository exports"
+    },
+    {
+      "id": "live-n8n.unavailable",
+      "source": "live-n8n",
+      "severity": "error",
+      "message": "live n8n workflow inventory is unavailable"
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+registry_try env=/home/rich/firstmate/.env status=empty
+registry_try env=/home/rich/.config/beanz/brain-mcp.env status=empty
