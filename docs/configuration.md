@@ -543,8 +543,8 @@ The armed check runs whenever that home has a watcher running, and arming alone 
 
 The check prints nothing when the formatted rollup and stale-heartbeat fingerprints are unchanged.
 `state/.automation-health` records that last rollup so an unchanged status is reported once instead of on every poll; a changed rollup is reported again.
-`state/.automation-health-stale` records stale fingerprints as `manifest_id|last_run_id|health`, semicolon-separated when more than one is retained.
-A stale heartbeat older than the manifest cadence plus `FM_REGISTRY_HEALTH_GRACE_SECS` (default 60 seconds) prints `<owner>'s <automation> has not reported for <age> (expected every <cadence>)` once per fingerprint.
+`state/.automation-health-stale` records fingerprints that have already triggered a stale alert, as `manifest_id|last_run_id|health`, semicolon-separated when more than one is recorded. Recorded fingerprints persist until disarm, including when the row later recovers.
+A stale heartbeat older than the manifest cadence plus `FM_REGISTRY_HEALTH_GRACE_SECS` (default 60 seconds) prints `<owner>'s <automation> has not reported for <age> (expected every <cadence>)` once per recorded fingerprint.
 
 Registry URL and bearer token resolve from direct environment values or the local `FM_AUTOMATION_REGISTRY_ENV_FILE` fallback documented in the script header; credential values are never printed.
 The registry's `start`, `heartbeat`, and `complete` lifecycle endpoints remain the source of run truth.

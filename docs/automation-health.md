@@ -21,7 +21,7 @@ An n8n execution count is never treated as a successful run.
 
 The check reads `FM_AUTOMATION_REGISTRY_URL` or `BRAIN_URL`, and reads `FM_AUTOMATION_REGISTRY_TOKEN` or `BRAIN_TOKEN` from the environment or the local `FM_AUTOMATION_REGISTRY_ENV_FILE` fallback.
 
-Credential values are sent only as an HTTP authorization header and never appear in rollup output, diagnostics, or lifecycle responses.
+Credential values are sent only as an HTTP authorization header and never appear in script output, diagnostics, or lifecycle responses.
 
 The `start`, `heartbeat`, and `complete` actions call the existing registry lifecycle endpoints.
 
