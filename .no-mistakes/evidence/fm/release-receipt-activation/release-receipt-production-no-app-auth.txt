@@ -1,0 +1,32 @@
+# Production read-only negative-auth audit - sanitized
+audit_exit=1 (nonzero is expected because receipt remains unverified)
+## CLI output
+release receipt: waiting for deployment or migration receipt
+{"release_id":"admin-prod-2026-09-12","overall":"waiting","app":"waiting","migration":"unverified","intended_commit":"ada46a5dda0a1d654c29acf82a6db20d8296c407","targets":[{"provider":"coolify","status":"running:healthy","commit":"HEAD","build_id":"dev-mty6i3kr","expected_commit":"ada46a5dda0a1d654c29acf82a6db20d8296c407","expected_build_id":"dev-mty0b1u3","complete":false,"healthy":false,"failure":""}],"receipt":{"state":"unverified","missing":[],"mismatches":[],"failure":"migration ledger unavailable"}}
+## Durable receipt (credential-free schema projection)
+{
+  "release_id": "admin-prod-2026-09-12",
+  "overall": "waiting",
+  "app": "waiting",
+  "migration": "unverified",
+  "intended_commit": "ada46a5dda0a1d654c29acf82a6db20d8296c407",
+  "targets": [
+    {
+      "provider": "coolify",
+      "status": "running:healthy",
+      "commit": "HEAD",
+      "build_id": "dev-mty6i3kr",
+      "expected_commit": "ada46a5dda0a1d654c29acf82a6db20d8296c407",
+      "expected_build_id": "dev-mty0b1u3",
+      "complete": false,
+      "healthy": false,
+      "failure": ""
+    }
+  ],
+  "receipt": {
+    "state": "unverified",
+    "missing": [],
+    "mismatches": [],
+    "failure": "migration ledger unavailable"
+  }
+}

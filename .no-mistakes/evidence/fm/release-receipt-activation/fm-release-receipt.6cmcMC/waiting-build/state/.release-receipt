@@ -1,0 +1,29 @@
+{
+  "schema": "fm-release-receipt-v1",
+  "observed_at": 1789205909,
+  "release_id": "admin-prod-2026-09-12",
+  "intended_commit": "ada46a5dda0a1d654c29acf82a6db20d8296c407",
+  "overall": "waiting",
+  "app": "waiting",
+  "migration": "verified",
+  "targets": [
+    {
+      "provider": "coolify",
+      "status": "running",
+      "commit": "",
+      "build_id": "prior-live-build",
+      "expected_commit": "ada46a5dda0a1d654c29acf82a6db20d8296c407",
+      "expected_build_id": "dev-mty0b1u3",
+      "complete": false,
+      "healthy": false,
+      "failure": ""
+    }
+  ],
+  "receipt": {
+    "state": "verified",
+    "missing": [],
+    "mismatches": [],
+    "failure": ""
+  },
+  "report": "release receipt: waiting for deployment or migration receipt"
+}

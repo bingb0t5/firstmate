@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -u
+output=
+url=
+headers=
+for argument in "$@"; do
+  case "$argument" in
+    *fixture-*-token*|*coolify-secret*|*app-db-secret*)
+      [ -z "${FM_RELEASE_TEST_ARGV_MARKER:-}" ] || : > "$FM_RELEASE_TEST_ARGV_MARKER"
+      ;;
+  esac
+done
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) output=$2; shift 2 ;;
+    -H|--header)
+      if [ "$2" = @- ]; then
+        headers="$headers"$'\n'"$(cat)"
+      else
+        headers="$headers"$'\n'"$2"
+      fi
+      shift 2
+      ;;
+    http://*|https://*) url=$1; shift ;;
+    *) shift ;;
+  esac
+done
+case "$url" in
+  */api/v1/applications/*) body="$FM_RELEASE_COOLIFY_STATUS" ;;
+  */api/build-id) body="$FM_RELEASE_BUILD_ID" ;;
+  */v1/services/*/deploys/*|*/v1/services/*) body="$FM_RELEASE_RENDER_STATUS" ;;
+  */rest/v1/lalo_app_migration_ledger*)
+    if [ "${FM_RELEASE_TEST_AUTH:-}" = 1 ]; then
+      expected=${FM_RELEASE_TEST_TOKEN:-fixture-app-token}
+      bearer_ok=false
+      apikey_ok=false
+      while IFS= read -r header; do
+        case "$header" in
+          "Authorization: Bearer $expected") bearer_ok=true ;;
+          "apikey: $expected") apikey_ok=true ;;
+        esac
+      done <<< "$headers"
+      if [[ "$url" != https://app-db.test/rest/v1/* ]] ||
+        [ "$bearer_ok" != true ] || [ "$apikey_ok" != true ]; then
+        printf '{}\n' > "$output"
+        printf '401'
+        exit 0
+      fi
+    fi
+    body="$FM_RELEASE_LEDGER"
+    ;;
+  *) exit 1 ;;
+esac
+printf '%s\n' "$body" > "$output"
+printf '200'

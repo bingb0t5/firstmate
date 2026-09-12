@@ -1,0 +1,11 @@
+# Targeted release-receipt executable test groups (sanitized)
+$ bash tests/fm-release-receipt-check.test.sh auth
+ok - App DB names, explicit overrides, and absent/rejected authentication are respected
+$ bash tests/fm-release-receipt-check.test.sh arm
+ok - armed checks retain only normalized nonsecret paths and authenticate from a fresh process
+$ bash tests/fm-release-receipt-check.test.sh coolify
+ok - Coolify running:healthy requires observable matching commit and build
+$ bash tests/fm-release-receipt-check.test.sh ledger
+ok - unapplied, unknown, missing, and null ledger status cannot complete a release
+$ bash tests/fm-release-receipt-check.test.sh transport
+ok - credential-bearing request headers never enter curl argv

@@ -1,0 +1,17 @@
+ok - release receipt verifies commit, build id, and migration ledger
+ok - audit distinguishes healthy app from unverified migration
+ok - release receipt reports a deployed commit mismatch
+ok - Render deployment status and build id are receipt-backed
+ok - watcher check deduplicates an unchanged durable receipt
+ok - build_id_url JSON {"build":...} shape is receipt-backed
+ok - stale build id before commit observable stays waiting
+ok - stale build id after matching commit stays waiting
+ok - complete status with empty commit stays waiting until observable
+ok - commit placeholder stays waiting until observable SHA
+ok - manifest errors deduplicate like other watcher alerts
+ok - release receipt uses the existing watcher registration pattern
+ok - App DB names, explicit overrides, and absent/rejected authentication are respected
+ok - armed checks retain only normalized nonsecret paths and authenticate from a fresh process
+ok - Coolify running:healthy requires observable matching commit and build
+ok - unapplied, unknown, missing, and null ledger status cannot complete a release
+ok - credential-bearing request headers never enter curl argv

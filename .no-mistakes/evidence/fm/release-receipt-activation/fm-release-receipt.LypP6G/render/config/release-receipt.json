@@ -1,0 +1,25 @@
+{
+  "release_id": "admin-prod-2026-09-12",
+  "intended_commit": "ada46a5dda0a1d654c29acf82a6db20d8296c407",
+  "targets": [
+    {
+      "provider": "render",
+      "service_id": "srv-admin",
+      "deploy_id": "dep-admin",
+      "status_url": "https://render.test/v1/services/srv-admin/deploys/dep-admin",
+      "expected_build_id": "render-build-20260912"
+    }
+  ],
+  "migrations": [
+    {
+      "name": "20260912120000_checkin_anomaly_review_items.sql"
+    },
+    {
+      "name": "20260912130000_whats_on_editor_decision_exceptions.sql"
+    }
+  ],
+  "ledger": {
+    "url": "https://db.test/rest/v1/lalo_app_migration_ledger?select=*",
+    "project_ref": "evvrlbeilubeggmrhjgs"
+  }
+}

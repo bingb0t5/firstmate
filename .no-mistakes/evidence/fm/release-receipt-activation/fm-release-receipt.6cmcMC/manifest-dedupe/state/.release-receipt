@@ -1,0 +1,17 @@
+{
+  "schema": "fm-release-receipt-v1",
+  "observed_at": 1789205912,
+  "overall": "waiting",
+  "app": "waiting",
+  "migration": "unverified",
+  "release_id": "",
+  "intended_commit": "",
+  "targets": [],
+  "receipt": {
+    "state": "unverified",
+    "missing": [],
+    "mismatches": [],
+    "failure": ""
+  },
+  "report": "release receipt unavailable: manifest is missing"
+}

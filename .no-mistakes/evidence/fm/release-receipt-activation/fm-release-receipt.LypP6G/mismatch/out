@@ -1,0 +1,2 @@
+release receipt: mismatch commit=ada46a5dda0a1d654c29acf82a6db20d8296c407 coolify: deployed commit mismatch
+environment: line 3: artifact_dir: unbound variable

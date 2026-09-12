@@ -1,0 +1,31 @@
+{
+  "schema": "fm-release-receipt-v1",
+  "observed_at": 1789205907,
+  "release_id": "admin-prod-2026-09-12",
+  "intended_commit": "ada46a5dda0a1d654c29acf82a6db20d8296c407",
+  "overall": "unverified",
+  "app": "healthy",
+  "migration": "unverified",
+  "targets": [
+    {
+      "provider": "coolify",
+      "status": "running",
+      "commit": "ada46a5dda0a1d654c29acf82a6db20d8296c407",
+      "build_id": "dev-mty0b1u3",
+      "expected_commit": "ada46a5dda0a1d654c29acf82a6db20d8296c407",
+      "expected_build_id": "dev-mty0b1u3",
+      "complete": true,
+      "healthy": true,
+      "failure": ""
+    }
+  ],
+  "receipt": {
+    "state": "unverified",
+    "missing": [
+      "20260912130000_whats_on_editor_decision_exceptions.sql"
+    ],
+    "mismatches": [],
+    "failure": "migration receipt incomplete"
+  },
+  "report": "release receipt: app=healthy migration=unverified missing=20260912130000_whats_on_editor_decision_exceptions.sql"
+}
