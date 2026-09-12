@@ -24,7 +24,7 @@ The host inventory is either an array or an object with a `hosts` or `inventory`
 
 Each host identifies `id` or `host_id`, and reports a healthy `status` plus `reachable: true`.
 
-The registry is read from `FM_AUTOMATION_REGISTRY_URL` or `BRAIN_URL`, using the existing registry token settings.
+The registry URL and bearer token resolve the same way as the automation health rollup (`FM_AUTOMATION_REGISTRY_URL`, `BRAIN_URL`, token settings, and `FM_AUTOMATION_REGISTRY_ENV_FILE`).
 
 The registry response may be an array or an object with an `automations` or `data` array.
 
@@ -68,17 +68,13 @@ Print the daily score and return nonzero when any source disagrees.
 FM_HOME=/path/to/firstmate-home bin/fm-system-map.sh score
 ```
 
-Arm the existing watcher with the read-only check.
+Arm the existing watcher with the read-only check when the home should monitor daily drift:
 
 ```sh
 FM_HOME=/path/to/firstmate-home bin/fm-system-map.sh arm
 ```
 
-The arm action registers a byte-bound watcher check.
-
-It does not create a scheduler.
-
-Use `disarm` to remove the generated check and its private deduplication record.
+Watcher arming, polling, deduplication, and interval settings are documented in [`docs/configuration.md`](configuration.md) "System map".
 
 The JSON report has schema `firstmate.system-map.v1`.
 

@@ -556,6 +556,28 @@ The health rollup observes the armed `secret-parity` stream and does not schedul
 `FM_REGISTRY_HEALTH_NOW` is a test-only whole-second clock override.
 The poll must finish inside `FM_CHECK_TIMEOUT` (default 30).
 
+## System map
+
+[`bin/fm-system-map.sh`](../bin/fm-system-map.sh) compares declared automation manifests, live registry outcomes, repository n8n exports, host inventory, live n8n workflows, and Engineering Radar's changed-this-week section into one redacted drift report.
+The full input shapes, comparison contract, and score rules are documented in [`docs/system-map.md`](system-map.md).
+
+Arm once per home with `bin/fm-system-map.sh arm`.
+That writes `state/system-map.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence and turns a changed map line into one `check:` wake line.
+The operator-home registration path is `FM_HOME=/path/to/firstmate-home bin/fm-system-map.sh arm`; it never creates private registration artifacts in the repository.
+`bin/fm-system-map.sh disarm` removes the shim, trust binding, and dedupe record.
+The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required.
+
+The armed check prints nothing when the digest is unchanged from the last report.
+`score` always prints its result and exits nonzero when drift exists.
+`state/.system-map` records the last digest so an unchanged map is reported once instead of on every poll; a changed digest is reported again.
+
+Registry URL and bearer token resolve the same way as the automation health rollup; credential values are never printed.
+The map reuses the X-05 n8n comparison and does not schedule or execute an automation.
+
+`FM_SYSTEM_MAP_INTERVAL` (default 86400 seconds, `0` to build on every run) sets how often sweeps run.
+The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a run the watcher kills prints nothing and records nothing and would then repeat that silence on every poll.
+`FM_SYSTEM_MAP_NOW` is a test-only whole-second clock override.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
