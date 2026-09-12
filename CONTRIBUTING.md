@@ -136,7 +136,7 @@ Local no-mistakes Test stays intent-targeted and must not wire `commands.test` t
 Family selection is the ordinary local path; `--all` is deliberate full regression only.
 CI owns broad regression across required portable parallel shards, the portable serial lane's separate-runner shards, the Herdr lane, lint, invariants, and the coverage guard in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 Ordinary non-draft pull-request pushes run only Lint and the two portable-parallel shards.
-The portable-serial shards and Herdr run when a pull request becomes ready for review and on `main`; coverage, invariants, and timing aggregation remain off the pull-request path.
+The portable-serial shards and Herdr run only on the nightly schedule or a manual dispatch after the Lalo-dev availability gate succeeds; coverage, invariants, and timing aggregation remain off the pull-request path.
 Docs-only and Markdown-only pull requests are ignored by the CI workflow.
 Stock macOS Bash snapshot compatibility runs on pushes to `main` and manual workflow dispatches, and is skipped on pull requests.
 Newer CI runs for the same PR or branch cancel superseded runs to avoid redundant matrix work.

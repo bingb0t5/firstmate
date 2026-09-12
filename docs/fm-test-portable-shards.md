@@ -59,8 +59,10 @@ On green CI run [30725985757](https://github.com/kunchenguid/firstmate/actions/r
 On [PR 1495](https://github.com/kunchenguid/firstmate/pull/1495), its main step ran about 19m51s before the job was cancelled at that boundary.
 `portable-serial-<k>of<n>` splits it across `n` separate CI runners.
 Each shard is still strictly serial in itself, and separate runners mean no two of these stateful scripts ever share a machine, so the split needs no concurrency isolation proof.
-The four portable-serial shards and the required real-Herdr lane run on `[self-hosted, linux, firstmate]`.
-Lint and the two portable-parallel shards remain on `ubuntu-latest`.
+Lint, coverage, invariants, and the two portable-parallel shards stay on the GitHub-hosted runner.
+The four portable-serial shards and the required real-Herdr lane run only on the nightly schedule or a manual dispatch, after the GitHub-hosted availability gate confirms an idle `[self-hosted, linux, lalo-dev]` runner.
+An unavailable runner produces the required non-green `Lalo-dev availability - SKIPPED` result instead of leaving heavyweight jobs queued indefinitely.
+When a scheduled heavyweight suite fails, the Lalo-dev runner records one durable Firstmate inbox event with the commit, suite set, and GitHub Actions run URL.
 
 `bin/fm-test-run.sh` owns `n` and refuses any lane whose `of<n>` disagrees with it.
 `.github/workflows/ci.yml` derives the same `n` from `strategy.job-total` rather than a literal, so changing the shard count in either file without the other fails the lane loudly instead of leaving part of the required suite unrun.
@@ -113,7 +115,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-4 | job `timeout-minutes: 20` | Each balanced shard is about sixteen minutes of estimated script time, leaving roughly 1.3x hang-tripwire margin for job setup and runner-speed spread. Refreshing the hints is the first lever when that margin shrinks; raising `PORTABLE_SERIAL_SHARDS` (and the matching `ci.yml` matrix) is the second. |
+| portable serial 1-4 | job `timeout-minutes: 25` | Each balanced shard is about sixteen minutes of estimated script time, leaving a bounded hang-tripwire margin for job setup and runner-speed spread. Refreshing the hints is the first lever when that margin shrinks; raising `PORTABLE_SERIAL_SHARDS` (and the matching `ci.yml` matrix) is the second. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finish around 7 minutes, so the step bound is the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. |
 
 Timeouts are hang tripwires rather than expected healthy durations.

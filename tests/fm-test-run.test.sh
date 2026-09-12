@@ -730,7 +730,7 @@ assert "**.md" in pull_request["paths-ignore"]
 group = ci["concurrency"]["group"]
 assert yaml.safe_load(open(f"{root}/.no-mistakes.yaml", encoding="utf-8"))["ci"]["revalidate_repairs"] is True
 
-def evaluate(expression, event_name, action, draft, ref):
+def evaluate(expression, event_name, action, draft, ref, available=None):
     expression = str(expression)
     expression = expression.replace(
         "github.event.pull_request.draft", repr(draft)
@@ -738,14 +738,21 @@ def evaluate(expression, event_name, action, draft, ref):
     expression = expression.replace("github.event.action", repr(action))
     expression = expression.replace("github.event_name", repr(event_name))
     expression = expression.replace("github.ref", repr(ref))
+    expression = expression.replace(
+        "needs.lalo-dev-availability.outputs.available", repr(available)
+    )
     expression = expression.replace("always()", "True")
     expression = expression.replace("&&", " and ").replace("||", " or ")
     expression = re.sub(r"(?<![=!])!(?!=)", " not ", expression)
     return bool(eval(expression, {"__builtins__": {}}, {}))
 
 def enabled(job, event_name, action, draft, ref):
+    condition = str(ci["jobs"][job].get("if", "True"))
+    if ci["jobs"][job].get("needs"):
+        # Dependency outputs are only known after the availability gate runs.
+        return False
     return evaluate(
-        ci["jobs"][job].get("if", "True"),
+        condition,
         event_name,
         action,
         draft,
@@ -762,12 +769,19 @@ def selected(event_name, action, draft, ref):
 cheap = {"lint", "tests-portable-parallel-1", "tests-portable-parallel-2"}
 assert selected("pull_request", "synchronize", False, "refs/pull/1/merge") == cheap
 assert selected("pull_request", "synchronize", True, "refs/pull/1/merge") == set()
-assert selected("pull_request", "ready_for_review", False, "refs/pull/1/merge") == (
-    cheap | {"tests-portable-serial", "tests-herdr"}
-)
+assert selected("pull_request", "ready_for_review", False, "refs/pull/1/merge") == cheap
 assert selected("push", "push", False, "refs/heads/main") == (
-    jobs - {"macos-stock-bash"}
+    {"lint", "test-coverage", "tests-portable-parallel-1",
+     "tests-portable-parallel-2", "invariants"}
 )
+assert selected("schedule", "schedule", False, "refs/heads/main") == {
+    "lalo-dev-availability"
+}
+assert selected("workflow_dispatch", "workflow_dispatch", False, "refs/heads/main") == {
+    "lint", "test-coverage", "tests-portable-parallel-1",
+    "tests-portable-parallel-2", "lalo-dev-availability",
+    "macos-stock-bash", "invariants"
+}
 assert evaluate(
     ci["jobs"]["macos-stock-bash"]["if"],
     "workflow_dispatch",
@@ -789,6 +803,50 @@ assert not evaluate(
     False,
     "refs/heads/feature",
 )
+
+assert ci["jobs"]["lint"]["runs-on"] == "ubuntu-latest"
+assert ci["jobs"]["test-coverage"]["runs-on"] == "ubuntu-latest"
+assert ci["jobs"]["tests-portable-parallel-1"]["runs-on"] == "ubuntu-latest"
+assert ci["jobs"]["tests-portable-parallel-2"]["runs-on"] == "ubuntu-latest"
+assert ci["jobs"]["invariants"]["runs-on"] == "ubuntu-latest"
+
+availability = ci["jobs"]["lalo-dev-availability"]
+assert ci["permissions"]["actions"] == "read"
+assert availability["runs-on"] == "ubuntu-latest"
+assert set(availability["outputs"]) == {"available"}
+assert ci["jobs"]["lalo-dev-unavailable"]["needs"] == "lalo-dev-availability"
+assert ci["jobs"]["lalo-dev-unavailable"]["runs-on"] == "ubuntu-latest"
+unavailable = ci["jobs"]["lalo-dev-unavailable"]["if"]
+assert not evaluate(
+    unavailable, "pull_request", "synchronize", False,
+    "refs/pull/1/merge", available="false"
+)
+assert evaluate(
+    unavailable, "schedule", "schedule", False,
+    "refs/heads/main", available="false"
+)
+assert not evaluate(
+    unavailable, "schedule", "schedule", False,
+    "refs/heads/main", available="true"
+)
+
+for job_name in ("tests-portable-serial", "tests-herdr"):
+    job = ci["jobs"][job_name]
+    assert job["needs"] == "lalo-dev-availability"
+    assert job["runs-on"] == ["self-hosted", "linux", "lalo-dev"]
+
+assert ci["jobs"]["tests-portable-serial"]["timeout-minutes"] == 25
+notification = ci["jobs"]["nightly-heavy-failure-notification"]
+assert notification["needs"] == ["tests-portable-serial", "tests-herdr"]
+assert notification["runs-on"] == ["self-hosted", "linux", "lalo-dev"]
+event = next(
+    step for step in notification["steps"]
+    if step.get("name") == "Record one durable Firstmate event"
+)
+assert set(event["env"]) == {
+    "FM_NIGHTLY_COMMIT", "FM_NIGHTLY_RUN_URL", "FM_NIGHTLY_SUITES"
+}
+assert "schedule" in ci.get("on", ci.get(True))
 
 group_start = group.index("${{")
 group_end = group.index("}}", group_start)
