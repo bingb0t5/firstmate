@@ -8,13 +8,11 @@ Exact task chronology, branch names, temporary homes, local paths, process ids, 
 
 ## Codex startup identity depth
 
-On 2026-09-12, an isolated fresh launch and public relaunch using codex-cli 0.154.0 showed `unknown` in the native SessionStart digest while a direct detector call in the same session returned `codex`.
-The SessionStart hook's real process ancestry placed Codex at depth 9, beyond the detector's former 8-process bound; Firstmate's shared session-lock ancestry already walked 16.
+On 2026-09-12, codex-cli 0.154.0 placed Codex at depth 9 in the real SessionStart ancestry, beyond the detector's former 8-process bound.
 `CODEX_VERSION` and `CODEX_CI` were also inherited by the Herdr launcher, so they are not safe identity markers.
 The detector now uses the existing 16-process bound, while markerless sessions with no verified harness ancestor remain `unknown`.
-The portable process-tree regression is `tests/fm-secondmate-harness.test.sh`, and `FM_CODEX_LIVE_E2E=1 tests/fm-codex-continuity-live-e2e.test.sh` verifies the depth-nine path against the installed Codex CLI.
-A public `fm-control.sh <id> relaunch --harness codex` after the fix also detected Codex at real SessionStart ancestor depths 9 and 13; its reused scratch home had an unrelated old watcher state, so that run verifies relaunch identity only.
-In a clean fresh scratch secondmate on 2026-09-12, the native Stop hook armed a detached watcher at 17:01:21 +0700 and surfaced its re-arm wake at 17:01:22; a later public `fm-send` wrote an inbox record at 17:06:43, Codex observed a fresh beacon at 17:07:06, and it acknowledged the request by 17:07:28 without a manual foreground checkpoint or separate pane ring.
+`tests/fm-secondmate-harness.test.sh` builds a portable executable process tree whose Codex ancestor is at least depth 9, proves the former eight-hop detector returns `unknown` for that exact tree, and proves the current detector returns `codex` while its missing-identity control remains `unknown`.
+`FM_CODEX_LIVE_E2E=1 tests/fm-codex-continuity-live-e2e.test.sh` calls the public detector through the installed Codex CLI's wrapped process path and requires the `codex` result.
 
 ## Local attention reservation guard
 
