@@ -9,6 +9,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 CHECK="$ROOT/bin/fm-automation-health-check.sh"
+FIXTURES="$ROOT/tests/fixtures/automation-health"
 TMP_ROOT=$(fm_test_tmproot fm-automation-health)
 FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
@@ -64,6 +65,16 @@ run_check() {
   FM_HOME="$home" FM_AUTOMATION_HEALTH_INTERVAL=0 \
     PATH="$FAKEBIN:$PATH" "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "automation health check exit"
+}
+
+run_registry() {
+  local home=$1 action=$2 fixture=$3 out=$4 status=0
+  FM_HOME="$home" \
+    FM_REGISTRY_HEALTH_NOW="$(date -u -d '2026-09-12T00:20:00Z' +%s)" \
+    FM_REGISTRY_HEALTH_GRACE_SECS=60 \
+    FM_REGISTRY_FIXTURE="$fixture" \
+    PATH="$FAKEBIN:$PATH" "$CHECK" "$action" >"$out" 2>&1 || status=$?
+  expect_code 0 "$status" "automation health $action exit"
 }
 
 test_green_rollup_is_compact_and_receipt_backed() {
@@ -168,11 +179,98 @@ test_lifecycle_uses_registry_and_receipt_schema() {
   pass "lifecycle actions reuse the registry and send a terminal receipt"
 }
 
+test_registry_report_lists_canonical_health_metrics() {
+  local home out report
+  make_home registry-report
+  home=$MADE_HOME
+  out="$home/out"
+  run_registry "$home" report "$FIXTURES/registry-healthy.json" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" \
+    'automation owner cadence source_freshness_age run_age heartbeat_age open_failures health' \
+    "registry report omitted metric headings"
+  assert_contains "$report" $'s6-02-secret-parity\tinfra\t15 minutes\t1440s\t1500s\t300s\t0\thealthy' \
+    "registry report omitted owner or canonical health ages"
+  pass "registry report lists source, run, heartbeat, failure, health, and owner"
+}
+
+test_stale_heartbeat_alerts_once_per_fingerprint() {
+  local home out first second
+  make_home stale-heartbeat
+  home=$MADE_HOME
+  out="$home/out"
+  run_registry "$home" run "$FIXTURES/registry-stale-heartbeat.json" "$out"
+  first=$(cat "$out")
+  assert_contains "$first" \
+    "infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)" \
+    "stale heartbeat did not produce the captain-readable alert"
+  : > "$out"
+  run_registry "$home" run "$FIXTURES/registry-stale-heartbeat.json" "$out"
+  second=$(cat "$out")
+  [ -z "$second" ] || fail "same stale fingerprint alerted twice: $second"
+  pass "stale heartbeat alerts once per registry fingerprint"
+}
+
+test_changed_stale_fingerprint_alerts_again() {
+  local home out changed
+  make_home stale-fingerprint
+  home=$MADE_HOME
+  out="$home/out"
+  run_registry "$home" run "$FIXTURES/registry-stale-heartbeat.json" "$out"
+  : > "$out"
+  run_registry "$home" run "$FIXTURES/registry-stale-heartbeat-new-run.json" "$out"
+  changed=$(cat "$out")
+  assert_contains "$changed" \
+    "infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)" \
+    "changed stale fingerprint did not alert again"
+  pass "new stale run fingerprint alerts again"
+}
+
+test_registry_report_lists_open_failure() {
+  local home out report
+  make_home registry-open-failure
+  home=$MADE_HOME
+  out="$home/out"
+  run_registry "$home" report "$FIXTURES/registry-open-failure.json" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" $'s6-02-secret-parity\tinfra\t15 minutes' \
+    "open failure row was not included"
+  assert_contains "$report" $'\t1\tfailed' \
+    "failed terminal outcome did not produce one open failure"
+  pass "registry report exposes open failure rows"
+}
+
+test_arm_registers_the_stale_heartbeat_runner() {
+  local home status=0
+  make_home arm
+  home=$MADE_HOME
+  FM_HOME="$home" "$CHECK" arm >/dev/null 2>&1 || status=$?
+  expect_code 0 "$status" "automation health arm exit"
+  assert_present "$home/state/automation-health.check.sh" \
+    "arm did not create the watcher shim"
+  assert_present "$home/state/automation-health.check-trust" \
+    "arm did not create the trust binding"
+  assert_contains "$(cat "$home/state/automation-health.check.sh")" \
+    'fm-automation-health-check.sh run' \
+    "arm did not register the stale heartbeat runner"
+  FM_HOME="$home" "$CHECK" disarm >/dev/null || fail "disarm failed"
+  assert_absent "$home/state/automation-health.check.sh" \
+    "disarm left the watcher shim"
+  assert_absent "$home/state/automation-health.check-trust" \
+    "disarm left the trust binding"
+  pass "arm registers the one stale-heartbeat check"
+}
+
 test_green_rollup_is_compact_and_receipt_backed
 test_missing_receipt_is_red
 test_empty_registry_is_green
 test_malformed_registry_is_unavailable
 test_missing_id_with_open_alerts_is_red
 test_lifecycle_uses_registry_and_receipt_schema
+test_registry_report_lists_canonical_health_metrics
+test_stale_heartbeat_alerts_once_per_fingerprint
+test_changed_stale_fingerprint_alerts_again
+test_registry_report_lists_open_failure
+test_arm_registers_the_stale_heartbeat_runner
 
 printf '# fm-automation-health-check.test.sh: all assertions passed\n'
