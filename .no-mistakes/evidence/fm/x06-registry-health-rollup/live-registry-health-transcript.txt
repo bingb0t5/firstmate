@@ -32,3 +32,15 @@ SCENARIO: adversarial failed terminal old heartbeat => pass
 (empty output)
 ---
 SUMMARY: pass=10 fail=0
+SCENARIO: stale fingerprint dedupe survives recovery => pass
+step1: infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)
+step2: (empty)
+step3: (empty)
+---
+SCENARIO: armed shim executes stale check => pass
+shim: infra's s6-02-secret-parity has not reported for 1200s (expected every 15 minutes)
+---
+SCENARIO: run unavailable registry => pass
+automation health unavailable
+---
+SUMMARY: pass=13 fail=0 (including recovery, arm shim, unavailable)

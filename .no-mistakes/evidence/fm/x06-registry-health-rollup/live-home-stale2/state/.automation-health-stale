@@ -1,2 +1,2 @@
 fm-automation-health-stale-v1
-s6-02-secret-parity|run-stale-2|stale
+s6-02-secret-parity|run-stale|stale;s6-02-secret-parity|run-stale-2|stale

@@ -1,0 +1,2 @@
+armed: state/automation-health.check.sh
+disarmed: state/automation-health.check.sh
