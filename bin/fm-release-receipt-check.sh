@@ -392,7 +392,11 @@ target_observe() {
     fi
     if [ -n "$expected_build" ]; then
       if [ -n "$build" ] && [ -n "$commit" ] && [ "$build" != "$expected_build" ]; then
-        failure=${failure:-"deployed build id mismatch"}
+        if [ -n "$expected_commit" ] && [ "$commit" = "$expected_commit" ]; then
+          complete=false
+        else
+          failure=${failure:-"deployed build id mismatch"}
+        fi
       elif [ -z "$build" ] && [ "$complete" = true ] && [ -z "$failure" ]; then
         complete=false
       fi

@@ -207,6 +207,34 @@ test_stale_build_id_before_commit_stays_waiting() {
   pass "stale build id before commit observable stays waiting"
 }
 
+test_stale_build_id_after_matching_commit_stays_waiting() {
+  local home out status=0
+  make_home waiting-build-after-commit
+  home=$MADE_HOME
+  healthy_fixtures
+  # shellcheck disable=SC2089,SC2090
+  FM_RELEASE_COOLIFY_STATUS='{"status":"running","git_commit_sha":"ada46a5dda0a1d654c29acf82a6db20d8296c407"}'
+  FM_RELEASE_BUILD_ID='prior-live-build'
+  export FM_RELEASE_COOLIFY_STATUS FM_RELEASE_BUILD_ID
+  out="$home/out"
+  FM_HOME="$home" \
+    FM_RELEASE_COOLIFY_URL=https://coolify.test \
+    FM_RELEASE_COOLIFY_API_TOKEN=coolify-secret \
+    FM_RELEASE_APP_DB_TOKEN=app-db-secret \
+    FM_RELEASE_POLL_SECS=0 \
+    FM_RELEASE_TIMEOUT_SECS=1 \
+    FM_FAKE=1 \
+    PATH="$FAKEBIN:$PATH" \
+    "$CHECK" run >"$out" 2>&1 || status=$?
+  expect_code 1 "$status" "run should time out while build id is still stale"
+  assert_contains "$(cat "$out")" 'waiting for deployment or migration receipt' \
+    "stale build id after matching commit was not treated as waiting"
+  case "$(cat "$out")" in
+    *mismatch*) fail "stale build id after matching commit was mislabeled as mismatch" ;;
+  esac
+  pass "stale build id after matching commit stays waiting"
+}
+
 test_complete_status_without_commit_stays_waiting() {
   local home out status=0
   make_home waiting-commit
@@ -284,6 +312,7 @@ test_commit_mismatch_is_reported
 test_render_target_uses_deploy_completion_and_build
 test_check_deduplicates_unchanged_receipt
 test_stale_build_id_before_commit_stays_waiting
+test_stale_build_id_after_matching_commit_stays_waiting
 test_complete_status_without_commit_stays_waiting
 test_manifest_error_deduplicates
 test_arm_and_disarm_use_custom_check_registration
