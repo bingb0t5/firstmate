@@ -41,6 +41,46 @@ RECORD_SCHEMA=fm-system-map-v1
 . "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
 . "$SCRIPT_DIR/fm-check-lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
+
+PROBE_MIN_SECS=1
+CLOCK_ROUNDING_SECS=1
+KILL_GRACE_SECS=1
+
+CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}
+case "$CHECK_TIMEOUT" in
+  ''|*[!0-9]*|0) CHECK_TIMEOUT=30 ;;
+esac
+BUDGET_SECS=$((CHECK_TIMEOUT - PROBE_MIN_SECS - CLOCK_ROUNDING_SECS - KILL_GRACE_SECS))
+[ "$BUDGET_SECS" -ge 1 ] || BUDGET_SECS=1
+
+DEADLINE=0
+
+real_epoch() { date +%s; }
+
+budget_exhausted() {
+  [ "$DEADLINE" -eq 0 ] && return 1
+  [ "$(real_epoch)" -ge "$DEADLINE" ]
+}
+
+remaining_bound() {
+  local left
+  if budget_exhausted; then
+    printf '0\n'
+    return
+  fi
+  left=$((DEADLINE - $(real_epoch)))
+  if [ "$left" -lt "$PROBE_MIN_SECS" ]; then
+    printf '%s\n' "$PROBE_MIN_SECS"
+  else
+    printf '%s\n' "$left"
+  fi
+}
+
+start_budget() {
+  DEADLINE=$(($(real_epoch) + BUDGET_SECS))
+}
 
 usage() {
   cat <<'EOF'
@@ -248,13 +288,19 @@ load_registry() {
       add_finding registry.unavailable registry "automation registry settings are unavailable"
       return
     fi
-    local body="$TMP_ROOT/registry-body.json" code
+    local body="$TMP_ROOT/registry-body.json" code curl_max
+    if budget_exhausted; then
+      printf '[]\n' > "$REGISTRY_ROWS"
+      add_finding registry.unavailable registry "system map check exceeded its time budget before registry fetch"
+      return
+    fi
+    curl_max=$(remaining_bound)
     if [ -n "$REGISTRY_TOKEN" ]; then
-      code=$(curl -sS --max-time "${FM_CHECK_TIMEOUT:-30}" \
+      code=$(curl -sS --max-time "$curl_max" \
         -H "Authorization: Bearer $REGISTRY_TOKEN" \
         -o "$body" -w '%{http_code}' "$(registry_endpoint)" 2>/dev/null) || code=
     else
-      code=$(curl -sS --max-time "${FM_CHECK_TIMEOUT:-30}" \
+      code=$(curl -sS --max-time "$curl_max" \
         -o "$body" -w '%{http_code}' "$(registry_endpoint)" 2>/dev/null) || code=
     fi
     case "$code" in
@@ -315,7 +361,12 @@ load_n8n_comparison() {
       add_finding n8n.unavailable n8n "X-05 n8n operations script is unavailable"
       return
     fi
-    if ! npx --yes tsx "$script" compare --repo "$SYSTEM_REPO" \
+    if budget_exhausted; then
+      printf '{}\n' > "$N8N_RESULT"
+      add_finding n8n.unavailable n8n "system map check exceeded its time budget before n8n comparison"
+      return
+    fi
+    if ! fm_run_timed "$(remaining_bound)" npx --yes tsx "$script" compare --repo "$SYSTEM_REPO" \
       --output-json "$N8N_RESULT" >/dev/null 2>"$TMP_ROOT/n8n-error"; then
       printf '{}\n' > "$N8N_RESULT"
       add_finding n8n.unavailable n8n "X-05 live n8n comparison was unavailable"
@@ -437,6 +488,15 @@ compare_hosts() {
   done < <(jq -r '.[] | [.id,(.host_id // "")] | @tsv' "$MANIFEST_ROWS")
 }
 
+validate_evidence_presence() {
+  [ "$(jq 'length' "$MANIFEST_ROWS")" -gt 0 ] ||
+    add_finding manifests.empty manifests "declared manifest list has no entries"
+  [ "$(jq 'length' "$REGISTRY_ROWS")" -gt 0 ] ||
+    add_finding registry.empty registry "automation registry has no outcomes"
+  [ "$(jq 'length' "$HOST_ROWS")" -gt 0 ] ||
+    add_finding hosts.empty hosts "host inventory has no entries"
+}
+
 compare_exports_and_live() {
   local export_file
   if [ -d "$SYSTEM_REPO/n8n" ]; then
@@ -523,11 +583,13 @@ record_write() {
 }
 
 build_report() {
+  start_budget
   normalize_manifests
   normalize_hosts
   load_registry
   load_n8n_comparison
   load_radar
+  validate_evidence_presence
   validate_manifest_rows
   compare_registry
   compare_hosts
