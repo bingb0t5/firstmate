@@ -359,7 +359,7 @@ target_observe() {
   build_url=$(jq -r '.build_id_url // empty' <<< "$target")
   if [ -n "$build_url" ]; then
     request_get "$build_url" "" || {
-      printf '{"provider":"%s","status":"%s","commit":%s,"build_id":"","complete":false,"failure":"build id unavailable"}\n' \
+      printf '{"provider":"%s","status":"%s","commit":%s,"build_id":"","complete":false}\n' \
         "$provider" "$status" "$(jq -Rn --arg v "$commit" '$v')"
       return
     }
@@ -377,7 +377,6 @@ target_observe() {
     failed|failure|error|errored|cancelled|canceled|build_failed|crashed|unhealthy|deactivated)
       failure="deployment status $status"
       ;;
-    '') failure="deployment status unavailable" ;;
     *) ;;
   esac
   if [ "$complete" = true ] || [ -n "$failure" ]; then
