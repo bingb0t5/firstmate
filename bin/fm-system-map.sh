@@ -668,8 +668,7 @@ action_check() {
     [ "$INTERVAL" -eq 0 ] ||
     [ "$RECORD_DIGEST" != "$digest" ] ||
     [ "$RECORD_EPOCH" -eq 0 ] ||
-    [ "$now" -lt "$RECORD_EPOCH" ] ||
-    [ $((now - RECORD_EPOCH)) -ge "$INTERVAL" ]; then
+    [ "$now" -lt "$RECORD_EPOCH" ]; then
     printf 'system map: %s (%s findings)\n' "$status" "$finding_count"
   fi
   record_write "$digest" || true
