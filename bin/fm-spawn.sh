@@ -1919,7 +1919,7 @@ herdr_projection_existing_meta_allows_flat() {  # <meta>
 
 recreate_missing_relaunch_endpoint() {
   local session container task_ids workspace_presence herdr_home relationship
-  local seeded_default_tab_id container_raw
+  local seeded_default_tab_id container_raw herdr_replaced_workspace_id
   [ "$RELAUNCH_ENDPOINT_MISSING" = 1 ] || return 0
   # The endpoint is gone, so the recorded worktree is the remaining ownership
   # proof. Validate it before creating any replacement endpoint.
@@ -1970,8 +1970,7 @@ recreate_missing_relaunch_endpoint() {
           }
           container=${container_raw%%$'\t'*}
           seeded_default_tab_id=${container_raw#*$'\t'}
-          printf 'working [at=%s]: relaunch fallback replaced missing Herdr workspace %s with %s\n' \
-            "$(date +%s)" "$HERDR_WORKSPACE_ID" "${container#*:}" >> "$STATE/$ID.status"
+          herdr_replaced_workspace_id=$HERDR_WORKSPACE_ID
           ;;
         *)
           echo "error: task $ID's missing endpoint could not be inspected in its recorded Herdr workspace" >&2
@@ -1988,6 +1987,10 @@ $task_ids
 EOF
       HERDR_SES=${container%%:*}
       HERDR_WORKSPACE_ID=${container#*:}
+      if [ -n "${herdr_replaced_workspace_id:-}" ]; then
+        printf 'working [at=%s]: relaunch fallback replaced missing Herdr workspace %s with %s\n' \
+          "$(date +%s)" "$herdr_replaced_workspace_id" "$HERDR_WORKSPACE_ID" >> "$STATE/$ID.status"
+      fi
       T="$HERDR_SES:$HERDR_PANE_ID"
       WT_TARGET=$T
       ;;
