@@ -134,12 +134,12 @@ Its header and `--help` own the flags, family labels, lanes, and changed-file ma
 Portable shard balance evidence lives in `docs/fm-test-portable-shards.md`.
 Local no-mistakes Test stays intent-targeted and must not wire `commands.test` to `--all` or a `tests/*.test.sh` walk.
 Family selection is the ordinary local path; `--all` is deliberate full regression only.
-CI owns broad regression across required portable parallel shards, the portable serial lane's separate-runner shards, the Herdr lane, lint, invariants, and the coverage guard in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+CI owns broad regression across required portable parallel shards, the separately scheduled portable serial shards, the Herdr lane, lint, invariants, and the coverage guard in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 Ordinary non-draft pull-request pushes run only Lint and the two portable-parallel shards.
 The portable-serial shards and Herdr run only on the nightly schedule or a manual dispatch, with the `self-hosted-lalo-dev` Environment approval gating their Lalo-dev jobs; coverage, invariants, and timing aggregation remain off the pull-request path.
 Docs-only and Markdown-only pull requests are ignored by the CI workflow.
-Stock macOS Bash snapshot compatibility runs on pushes to `main` and manual workflow dispatches, and is skipped on pull requests.
-Newer CI runs for the same PR or branch cancel superseded runs to avoid redundant matrix work.
+Stock macOS Bash snapshot compatibility runs only on manual workflow dispatches.
+Newer CI runs for the same event and PR or branch cancel superseded runs to avoid redundant matrix work.
 Use `bin/fm-test-run.sh --list-lanes` for exact lane names and `--help` for `--jobs` rules and required gate-skip flags when reproducing a lane locally.
 Discover tests by listing `tests/*.test.sh`: each is a self-contained bash script named `<subject>.test.sh`, and its header comment describes what it covers, so pass one to `bin/fm-test-run.sh` to focus on a subject with canonical timing output.
 A fixture may shorten a production timeout to keep a failure path prompt, but never below what the real work inside that window costs on a loaded machine: a fork, an exec, a lock acquisition, a beacon publication, or a first-poll check.

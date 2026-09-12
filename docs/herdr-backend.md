@@ -106,7 +106,7 @@ An ambiguous response grants no mutation or cleanup authority.
 
 Protocol 16 exposes `workspace.move` over the named session socket but no CLI subcommand.
 `bin/backends/herdr-workspace-move.py` sends only that whitelisted method and verifies the complete returned workspace order.
-Projected children are placed in one contiguous block immediately after their owning home when the session layout, protocol, socket, `python3`, and machine-private per-session lock are all verifiable.
+Projected children are placed in one contiguous block immediately after their owning home when the session layout, protocol, socket, `python3`, and user-private per-session lock are all verifiable.
 Those locks share `/tmp/firstmate-herdr-presentation-<uid>` among every Firstmate home of the effective OS user.
 The namespace must be a real non-symlink directory owned by that user with mode `0700`; an unsafe or foreign-owned namespace makes the lock unavailable.
 The legacy unsuffixed namespace is never reused, so another user's legacy directory cannot block this user.

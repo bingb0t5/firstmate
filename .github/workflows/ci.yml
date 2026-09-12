@@ -16,7 +16,7 @@ on:
 permissions:
   contents: read
 
-# Superseded PR pushes should not keep burning minutes on the full matrix.
+# Superseded runs for one event and ref should not keep burning CI minutes.
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true

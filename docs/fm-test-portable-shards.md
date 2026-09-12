@@ -57,10 +57,9 @@ Membership is derived rather than enumerated, so a newly added test lands here b
 
 On green CI run [30725985757](https://github.com/kunchenguid/firstmate/actions/runs/30725985757), that remainder accumulated 19m04s of script time against a 20-minute job timeout.
 On [PR 1495](https://github.com/kunchenguid/firstmate/pull/1495), its main step ran about 19m51s before the job was cancelled at that boundary.
-`portable-serial-<k>of<n>` splits it across `n` separate CI runners.
-Each shard is still strictly serial in itself, and separate runners mean no two of these stateful scripts ever share a machine, so the split needs no concurrency isolation proof.
-Lint, coverage, invariants, and the two portable-parallel shards stay on the GitHub-hosted runner.
-The four portable-serial shards and the required real-Herdr lane run only on the nightly schedule or a manual dispatch on `[self-hosted, linux, lalo-dev]`.
+`portable-serial-<k>of<n>` splits it across `n` separately scheduled CI jobs.
+Each shard remains strictly serial, and the self-hosted routing does not assume distinct physical machines.
+[CONTRIBUTING.md](../CONTRIBUTING.md) owns CI event and runner routing.
 
 `bin/fm-test-run.sh` owns `n` and refuses any lane whose `of<n>` disagrees with it.
 `.github/workflows/ci.yml` derives the same `n` from `strategy.job-total` rather than a literal, so changing the shard count in either file without the other fails the lane loudly instead of leaving part of the required suite unrun.
