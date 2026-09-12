@@ -289,6 +289,10 @@ first_json_string() {
   jq -r "$filter" "$file" 2>/dev/null | awk 'NF && $0 != "null" { print; exit }'
 }
 
+commit_observable() {
+  [[ "$1" =~ ^[0-9a-fA-F]{7,40}$ ]]
+}
+
 target_url() {
   local target=$1 provider base app service deploy
   provider=$(jq -r '.provider // ""' <<< "$target")
@@ -384,14 +388,14 @@ target_observe() {
   esac
   if [ "$complete" = true ] || [ -n "$failure" ]; then
     if [ -n "$expected_commit" ]; then
-      if [ -n "$commit" ] && [ "$commit" != "$expected_commit" ]; then
+      if commit_observable "$commit" && [ "$commit" != "$expected_commit" ]; then
         failure=${failure:-"deployed commit mismatch"}
-      elif [ -z "$commit" ] && [ "$complete" = true ] && [ -z "$failure" ]; then
+      elif ! commit_observable "$commit" && [ "$complete" = true ] && [ -z "$failure" ]; then
         complete=false
       fi
     fi
     if [ -n "$expected_build" ]; then
-      if [ -n "$build" ] && [ -n "$commit" ] && [ "$build" != "$expected_build" ]; then
+      if [ -n "$build" ] && commit_observable "$commit" && [ "$build" != "$expected_build" ]; then
         if [ -n "$expected_commit" ] && [ "$commit" = "$expected_commit" ]; then
           complete=false
         else

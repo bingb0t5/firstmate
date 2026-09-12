@@ -277,6 +277,34 @@ test_complete_status_without_commit_stays_waiting() {
   pass "complete status with empty commit stays waiting until observable"
 }
 
+test_commit_placeholder_stays_waiting() {
+  local home out status=0
+  make_home waiting-commit-placeholder
+  home=$MADE_HOME
+  healthy_fixtures
+  # shellcheck disable=SC2089,SC2090
+  FM_RELEASE_COOLIFY_STATUS='{"status":"running","git_commit_sha":"HEAD"}'
+  FM_RELEASE_BUILD_ID='prior-live-build'
+  export FM_RELEASE_COOLIFY_STATUS FM_RELEASE_BUILD_ID
+  out="$home/out"
+  FM_HOME="$home" \
+    FM_RELEASE_COOLIFY_URL=https://coolify.test \
+    FM_RELEASE_COOLIFY_API_TOKEN=coolify-secret \
+    FM_RELEASE_APP_DB_TOKEN=app-db-secret \
+    FM_RELEASE_POLL_SECS=0 \
+    FM_RELEASE_TIMEOUT_SECS=1 \
+    FM_FAKE=1 \
+    PATH="$FAKEBIN:$PATH" \
+    "$CHECK" run >"$out" 2>&1 || status=$?
+  expect_code 1 "$status" "run should time out while commit is still a placeholder"
+  assert_contains "$(cat "$out")" 'waiting for deployment or migration receipt' \
+    "HEAD commit placeholder during rollout was not treated as waiting"
+  case "$(cat "$out")" in
+    *mismatch*) fail "HEAD commit placeholder during rollout was mislabeled as mismatch" ;;
+  esac
+  pass "commit placeholder stays waiting until observable SHA"
+}
+
 test_manifest_error_deduplicates() {
   local home out first second
   make_home manifest-dedupe
@@ -330,5 +358,6 @@ test_build_id_url_json_build_field_is_parsed
 test_stale_build_id_before_commit_stays_waiting
 test_stale_build_id_after_matching_commit_stays_waiting
 test_complete_status_without_commit_stays_waiting
+test_commit_placeholder_stays_waiting
 test_manifest_error_deduplicates
 test_arm_and_disarm_use_custom_check_registration
