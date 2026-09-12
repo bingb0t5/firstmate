@@ -23,10 +23,13 @@
 # The registry owns scheduling and execution; this script never starts n8n or
 # creates a second scheduler for a host-local check such as secret-parity.
 #
-# The registry projection fields are:
+# The rollup reads stream projection fields:
 #   id, source_freshness_age_seconds, queue_age_seconds,
 #   last_success_age_seconds, retry_count, open_alerts, last_terminal_receipt.
 # `last_terminal_receipt` must contain type, terminal=true, and status success or succeeded.
+# `report`, `run`, and stale detection read automation.registry.v1 rows with
+# manifest_id, owner, cadence, last_start_at, last_success_at, terminal_outcome,
+# retry_count, correlation_id, heartbeat_at, health, and last_run_id.
 # The lifecycle actions use POST /v1/automations/<stream>/{start,heartbeat,complete}.
 #
 # Registry credentials are read from direct environment values first, then from
@@ -72,7 +75,7 @@ Usage:
   fm-automation-health-check.sh complete <stream> <run-id> <success|failure>
                                            complete one run with a terminal receipt
   fm-automation-health-check.sh arm        register the health poll with the watcher
-  fm-automation-health-check.sh disarm     remove the health poll and its record
+  fm-automation-health-check.sh disarm     remove the health poll and dedupe records
   fm-automation-health-check.sh --help     print this help
 
 Registry settings:

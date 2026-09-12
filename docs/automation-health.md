@@ -1,6 +1,6 @@
 # Automation health rollup
 
-[`bin/fm-automation-health-check.sh`](../bin/fm-automation-health-check.sh) gives Firstmate one compact status line for every automation projection in the live brain registry.
+[`bin/fm-automation-health-check.sh`](../bin/fm-automation-health-check.sh) reads the live brain registry for rollup status, a full row table, and stale-heartbeat alerts.
 
 The `check` action retains the original rollup of source freshness age, queue age, last successful run age, retry count, open-alert count, and terminal-receipt status for each stream.
 
@@ -41,7 +41,7 @@ The health rollup observes its registry projection and does not create a paralle
 
 A reachable empty registry reports green with no streams.
 
-When a non-terminal row has not reported for longer than its manifest cadence plus `FM_REGISTRY_HEALTH_GRACE_SECS` (default 60 seconds), `run` prints `<owner>'s <automation> has not reported for <age> (expected every <cadence>)`.
-The stale heartbeat alert is deduplicated by `manifest_id`, `last_run_id`, and `health` in `state/.automation-health-stale`, so a repeated fingerprint is silent while a new fingerprint alerts once.
-
-Watcher arming, polling, deduplication, and interval settings are documented in [`docs/configuration.md`](configuration.md) "Automation health rollup".
+When an active non-terminal row has not reported for longer than its manifest cadence plus `FM_REGISTRY_HEALTH_GRACE_SECS` (default 60 seconds), `run` and the armed `check` path print `<owner>'s <automation> has not reported for <age> (expected every <cadence>)`.
+Rows with a terminal outcome or health `failed`/`timeout` are excluded because they are no longer active heartbeat runs.
+The stale heartbeat alert is deduplicated by `manifest_id`, `last_run_id`, and `health` in `state/.automation-health-stale`.
+Watcher arming, polling, deduplication, interval settings, and fingerprint format are documented in [`docs/configuration.md`](configuration.md) "Automation health rollup".

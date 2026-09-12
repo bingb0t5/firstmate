@@ -538,12 +538,12 @@ The full projection and lifecycle contract is documented in [`docs/automation-he
 Arm once per home with `bin/fm-automation-health-check.sh arm`.
 That writes `state/automation-health.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence, retains the existing rollup alert, and turns a stale heartbeat into one `check:` wake line.
 The operator-home registration path is `FM_HOME=/path/to/firstmate-home bin/fm-automation-health-check.sh arm`; it never creates private registration artifacts in the repository.
-`bin/fm-automation-health-check.sh disarm` removes the shim, trust binding, and dedupe record.
+`bin/fm-automation-health-check.sh disarm` removes the shim, trust binding, and both dedupe records.
 The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required.
 
 The check prints nothing when the formatted rollup and stale-heartbeat fingerprints are unchanged.
 `state/.automation-health` records that last rollup so an unchanged status is reported once instead of on every poll; a changed rollup is reported again.
-`state/.automation-health-stale` records stale fingerprints as `manifest_id;last_run_id;health` tuples.
+`state/.automation-health-stale` records stale fingerprints as `manifest_id|last_run_id|health`, semicolon-separated when more than one is retained.
 A stale heartbeat older than the manifest cadence plus `FM_REGISTRY_HEALTH_GRACE_SECS` (default 60 seconds) prints `<owner>'s <automation> has not reported for <age> (expected every <cadence>)` once per fingerprint.
 
 Registry URL and bearer token resolve from direct environment values or the local `FM_AUTOMATION_REGISTRY_ENV_FILE` fallback documented in the script header; credential values are never printed.
