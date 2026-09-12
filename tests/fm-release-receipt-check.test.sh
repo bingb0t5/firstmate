@@ -179,6 +179,21 @@ test_check_deduplicates_unchanged_receipt() {
   pass "watcher check deduplicates an unchanged durable receipt"
 }
 
+test_build_id_url_json_build_field_is_parsed() {
+  local home out
+  make_home build-json
+  home=$MADE_HOME
+  healthy_fixtures
+  # shellcheck disable=SC2089,SC2090
+  FM_RELEASE_BUILD_ID='{"build":"dev-mty0b1u3"}'
+  export FM_RELEASE_BUILD_ID
+  out="$home/out"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" 'app=healthy migration=verified' \
+    "JSON build field from build_id_url was not parsed"
+  pass "build_id_url JSON {\"build\":...} shape is receipt-backed"
+}
+
 test_stale_build_id_before_commit_stays_waiting() {
   local home out status=0
   make_home waiting-build
@@ -311,6 +326,7 @@ test_healthy_app_unverified_migration_is_distinct
 test_commit_mismatch_is_reported
 test_render_target_uses_deploy_completion_and_build
 test_check_deduplicates_unchanged_receipt
+test_build_id_url_json_build_field_is_parsed
 test_stale_build_id_before_commit_stays_waiting
 test_stale_build_id_after_matching_commit_stays_waiting
 test_complete_status_without_commit_stays_waiting

@@ -6,6 +6,7 @@ The utility never starts, restarts, reconfigures, resizes, or rolls back a live 
 It never reads a deploy or start endpoint.
 The `check` action performs one bounded observation.
 The `run` action repeats the same read-only observation until the receipt is complete or its timeout expires.
+The `audit` action prints the current receipt and exits nonzero unless the release is complete.
 The `arm` action registers `check` with the existing firstmate watcher.
 
 ## Manifest
@@ -13,6 +14,7 @@ The `arm` action registers `check` with the existing firstmate watcher.
 Set `FM_RELEASE_SPEC_FILE` to a JSON manifest, or place the default manifest at `config/release-receipt.json` in the firstmate home.
 The manifest requires `release_id`, `intended_commit`, at least one `targets` row, and at least one migration.
 Each target requires `provider`, `expected_build_id`, and either a provider identifier or an explicit `status_url`.
+An optional `expected_commit` overrides the manifest `intended_commit` for that target only.
 Each migration is either a name string or an object with `name` and an optional `commit`.
 
 The following manifest represents the 2026-09-12 admin production cut without making that cut a special case:
@@ -64,7 +66,10 @@ It never contains provider credentials.
 
 `app=healthy migration=verified` is the only complete result.
 `app=healthy migration=unverified` means the application is live at the intended build but the migration receipt is missing or unavailable.
-`mismatch` identifies a deployed commit, build id, deployment status, or migration commit mismatch.
+`waiting` means deployment or migration receipt evidence is not yet observable.
+During rollout, a provider status that looks complete while the deployed commit is still empty stays waiting rather than mismatch.
+A stale build id also stays waiting until the commit is observable, and again while the commit already matches `intended_commit` but the build id has not yet caught up.
+`mismatch` is reported only once the observable commit or build id definitively differs from the manifest, or when deployment status or migration commit evidence conflicts.
 The audit action prints the current result and exits nonzero unless the complete result is present.
 
 Use the watcher check for ongoing observation:
@@ -75,7 +80,9 @@ FM_RELEASE_SPEC_FILE=/path/to/release-receipt.json \
 bin/fm-release-receipt-check.sh arm
 ```
 
-Use `run` when a release operator needs a bounded wait for completion:
+Use `run` when a release operator needs a bounded wait for completion.
+`FM_RELEASE_TIMEOUT_SECS` (default 900) bounds the wait, and `FM_RELEASE_POLL_SECS` (default 10) sets the poll interval.
+The script header and `--help` output own the remaining manifest and environment fields.
 
 ```sh
 FM_HOME=/path/to/firstmate-home \

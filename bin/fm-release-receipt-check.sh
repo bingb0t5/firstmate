@@ -4,7 +4,7 @@
 #
 # Usage:
 #   fm-release-receipt-check.sh [check] [--spec PATH]
-#   fm-release-receipt-check.sh run [--spec PATH] [--timeout SECONDS]
+#   fm-release-receipt-check.sh run [--spec PATH] [--timeout SECONDS] [--poll SECONDS]
 #   fm-release-receipt-check.sh audit [--spec PATH]
 #   fm-release-receipt-check.sh arm [--spec PATH]
 #   fm-release-receipt-check.sh disarm
@@ -55,7 +55,7 @@ usage() {
 Usage:
   fm-release-receipt-check.sh [check] [--spec PATH]
                                       observe once and deduplicate an alert
-  fm-release-receipt-check.sh run [--spec PATH] [--timeout SECONDS]
+  fm-release-receipt-check.sh run [--spec PATH] [--timeout SECONDS] [--poll SECONDS]
                                       wait for deployment and migration receipt
   fm-release-receipt-check.sh audit [--spec PATH]
                                       print the durable release audit
@@ -276,7 +276,7 @@ json_or_text() {
   if jq -e . "$file" >/dev/null 2>&1; then
     jq -r '
       if type == "string" then .
-      else (.build_id // .buildId // .id // .version // .data.build_id? // "")
+      else (.build // .build_id // .buildId // .id // .version // .data.build_id? // "")
       end
     ' "$file" 2>/dev/null | awk 'NF { print; exit }'
   else
