@@ -536,7 +536,7 @@ Its `run` action reads only `GET /v1/automations` and never starts, retries, com
 The full projection and lifecycle contract is documented in [`docs/automation-health.md`](automation-health.md).
 
 Arm once per home with `bin/fm-automation-health-check.sh arm`.
-That writes `state/automation-health.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence, retains the existing rollup alert, and turns a stale heartbeat into one `check:` wake line.
+That writes `state/automation-health.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the watcher polls on its normal cadence, retains the existing rollup reporting, and turns a stale heartbeat into one `check:` wake line.
 The operator-home registration path is `FM_HOME=/path/to/firstmate-home bin/fm-automation-health-check.sh arm`; it never creates private registration artifacts in the repository.
 `bin/fm-automation-health-check.sh disarm` removes the shim, trust binding, and both dedupe records.
 The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required.
