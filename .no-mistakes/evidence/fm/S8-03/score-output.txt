@@ -1,0 +1,3 @@
+=== SCORE (always prints) ===
+system map: pass (0 findings)
+exit: 0

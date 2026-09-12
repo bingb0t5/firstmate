@@ -1,0 +1,2 @@
+=== CHECK second run same digest (should be silent) ===
+(empty stdout expected above)

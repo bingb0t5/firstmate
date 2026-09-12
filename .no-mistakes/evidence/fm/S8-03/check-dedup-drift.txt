@@ -1,0 +1,1 @@
+=== CHECK third run after drift (should print again) ===

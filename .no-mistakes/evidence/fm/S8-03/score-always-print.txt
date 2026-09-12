@@ -1,0 +1,6 @@
+=== score run 1 ===
+system map: pass (0 findings)
+exit:0
+=== score run 2 (still prints) ===
+system map: pass (0 findings)
+exit:0

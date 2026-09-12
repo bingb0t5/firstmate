@@ -1,0 +1,11 @@
+system map: fail (4 findings)
+exit:1
+---findings---
+{
+  "status": "fail",
+  "failed": true
+}
+"registry outcome daily-map is not healthy"
+"registry outcome daily-map is not successful"
+"X-05 found drifted n8n workflow exports"
+"X-05 found live n8n workflows without repository exports"

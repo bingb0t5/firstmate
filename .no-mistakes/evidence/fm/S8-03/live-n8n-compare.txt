@@ -1,0 +1,20 @@
+system map: fail (3 findings)
+exit:1
+{
+  "score": {
+    "status": "fail",
+    "failed": true
+  },
+  "live_n8n_workflows": {
+    "schema": "n8n.workflow.comparison.v1",
+    "committed_count": null,
+    "live_count": null,
+    "matching": 4,
+    "drifted": 16
+  },
+  "findings": [
+    "X-05 found drifted n8n workflow exports",
+    "X-05 found repository workflows missing from live n8n",
+    "X-05 found live n8n workflows without repository exports"
+  ]
+}

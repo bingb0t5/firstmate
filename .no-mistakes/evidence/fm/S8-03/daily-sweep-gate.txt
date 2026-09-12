@@ -1,0 +1,9 @@
+=== first check with interval=86400 ===
+system map: pass (0 findings)
+---
+=== second check within interval (expect silence, no rebuild) ===
+---
+record epoch:
+fm-system-map-v1
+1789188413
+e1ddee167ab7d16795bffe7ae6ac5f2de83d9a0008ba36e79fc399deb7e4544b

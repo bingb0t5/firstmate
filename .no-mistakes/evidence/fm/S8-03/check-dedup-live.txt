@@ -1,0 +1,7 @@
+=== check run 1 (expect notification) ===
+system map: pass (0 findings)
+---
+=== check run 2 same inputs (expect silence) ===
+---
+=== check run 3 after registry drift (expect fail notification) ===
+system map: fail (2 findings)

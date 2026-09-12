@@ -1,0 +1,44 @@
+{
+  "schema": "firstmate.system-map.v1",
+  "score": {
+    "status": "fail",
+    "failed": true
+  },
+  "changed_this_week": {
+    "source": "engineering-radar",
+    "root": "/tmp/fm-sm-dedup/radar",
+    "status": "available",
+    "report": "/tmp/fm-sm-dedup/radar/reports/weekly-2026-09-11.md",
+    "report_date": "2026-09-11",
+    "report_sha256": "7f4aea0311e7a842a8e5babfa4387a9804935db257667a09510106e8c041ec45",
+    "items": [
+      "Evidence manifests"
+    ],
+    "excerpt": "# Engineering Radar weekly report\n\n## Findings\n\n### Evidence manifests\nThe radar found a new evidence-manifest practice."
+  },
+  "sources": {
+    "declared_manifests": {
+      "status": "available",
+      "path": "/tmp/fm-sm-dedup/manifests.json",
+      "count": 1
+    },
+    "registry_outcomes": {
+      "status": "available",
+      "count": 1
+    },
+    "repo_exports": {
+      "status": "available",
+      "path": "/tmp/fm-sm-dedup/repo",
+      "count": 1
+    },
+    "host_inventory": {
+      "status": "available",
+      "path": "/tmp/fm-sm-dedup/hosts.json",
+      "count": 1
+    },
+    "live_n8n_workflows": {
+      "status": "available",
+      "count": 1
+    }
+  }
+}

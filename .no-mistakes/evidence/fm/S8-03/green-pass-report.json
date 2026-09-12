@@ -1,0 +1,38 @@
+{
+  "schema": "firstmate.system-map.v1",
+  "score": {
+    "status": "pass",
+    "failed": false
+  },
+  "changed_this_week": {
+    "status": null,
+    "report_date": null,
+    "items": null
+  },
+  "sources": {
+    "declared_manifests": {
+      "status": "available",
+      "path": "/tmp/fm-sm-green/manifests.json",
+      "count": 1
+    },
+    "registry_outcomes": {
+      "status": "available",
+      "count": 1
+    },
+    "repo_exports": {
+      "status": "available",
+      "path": "/tmp/fm-sm-green/repo",
+      "count": 1
+    },
+    "host_inventory": {
+      "status": "available",
+      "path": "/tmp/fm-sm-green/hosts.json",
+      "count": 1
+    },
+    "live_n8n_workflows": {
+      "status": "available",
+      "count": 1
+    }
+  },
+  "findings": []
+}
