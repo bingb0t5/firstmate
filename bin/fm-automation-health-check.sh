@@ -264,7 +264,8 @@ projection_line() {
       end;
     def value($a; $b): if ($a | type) == "number" then $a elif ($b | type) == "number" then $b else null end;
     rows[] |
-    (.id // .stream // .slug // .name // "") as $id |
+    (.id // .stream // .slug // .name // "") as $raw_id |
+    (if $raw_id != "" then $raw_id else "unknown" end) as $id |
     (value(.source_freshness_age_seconds; .source.freshness_age_seconds)) as $fresh |
     (value(.queue_age_seconds; .queue.age_seconds)) as $queue |
     (value(.last_success_age_seconds; .last_success.age_seconds)) as $last |
@@ -282,7 +283,8 @@ projection_line() {
           and ($receipt.type // "") == "automation.run.receipt.v1"
           and ($receipt.terminal // false) == true
           and (($receipt.status // "") == "success" or ($receipt.status // "") == "succeeded")
-        then "ok" else "missing" end)
+        then "ok" else "missing" end),
+      (if $raw_id != "" then "1" else "0" end)
     ] | @tsv
   ' "$1"
 }
@@ -291,9 +293,13 @@ format_rollup() {
   local body=$1 rows line id fresh queue last retries alerts receipt
   local overall=green report='automation health:'
   rows=$(projection_line "$body" 2>/dev/null) || return 1
-  [ -n "$rows" ] || return 1
-  while IFS=$'\t' read -r id fresh queue last retries alerts receipt; do
-    [ -n "$id" ] || continue
+  if [ -z "$rows" ]; then
+    report='green automation health:'
+    fm_cap_line_var "$report" "$MAX_LINE"
+    printf '%s\n' "$FM_LINE_CAP_LINE"
+    return 0
+  fi
+  while IFS=$'\t' read -r id fresh queue last retries alerts receipt id_valid; do
     id=$(printf '%s' "$id" | tr '\t\r\n' '   ')
     case "$id" in
       *[!A-Za-z0-9._:-]*) return 1 ;;
@@ -302,9 +308,9 @@ format_rollup() {
       "$id" "$(age_value "$fresh")" "$(age_value "$queue")" \
       "$(age_value "$last")" "$retries" "$alerts" "$receipt")
     report=$report$line
-    if [ "$fresh" = '?' ] || [ "$queue" = '?' ] || [ "$last" = '?' ] \
-      || [ "$retries" = '?' ] || [ "$alerts" = '?' ] || [ "$receipt" != ok ] \
-      || [ "$alerts" != 0 ]; then
+    if [ "$id_valid" != 1 ] || [ "$fresh" = '?' ] || [ "$queue" = '?' ] \
+      || [ "$last" = '?' ] || [ "$retries" = '?' ] || [ "$alerts" = '?' ] \
+      || [ "$receipt" != ok ] || [ "$alerts" != 0 ]; then
       overall=red
     fi
   done <<< "$rows"

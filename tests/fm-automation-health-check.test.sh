@@ -102,6 +102,36 @@ JSON
   pass "an execution count without a terminal receipt cannot be green"
 }
 
+test_empty_registry_is_green() {
+  local home out
+  make_home empty-registry
+  home=$MADE_HOME
+  printf '{"automations":[]}\n' > "$FM_REGISTRY_FIXTURE"
+  out="$home/out"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" 'green automation health:' \
+    "empty registry did not produce green rollup"
+  assert_not_contains "$(cat "$out")" 'unavailable' \
+    "empty registry was misreported as unavailable"
+  pass "reachable empty registry reports green with no streams"
+}
+
+test_missing_id_with_open_alerts_is_red() {
+  local home out
+  make_home missing-id
+  home=$MADE_HOME
+  cat > "$FM_REGISTRY_FIXTURE" <<'JSON'
+{"automations":[{"source_freshness_age_seconds":12,"queue_age_seconds":0,"last_success_age_seconds":45,"retry_count":0,"open_alerts":[{"msg":"fail"}]}]}
+JSON
+  out="$home/out"
+  run_check "$home" "$out"
+  assert_contains "$(cat "$out")" 'red' \
+    "projection without id and open alerts did not force red"
+  assert_contains "$(cat "$out")" 'unknown{fresh=12s queue=0s last=45s retries=0 alerts=1 receipt=missing}' \
+    "missing-id projection metrics were not included"
+  pass "projection without id cannot produce false green"
+}
+
 test_lifecycle_uses_registry_and_receipt_schema() {
   local home out
   make_home lifecycle
@@ -126,6 +156,8 @@ test_lifecycle_uses_registry_and_receipt_schema() {
 
 test_green_rollup_is_compact_and_receipt_backed
 test_missing_receipt_is_red
+test_empty_registry_is_green
+test_missing_id_with_open_alerts_is_red
 test_lifecycle_uses_registry_and_receipt_schema
 
 printf '# fm-automation-health-check.test.sh: all assertions passed\n'
