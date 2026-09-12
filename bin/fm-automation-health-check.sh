@@ -262,16 +262,15 @@ projection_line() {
       elif (.automations | type) == "array" then .automations
       else error("invalid registry shape")
       end;
-    def value($a; $b): if ($a | type) == "number" then $a elif ($b | type) == "number" then $b else null end;
     rows[] |
-    (.id // .stream // .slug // .name // "") as $raw_id |
+    (.id // "") as $raw_id |
     (if $raw_id != "" then $raw_id else "unknown" end) as $id |
-    (value(.source_freshness_age_seconds; .source.freshness_age_seconds)) as $fresh |
-    (value(.queue_age_seconds; .queue.age_seconds)) as $queue |
-    (value(.last_success_age_seconds; .last_success.age_seconds)) as $last |
-    (.retry_count // .retries // .last_run.retry_count) as $retries |
-    (.open_alerts // .alerts) as $alerts |
-    (.last_terminal_receipt // .last_receipt // .last_run.receipt) as $receipt |
+    .source_freshness_age_seconds as $fresh |
+    .queue_age_seconds as $queue |
+    .last_success_age_seconds as $last |
+    .retry_count as $retries |
+    .open_alerts as $alerts |
+    .last_terminal_receipt as $receipt |
     [
       $id,
       (if ($fresh | type) == "number" then (($fresh|floor)|tostring) else "?" end),
@@ -367,7 +366,7 @@ action_lifecycle() {
   cleanup_request
   case "$action" in
     start)
-      returned=$(jq -r '.run_id // .run.id // .id // empty' <<< "$response")
+      returned=$(jq -r '.run_id // empty' <<< "$response")
       run_id_valid "$returned" || {
         printf 'automation start returned no run id\n' >&2
         return 1
