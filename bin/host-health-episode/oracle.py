@@ -24,7 +24,6 @@ RETRY_SECONDS = 15 * 60
 REMINDER_SECONDS = 6 * 60 * 60
 MATERIAL_CONFIRMATIONS = 2
 RECOVERY_CONFIRMATIONS = 2
-MAX_JSON_NESTING = 512
 
 CONDITIONS = (
     "load",
@@ -1139,44 +1138,16 @@ def _unique_json_object(pairs: list[tuple[Any, Any]]) -> dict[str, Any]:
     return obj
 
 
-def _json_nesting_within_limit(text: str) -> bool:
-    """Return whether JSON containers outside strings stay within the limit."""
-    depth = 0
-    in_string = False
-    escaped = False
-    for character in text:
-        if in_string:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                in_string = False
-            continue
-        if character == '"':
-            in_string = True
-        elif character in "[{":
-            depth += 1
-            if depth > MAX_JSON_NESTING:
-                return False
-        elif character in "]}":
-            depth -= 1
-    return True
-
-
 def parse_strict_json(text: str) -> Any:
     """Parse JSON text, converting parser failures and duplicate keys to ModelError.
 
     Oversized integer strings, decoder-depth/recursion failure, Unicode errors,
     OverflowError, and any other parser exception are damaged input: the strict
     parser reports ModelError, and the total loader maps that to UNCERTAIN.
-    JSON containers beyond MAX_JSON_NESTING are damaged input before decoding, so the verdict does not depend on the interpreter recursion limit.
     Duplicate object member names are refused at every nesting level.
     """
     if type(text) is not str:
         raise ModelError("JSON must be text")
-    if not _json_nesting_within_limit(text):
-        raise ModelError("JSON nesting exceeds limit")
     try:
         return json.loads(text, object_pairs_hook=_unique_json_object)
     except ModelError:

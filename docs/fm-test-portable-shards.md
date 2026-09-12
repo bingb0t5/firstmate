@@ -62,7 +62,8 @@ Each shard is still strictly serial in itself, and separate runners mean no two 
 Lint, coverage, invariants, and the two portable-parallel shards stay on the GitHub-hosted runner.
 The four portable-serial shards and the required real-Herdr lane run only on the nightly schedule or a manual dispatch, after the GitHub-hosted availability gate confirms an idle `[self-hosted, linux, lalo-dev]` runner.
 An unavailable runner produces the required non-green `Lalo-dev availability - SKIPPED` result instead of leaving heavyweight jobs queued indefinitely.
-When a scheduled heavyweight suite fails, the Lalo-dev runner records one durable Firstmate inbox event with the commit, suite set, and GitHub Actions run URL.
+A hosted lane watchdog permits ordinary waiting behind an online busy runner but cancels a lane whose matching runner is lost or whose heavy jobs exceed the bounded queue wait.
+Each failed heavy lane records a durable GitHub Actions report with the commit, suite set, and GitHub Actions run URL.
 
 `bin/fm-test-run.sh` owns `n` and refuses any lane whose `of<n>` disagrees with it.
 `.github/workflows/ci.yml` derives the same `n` from `strategy.job-total` rather than a literal, so changing the shard count in either file without the other fails the lane loudly instead of leaving part of the required suite unrun.

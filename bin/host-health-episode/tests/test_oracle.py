@@ -533,8 +533,8 @@ class MigrationCase(unittest.TestCase):
             json.dumps(valid_baseline(active=False), separators=(",", ":")).replace(
                 '"load":0', f'"load":{oversized}', 1
             ),
-            "[" * 1_000 + "]" * 1_000,
-            '{"a":' * 1_000 + "1" + "}" * 1_000,
+            "[" * 10_000 + "]" * 10_000,
+            '{"a":' * 10_000 + "1" + "}" * 10_000,
         )
         for index, text in enumerate(fixtures):
             with self.subTest(fixture=index):
