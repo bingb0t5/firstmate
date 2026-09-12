@@ -121,6 +121,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-tool-update-check.sh` | Report watched tooling with an update available, and updates installed but left inert by PATH order |
 | `fm-secret-parity-check.sh` | Compare the approved Render, Coolify, and n8n secret-presence and provider-value policy, or run the release preflight ([deployment-secret-parity.md](deployment-secret-parity.md)) |
 | `fm-automation-health-check.sh` | Roll up registry stream health, print canonical `automation.registry.v1` rows, and alert stale heartbeats ([automation-health.md](automation-health.md)) |
+| `fm-system-map.sh`         | Build the declared, registry, repository, host, live n8n, and Engineering Radar drift map, or fail the daily score ([system-map.md](system-map.md)) |
 | `fm-pr-conflict-watch.sh` | Report newly conflicted open pull requests across the fleet's repositories, routed to their owning target |
 | `fm-pr-lib.sh`           | Own canonical task and PR validation plus private atomic PR-poll publication, merge-notification identity, and retirement |
 | `fm-pr-poll.sh`          | Provide the byte-static watcher program for validated PR/MR-poll sidecars           |
