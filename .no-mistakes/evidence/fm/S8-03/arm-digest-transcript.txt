@@ -1,0 +1,12 @@
+=== Digest change triggers notification ===
+system map: pass (0 findings)
+
+=== Arm/disarm ===
+armed: state/system-map.check.sh
+shim exists and executable
+trust binding exists
+disarmed: state/system-map.check.sh
+shim removed
+=== Digest change after daily interval ===
+system map: pass (0 findings)
+system map: fail (2 findings)

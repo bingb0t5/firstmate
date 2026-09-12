@@ -1,0 +1,3 @@
+ok - system map combines declarations, registry, host, export, live, and radar evidence
+ok - daily score fails on registry and live n8n drift
+# fm-system-map.test.sh: all assertions passed

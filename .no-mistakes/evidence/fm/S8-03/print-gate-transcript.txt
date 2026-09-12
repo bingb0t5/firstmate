@@ -1,0 +1,14 @@
+=== Print gate: first check (new digest) ===
+system map: pass (0 findings)
+
+=== Print gate: second check (stable digest, same NOW) ===
+(second check stdout bytes: 0)
+
+=== Print gate: INTERVAL=0 stable digest (adversarial) ===
+(INTERVAL=0 stable digest stdout bytes: 0)
+
+=== Score always prints (third time) ===
+system map: pass (0 findings)
+
+=== Daily sweep skip (NOW + 1h within 86400) ===
+(within-interval stdout bytes: 0)

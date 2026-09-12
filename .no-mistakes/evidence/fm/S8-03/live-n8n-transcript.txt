@@ -1,0 +1,15 @@
+=== Live n8n comparison (no fixture) ===
+exit=1
+system map: fail (3 findings)
+
+=== Credential scan of stdout ===
+PASS: no credential patterns in stdout
+{
+  "schema": "n8n.workflow.comparison.v1",
+  "committed_count": 29,
+  "live_count": 38,
+  "matching": 4,
+  "drifted": 16
+}
+2
+3

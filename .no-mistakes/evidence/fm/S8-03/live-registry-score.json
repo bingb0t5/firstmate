@@ -1,0 +1,232 @@
+{
+  "schema": "firstmate.system-map.v1",
+  "generated_at": "2026-09-12T05:17:02Z",
+  "score": {
+    "status": "fail",
+    "failed": true
+  },
+  "sources": {
+    "declared_manifests": {
+      "status": "available",
+      "path": "/tmp/fm-system-map-live6.0bZvCL/config/system-map-manifests.json",
+      "count": 1
+    },
+    "registry_outcomes": {
+      "status": "empty",
+      "count": 0
+    },
+    "repo_exports": {
+      "status": "available",
+      "path": "/home/rich/firstmate/projects/mrbeanz-brains",
+      "count": 29
+    },
+    "host_inventory": {
+      "status": "available",
+      "path": "/tmp/fm-system-map-live6.0bZvCL/config/host-inventory.json",
+      "count": 1
+    },
+    "live_n8n_workflows": {
+      "status": "available",
+      "count": 38
+    }
+  },
+  "declared_manifests": [
+    {
+      "id": "beanz-source-monitor",
+      "version": "1",
+      "owner": "n8n",
+      "cadence": "daily",
+      "host_id": "lalo-dev"
+    }
+  ],
+  "registry_outcomes": [],
+  "host_inventory": [
+    {
+      "id": "lalo-dev",
+      "status": "healthy",
+      "reachable": true
+    }
+  ],
+  "repo_exports": {
+    "path": "/home/rich/firstmate/projects/mrbeanz-brains",
+    "count": 29,
+    "committed_count": 29
+  },
+  "live_n8n_workflows": {
+    "schema": "n8n.workflow.comparison.v1",
+    "generated_at": "2026-09-12T05:17:02.180Z",
+    "committed_count": 29,
+    "live_count": 38,
+    "matching": [
+      "beanz-source-monitor",
+      "fm-board-mirror",
+      "team-inbox-intake",
+      "team-inbox-reply-draft"
+    ],
+    "drifted": [
+      {
+        "name": "beanz-append-doc",
+        "committed_sha256": "2428d07837cfd64164dac478be9a8f1585019db4c35f94f1b0f8fe15e5f10748",
+        "live_sha256": "64c7c16c6f4b10bfb9de55b3576514239280fe0988368f0d8d4ba01134c664bc"
+      },
+      {
+        "name": "beanz-create-task",
+        "committed_sha256": "9ba4a42c1f21a9ae4bec0156432deb7ace32091c4779b40ffbc75cddb26aaf64",
+        "live_sha256": "2fc8361ce520cf0028529b2d902600975ccf83f6a42f9025d94294e166e5a0a0"
+      },
+      {
+        "name": "beanz-task-status",
+        "committed_sha256": "6e7c5a7bae5628454ac8f587a8a3ef5f020f302e432f8964f2c9fcd271efacb8",
+        "live_sha256": "6c37c877a4b806269567ccda9b78f53ee13e64523739e5427a4d8fc77a1561d9"
+      },
+      {
+        "name": "biz-ops-drive-list",
+        "committed_sha256": "b9be4ea34e4f48422cf7a5a56e5b786a3b0ec03ee8c413f3940c46b7f9e8651b",
+        "live_sha256": "8fe0217815adaa22a4a21b150f19921586a2fb48157ec637078693bd3ab1ce26"
+      },
+      {
+        "name": "biz-ops-drive-read",
+        "committed_sha256": "ce4d156ef66e4216b504e85a58d2d65e93c4cc87a522884135314ca43b43ddff",
+        "live_sha256": "6d15a68546d56b7c591005b6f72e8c860a08615d2c70ea47065c27e5fe9dc5f7"
+      },
+      {
+        "name": "biz-ops-drive-search",
+        "committed_sha256": "879caf365f27174c98bfa2b65ccc28e9e7eec541173631730e6d71022a136372",
+        "live_sha256": "b2cac6a527ce54e2ef03c12e5289ddb92bcc928f0b1e890365d9f74096adc70b"
+      },
+      {
+        "name": "coo-beanbot-fb-sweep",
+        "committed_sha256": "6eac0bec10504e52aea2278beb7c6868b409ac64ba8e166a6df1da3f0e65ed30",
+        "live_sha256": "5a455d16ac68911578bb3f721e5f97eea835ac99d13c23030f25921d1c1c8e62"
+      },
+      {
+        "name": "coo-beanbot-job-run-pattern",
+        "committed_sha256": "c14fdc77c1704c4f462b80ba79d354ee42554537104d9e98668cba42c3eb729f",
+        "live_sha256": "b81b45dc5323249bc565257a0aa082ebd72e2cb118d687a1aa17ed96d94960fa"
+      },
+      {
+        "name": "coo-beanbot-job-status-receiver",
+        "committed_sha256": "e3a825d35414aba0aa4c9ef81034a9001ec1a4f7b093a2e51535177533806261",
+        "live_sha256": "ce84f34f489c63c8cf04fb52ca090b5c4681712bf5c2a744e3e86ebe762c65a4"
+      },
+      {
+        "name": "coo-beanbot-wa-sweep",
+        "committed_sha256": "d4f762d786241211e8e9a8b3501e185f6001a4b405d19775701e25641cc2b9ac",
+        "live_sha256": "5f10e70b93937a1ff852aab8bccd8f0fb13ff152969966589c88d53bcb10bc18"
+      },
+      {
+        "name": "coo-beanbot-warden",
+        "committed_sha256": "1468488203e6eff2834ba5da6308e03b9c7c5a9ef25e22c1183d2a310efddb78",
+        "live_sha256": "c3b338c6ec9764d1bc9bf77f184519b5b62f454757b9d1d79e8bc1bd399d9fca"
+      },
+      {
+        "name": "coo-whats-on-editor-poll",
+        "committed_sha256": "67f99a68ebd85c0150bfc86cfa366e175d9d1db74ad4aaa093ca63d791261973",
+        "live_sha256": "1963e9ca0133aaafea93128e047dda6c28a88c825a4fba8fa70dd12325b4d358"
+      },
+      {
+        "name": "coo-whats-on-editor-verdict-receiver",
+        "committed_sha256": "e8ac8f32677867b1cb6f4d9a9a694a2bd8dcc1edc5b2f35b6218d8c34b56be45",
+        "live_sha256": "c7ee59834e06e583a8ce3069f407d5571e29e8e1234d93c5296e6bc32c4a5fc2"
+      },
+      {
+        "name": "fm-board-captain-events",
+        "committed_sha256": "2754b7f819b88234e8b32d1bf0337492c0af949fd42d0966ed93eda13771cddd",
+        "live_sha256": "7e4f62d5b6a1b660f206be35ef3422bef5acb79fdeeca5db62ccad5284fbe8e7"
+      },
+      {
+        "name": "fm-board-replies",
+        "committed_sha256": "ff4ea4cdff51c6fd04bcaba88300580ebefa868b47a1f61b211ee616a353ca28",
+        "live_sha256": "f9d143041f489e7df6597cc9f5886addbe7b52f52fa76307342ba64110da0dc8"
+      },
+      {
+        "name": "viet-law weekly legal digest",
+        "committed_sha256": "d0105cae8f2c1d63d8dca94503fc53368b7bb39ba320082b21c7eccaaf7c8a40",
+        "live_sha256": "10cee0e53aeb4eb8d89fcd7f5fda83ef7a4cd6c2d63099bff0bf908332d356e3"
+      }
+    ],
+    "missing_live": [
+      "admin attention daily digest",
+      "beanz-document-status",
+      "beanz-replace-doc",
+      "coo-grok-bot-webhook-proof",
+      "coo-job-run-dummy",
+      "coo-job-run-pattern",
+      "coo-job-run-stub",
+      "fm-week1-error-routing",
+      "fm-week1-repository-orchestration"
+    ],
+    "extra_live": [
+      "FIELD-OPS-TEST-field-ops-01-morning-routes",
+      "FIELD-OPS-TEST-field-ops-02-submission-review",
+      "FIELD-OPS-TEST-field-ops-03-translation",
+      "FIELD-OPS-TEST-field-ops-04-channel-dispatch",
+      "FIELD-OPS-TEST-field-ops-05-telegram-inbound",
+      "FIELD-OPS-TEST-field-ops-06-evening-digest",
+      "FIELD-OPS-TEST-field-ops-07-watchdog",
+      "FIELD-OPS-TEST-field-ops-99-error-handler",
+      "My workflow",
+      "My workflow 2",
+      "biz-ops-drive-create-doc-temp-20260906",
+      "biz-ops-drive-replace-doc-temp-20260906",
+      "coo-beanbot-warden-verdict-receiver",
+      "fm-fleet-heartbeat",
+      "team-inbox-intake-cautim",
+      "team-inbox-reply-draft-cautim",
+      "temp-jd-revisions-probe",
+      "viet-law-researcher-verdict-receiver"
+    ],
+    "credential_values_checked": false
+  },
+  "changed_this_week": {
+    "source": "engineering-radar",
+    "root": "/tmp/fm-system-map-live6.0bZvCL/radar",
+    "status": "available",
+    "report": "/tmp/fm-system-map-live6.0bZvCL/radar/reports/weekly-2026-09-11.md",
+    "report_date": "2026-09-11",
+    "report_sha256": "1270da3f37bdd67f7de74b025e53c1f7f0f512c37a4740f5616dcf33708565d0",
+    "items": [
+      "Live n8n validation",
+      "Drift detection"
+    ],
+    "excerpt": "# Engineering Radar weekly report\n\n## Findings\n\n### Live n8n validation\nSystem map now compares live n8n workflows.\n\n### Drift detection\nRegistry and export alignment enforced daily."
+  },
+  "findings": [
+    {
+      "id": "registry.unavailable",
+      "source": "registry",
+      "severity": "error",
+      "message": "automation registry settings are unavailable"
+    },
+    {
+      "id": "registry.empty",
+      "source": "registry",
+      "severity": "error",
+      "message": "automation registry has no outcomes"
+    },
+    {
+      "id": "registry.missing.beanz-source-monitor",
+      "source": "registry",
+      "severity": "error",
+      "message": "declared manifest beanz-source-monitor has no registry outcome"
+    },
+    {
+      "id": "exports.drift",
+      "source": "exports",
+      "severity": "error",
+      "message": "X-05 found drifted n8n workflow exports"
+    },
+    {
+      "id": "live-n8n.missing",
+      "source": "live-n8n",
+      "severity": "error",
+      "message": "X-05 found repository workflows missing from live n8n"
+    },
+    {
+      "id": "live-n8n.extra",
+      "source": "live-n8n",
+      "severity": "error",
+      "message": "X-05 found live n8n workflows without repository exports"
+    }
+  ]
+}

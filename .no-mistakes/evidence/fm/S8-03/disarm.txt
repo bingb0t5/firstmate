@@ -1,0 +1,1 @@
+disarmed: state/system-map.check.sh
