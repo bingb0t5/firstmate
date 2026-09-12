@@ -651,7 +651,7 @@ due_for_sweep() {
 }
 
 action_check() {
-  local digest status finding_count now
+  local digest status finding_count
   if [ "$ACTION" != score ] && ! due_for_sweep; then
     return 0
   fi
@@ -663,12 +663,10 @@ action_check() {
     write_markdown "$OUTPUT_MARKDOWN" "$TMP_ROOT/report.json" || return 1
   fi
   record_read
-  now=$(date +%s)
   if [ "$ACTION" = score ] ||
     [ "$INTERVAL" -eq 0 ] ||
     [ "$RECORD_DIGEST" != "$digest" ] ||
-    [ "$RECORD_EPOCH" -eq 0 ] ||
-    [ "$now" -lt "$RECORD_EPOCH" ]; then
+    [ "$RECORD_EPOCH" -eq 0 ]; then
     printf 'system map: %s (%s findings)\n' "$status" "$finding_count"
   fi
   record_write "$digest" || true
