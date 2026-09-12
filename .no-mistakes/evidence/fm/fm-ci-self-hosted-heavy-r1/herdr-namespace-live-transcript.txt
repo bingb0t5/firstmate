@@ -1,0 +1,15 @@
+LIVE_HERDR_NAMESPACE_VALIDATION
+current_uid=1001
+legacy_namespace=/tmp/firstmate-herdr-presentation owner_mode=1001:700
+current_namespace=/tmp/firstmate-herdr-presentation-1001 owner_mode=1001:700
+current_public_lock=/tmp/firstmate-herdr-presentation-1001/order-6890c99140dcbf362aa4d62cd2ee7031.lock
+ASSERT current_uid_selected_namespace=pass
+nobody_uid=65534
+nobody_public_lock=/tmp/firstmate-herdr-presentation-65534/order-76b2ff07dda75de240e7a4e8b657d3a5.lock
+nobody_namespace_owner_mode=65534:700
+ASSERT distinct_user_namespace=pass
+ASSERT legacy_foreign_nonblocking=pass legacy_owner=1001 selected_owner=65534
+ASSERT symlink_selected_namespace_rejected=pass
+ASSERT nondirectory_selected_namespace_rejected=pass
+ASSERT foreign_owned_selected_namespace_rejected=pass owner=1001
+RESULT=PASS

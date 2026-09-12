@@ -1,0 +1,6 @@
+live_lab_session={"name":"fm-lab-nm-namespace-798146-28496","default":false,"running":true,"socket_path":"/home/rich/.config/herdr/sessions/fm-lab-nm-namespace-798146-28496/herdr.sock"}
+effective_uid=1001
+namespace=/tmp/firstmate-herdr-presentation-1001
+lock_path=/tmp/firstmate-herdr-presentation-1001/order-0b0a2d2936ae4d7f482568c06b8539e9.lock
+namespace_mode=700 namespace_uid=1001 namespace_type=directory
+result=PASS real named Herdr lab resolved and accepted the effective-UID namespace

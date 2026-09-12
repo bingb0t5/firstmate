@@ -1,0 +1,8 @@
+CI_RUNNER_ROUTING_SEMANTIC_CHECK
+serial_runner=self-hosted,linux,firstmate shards=1,2,3,4 node=22
+herdr_runner=self-hosted,linux,firstmate
+parallel_runners=ubuntu-latest,ubuntu-latest
+serial_and_herdr_conditions_match_base_for_pr_draft_ready_and_push_contexts
+macos_stock_bash=workflow_dispatch_only
+actionlint_self_hosted_label=firstmate
+RESULT=PASS
