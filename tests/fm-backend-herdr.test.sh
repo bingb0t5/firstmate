@@ -2507,42 +2507,75 @@ SH
   pass "herdr presentation ordering: missing owning parent is warning-only and read-only"
 }
 
-test_presentation_lock_namespace_is_per_user_and_rejects_unsafe_paths() {
-  local dir fb path_a path_b legacy owned symlink actual_uid foreign_uid
-  dir="$TMP_ROOT/presentation-lock-namespace"; mkdir -p "$dir"
-  fb=$(make_herdr_fakebin "$dir")
-  cat > "$fb/id" <<'SH'
+test_presentation_session_lock_isolates_real_users_in_the_lab() {
+  local dir fb adapter_root adapter session socket root_path nobody_path root_dir nobody_dir legacy out
+  dir="$TMP_ROOT/presentation-lock-public-boundary"; mkdir -p "$dir/fakebin" "$dir/adapter-root/bin/backends"
+  fb="$dir/fakebin"
+  adapter_root="$dir/adapter-root"
+  adapter="$adapter_root/bin/backends/herdr.sh"
+  cp "$ROOT/bin/backends/herdr.sh" "$adapter"
+  cp "$ROOT/bin/fm-composer-lib.sh" "$adapter_root/bin/fm-composer-lib.sh"
+  cp "$ROOT/bin/fm-transition-lib.sh" "$adapter_root/bin/fm-transition-lib.sh"
+  session=$("$ROOT/bin/fm-herdr-lab.sh" name presentation-lock-public-boundary) \
+    || fail "could not generate the Herdr lab session name"
+  socket="$dir/$session.sock"
+  cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' "${FM_FAKE_UID:?}"
+printf '{"sessions":[{"name":"%s","running":true,"socket_path":"%s"}]}\n' \
+  "$FM_HERDR_LAB_SESSION" "$FM_HERDR_LAB_SOCKET"
 SH
-  chmod +x "$fb/id"
-  path_a=$(PATH="$fb:$PATH" FM_FAKE_UID=1000 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace' "$ROOT") \
-    || fail "UID 1000 namespace resolution failed"
-  path_b=$(PATH="$fb:$PATH" FM_FAKE_UID=999 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace' "$ROOT") \
-    || fail "UID 999 namespace resolution failed"
-  [ "$path_a" != "$path_b" ] || fail "different UIDs must not share a presentation namespace"
-  legacy=/tmp/firstmate-herdr-presentation
-  case "$path_b" in
-    "$legacy"|"$legacy"/*) fail "UID 999 reused the legacy namespace: $path_b" ;;
+  chmod 755 "$fb/herdr"
+  chmod 711 "$TMP_ROOT"
+  chmod 1733 "$dir"
+  chmod 755 "$fb" "$adapter_root" "$adapter_root/bin" "$adapter_root/bin/backends"
+  chmod 644 "$adapter" "$adapter_root/bin/fm-composer-lib.sh" "$adapter_root/bin/fm-transition-lib.sh"
+  nobody_lock_path() {
+    sudo -n -u nobody env PATH="$fb:$PATH" \
+      FM_BACKEND_HERDR_LAB_LOCK_ROOT="$dir" FM_HERDR_LAB_SESSION="$session" \
+      FM_HERDR_LAB_SOCKET="$socket" bash -c \
+      '. "$0"; fm_backend_herdr_presentation_session_lock_path "$1"' \
+      "$adapter" "$session"
+  }
+  root_path=$(PATH="$fb:$PATH" FM_BACKEND_HERDR_LAB_LOCK_ROOT="$dir" \
+    FM_HERDR_LAB_SESSION="$session" FM_HERDR_LAB_SOCKET="$socket" \
+    bash -c '. "$0"; fm_backend_herdr_presentation_session_lock_path "$1"' \
+    "$adapter" "$session") || fail "current user could not resolve the lab session lock"
+  root_dir=${root_path%/order-*}
+  legacy="$dir/firstmate-herdr-presentation"
+  mkdir -m 700 "$legacy" || fail "could not create the foreign legacy lab namespace"
+  nobody_path=$(nobody_lock_path) \
+    || fail "nobody could not resolve its lab session lock beside a foreign legacy namespace"
+  nobody_dir=${nobody_path%/order-*}
+  [ "$root_path" != "$nobody_path" ] || fail "two effective users shared one presentation lock path"
+  [ "$(stat -c '%u:%a' "$root_dir")" = "$(id -u):700" ] \
+    || fail "current user's lab namespace lost its private ownership or mode"
+  [ "$(stat -c '%u:%a' "$nobody_dir")" = '65534:700' ] \
+    || fail "nobody's lab namespace lost its private ownership or mode"
+  case "$root_path$nobody_path" in
+    *"/tmp/firstmate-herdr-presentation-"*) fail "the public lab path escaped into the real namespace" ;;
   esac
-
-  owned="$dir/owned"; mkdir -m 700 "$owned"
-  actual_uid=$(id -u)
-  foreign_uid=$((actual_uid + 1))
-  if PATH="$fb:$PATH" FM_FAKE_UID="$foreign_uid" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace_valid "$1"' \
-    "$ROOT" "$owned"; then
-    fail "a namespace owned by another UID must be rejected"
+  rm -rf "$nobody_dir"
+  mkdir -m 700 "$nobody_dir"
+  if nobody_lock_path; then
+    fail "a selected foreign-owned lab namespace was accepted"
   fi
-  symlink="$dir/symlink"; ln -s "$owned" "$symlink"
-  if PATH="$fb:$PATH" FM_FAKE_UID="$actual_uid" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_lock_namespace_valid "$1"' \
-    "$ROOT" "$symlink"; then
-    fail "a symlink selected as the namespace must be rejected"
+  rm -rf "$root_dir"
+  ln -s "$legacy" "$root_dir"
+  if out=$(PATH="$fb:$PATH" FM_BACKEND_HERDR_LAB_LOCK_ROOT="$dir" \
+    FM_HERDR_LAB_SESSION="$session" FM_HERDR_LAB_SOCKET="$socket" \
+    bash -c '. "$0"; fm_backend_herdr_presentation_session_lock_path "$1"' \
+    "$adapter" "$session"); then
+    fail "a selected symlink namespace was accepted: $out"
   fi
-  pass "herdr presentation lock namespace: per-user paths isolate legacy ownership and retain safety checks"
+  rm -f "$root_dir"
+  : > "$root_dir"
+  if out=$(PATH="$fb:$PATH" FM_BACKEND_HERDR_LAB_LOCK_ROOT="$dir" \
+    FM_HERDR_LAB_SESSION="$session" FM_HERDR_LAB_SOCKET="$socket" \
+    bash -c '. "$0"; fm_backend_herdr_presentation_session_lock_path "$1"' \
+    "$adapter" "$session"); then
+    fail "a selected non-directory namespace was accepted: $out"
+  fi
+  pass "herdr presentation lock: lab session isolates real users and rejects foreign or unsafe namespaces"
 }
 
 test_presentation_session_lock_path_is_shared_across_homes() {
@@ -4576,7 +4609,7 @@ test_projection_order_ambiguous_existing_block_is_read_only
 test_projection_order_anchors_the_parent_by_exact_id
 test_projection_order_foreign_new_child_before_parent_is_read_only
 test_projection_order_missing_parent_is_read_only
-test_presentation_lock_namespace_is_per_user_and_rejects_unsafe_paths
+test_presentation_session_lock_isolates_real_users_in_the_lab
 test_presentation_session_lock_path_is_shared_across_homes
 test_presentation_session_lock_path_rejects_malformed_socket
 test_projection_order_rejects_malformed_socket
