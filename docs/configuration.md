@@ -569,7 +569,7 @@ The armed check runs whenever that home has a watcher running, and arming alone 
 
 The armed check prints nothing when the digest is unchanged from the last report.
 `score` always prints its result and exits nonzero when drift exists.
-`state/.system-map` records the last digest so an unchanged map is reported once instead of on every poll; a changed digest is reported again.
+`state/.system-map` records the last digest so a stable map stays silent on subsequent polls; a changed digest is reported again.
 
 Registry URL and bearer token resolve the same way as the automation health rollup; credential values are never printed.
 The map reuses the X-05 n8n comparison and does not schedule or execute an automation.

@@ -54,7 +54,7 @@ A missing or older-than-eight-day weekly report fails the daily score instead of
 
 ## Commands
 
-Build the map and print a notification line only when the result changes.
+For `check`, build the map and print a notification line only when the result changes.
 
 ```sh
 FM_HOME=/path/to/firstmate-home bin/fm-system-map.sh check \
@@ -62,7 +62,7 @@ FM_HOME=/path/to/firstmate-home bin/fm-system-map.sh check \
   --output-markdown /path/to/report/system-map.md
 ```
 
-Print the daily score and return nonzero when any source disagrees.
+Print the daily score on every run and return nonzero when any source disagrees.
 
 ```sh
 FM_HOME=/path/to/firstmate-home bin/fm-system-map.sh score
@@ -78,4 +78,4 @@ Watcher arming, polling, deduplication, and interval settings are documented in 
 
 The JSON report has schema `firstmate.system-map.v1`.
 
-Its `score.status` is `pass` only when all five evidence sources are present and no cross-source finding exists.
+Its `score.status` is `pass` only when all five `sources` entries are available, Engineering Radar supplies a current weekly report, and no finding is recorded.
