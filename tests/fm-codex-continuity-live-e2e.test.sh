@@ -21,6 +21,7 @@ LAB="$ROOT/.codex-live-e2e.$$"
 PROJECT="$LAB/project"
 HOME_DIR="$LAB/fmhome"
 TRANSCRIPT="$LAB/codex.jsonl"
+RESULT="$LAB/harness-depth.result"
 CODEX_VERSION=$(codex --version)
 
 cleanup() {
@@ -62,6 +63,8 @@ fi
 detected=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT_OVERRIDE" \
   "$FM_ROOT_OVERRIDE/bin/fm-harness.sh")
 printf 'CODEX_ANCESTRY_DEPTH=%s\nCODEX_ANCESTRY_RESULT=%s\n' "$codex_depth" "$detected"
+printf 'CODEX_ANCESTRY_DEPTH=%s\nCODEX_ANCESTRY_RESULT=%s\n' "$codex_depth" "$detected" \
+  > "$FM_CODEX_LIVE_RESULT"
 SH
 # shellcheck disable=SC2016 # Backticks are literal prompt markup.
 PROMPT='Run exactly `bash .codex-live-e2e/harness-depth.sh 6` as one foreground shell call. Then run exactly `bin/fm-watch-checkpoint.sh --seconds 1` as a separate foreground shell call. Do not use a background task and do not run fm-watch-arm.sh. After both return, reply briefly.'
@@ -69,7 +72,7 @@ PROMPT='Run exactly `bash .codex-live-e2e/harness-depth.sh 6` as one foreground 
 (
   cd "$PROJECT" || exit 1
   printf '%s\n' "$$" > "$HOME_DIR/state/.lock"
-  FM_HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$PROJECT" codex exec \
+  FM_HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$PROJECT" FM_CODEX_LIVE_RESULT="$RESULT" codex exec \
     --dangerously-bypass-hook-trust \
     --dangerously-bypass-approvals-and-sandbox \
     --skip-git-repo-check \
@@ -80,9 +83,9 @@ PROMPT='Run exactly `bash .codex-live-e2e/harness-depth.sh 6` as one foreground 
 
 grep -F 'checkpoint: no actionable wake within 1s' "$TRANSCRIPT" >/dev/null \
   || { printf '# Codex transcript tail:\n' >&2; tail -20 "$TRANSCRIPT" >&2; fail "Codex $CODEX_VERSION transcript omitted the real foreground checkpoint result"; }
-grep -F 'CODEX_ANCESTRY_RESULT=codex' "$TRANSCRIPT" >/dev/null \
-  || { printf '# Codex transcript tail:\n' >&2; tail -20 "$TRANSCRIPT" >&2; fail "Codex $CODEX_VERSION did not detect itself through the wrapped public detector call"; }
-depth=$(grep -oE 'CODEX_ANCESTRY_DEPTH=[0-9]+' "$TRANSCRIPT" | tail -1 | cut -d= -f2)
+grep -Fx 'CODEX_ANCESTRY_RESULT=codex' "$RESULT" >/dev/null \
+  || fail "Codex $CODEX_VERSION did not detect itself through the wrapped public detector call"
+depth=$(sed -n 's/^CODEX_ANCESTRY_DEPTH=\([0-9][0-9]*\)$/\1/p' "$RESULT")
 [ -n "$depth" ] && [ "$depth" -ge 8 ] && [ "$depth" -le 15 ] \
   || { printf '# Codex transcript tail:\n' >&2; tail -20 "$TRANSCRIPT" >&2; fail "Codex $CODEX_VERSION live process depth did not exercise the detector's old miss: ${depth:-missing}"; }
 if grep -F 'watcher: started pid=' "$TRANSCRIPT" >/dev/null; then
