@@ -32,10 +32,12 @@
 #              the backend's recovery-grade classifier reports the agent gone.
 #              Already-stopped is success (idempotent), including an
 #              authoritatively missing endpoint.
-#   relaunch   Transactionally replace the running agent with a new one, in the
-#              SAME endpoint and SAME worktree, on the same or a newly chosen
-#              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. With no explicit axis, a secondmate re-resolves its
+#   relaunch   Transactionally replace the running agent with a new one in the
+#              same worktree, adopting the recorded endpoint when it still
+#              exists or recreating it when authoritatively missing, on the
+#              same or a newly chosen harness/model/effort - so switching
+#              harness is one ordinary use of this verb.
+#              With no explicit axis, a secondmate re-resolves its
 #              durable config/secondmate-harness pin (harness plus its optional
 #              model and effort tokens) exactly as any other respawn does, while
 #              a ship or scout keeps the exact adapter already recorded for it.

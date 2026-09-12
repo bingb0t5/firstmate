@@ -30,10 +30,15 @@
 #   model, and effort may change, which is what makes a harness switch one
 #   ordinary relaunch. A recovery-grade backend's authoritatively missing
 #   endpoint is agent-free after the recorded worktree passes the isolation
-#   proof, so fm-spawn recreates that endpoint before launching. Otherwise it
-#   requires a positively agent-free endpoint whose shell is sitting in the
-#   recorded worktree, and clears the previous harness's per-task wiring before
-#   arming the new incarnation.
+#   proof, so fm-spawn recreates that endpoint before launching. On Herdr, a
+#   still-present workspace gets a new task tab; a workspace confirmed absent
+#   from the session is replaced through the normal home container-ensure path,
+#   with fresh herdr_* metadata and a status fallback line (docs/herdr-backend.md
+#   "Relaunch with a missing workspace"). Ambiguous workspace inspection refuses.
+#   When the endpoint is not authoritatively missing, relaunch requires a
+#   positively agent-free endpoint whose shell is sitting in the recorded
+#   worktree, and clears the previous harness's per-task wiring before arming
+#   the new incarnation.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
@@ -1064,7 +1069,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fm_backend_validate_spawn "$BACKEND" || exit 1
   fm_backend_source "$BACKEND" || exit 1
   # A relaunch must PROVE the previous agent is gone before it launches another
-  # one into the same endpoint, and only tmux and herdr have a recovery-grade
+  # into the task endpoint, and only tmux and herdr have a recovery-grade
   # classifier that can (bin/fm-control-lib.sh owns that capability table).
   fm_control_backend_state_verified "$BACKEND" || {
     echo "error: backend '$BACKEND' has no recovery-grade agent-state classifier, so a relaunch cannot prove the previous agent exited; refusing rather than risking two agents in one endpoint" >&2
