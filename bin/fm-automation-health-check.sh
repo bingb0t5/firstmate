@@ -607,8 +607,7 @@ action_check() {
     report='automation health: unavailable'
   else
     report=$(format_rollup "$json_body" 2>/dev/null) || report='automation health: unavailable'
-    if [ "$report" != 'automation health: unavailable' ] &&
-      registry_shape_valid "$json_body"; then
+    if registry_shape_valid "$json_body"; then
       process_stale_body "$json_body"
     fi
     cleanup_request
