@@ -22,7 +22,7 @@ Each manifest identifies `manifest_id`, `manifest_version`, `owner`, `cadence`, 
 
 The host inventory is either an array or an object with a `hosts` or `inventory` array.
 
-Each host identifies `id` or `host_id`, and reports a healthy `status` plus `reachable: true`.
+Each host identifies `id` or `host_id`, reports a healthy `status`, and must not set `reachable` to false.
 
 The registry URL and bearer token resolve the same way as the automation health rollup (`FM_AUTOMATION_REGISTRY_URL`, `BRAIN_URL`, token settings, and `FM_AUTOMATION_REGISTRY_ENV_FILE`).
 
@@ -54,7 +54,7 @@ A missing or older-than-eight-day weekly report fails the daily score instead of
 
 ## Commands
 
-For `check`, build the map and print a notification line only when the result changes.
+For `check`, when a sweep is due, build the map and print a notification line only when the result changes.
 
 ```sh
 FM_HOME=/path/to/firstmate-home bin/fm-system-map.sh check \

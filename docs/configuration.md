@@ -575,6 +575,7 @@ Registry URL and bearer token resolve the same way as the automation health roll
 The map reuses the X-05 n8n comparison and does not schedule or execute an automation.
 
 `FM_SYSTEM_MAP_INTERVAL` (default 86400 seconds, `0` to build on every run) sets how often sweeps run.
+An armed check that is not yet due for its next sweep prints nothing and does no work.
 The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30); a run the watcher kills prints nothing and records nothing and would then repeat that silence on every poll.
 `FM_SYSTEM_MAP_NOW` is a test-only whole-second clock override.
 
@@ -887,6 +888,8 @@ FM_SECRET_PARITY_PROBE_SECS=15   # 1..60 seconds allowed for one Coolify or Rend
 FM_SECRET_PARITY_COOLIFY_ENV_FILE=   # optional override for the Coolify credential file; default ~/.config/beanz/coolify.env
 FM_SECRET_PARITY_RENDER_ENV_FILE=    # optional override for the Render credential file; default ~/.config/lalo/render-api.env
 FM_SECRET_PARITY_NOW=   # test-only whole-second clock override for secret parity sweeps
+FM_SYSTEM_MAP_INTERVAL=86400   # seconds between system map sweeps; 0 builds on every run
+FM_SYSTEM_MAP_NOW=   # test-only whole-second clock override for system map sweeps
 FM_PROCEVENT_MAX_OUTPUT_BYTES=1048576   # bound on one captured process-to-event result
 FM_PROCEVENT_CLAIM_ROOT=                # machine-wide source claim root; default $XDG_STATE_HOME/firstmate/procevent-claims
 FM_WHEN_OUTPUT_TAIL_BYTES=8192          # bound on the command-output tail inside one condition->action outcome document
