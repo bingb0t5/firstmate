@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  schedule:
+    - cron: '17 3 * * *'
   push:
     branches: [main]
   pull_request:
@@ -14,17 +16,19 @@ on:
 permissions:
   contents: read
 
-# Superseded PR pushes should not keep burning minutes on the full matrix.
+# Superseded runs for one event and ref should not keep burning CI minutes.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   lint:
     name: Lint
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' ||
       !github.event.pull_request.draft
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -49,7 +53,7 @@ jobs:
   # and that the portable serial CI shards partition that serial lane exactly.
   test-coverage:
     name: Test coverage guard
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -61,8 +65,10 @@ jobs:
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' ||
       !github.event.pull_request.draft
+      )
     runs-on: ubuntu-latest
     # Measured shard wall is ~1 min of serial sum on proven scripts; this cap is
     # a hang tripwire with margin, not the expected healthy end of the lane.
@@ -103,8 +109,10 @@ jobs:
   tests-portable-parallel-2:
     name: Behavior portable parallel 2
     if: >-
-      github.event_name != 'pull_request' ||
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' ||
       !github.event.pull_request.draft
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -142,16 +150,20 @@ jobs:
 
   # Required portable serial remainder: watcher, lock, AFK, tmux, daemon,
   # ambiguous, and other stateful tests. Real Herdr stays in tests-herdr.
-  # Split across separate runners so no two of these stateful scripts ever share
-  # a machine: each shard is still strictly serial in itself. Shard membership
+  # Split into separate CI jobs, with each shard strictly serial in itself.
+  # Self-hosted routing does not assume distinct physical machines. Shard membership
   # and the shard count both belong to bin/fm-test-run.sh, which refuses a lane
   # whose "ofN" disagrees with it (docs/fm-test-portable-shards.md).
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
+    # This lane remains wired but disabled until FM_ENABLE_HEAVY_SELF_HOSTED is
+    # explicitly enabled only after lalo-dev is an isolated ephemeral runner.
     if: >-
-      github.event_name != 'pull_request' ||
-      github.event.action == 'ready_for_review'
-    runs-on: ubuntu-latest
+      vars.FM_ENABLE_HEAVY_SELF_HOSTED == 'true' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted, linux, lalo-dev]
+    environment:
+      name: self-hosted-lalo-dev
     # Measured whole remainder is ~55 min of serial work; the balanced shards
     # are ~13.8 min each. Cap is a hang tripwire with roughly 1.8x margin, not
     # the expected healthy end of the lane. Balance depends on the duration
@@ -167,6 +179,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Set up Node.js 22 for tasks-axi
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
       - name: Install pinned ShellCheck
         run: |
           set -eu
@@ -217,9 +233,11 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     if: >-
-      github.event_name != 'pull_request' ||
-      github.event.action == 'ready_for_review'
-    runs-on: ubuntu-latest
+      vars.FM_ENABLE_HEAVY_SELF_HOSTED == 'true' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: [self-hosted, linux, lalo-dev]
+    environment:
+      name: self-hosted-lalo-dev
     # Healthy runs finish around 7 minutes. This job cap is a last-resort hang
     # tripwire, not the expected end of the lane. The family-run step owns the
     # tighter bound so a wedged suite fails fast with always() cleanup and
@@ -346,7 +364,8 @@ jobs:
       - tests-portable-serial
       - tests-herdr
     if: >-
-      github.event_name != 'pull_request' &&
+      vars.FM_ENABLE_HEAVY_SELF_HOSTED == 'true' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       always()
     steps:
       - uses: actions/checkout@v6
@@ -427,7 +446,7 @@ jobs:
 
   invariants:
     name: Repo invariants
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

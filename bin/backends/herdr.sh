@@ -649,14 +649,27 @@ fm_backend_herdr_projection_workspace_label() {  # <task-id> <projection-id>
   printf '└ %s · p:%s' "$(fm_backend_herdr_projection_concise_task_label "$1")" "$2"
 }
 
-# fm_backend_herdr_presentation_session_lock_path: one machine-private lock
-# path per live named Herdr session/socket, shared across every Firstmate home
-# that uses that session.
-# The path is never under any one home's state/ and secondmates never write the
-# primary home. Returns non-zero when the named session's socket cannot be
-# resolved unambiguously.
+# fm_backend_herdr_presentation_lock_namespace: one user-private lock
+# namespace shared across every Firstmate home for the effective OS user.
+# A legacy unsuffixed namespace is intentionally not reused by another user.
+# Returns non-zero when the effective UID cannot be read as a decimal value.
 fm_backend_herdr_presentation_lock_namespace() {
-  printf '%s' '/tmp/firstmate-herdr-presentation'
+  local session=${1:-} uid root=/tmp
+  case "$session" in
+    fm-lab-*)
+      if [ -n "${FM_BACKEND_HERDR_LAB_LOCK_ROOT:-}" ]; then
+        case "$FM_BACKEND_HERDR_LAB_LOCK_ROOT" in
+          /*) root=$FM_BACKEND_HERDR_LAB_LOCK_ROOT ;;
+          *) return 1 ;;
+        esac
+      fi
+      ;;
+  esac
+  uid=$(id -u 2>/dev/null) || return 1
+  case "$uid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s/firstmate-herdr-presentation-%s' "$root" "$uid"
 }
 
 fm_backend_herdr_presentation_lock_namespace_mode() {
@@ -741,7 +754,7 @@ fm_backend_herdr_presentation_session_lock_path() {  # <session>
   fi
   [ -n "$hash" ] || return 1
   key=${hash:0:32}
-  dir=$(fm_backend_herdr_presentation_lock_namespace) || return 1
+  dir=$(fm_backend_herdr_presentation_lock_namespace "$session") || return 1
   [ -n "$dir" ] || return 1
   if [ ! -e "$dir" ] && [ ! -L "$dir" ]; then
     if ! mkdir -m 700 "$dir" 2>/dev/null; then

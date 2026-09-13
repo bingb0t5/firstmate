@@ -2507,10 +2507,82 @@ SH
   pass "herdr presentation ordering: missing owning parent is warning-only and read-only"
 }
 
+test_presentation_session_lock_isolates_real_users_in_the_lab() {
+  local dir fb adapter_root adapter session socket root_path nobody_path root_dir nobody_dir legacy out
+  dir="$TMP_ROOT/presentation-lock-public-boundary"; mkdir -p "$dir/fakebin" "$dir/adapter-root/bin/backends"
+  fb="$dir/fakebin"
+  adapter_root="$dir/adapter-root"
+  adapter="$adapter_root/bin/backends/herdr.sh"
+  cp "$ROOT/bin/backends/herdr.sh" "$adapter"
+  cp "$ROOT/bin/fm-composer-lib.sh" "$adapter_root/bin/fm-composer-lib.sh"
+  cp "$ROOT/bin/fm-transition-lib.sh" "$adapter_root/bin/fm-transition-lib.sh"
+  session=$("$ROOT/bin/fm-herdr-lab.sh" name presentation-lock-public-boundary) \
+    || fail "could not generate the Herdr lab session name"
+  socket="$dir/$session.sock"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '{"sessions":[{"name":"%s","running":true,"socket_path":"%s"}]}\n' \
+  "$FM_HERDR_LAB_SESSION" "$FM_HERDR_LAB_SOCKET"
+SH
+  chmod 755 "$fb/herdr"
+  chmod 711 "$TMP_ROOT"
+  chmod 1733 "$dir"
+  chmod 755 "$fb" "$adapter_root" "$adapter_root/bin" "$adapter_root/bin/backends"
+  chmod 644 "$adapter" "$adapter_root/bin/fm-composer-lib.sh" "$adapter_root/bin/fm-transition-lib.sh"
+  nobody_lock_path() {
+    sudo -n -u nobody env PATH="$fb:$PATH" \
+      FM_BACKEND_HERDR_LAB_LOCK_ROOT="$dir" FM_HERDR_LAB_SESSION="$session" \
+      FM_HERDR_LAB_SOCKET="$socket" bash -c \
+      '. "$0"; fm_backend_herdr_presentation_session_lock_path "$1"' \
+      "$adapter" "$session"
+  }
+  root_path=$(PATH="$fb:$PATH" FM_BACKEND_HERDR_LAB_LOCK_ROOT="$dir" \
+    FM_HERDR_LAB_SESSION="$session" FM_HERDR_LAB_SOCKET="$socket" \
+    bash -c '. "$0"; fm_backend_herdr_presentation_session_lock_path "$1"' \
+    "$adapter" "$session") || fail "current user could not resolve the lab session lock"
+  root_dir=${root_path%/order-*}
+  legacy="$dir/firstmate-herdr-presentation"
+  mkdir -m 700 "$legacy" || fail "could not create the foreign legacy lab namespace"
+  nobody_path=$(nobody_lock_path) \
+    || fail "nobody could not resolve its lab session lock beside a foreign legacy namespace"
+  nobody_dir=${nobody_path%/order-*}
+  [ "$root_path" != "$nobody_path" ] || fail "two effective users shared one presentation lock path"
+  [ "$(stat -c '%u:%a' "$root_dir")" = "$(id -u):700" ] \
+    || fail "current user's lab namespace lost its private ownership or mode"
+  [ "$(stat -c '%u:%a' "$nobody_dir")" = '65534:700' ] \
+    || fail "nobody's lab namespace lost its private ownership or mode"
+  case "$root_path$nobody_path" in
+    *"/tmp/firstmate-herdr-presentation-"*) fail "the public lab path escaped into the real namespace" ;;
+  esac
+  rm -rf "$nobody_dir"
+  mkdir -m 700 "$nobody_dir"
+  if nobody_lock_path; then
+    fail "a selected foreign-owned lab namespace was accepted"
+  fi
+  rm -rf "$root_dir"
+  ln -s "$legacy" "$root_dir"
+  if out=$(PATH="$fb:$PATH" FM_BACKEND_HERDR_LAB_LOCK_ROOT="$dir" \
+    FM_HERDR_LAB_SESSION="$session" FM_HERDR_LAB_SOCKET="$socket" \
+    bash -c '. "$0"; fm_backend_herdr_presentation_session_lock_path "$1"' \
+    "$adapter" "$session"); then
+    fail "a selected symlink namespace was accepted: $out"
+  fi
+  rm -f "$root_dir"
+  : > "$root_dir"
+  if out=$(PATH="$fb:$PATH" FM_BACKEND_HERDR_LAB_LOCK_ROOT="$dir" \
+    FM_HERDR_LAB_SESSION="$session" FM_HERDR_LAB_SOCKET="$socket" \
+    bash -c '. "$0"; fm_backend_herdr_presentation_session_lock_path "$1"' \
+    "$adapter" "$session"); then
+    fail "a selected non-directory namespace was accepted: $out"
+  fi
+  pass "herdr presentation lock: lab session isolates real users and rejects foreign or unsafe namespaces"
+}
+
 test_presentation_session_lock_path_is_shared_across_homes() {
-  local dir log resp fb path_a path_b path_other path_tmp path_private
+  local dir log resp fb path_a path_b path_other path_tmp path_private namespace
   dir="$TMP_ROOT/presentation-session-lock"; mkdir -p "$dir/responses" "$dir/sockdir"
   log="$dir/log"; resp="$dir/responses"; : > "$log"
+  namespace="$dir/fm-lab-presentation-lock"
   : > "$dir/sockdir/fmtest.sock"
   printf '%s\n' "{\"sessions\":[{\"name\":\"fmtest\",\"running\":true,\"socket_path\":\"$dir/sockdir/fmtest.sock\"}]}" > "$resp/1.out"
   printf '%s\n' "{\"sessions\":[{\"name\":\"fmtest\",\"running\":true,\"socket_path\":\"$dir/sockdir/fmtest.sock\"}]}" > "$resp/2.out"
@@ -2518,21 +2590,33 @@ test_presentation_session_lock_path_is_shared_across_homes() {
   : > "$dir/sockdir/other.sock"
   fb=$(make_herdr_fakebin "$dir")
   path_a=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_session_lock_path fmtest' "$ROOT") \
+    FM_FAKE_PRESENTATION_NAMESPACE="$namespace" bash -c '
+      . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_presentation_lock_namespace() { printf "%s" "$FM_FAKE_PRESENTATION_NAMESPACE"; }
+      fm_backend_herdr_presentation_session_lock_path fmtest
+    ' "$ROOT") \
     || fail "session lock path resolution failed for home A"
   path_b=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_session_lock_path fmtest' "$ROOT") \
+    FM_FAKE_PRESENTATION_NAMESPACE="$namespace" bash -c '
+      . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_presentation_lock_namespace() { printf "%s" "$FM_FAKE_PRESENTATION_NAMESPACE"; }
+      fm_backend_herdr_presentation_session_lock_path fmtest
+    ' "$ROOT") \
     || fail "session lock path resolution failed for home B"
   [ "$path_a" = "$path_b" ] || fail "same session/socket must resolve one shared lock path"
   case "$path_a" in
-    /tmp/firstmate-herdr-presentation/order-*.lock) ;;
-    *) fail "session lock path must use the shared machine namespace: $path_a" ;;
+    "$namespace"/order-*.lock) ;;
+    *) fail "session lock path must use the current user's namespace: $path_a" ;;
   esac
   case "$path_a" in
     */state/*) fail "session lock path must not live under a home state directory: $path_a" ;;
   esac
   path_other=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_session_lock_path other' "$ROOT") \
+    FM_FAKE_PRESENTATION_NAMESPACE="$namespace" bash -c '
+      . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_presentation_lock_namespace() { printf "%s" "$FM_FAKE_PRESENTATION_NAMESPACE"; }
+      fm_backend_herdr_presentation_session_lock_path other
+    ' "$ROOT") \
     || fail "session lock path resolution failed for a different session"
   [ "$path_other" != "$path_a" ] || fail "different sessions must not share one lock path"
   # Symlink parents such as /tmp -> /private/tmp must not split the lock identity.
@@ -2541,10 +2625,18 @@ test_presentation_session_lock_path_is_shared_across_homes() {
     printf '%s\n' '{"sessions":[{"name":"canon","running":true,"socket_path":"/tmp/fm-herdr-lock-canon-'"$$"'.sock"}]}' > "$resp/4.out"
     printf '%s\n' "{\"sessions\":[{\"name\":\"canon\",\"running\":true,\"socket_path\":\"$(cd /tmp && pwd -P)/fm-herdr-lock-canon-$$.sock\"}]}" > "$resp/5.out"
     path_tmp=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-      bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_session_lock_path canon' "$ROOT") \
+      FM_FAKE_PRESENTATION_NAMESPACE="$namespace" bash -c '
+        . "$0/bin/backends/herdr.sh"
+        fm_backend_herdr_presentation_lock_namespace() { printf "%s" "$FM_FAKE_PRESENTATION_NAMESPACE"; }
+        fm_backend_herdr_presentation_session_lock_path canon
+      ' "$ROOT") \
       || fail "lock path with /tmp socket failed"
     path_private=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-      bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_session_lock_path canon' "$ROOT") \
+      FM_FAKE_PRESENTATION_NAMESPACE="$namespace" bash -c '
+        . "$0/bin/backends/herdr.sh"
+        fm_backend_herdr_presentation_lock_namespace() { printf "%s" "$FM_FAKE_PRESENTATION_NAMESPACE"; }
+        fm_backend_herdr_presentation_session_lock_path canon
+      ' "$ROOT") \
       || fail "lock path with canonical socket failed"
     rm -f /tmp/fm-herdr-lock-canon-$$.sock
     [ "$path_tmp" = "$path_private" ] \
@@ -4517,6 +4609,7 @@ test_projection_order_ambiguous_existing_block_is_read_only
 test_projection_order_anchors_the_parent_by_exact_id
 test_projection_order_foreign_new_child_before_parent_is_read_only
 test_projection_order_missing_parent_is_read_only
+test_presentation_session_lock_isolates_real_users_in_the_lab
 test_presentation_session_lock_path_is_shared_across_homes
 test_presentation_session_lock_path_rejects_malformed_socket
 test_projection_order_rejects_malformed_socket

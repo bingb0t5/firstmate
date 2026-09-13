@@ -379,11 +379,15 @@ test_portable_shard_union_and_coverage_guard() {
   [ "$(printf '%s\n' "$s1" "$s2" | LC_ALL=C sort -u)" = \
     "$(printf '%s\n' "$proven" | LC_ALL=C sort -u)" ] \
     || fail "shard union must equal proven-isolated set"
-  # No herdr in portable lanes.
+  # No real-Herdr E2E in portable lanes.
   printf '%s\n' "$s1" "$s2" "$serial" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
     && fail "portable lanes must not include real-herdr-gated smoke"
   printf '%s\n' "$herdr" | grep -Fq 'tests/fm-backend-herdr-smoke.test.sh' \
     || fail "herdr family must include smoke"
+  printf '%s\n' "$s1" "$s2" "$serial" | grep -Fq 'tests/fm-backend-herdr-focus-flash-e2e.test.sh' \
+    && fail "portable lanes must not include the real-Herdr focus E2E"
+  printf '%s\n' "$herdr" | grep -Fq 'tests/fm-backend-herdr-focus-flash-e2e.test.sh' \
+    || fail "herdr family must include the real-Herdr focus E2E"
   out=$("$RUNNER" --check-coverage)
   assert_contains "$out" "FM_TEST_COVERAGE ok" "coverage guard success marker"
   all_count=$("$RUNNER" --list --all | wc -l | tr -d ' ')
@@ -726,8 +730,11 @@ assert "**.md" in pull_request["paths-ignore"]
 group = ci["concurrency"]["group"]
 assert yaml.safe_load(open(f"{root}/.no-mistakes.yaml", encoding="utf-8"))["ci"]["revalidate_repairs"] is True
 
-def evaluate(expression, event_name, action, draft, ref):
+def evaluate(expression, event_name, action, draft, ref, heavy_self_hosted=""):
     expression = str(expression)
+    expression = expression.replace(
+        "vars.FM_ENABLE_HEAVY_SELF_HOSTED", repr(heavy_self_hosted)
+    )
     expression = expression.replace(
         "github.event.pull_request.draft", repr(draft)
     )
@@ -739,31 +746,48 @@ def evaluate(expression, event_name, action, draft, ref):
     expression = re.sub(r"(?<![=!])!(?!=)", " not ", expression)
     return bool(eval(expression, {"__builtins__": {}}, {}))
 
-def enabled(job, event_name, action, draft, ref):
+def enabled(job, event_name, action, draft, ref, heavy_self_hosted=""):
+    condition = str(ci["jobs"][job].get("if", "True"))
+    if ci["jobs"][job].get("needs"):
+        # Dependency outputs are only known after their prerequisites run.
+        return False
     return evaluate(
-        ci["jobs"][job].get("if", "True"),
+        condition,
         event_name,
         action,
         draft,
         ref,
+        heavy_self_hosted,
     )
 
 jobs = set(ci["jobs"])
-def selected(event_name, action, draft, ref):
+def selected(event_name, action, draft, ref, heavy_self_hosted=""):
     return {
         job for job in jobs
-        if enabled(job, event_name, action, draft, ref)
+        if enabled(job, event_name, action, draft, ref, heavy_self_hosted)
     }
 
 cheap = {"lint", "tests-portable-parallel-1", "tests-portable-parallel-2"}
 assert selected("pull_request", "synchronize", False, "refs/pull/1/merge") == cheap
 assert selected("pull_request", "synchronize", True, "refs/pull/1/merge") == set()
-assert selected("pull_request", "ready_for_review", False, "refs/pull/1/merge") == (
-    cheap | {"tests-portable-serial", "tests-herdr"}
-)
+assert selected("pull_request", "ready_for_review", False, "refs/pull/1/merge") == cheap
 assert selected("push", "push", False, "refs/heads/main") == (
-    jobs - {"macos-stock-bash"}
+    {"lint", "test-coverage", "tests-portable-parallel-1",
+     "tests-portable-parallel-2", "invariants"}
 )
+assert selected("schedule", "schedule", False, "refs/heads/main") == set()
+assert selected("workflow_dispatch", "workflow_dispatch", False, "refs/heads/main") == {
+    "lint", "test-coverage", "tests-portable-parallel-1",
+    "tests-portable-parallel-2", "macos-stock-bash", "invariants",
+}
+assert selected("schedule", "schedule", False, "refs/heads/main", "true") == {
+    "tests-portable-serial", "tests-herdr"
+}
+assert selected("workflow_dispatch", "workflow_dispatch", False, "refs/heads/main", "true") == {
+    "lint", "test-coverage", "tests-portable-parallel-1",
+    "tests-portable-parallel-2", "tests-portable-serial", "tests-herdr",
+    "macos-stock-bash", "invariants",
+}
 assert evaluate(
     ci["jobs"]["macos-stock-bash"]["if"],
     "workflow_dispatch",
@@ -786,30 +810,80 @@ assert not evaluate(
     "refs/heads/feature",
 )
 
-group_start = group.index("${{")
-group_end = group.index("}}", group_start)
-group_expression = group[group_start + 3:group_end].strip()
-def render_group(pr_number, ref, sha):
-    expression = group_expression
-    expression = expression.replace(
-        "github.event.pull_request.number", repr(pr_number)
+assert ci["jobs"]["lint"]["runs-on"] == "ubuntu-latest"
+assert ci["jobs"]["test-coverage"]["runs-on"] == "ubuntu-latest"
+assert ci["jobs"]["tests-portable-parallel-1"]["runs-on"] == "ubuntu-latest"
+assert ci["jobs"]["tests-portable-parallel-2"]["runs-on"] == "ubuntu-latest"
+assert ci["jobs"]["invariants"]["runs-on"] == "ubuntu-latest"
+
+assert ci["permissions"] == {"contents": "read"}
+
+for job_name in ("tests-portable-serial", "tests-herdr"):
+    job = ci["jobs"][job_name]
+    assert "needs" not in job
+    assert job["runs-on"] == ["self-hosted", "linux", "lalo-dev"]
+    assert job["environment"] == {"name": "self-hosted-lalo-dev"}
+    assert not evaluate(
+        job["if"], "schedule", "schedule", False, "refs/heads/main"
     )
-    expression = expression.replace("github.ref", repr(ref))
-    expression = expression.replace("github.sha", repr(sha))
-    expression = expression.replace("||", " or ")
-    return (
-        group[:group_start]
-        + str(eval(expression, {"__builtins__": {}}, {}))
-        + group[group_end + 2:]
+    assert not evaluate(
+        job["if"], "workflow_dispatch", "workflow_dispatch", False,
+        "refs/heads/main"
+    )
+    assert evaluate(
+        job["if"], "schedule", "schedule", False, "refs/heads/main", "true"
+    )
+    assert evaluate(
+        job["if"], "workflow_dispatch", "workflow_dispatch", False,
+        "refs/heads/main", "true"
+    )
+    assert not evaluate(
+        job["if"], "pull_request", "ready_for_review", False,
+        "refs/pull/1/merge"
     )
 
-assert render_group(37, "refs/pull/37/merge", "sha-a") == "ci-37"
-assert render_group(None, "refs/heads/main", "sha-a") == "ci-refs/heads/main"
-assert render_group(37, "refs/pull/37/merge", "sha-a") == render_group(
-    37, "refs/pull/37/merge", "sha-b"
+aggregate_condition = ci["jobs"]["tests-timing-aggregate"]["if"]
+assert not evaluate(
+    aggregate_condition, "schedule", "schedule", False, "refs/heads/main"
+)
+assert evaluate(
+    aggregate_condition, "schedule", "schedule", False, "refs/heads/main", "true"
+)
+
+assert ci["jobs"]["tests-portable-serial"]["timeout-minutes"] == 25
+assert "schedule" in ci.get("on", ci.get(True))
+
+def render_group(event_name, pr_number, ref, sha):
+    rendered = group
+    while "${{" in rendered:
+        group_start = rendered.index("${{")
+        group_end = rendered.index("}}", group_start)
+        expression = rendered[group_start + 3:group_end].strip()
+        expression = expression.replace("github.event_name", repr(event_name))
+        expression = expression.replace(
+            "github.event.pull_request.number", repr(pr_number)
+        )
+        expression = expression.replace("github.ref", repr(ref))
+        expression = expression.replace("github.sha", repr(sha))
+        expression = expression.replace("||", " or ")
+        rendered = (
+            rendered[:group_start]
+            + str(eval(expression, {"__builtins__": {}}, {}))
+            + rendered[group_end + 2:]
+        )
+    return rendered
+
+assert render_group("pull_request", 37, "refs/pull/37/merge", "sha-a") == "ci-pull_request-37"
+assert render_group("push", None, "refs/heads/main", "sha-a") == "ci-push-refs/heads/main"
+assert render_group("schedule", None, "refs/heads/main", "sha-a") == "ci-schedule-refs/heads/main"
+assert render_group("push", None, "refs/heads/main", "sha-a") != render_group(
+    "schedule", None, "refs/heads/main", "sha-a"
+)
+assert render_group("pull_request", 37, "refs/pull/37/merge", "sha-a") == render_group(
+    "pull_request", 37, "refs/pull/37/merge", "sha-b"
 )
 PY
-  pass "CI routes ordinary, draft, ready-for-review, and main events as intended"
+  pass "CI keeps self-hosted heavy lanes disabled until explicitly enabled"
 }
 
 test_aggregate_json() {

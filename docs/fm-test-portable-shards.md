@@ -57,8 +57,9 @@ Membership is derived rather than enumerated, so a newly added test lands here b
 
 On green CI run [30725985757](https://github.com/kunchenguid/firstmate/actions/runs/30725985757), that remainder accumulated 19m04s of script time against a 20-minute job timeout.
 On [PR 1495](https://github.com/kunchenguid/firstmate/pull/1495), its main step ran about 19m51s before the job was cancelled at that boundary.
-`portable-serial-<k>of<n>` splits it across `n` separate CI runners.
-Each shard is still strictly serial in itself, and separate runners mean no two of these stateful scripts ever share a machine, so the split needs no concurrency isolation proof.
+`portable-serial-<k>of<n>` splits it across `n` separate CI jobs.
+Each shard remains strictly serial, and the self-hosted routing does not assume distinct physical machines.
+[CONTRIBUTING.md](../CONTRIBUTING.md) owns CI event and runner routing.
 
 `bin/fm-test-run.sh` owns `n` and refuses any lane whose `of<n>` disagrees with it.
 `.github/workflows/ci.yml` derives the same `n` from `strategy.job-total` rather than a literal, so changing the shard count in either file without the other fails the lane loudly instead of leaving part of the required suite unrun.
@@ -97,7 +98,7 @@ It separately verifies that the portable serial CI shards are non-empty, disjoin
 
 ## Timing artifacts
 
-Portable shards, each portable serial shard, and the Herdr lane upload runner-generated timing JSON.
+When their jobs run, portable shards, each portable serial shard, and the Herdr lane upload runner-generated timing JSON.
 `bin/fm-test-run.sh --aggregate-json` creates the combined summary artifact.
 `.github/workflows/ci.yml` owns the exact artifact names and aggregation wiring.
 
@@ -111,7 +112,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-4 | job `timeout-minutes: 20` | Each balanced shard is about sixteen minutes of estimated script time, leaving roughly 1.3x hang-tripwire margin for job setup and runner-speed spread. Refreshing the hints is the first lever when that margin shrinks; raising `PORTABLE_SERIAL_SHARDS` (and the matching `ci.yml` matrix) is the second. |
+| portable serial 1-4 | job `timeout-minutes: 25` | Each balanced shard is about sixteen minutes of estimated script time, leaving a bounded hang-tripwire margin for job setup and runner-speed spread. Refreshing the hints is the first lever when that margin shrinks; raising `PORTABLE_SERIAL_SHARDS` (and the matching `ci.yml` matrix) is the second. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finish around 7 minutes, so the step bound is the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. |
 
 Timeouts are hang tripwires rather than expected healthy durations.
