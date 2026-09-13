@@ -57,7 +57,7 @@ Membership is derived rather than enumerated, so a newly added test lands here b
 
 On green CI run [30725985757](https://github.com/kunchenguid/firstmate/actions/runs/30725985757), that remainder accumulated 19m04s of script time against a 20-minute job timeout.
 On [PR 1495](https://github.com/kunchenguid/firstmate/pull/1495), its main step ran about 19m51s before the job was cancelled at that boundary.
-`portable-serial-<k>of<n>` splits it across `n` separately scheduled CI jobs.
+`portable-serial-<k>of<n>` splits it across `n` separate CI jobs.
 Each shard remains strictly serial, and the self-hosted routing does not assume distinct physical machines.
 [CONTRIBUTING.md](../CONTRIBUTING.md) owns CI event and runner routing.
 
@@ -98,7 +98,7 @@ It separately verifies that the portable serial CI shards are non-empty, disjoin
 
 ## Timing artifacts
 
-Portable shards, each portable serial shard, and the Herdr lane upload runner-generated timing JSON.
+When their jobs run, portable shards, each portable serial shard, and the Herdr lane upload runner-generated timing JSON.
 `bin/fm-test-run.sh --aggregate-json` creates the combined summary artifact.
 `.github/workflows/ci.yml` owns the exact artifact names and aggregation wiring.
 
