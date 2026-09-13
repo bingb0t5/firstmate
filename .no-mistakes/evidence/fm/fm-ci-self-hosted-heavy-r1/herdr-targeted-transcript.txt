@@ -1,0 +1,11 @@
+head=82be76348f53fd143065c79cd23da719f395cf30
+real_namespace_before:
+zsh:7: command not found: stat
+zsh:7: command not found: stat
+command=bash tests/fm-backend-herdr.test.sh
+zsh:13: command not found: bash
+exit=127
+real_namespace_after:
+zsh:17: command not found: id
+zsh:19: command not found: stat
+/tmp/firstmate-herdr-presentation- absent
