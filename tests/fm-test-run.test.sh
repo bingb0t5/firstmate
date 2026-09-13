@@ -730,8 +730,11 @@ assert "**.md" in pull_request["paths-ignore"]
 group = ci["concurrency"]["group"]
 assert yaml.safe_load(open(f"{root}/.no-mistakes.yaml", encoding="utf-8"))["ci"]["revalidate_repairs"] is True
 
-def evaluate(expression, event_name, action, draft, ref):
+def evaluate(expression, event_name, action, draft, ref, heavy_self_hosted=""):
     expression = str(expression)
+    expression = expression.replace(
+        "vars.FM_ENABLE_HEAVY_SELF_HOSTED", repr(heavy_self_hosted)
+    )
     expression = expression.replace(
         "github.event.pull_request.draft", repr(draft)
     )
@@ -743,7 +746,7 @@ def evaluate(expression, event_name, action, draft, ref):
     expression = re.sub(r"(?<![=!])!(?!=)", " not ", expression)
     return bool(eval(expression, {"__builtins__": {}}, {}))
 
-def enabled(job, event_name, action, draft, ref):
+def enabled(job, event_name, action, draft, ref, heavy_self_hosted=""):
     condition = str(ci["jobs"][job].get("if", "True"))
     if ci["jobs"][job].get("needs"):
         # Dependency outputs are only known after their prerequisites run.
@@ -754,13 +757,14 @@ def enabled(job, event_name, action, draft, ref):
         action,
         draft,
         ref,
+        heavy_self_hosted,
     )
 
 jobs = set(ci["jobs"])
-def selected(event_name, action, draft, ref):
+def selected(event_name, action, draft, ref, heavy_self_hosted=""):
     return {
         job for job in jobs
-        if enabled(job, event_name, action, draft, ref)
+        if enabled(job, event_name, action, draft, ref, heavy_self_hosted)
     }
 
 cheap = {"lint", "tests-portable-parallel-1", "tests-portable-parallel-2"}
@@ -771,10 +775,15 @@ assert selected("push", "push", False, "refs/heads/main") == (
     {"lint", "test-coverage", "tests-portable-parallel-1",
      "tests-portable-parallel-2", "invariants"}
 )
-assert selected("schedule", "schedule", False, "refs/heads/main") == {
+assert selected("schedule", "schedule", False, "refs/heads/main") == set()
+assert selected("workflow_dispatch", "workflow_dispatch", False, "refs/heads/main") == {
+    "lint", "test-coverage", "tests-portable-parallel-1",
+    "tests-portable-parallel-2", "macos-stock-bash", "invariants",
+}
+assert selected("schedule", "schedule", False, "refs/heads/main", "true") == {
     "tests-portable-serial", "tests-herdr"
 }
-assert selected("workflow_dispatch", "workflow_dispatch", False, "refs/heads/main") == {
+assert selected("workflow_dispatch", "workflow_dispatch", False, "refs/heads/main", "true") == {
     "lint", "test-coverage", "tests-portable-parallel-1",
     "tests-portable-parallel-2", "tests-portable-serial", "tests-herdr",
     "macos-stock-bash", "invariants",
@@ -814,17 +823,32 @@ for job_name in ("tests-portable-serial", "tests-herdr"):
     assert "needs" not in job
     assert job["runs-on"] == ["self-hosted", "linux", "lalo-dev"]
     assert job["environment"] == {"name": "self-hosted-lalo-dev"}
-    assert evaluate(
+    assert not evaluate(
         job["if"], "schedule", "schedule", False, "refs/heads/main"
+    )
+    assert not evaluate(
+        job["if"], "workflow_dispatch", "workflow_dispatch", False,
+        "refs/heads/main"
+    )
+    assert evaluate(
+        job["if"], "schedule", "schedule", False, "refs/heads/main", "true"
     )
     assert evaluate(
         job["if"], "workflow_dispatch", "workflow_dispatch", False,
-        "refs/heads/main"
+        "refs/heads/main", "true"
     )
     assert not evaluate(
         job["if"], "pull_request", "ready_for_review", False,
         "refs/pull/1/merge"
     )
+
+aggregate_condition = ci["jobs"]["tests-timing-aggregate"]["if"]
+assert not evaluate(
+    aggregate_condition, "schedule", "schedule", False, "refs/heads/main"
+)
+assert evaluate(
+    aggregate_condition, "schedule", "schedule", False, "refs/heads/main", "true"
+)
 
 assert ci["jobs"]["tests-portable-serial"]["timeout-minutes"] == 25
 assert "schedule" in ci.get("on", ci.get(True))
@@ -859,7 +883,7 @@ assert render_group("pull_request", 37, "refs/pull/37/merge", "sha-a") == render
     "pull_request", 37, "refs/pull/37/merge", "sha-b"
 )
 PY
-  pass "CI routes ordinary, draft, ready-for-review, and main events as intended"
+  pass "CI keeps self-hosted heavy lanes disabled until explicitly enabled"
 }
 
 test_aggregate_json() {

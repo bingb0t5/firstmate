@@ -156,8 +156,11 @@ jobs:
   # whose "ofN" disagrees with it (docs/fm-test-portable-shards.md).
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
+    # This lane remains wired but disabled until FM_ENABLE_HEAVY_SELF_HOSTED is
+    # explicitly enabled only after lalo-dev is an isolated ephemeral runner.
     if: >-
-      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      vars.FM_ENABLE_HEAVY_SELF_HOSTED == 'true' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, linux, lalo-dev]
     environment:
       name: self-hosted-lalo-dev
@@ -230,7 +233,8 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     if: >-
-      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      vars.FM_ENABLE_HEAVY_SELF_HOSTED == 'true' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, linux, lalo-dev]
     environment:
       name: self-hosted-lalo-dev
@@ -360,6 +364,7 @@ jobs:
       - tests-portable-serial
       - tests-herdr
     if: >-
+      vars.FM_ENABLE_HEAVY_SELF_HOSTED == 'true' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       always()
     steps:
