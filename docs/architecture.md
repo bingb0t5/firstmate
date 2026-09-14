@@ -188,11 +188,11 @@ Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectab
 ## Browser sessions follow task lifecycles
 
 `bin/fm-browser-lifecycle-lib.sh` is the single owner of browser resource records, and `bin/fm-browser-lifecycle.sh` is the worker-facing wrapper for named `chrome-devtools-axi` sessions and directly launched Playwright or Puppeteer commands.
-`fm-spawn.sh` reserves one session for each task incarnation and exports that session to the worker, so ordinary `chrome-devtools-axi` calls use a task-scoped bridge without changing the browser tool's public lifecycle.
+`fm-spawn.sh` reserves one home- and task-scoped session for each task incarnation and exports that session to the worker, so ordinary `chrome-devtools-axi` calls use a task-scoped bridge without changing the browser tool's public lifecycle.
 A worker that deliberately selects another named session must use the wrapper, which registers that exact session before invoking the existing `chrome-devtools-axi` CLI.
 The bridge remains the owner of its Chrome and MCP children, and Firstmate proves the task, incarnation, session reservation, bridge PID liveness, and bridge command identity before delegating cleanup to `chrome-devtools-axi stop`.
 `fm-control.sh exit`, the existing watcher when an exact recorded endpoint is dead or missing, and `fm-teardown.sh` all use the same finalizer, so success, failure, timeout, and worker exit converge on one lifecycle contract rather than a host-wide reaper.
-Harness Stop and SessionEnd hooks continue to report the harness's own turn state, but they do not close browsers while a worker may still be using them; Firstmate's verified endpoint lifecycle decides when the finalizer may run.
+Harness Stop and SessionEnd hooks continue to report the harness's own turn state, but they do not close browsers while a worker may still be using them; the Firstmate worker shell finalizes only after its worker command exits, with verified endpoint lifecycle as the unexpected-exit fallback.
 A browser-like process found by teardown's generic cwd fallback is preserved; an exact wrapper-created process group is retired earlier by the lifecycle finalizer, and the fallback never signals one from parentlessness, ancestry, cwd, or age.
 Direct Playwright or Puppeteer launches are owned only through the wrapper's `setsid` process group and recorded leader identity; detached children that leave that proven group remain untouched for inspection.
 `CHROME_DEVTOOLS_AXI_BROWSER_URL` and auto-connect sessions may attach to a captain- or operator-owned browser, so finalization stops only the exact Firstmate bridge and never the attached browser.

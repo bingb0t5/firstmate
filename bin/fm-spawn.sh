@@ -3015,11 +3015,12 @@ spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
 # inherit the named session; custom named sessions and direct Playwright/Puppeteer
 # launches use fm-browser-lifecycle.sh, which records their exact ownership.
 sq_browser_lifecycle=$(shell_quote "$FM_ROOT/bin/fm-browser-lifecycle.sh")
+sq_browser_lib=$(shell_quote "$FM_ROOT/bin/fm-browser-lifecycle-lib.sh")
 sq_browser_state=$(shell_quote "$STATE_REAL")
 sq_browser_task=$(shell_quote "$ID")
 sq_browser_gen=$(shell_quote "$SPAWN_GEN")
 sq_browser_session=$(shell_quote "$SPAWN_BROWSER_SESSION")
-if ! spawn_send_text_line "$T" "export FM_BROWSER_LIFECYCLE=$sq_browser_lifecycle FM_BROWSER_STATE=$sq_browser_state FM_BROWSER_TASK_ID=$sq_browser_task FM_BROWSER_SPAWN_GEN=$sq_browser_gen FM_BROWSER_SESSION=$sq_browser_session CHROME_DEVTOOLS_AXI_SESSION=$sq_browser_session"; then
+if ! spawn_send_text_line "$T" "export FM_BROWSER_LIFECYCLE=$sq_browser_lifecycle FM_BROWSER_STATE=$sq_browser_state FM_BROWSER_TASK_ID=$sq_browser_task FM_BROWSER_SPAWN_GEN=$sq_browser_gen FM_BROWSER_SESSION=default CHROME_DEVTOOLS_AXI_SESSION=$sq_browser_session"; then
   echo "error: browser lifecycle environment could not be delivered to task $ID" >&2
   exit 1
 fi
@@ -3041,6 +3042,9 @@ if [ -n "$SPAWN_TRACEPARENT" ]; then
   fi
 fi
 sleep 0.3
+sq_worker_launch=$(shell_quote "$LAUNCH")
+worker_launch=". $sq_browser_lib; fm_browser_worker_run $sq_browser_state $sq_browser_task $sq_browser_gen -- bash -c $sq_worker_launch"
+LAUNCH="bash -c $(shell_quote "$worker_launch")"
 spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3
 # The launch command is now delivered to the endpoint. Later readiness or

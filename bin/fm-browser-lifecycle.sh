@@ -4,15 +4,9 @@
 # Usage:
 #   fm-browser-lifecycle.sh axi [--session <name>] -- <chrome-devtools-axi args...>
 #   fm-browser-lifecycle.sh launch [--timeout <seconds>] -- <Playwright/Puppeteer command...>
-#   fm-browser-lifecycle.sh session-for-task <task-id>
-#   fm-browser-lifecycle.sh arm <state> <task-id> <spawn-generation>
-#   fm-browser-lifecycle.sh register-axi <state> <task-id> <spawn-generation> <session>
-#   fm-browser-lifecycle.sh finalize <state> <task-id> <spawn-generation> <reason>
-#   fm-browser-lifecycle.sh finalize-meta <state> <meta> <task-id> <reason>
 #
-# `axi` and `launch` are worker-facing entry points. Firstmate invokes arm and
-# finalize from spawn, control, watcher, and teardown. Browser cleanup is tied
-# to those lifecycle transitions; this command never runs a periodic sweep.
+# `axi` and `launch` are worker-facing entry points. Browser cleanup is tied to
+# Firstmate's lifecycle transitions; this command never runs a periodic sweep.
 set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -43,26 +37,6 @@ case "$command_name" in
       exit 1
     }
     fm_browser_direct_launch "$state" "$task" "$generation" "$@"
-    ;;
-  session-for-task)
-    [ "$#" -eq 1 ] || { usage >&2; exit 2; }
-    fm_browser_session_for_task "$1"
-    ;;
-  arm)
-    [ "$#" -eq 3 ] || { usage >&2; exit 2; }
-    fm_browser_owner_arm "$1" "$2" "$3"
-    ;;
-  register-axi)
-    [ "$#" -eq 4 ] || { usage >&2; exit 2; }
-    fm_browser_owner_register_axi "$1" "$2" "$3" "$4"
-    ;;
-  finalize)
-    [ "$#" -eq 4 ] || { usage >&2; exit 2; }
-    fm_browser_owner_finalize "$1" "$2" "$3" "$4"
-    ;;
-  finalize-meta)
-    [ "$#" -eq 4 ] || { usage >&2; exit 2; }
-    fm_browser_finalize_meta "$1" "$2" "$3" "$4"
     ;;
   *)
     usage >&2

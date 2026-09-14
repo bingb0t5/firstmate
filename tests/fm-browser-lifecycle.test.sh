@@ -63,6 +63,7 @@ if [ "${1:-}" = stop ]; then
 fi
 SH
 chmod +x "$TMP_ROOT/fakebin/chrome-devtools-axi"
+export PATH="$TMP_ROOT/fakebin:$PATH"
 
 # A generic process-group fallback may inspect the group, but it must preserve
 # the group when any member is browser-like and lacks an exact owner record.
@@ -77,68 +78,101 @@ kill -- "-$browser_group_pgid" 2>/dev/null || true
 wait "$browser_group_pid" 2>/dev/null || true
 BROWSER_GROUP_PIDS=()
 
-session_a=$($BROWSER session-for-task task-a)
-session_b=$($BROWSER session-for-task task-b)
+session_a=$(fm_browser_session_for_task "$STATE" task-a)
+session_b=$(fm_browser_session_for_task "$STATE" task-b)
 [ "$session_a" != "$session_b" ] || fail "different tasks received the same browser session"
 [ "${#session_a}" -le 64 ] || fail "derived browser session exceeded chrome-devtools-axi's limit"
 
-$BROWSER arm "$STATE" task-a s1 >/dev/null
+fm_browser_owner_arm "$STATE" task-a s1 >/dev/null
 assert_grep "task_id=task-a" "$STATE/task-a.browser/owner" "arm records the owning task"
 assert_grep "spawn_gen=s1" "$STATE/task-a.browser/owner" "arm records the owning incarnation"
 assert_grep "session=$session_a" "$STATE/task-a.browser/axi.$session_a" "arm reserves the default named session"
 
-if $BROWSER arm "$STATE" task-a s2 >/dev/null 2>&1; then
+if fm_browser_owner_arm "$STATE" task-a s2 >/dev/null 2>&1; then
   fail "arm adopted a different incarnation"
 fi
 
-make_bridge held
+held_session=$(fm_browser_session_for_task "$STATE" task-a held)
+make_bridge "$held_session"
 held_pid=$BRIDGE_PID_RESULT
-if HOME="$HOME" $BROWSER register-axi "$STATE" task-a s1 held >/dev/null 2>&1; then
+if fm_browser_owner_register_axi "$STATE" task-a s1 "$held_session" >/dev/null 2>&1; then
   fail "register-axi adopted an already active bridge"
 fi
 kill -0 "$held_pid" 2>/dev/null || fail "active foreign browser session was stopped"
+kill "$held_pid" 2>/dev/null || true
+wait "$held_pid" 2>/dev/null || true
 
-$BROWSER register-axi "$STATE" task-a s1 custom
-custom_pid_file="$HOME/.chrome-devtools-axi/sessions/custom/bridge.pid"
-make_bridge custom
+custom_session=$(fm_browser_session_for_task "$STATE" task-a custom)
+fm_browser_owner_register_axi "$STATE" task-a s1 "$custom_session"
+custom_pid_file="$HOME/.chrome-devtools-axi/sessions/$custom_session/bridge.pid"
+make_bridge "$custom_session"
 custom_pid=$BRIDGE_PID_RESULT
 export FM_BROWSER_LOG="$TMP_ROOT/browser-stop.log"
-FM_BROWSER_AXI_BIN="$TMP_ROOT/fakebin/chrome-devtools-axi" \
-  $BROWSER finalize "$STATE" task-a s1 named-session
-assert_grep "custom stop" "$FM_BROWSER_LOG" "finalizer delegates named-session cleanup to chrome-devtools-axi"
+fm_browser_owner_finalize "$STATE" task-a s1 named-session
+assert_grep "$custom_session stop" "$FM_BROWSER_LOG" "finalizer delegates named-session cleanup to chrome-devtools-axi"
 assert_absent "$STATE/task-a.browser" "successful named-session cleanup retires ownership records"
 wait "$custom_pid" 2>/dev/null || true
 kill -0 "$custom_pid" 2>/dev/null && fail "named bridge survived delegated stop"
 [ ! -e "$custom_pid_file" ] || fail "stale named bridge PID file survived cleanup"
 
+second_state="$TMP_ROOT/second-state"
+mkdir -p "$second_state"
+first_home_session=$(fm_browser_session_for_task "$STATE" shared-task)
+second_home_session=$(fm_browser_session_for_task "$second_state" shared-task)
+[ "$first_home_session" != "$second_home_session" ] || fail "different homes received the same browser session"
+fm_browser_owner_arm "$STATE" shared-task h1 >/dev/null
+fm_browser_owner_arm "$second_state" shared-task h1 >/dev/null
+make_bridge "$first_home_session"
+first_home_pid=$BRIDGE_PID_RESULT
+fm_browser_owner_finalize "$second_state" shared-task h1 worker-exit
+kill -0 "$first_home_pid" 2>/dev/null || fail "cross-home cleanup stopped an active bridge"
+fm_browser_owner_finalize "$STATE" shared-task h1 worker-exit
+wait "$first_home_pid" 2>/dev/null || true
+kill -0 "$first_home_pid" 2>/dev/null && fail "owning home did not stop its bridge"
+
+fm_browser_owner_arm "$STATE" worker-exit w1 >/dev/null
+worker_session=$(fm_browser_session_for_task "$STATE" worker-exit)
+make_bridge "$worker_session"
+worker_pid=$BRIDGE_PID_RESULT
+set +e
+fm_browser_worker_run "$STATE" worker-exit w1 -- bash -c 'exit 7'
+worker_rc=$?
+set -u
+expect_code 7 "$worker_rc" "worker exit preserves its command failure"
+assert_absent "$STATE/worker-exit.browser" "worker exit retires named browser ownership"
+wait "$worker_pid" 2>/dev/null || true
+kill -0 "$worker_pid" 2>/dev/null && fail "worker exit left its owned bridge running"
+
 # A live PID with the wrong process identity is never treated as a bridge.
-$BROWSER arm "$STATE" task-a s2 >/dev/null
-mkdir -p "$HOME/.chrome-devtools-axi/sessions/foreign"
+$BROWSER --help >/dev/null || fail "browser lifecycle worker interface is unavailable"
+fm_browser_owner_arm "$STATE" task-a s2 >/dev/null
+foreign_session=$(fm_browser_session_for_task "$STATE" task-a foreign)
+mkdir -p "$HOME/.chrome-devtools-axi/sessions/$foreign_session"
 sleep 30 & foreign_pid=$!
-printf '{"pid":%s,"port":9231}\n' "$foreign_pid" > "$HOME/.chrome-devtools-axi/sessions/foreign/bridge.pid"
-if $BROWSER register-axi "$STATE" task-a s2 foreign >/dev/null 2>&1; then
+printf '{"pid":%s,"port":9231}\n' "$foreign_pid" > "$HOME/.chrome-devtools-axi/sessions/$foreign_session/bridge.pid"
+if fm_browser_owner_register_axi "$STATE" task-a s2 "$foreign_session" >/dev/null 2>&1; then
   fail "register-axi adopted a live non-bridge PID"
 fi
 kill -0 "$foreign_pid" 2>/dev/null || fail "foreign process was killed during ownership proof"
 kill "$foreign_pid" 2>/dev/null || true
 wait "$foreign_pid" 2>/dev/null || true
-$BROWSER finalize "$STATE" task-a s2 no-live-bridge
+fm_browser_owner_finalize "$STATE" task-a s2 no-live-bridge
 
 # A browser command failure does not discard its task ownership record; the
 # worker-exit finalizer still retires it through the same lifecycle path.
-$BROWSER arm "$STATE" task-a s4 >/dev/null
+fm_browser_owner_arm "$STATE" task-a s4 >/dev/null
 set +e
 FM_BROWSER_STATE="$STATE" FM_BROWSER_TASK_ID=task-a FM_BROWSER_SPAWN_GEN=s4 \
-  FM_BROWSER_SESSION="$session_a" FM_BROWSER_AXI_BIN="$TMP_ROOT/fakebin/chrome-devtools-axi" \
+  FM_BROWSER_SESSION=default \
   $BROWSER axi --session failed -- open about:blank >/dev/null 2>&1
 launch_rc=$?
 set -u
 expect_code 42 "$launch_rc" "browser command failure is preserved"
-$BROWSER finalize "$STATE" task-a s4 worker-exit
+fm_browser_owner_finalize "$STATE" task-a s4 worker-exit
 
 # Direct launches are owned only inside the process group created by the
 # wrapper, and a command's failure is returned after its resource is retired.
-$BROWSER arm "$STATE" task-a s3 >/dev/null
+fm_browser_owner_arm "$STATE" task-a s3 >/dev/null
 set +e
 FM_BROWSER_STATE="$STATE" FM_BROWSER_TASK_ID=task-a FM_BROWSER_SPAWN_GEN=s3 \
   $BROWSER launch -- node -e 'process.exit(7)' >/dev/null 2>&1
@@ -190,14 +224,14 @@ identity=$(sed -n 's/^identity=//p' "$record")
 status_file=$(sed -n 's/^status_file=//p' "$record")
 printf '%s\n' "version=1" "kind=direct" "task_id=task-a" "spawn_gen=s3" \
   "pid=$pid" "identity=wrong-$identity" "pgid=$pgid" "status_file=$status_file" > "$record"
-if $BROWSER finalize "$STATE" task-a s3 mismatched-identity >/dev/null 2>&1; then
+if fm_browser_owner_finalize "$STATE" task-a s3 mismatched-identity >/dev/null 2>&1; then
   fail "finalizer killed a direct process after identity changed"
 fi
 kill -0 "$pid" 2>/dev/null || fail "identity mismatch did not preserve the direct process"
 printf '%s\n' "version=1" "kind=direct" "task_id=task-a" "spawn_gen=s3" \
   "pid=$pid" "identity=$identity" "pgid=$pgid" "status_file=$status_file" > "$record"
-$BROWSER finalize "$STATE" task-a s3 worker-exit
+fm_browser_owner_finalize "$STATE" task-a s3 worker-exit
 wait "$launch_wrapper" 2>/dev/null || true
 assert_absent "$STATE/task-a.browser" "worker-exit cleanup retires the exact direct process group"
 
-pass "browser lifecycle ownership and lifecycle cleanup"
+pass "browser lifecycle ownership, cross-home isolation, and lifecycle cleanup"

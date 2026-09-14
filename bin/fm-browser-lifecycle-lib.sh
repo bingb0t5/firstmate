@@ -55,12 +55,20 @@ fm_browser_validate_generation() {  # <spawn-generation>
   fm_browser_validate_atom "$1" && [ "${#1}" -le 128 ]
 }
 
-fm_browser_session_for_task() {  # <task-id>
-  local task=$1 checksum prefix
-  fm_browser_validate_task_id "$task" || return 1
-  checksum=$(printf '%s' "$task" | cksum | awk '{print $1}')
-  prefix=${task:0:48}
-  printf 'fm-%s-%s\n' "$prefix" "$checksum"
+fm_browser_state_namespace() {  # <state>
+  local state=$1 resolved
+  [ -d "$state" ] && [ ! -L "$state" ] || return 1
+  resolved=$(cd "$state" && pwd -P) || return 1
+  printf '%s' "$resolved" | cksum | awk '{print $1}'
+}
+
+fm_browser_session_for_task() {  # <state> <task-id> [logical-session]
+  local state=$1 task=$2 logical=${3:-default} namespace checksum prefix
+  fm_browser_validate_task_id "$task" && fm_browser_validate_session "$logical" || return 1
+  namespace=$(fm_browser_state_namespace "$state") || return 1
+  checksum=$(printf '%s\0%s' "$task" "$logical" | cksum | awk '{print $1}')
+  prefix=${task:0:32}
+  printf 'fm-%s-%s-%s\n' "$namespace" "$prefix" "$checksum"
 }
 
 fm_browser_owner_dir() {  # <state> <task-id>
@@ -275,7 +283,7 @@ fm_browser_owner_matches() {  # <dir> <task-id> <generation>
 }
 
 fm_browser_owner_arm() {  # <state> <task-id> <generation>; prints default session
-  local state=$1 task=$2 generation=$3 dir lock default_session pid_state mode
+  local state=$1 task=$2 generation=$3 dir lock default_session pid_state
   fm_browser_validate_task_id "$task" || return 1
   fm_browser_validate_generation "$generation" || return 1
   dir=$(fm_browser_owner_dir "$state" "$task") || return 1
@@ -305,7 +313,7 @@ fm_browser_owner_arm() {  # <state> <task-id> <generation>; prints default sessi
     printf '%s\n' "$default_session"
     return 0
   fi
-  default_session=$(fm_browser_session_for_task "$task") || {
+  default_session=$(fm_browser_session_for_task "$state" "$task") || {
     fm_browser_lock_release "$lock"
     return 1
   }
@@ -337,11 +345,9 @@ fm_browser_owner_arm() {  # <state> <task-id> <generation>; prints default sessi
       fm_browser_lock_release "$lock"
       return 1
     }
-  mode=managed
-  [ -n "${CHROME_DEVTOOLS_AXI_BROWSER_URL:-}" ] || [ "${CHROME_DEVTOOLS_AXI_AUTO_CONNECT:-0}" = 1 ] && mode=external
   fm_browser_atomic_record "$dir/axi.$default_session" \
     "version=1" "kind=axi" "task_id=$task" "spawn_gen=$generation" \
-    "session=$default_session" "mode=$mode" || {
+    "session=$default_session" || {
       rm -rf -- "$dir"
       fm_browser_lock_release "$lock"
       return 1
@@ -351,7 +357,7 @@ fm_browser_owner_arm() {  # <state> <task-id> <generation>; prints default sessi
 }
 
 fm_browser_owner_register_axi() {  # <state> <task-id> <generation> <session>
-  local state=$1 task=$2 generation=$3 session=$4 dir lock resource pid_state mode
+  local state=$1 task=$2 generation=$3 session=$4 dir lock resource pid_state
   fm_browser_validate_task_id "$task" \
     && fm_browser_validate_generation "$generation" \
     && fm_browser_validate_session "$session" || return 1
@@ -394,11 +400,9 @@ fm_browser_owner_register_axi() {  # <state> <task-id> <generation> <session>
       return 1
       ;;
   esac
-  mode=managed
-  [ -n "${CHROME_DEVTOOLS_AXI_BROWSER_URL:-}" ] || [ "${CHROME_DEVTOOLS_AXI_AUTO_CONNECT:-0}" = 1 ] && mode=external
   fm_browser_atomic_record "$resource" \
     "version=1" "kind=axi" "task_id=$task" "spawn_gen=$generation" \
-    "session=$session" "mode=$mode" || {
+    "session=$session" || {
       fm_browser_lock_release "$lock"
       return 1
     }
@@ -691,8 +695,7 @@ fm_browser_stop_axi_record() {  # <record>; bridge stop is the only Chrome clean
         fm_browser_lifecycle_error "browser session $session changed while proving its bridge ownership; preserving it"
         return 1
       }
-      cli=${FM_BROWSER_AXI_BIN:-}
-      if [ -z "$cli" ]; then cli=$(command -v chrome-devtools-axi 2>/dev/null || true); fi
+      cli=$(command -v chrome-devtools-axi 2>/dev/null || true)
       [ -n "$cli" ] || {
         fm_browser_lifecycle_error "chrome-devtools-axi is unavailable to stop owned session $session"
         return 1
@@ -793,6 +796,24 @@ fm_browser_finalize_meta() {  # <state> <meta> <task-id> <reason>
   fm_browser_owner_finalize "$state" "$task" "$generation" "$reason"
 }
 
+fm_browser_worker_run() {  # <state> <task-id> <generation> -- <command...>
+  local state=$1 task=$2 generation=$3 rc cleaned=0
+  shift 3
+  [ "${1:-}" = -- ] || return 2
+  shift
+  [ "$#" -gt 0 ] || return 2
+  fm_browser_worker_run_cleanup() {
+    [ "$cleaned" = 1 ] || fm_browser_owner_finalize "$state" "$task" "$generation" worker-exit
+  }
+  trap 'fm_browser_worker_run_cleanup >/dev/null 2>&1 || true' EXIT HUP INT TERM
+  "$@"
+  rc=$?
+  fm_browser_owner_finalize "$state" "$task" "$generation" worker-exit || return 1
+  cleaned=1
+  trap - EXIT HUP INT TERM
+  return "$rc"
+}
+
 # Detection only. Teardown uses this to refuse its generic cwd/process-group
 # reaper when a browser-like process is not covered by an exact owner record.
 fm_browser_process_is_browser_like() {  # <pid>
@@ -808,9 +829,9 @@ fm_browser_process_is_browser_like() {  # <pid>
 
 fm_browser_axi_exec() {  # [--session <name>] -- <chrome-devtools-axi args...>
   local state=${FM_BROWSER_STATE:-} task=${FM_BROWSER_TASK_ID:-} generation=${FM_BROWSER_SPAWN_GEN:-}
-  local session=${FM_BROWSER_SESSION:-${CHROME_DEVTOOLS_AXI_SESSION:-default}} cli
+  local logical_session=${FM_BROWSER_SESSION:-default} session cli
   if [ "${1:-}" = --session ]; then
-    session=${2:-}
+    logical_session=${2:-}
     shift 2
   fi
   [ "${1:-}" = -- ] || { fm_browser_lifecycle_error "axi wrapper requires -- before chrome-devtools-axi arguments"; return 2; }
@@ -820,8 +841,12 @@ fm_browser_axi_exec() {  # [--session <name>] -- <chrome-devtools-axi args...>
     fm_browser_lifecycle_error "axi wrapper requires the task lifecycle environment from fm-spawn"
     return 1
   }
-  cli=${FM_BROWSER_AXI_BIN:-}
-  if [ -z "$cli" ]; then cli=$(command -v chrome-devtools-axi 2>/dev/null || true); fi
+  fm_browser_validate_session "$logical_session" || {
+    fm_browser_lifecycle_error "axi wrapper received an invalid logical session"
+    return 1
+  }
+  session=$(fm_browser_session_for_task "$state" "$task" "$logical_session") || return 1
+  cli=$(command -v chrome-devtools-axi 2>/dev/null || true)
   [ -n "$cli" ] || { fm_browser_lifecycle_error "chrome-devtools-axi is unavailable"; return 1; }
   fm_browser_owner_register_axi "$state" "$task" "$generation" "$session" || return 1
   export CHROME_DEVTOOLS_AXI_SESSION=$session
