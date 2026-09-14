@@ -870,7 +870,7 @@ fm_browser_finalize_meta() {  # <state> <meta> <task-id> <reason>
 }
 
 fm_browser_worker_run() {  # <state> <task-id> <generation> -- <command...>
-  local state=$1 task=$2 generation=$3 rc cleaned=0 child= registered=0 worker_state
+  local state=$1 task=$2 generation=$3 rc cleaned=0 child= child_identity= registered=0 worker_state
   shift 3
   [ "${1:-}" = -- ] || return 2
   shift
@@ -880,6 +880,8 @@ fm_browser_worker_run() {  # <state> <task-id> <generation> -- <command...>
     if [ "$registered" = 1 ]; then
       worker_state=$(fm_browser_owner_worker_state "$state" "$task" "$generation")
       [ "$worker_state" = gone ] || return 0
+    elif [ -n "$child" ] && kill -0 "$child" 2>/dev/null; then
+      return 0
     fi
     fm_browser_owner_finalize "$state" "$task" "$generation" worker-exit
   }
@@ -888,9 +890,24 @@ fm_browser_worker_run() {  # <state> <task-id> <generation> -- <command...>
   child=$!
   if fm_browser_owner_register_worker "$state" "$task" "$generation" "${BASHPID:-$$}" "$child"; then
     registered=1
+    child_identity=$(fm_browser_record_field "$(fm_browser_owner_dir "$state" "$task")/owner" worker_child_identity 2>/dev/null || true)
   fi
-  wait "$child"
-  rc=$?
+  while :; do
+    wait "$child"
+    rc=$?
+    if [ "$registered" = 1 ]; then
+      worker_state=$(fm_browser_recorded_process_state "$child" "$child_identity")
+      case "$worker_state" in
+        gone) break ;;
+        alive) continue ;;
+        *) trap - EXIT HUP INT TERM; return "$rc" ;;
+      esac
+    elif kill -0 "$child" 2>/dev/null; then
+      continue
+    else
+      break
+    fi
+  done
   fm_browser_owner_finalize "$state" "$task" "$generation" worker-exit || return 1
   cleaned=1
   trap - EXIT HUP INT TERM

@@ -17,12 +17,13 @@ STATE="$TMP_ROOT/state"
 BRIDGE_PIDS=()
 LAUNCH_PIDS=()
 BROWSER_GROUP_PIDS=()
+WORKER_PIDS=()
 DIRECT_CHILD_PID=
 
 cleanup_processes() {
   local pid
   for pid in "${BRIDGE_PIDS[@]:-}" "${LAUNCH_PIDS[@]:-}" \
-    "${BROWSER_GROUP_PIDS[@]:-}" "$DIRECT_CHILD_PID"; do
+    "${BROWSER_GROUP_PIDS[@]:-}" "${WORKER_PIDS[@]:-}" "$DIRECT_CHILD_PID"; do
     [ -n "$pid" ] || continue
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
@@ -155,6 +156,11 @@ for _ in $(seq 1 100); do
   sleep 0.01
 done
 [ -n "${abrupt_child:-}" ] || fail "worker launch did not record its exact child identity"
+for _ in $(seq 1 100); do
+  [ ! -e "$STATE/.browser-lifecycle-abrupt-exit.lock" ] && break
+  sleep 0.01
+done
+[ ! -e "$STATE/.browser-lifecycle-abrupt-exit.lock" ] || fail "worker launch did not release its ownership lock"
 kill -KILL "$abrupt_supervisor" 2>/dev/null || fail "could not simulate abrupt worker-supervisor loss"
 wait "$abrupt_supervisor" 2>/dev/null || true
 [ "$(fm_browser_owner_worker_state "$STATE" abrupt-exit w2)" = alive ] \
@@ -169,6 +175,39 @@ done
 fm_browser_owner_finalize "$STATE" abrupt-exit w2 worker-exit
 wait "$abrupt_bridge_pid" 2>/dev/null || true
 kill -0 "$abrupt_bridge_pid" 2>/dev/null && fail "proven abrupt worker loss left its bridge running"
+
+fm_browser_owner_arm "$STATE" signal-exit w3 >/dev/null
+signal_session=$(fm_browser_session_for_task "$STATE" signal-exit)
+make_bridge "$signal_session"
+signal_bridge_pid=$BRIDGE_PID_RESULT
+fm_browser_worker_run "$STATE" signal-exit w3 -- bash -c 'exec sleep 30' &
+signal_supervisor=$!
+WORKER_PIDS+=("$signal_supervisor")
+for _ in $(seq 1 100); do
+  signal_child=$(fm_browser_record_field "$STATE/signal-exit.browser/owner" worker_child_pid 2>/dev/null || true)
+  [ -n "$signal_child" ] && break
+  sleep 0.01
+done
+[ -n "${signal_child:-}" ] || fail "worker launch did not record its signal-test child identity"
+WORKER_PIDS+=("$signal_child")
+for _ in $(seq 1 100); do
+  [ ! -e "$STATE/.browser-lifecycle-signal-exit.lock" ] && break
+  sleep 0.01
+done
+[ ! -e "$STATE/.browser-lifecycle-signal-exit.lock" ] || fail "signal-test worker launch did not release its ownership lock"
+kill -TERM "$signal_supervisor" 2>/dev/null || fail "could not signal the worker supervisor"
+for _ in $(seq 1 100); do
+  if kill -0 "$signal_child" 2>/dev/null && kill -0 "$signal_bridge_pid" 2>/dev/null; then
+    break
+  fi
+  sleep 0.01
+done
+kill -0 "$signal_child" 2>/dev/null || fail "signal interrupted the active worker child"
+kill -0 "$signal_bridge_pid" 2>/dev/null || fail "signal cleanup stopped the active bridge"
+kill -KILL "$signal_child" 2>/dev/null || fail "could not stop the signal-test worker child"
+wait "$signal_supervisor" 2>/dev/null || true
+wait "$signal_bridge_pid" 2>/dev/null || true
+kill -0 "$signal_bridge_pid" 2>/dev/null && fail "worker termination did not retire its bridge"
 
 # A live PID with the wrong process identity is never treated as a bridge.
 $BROWSER --help >/dev/null || fail "browser lifecycle worker interface is unavailable"
