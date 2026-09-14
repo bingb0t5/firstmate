@@ -170,39 +170,25 @@ fm_composer_normalize_trim_var() {  # <varname>
   printf -v "$__fmnt_name" '%s' "$__fmnt_text"
 }
 
-# _fm_composer_codex_idle_placeholder_re: a byte-level ERE (LC_ALL=C) that
-# matches Codex's literal idle placeholder 'Ask Codex to do anything' while
-# tolerating a Unicode Braille Pattern glyph (U+2800-U+28FF) ANYWHERE in the
-# row: bracketing the text (the original reported shape - braille dots before
-# and/or after the placeholder) or standing in place of any single
-# placeholder character (a letter-by-letter shimmer/materialize animation -
-# verified live on Codex CLI 0.154.0 under both gpt-6-astra and gpt-5.6-luna;
-# the animation shape, not the model, is what the original fix missed, so a
-# third model would reproduce it too). Every placeholder character still has
-# to appear in order - literally or as a braille stand-in - so this stays a
-# proof of the recognised idle shape, never a rule that Braille means empty.
-_fm_composer_codex_idle_placeholder_re() {
-  local placeholder='Ask Codex to do anything' braille=$'\342[\240-\243][\200-\277]'
-  local re i=0 n=${#placeholder} c
-  re="^($braille)*"
-  while [ "$i" -lt "$n" ]; do
-    c=${placeholder:$i:1}
-    re="$re(($braille)*($c|$braille))"
-    i=$((i + 1))
-  done
-  printf '%s' "$re(($braille)*)\$"
-}
+# Codex CLI 0.154.0 shimmers one placeholder character at a time on both
+# gpt-6-astra and gpt-5.6-luna, so three substitutions leave a deliberate
+# safety margin while requiring at least 21 literal placeholder characters.
+# Do not simplify this into an unbounded check: the doorbell could overwrite
+# an all-Braille genuine draft, including a blind captain's Braille input.
+FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS=3
 
 # _fm_composer_is_codex_braille_placeholder: prove that the styled Codex `›`
 # row is its recognised `Ask Codex to do anything` placeholder once the
 # ghost-stripped path proves every non-decorative byte is dim, and the
-# unstripped path proves the visible bytes spell the placeholder with only
-# Braille standing in for or bracketing its characters (see the regex builder
-# above). This narrow proof admits Braille-only decoration as empty without
-# teaching the shared classifier that Braille means empty for another
-# harness, an unknown row, or a row containing any non-Braille typed content.
+# unstripped path proves the visible bytes spell the placeholder with bounded
+# Braille substitutions and separately bracketed decoration. This narrow proof
+# admits idle decoration as empty without teaching the shared classifier that
+# Braille means empty for another harness, an unknown row, or a genuine
+# Braille-only draft.
 _fm_composer_is_codex_braille_placeholder() {  # <raw-row> <ghost-stripped-row>
-  local raw=$1 stripped=$2 plain glyph='' remainder pattern=$'\342[\240-\243][\200-\277]'
+  local raw=$1 stripped=$2 plain core candidate without_prefix glyph='' remainder pattern=$'\342[\240-\243][\200-\277]'
+  local placeholder='Ask Codex to do anything' leading trailing expected actual
+  local i prefix_keep suffix_keep remove n substitutions
   fm_composer_leading_agent_glyph_var glyph "$stripped" || return 1
   [ "$glyph" = '›' ] || return 1
   remainder=${stripped#*"$glyph"}
@@ -224,7 +210,34 @@ _fm_composer_is_codex_braille_placeholder() {  # <raw-row> <ghost-stripped-row>
   plain=${plain#*"$glyph"}
   fm_composer_normalize_spaces_var plain
   fm_composer_normalize_trim_var plain
-  printf '%s' "$plain" | LC_ALL=C grep -Eq "$(_fm_composer_codex_idle_placeholder_re)"
+  core=$(printf '%s' "$plain" | LC_ALL=C sed "s/$pattern/@/g")
+  leading=${core%%[^@]*}
+  for prefix_keep in 0 1; do
+    [ "${#leading}" -ge "$prefix_keep" ] || continue
+    remove=$((${#leading} - prefix_keep))
+    without_prefix=${core:$remove}
+    trailing=${without_prefix##*[^@]}
+    for suffix_keep in 0 1; do
+      [ "${#trailing}" -ge "$suffix_keep" ] || continue
+      remove=$((${#trailing} - suffix_keep))
+      n=$((${#without_prefix} - remove))
+      candidate=${without_prefix:0:$n}
+      [ "${#candidate}" -eq "${#placeholder}" ] || continue
+      substitutions=0
+      for ((i = 0; i < ${#placeholder}; i++)); do
+        expected=${placeholder:$i:1}
+        actual=${candidate:$i:1}
+        if [ "$actual" = '@' ]; then
+          substitutions=$((substitutions + 1))
+        elif [ "$actual" != "$expected" ]; then
+          break
+        fi
+      done
+      [ "$i" -eq "${#placeholder}" ] || continue
+      [ "$substitutions" -le "$FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS" ] && return 0
+    done
+  done
+  return 1
 }
 
 # fm_composer_strip_ghost: the ONE fleet-wide ANSI-aware extractor of "real typed

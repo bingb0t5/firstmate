@@ -248,7 +248,7 @@ test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending() {
 # same pane as empty.
 test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending() {
   local encoded capture dot='⠋'
-  local shimmer_first shimmer_mid shimmer_last shimmer_multi typed shimmer_plus_typed
+  local shimmer_first shimmer_mid shimmer_last shimmer_multi shimmer_four typed shimmer_plus_typed
   encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-idle.ansi-escaped")
   printf -v capture '%b' "$encoded"
 
@@ -264,6 +264,9 @@ test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending() {
   shimmer_multi=${capture/Ask Codex to do anything/$'\033[0m'"$dot"$'\033[2msk Codex \033[0m'"$dot"$'\033[2mo do anythin\033[0m'"$dot"}
   assert_screen "Codex idle placeholder shimmering three letters at once" empty "$CAPS_STYLED" "$shimmer_multi"
 
+  shimmer_four=${capture/Ask Codex to do anything/$'\033[0m'"$dot"$'\033[2msk Codex \033[0m'"$dot"$'\033[2mo d\033[0m'"$dot"$'\033[2m anyt\033[0m'"$dot"$'\033[2ming'}
+  assert_screen "Codex idle placeholder shimmering four letters at once" pending "$CAPS_STYLED" "$shimmer_four"
+
   # Acceptance criterion 3, its own dedicated assertion: a genuine typed
   # draft, with no shimmer at all, must still read pending.
   typed=${capture/Ask Codex to do anything/$'\033[0m'"Fix the release pipeline before merging"}
@@ -275,6 +278,21 @@ test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending() {
   assert_screen "shimmering placeholder plus appended real text stays pending" pending "$CAPS_STYLED" "$shimmer_plus_typed"
 
   pass "matrix: Codex idle-placeholder letter-shimmer Braille (gpt-6-astra, gpt-5.6-luna) reads empty, and genuine typed drafts stay pending"
+}
+
+test_matrix_codex_all_braille_drafts_are_pending() {
+  local braille='⠋' all_braille_23='' all_braille_24='' all_braille_25='' i=0
+  local draft
+  while [ "$i" -lt 25 ]; do
+    [ "$i" -lt 23 ] && all_braille_23+=$braille
+    [ "$i" -lt 24 ] && all_braille_24+=$braille
+    all_braille_25+=$braille
+    i=$((i + 1))
+  done
+  for draft in "$all_braille_23" "$all_braille_24" "$all_braille_25"; do
+    assert_screen "genuine all-Braille Codex draft stays pending" pending "$CAPS_STYLED" "${ESC}[1m›${ESC}[0m $draft"
+  done
+  pass "matrix: shorter, placeholder-length, and longer all-Braille Codex drafts stay pending"
 }
 
 test_matrix_muse_truecolor_glyph_survives_signal_loss() {
@@ -696,6 +714,7 @@ test_matrix_claude_bare_nbsp_row
 test_matrix_codex_dim_hint_row
 test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending
 test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending
+test_matrix_codex_all_braille_drafts_are_pending
 test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant
 test_matrix_herdr_halfblock_rule_bounds_bare_wrap
