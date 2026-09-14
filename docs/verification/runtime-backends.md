@@ -30,6 +30,13 @@ tests/fm-secondmate-safety.test.sh
 Observed result: each suite passed, including refusal before backlog, endpoint, or metadata mutation at four counted workers, local-only snapshots without remote reads, prioritized handoff, and nested-secondmate refusal.
 Because `bin/fm-spawn.sh` performs this check under the existing task-set lock before backend resolution and launch, the guard applies unchanged to Claude, Codex, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, Muse, tmux, Herdr, Zellij, Orca, and cmux.
 
+## Browser lifecycle ownership
+
+The portable regression suite `tests/fm-browser-lifecycle.test.sh` proves that task-incarnation records reserve distinct named sessions, refuse active or foreign PID records, delegate named-session shutdown to the existing `chrome-devtools-axi stop` interface, return direct-command failure and explicit timeout results, and preserve a direct process when its recorded identity changes.
+The suite also exercises the same finalizer used by worker-exit cleanup and the shared process-group classifier used by teardown; teardown refuses browser-like processes that lack an exact owner record instead of signaling them from cwd or ancestry.
+On 2026-09-14, `chrome-devtools-axi --version` reported 0.1.32, and a real named-session `open` against a `data:text/html` page returned the page title and snapshot before the lifecycle finalizer delegated `stop`; the ownership directory was then retired.
+The first attempt with a nonexistent `CHROME_DEVTOOLS_AXI_MCP_PATH` correctly exposed the installed-MCP-path limitation, so the successful reproduction used the tool's npx fallback and did not claim a globally installed MCP package.
+
 ## tmux
 
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.

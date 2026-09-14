@@ -262,6 +262,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-browser-lifecycle-lib.sh
+. "$SCRIPT_DIR/fm-browser-lifecycle-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
@@ -744,6 +746,9 @@ RELAUNCH_REPLACEMENT_STATE=
 RELAUNCH_REPLACEMENT_WT=
 CONFIG_INHERIT_LOCK=
 CONFIG_INHERIT_LOCK_HELD=0
+SPAWN_BROWSER_ARMED=0
+SPAWN_BROWSER_STATE=
+SPAWN_BROWSER_SESSION=
 
 parse_orca_worktree_result() {
   local raw=$1 rest
@@ -770,6 +775,12 @@ spawn_abort_cleanup() {
      && [ ! -e "$SPAWN_META_TMP" ] \
      && [ ! -L "$SPAWN_META_TMP" ]; then
     RELAUNCH_REPLACEMENT_PENDING=0
+  fi
+  if [ "$SPAWN_BROWSER_ARMED" = 1 ]; then
+    SPAWN_BROWSER_ARMED=0
+    if ! fm_browser_owner_finalize "$SPAWN_BROWSER_STATE" "$ID" "$SPAWN_GEN" spawn-abort; then
+      echo "warning: could not clean browser resources after aborted spawn of $ID; ownership records were preserved" >&2
+    fi
   fi
   if [ "$RELAUNCH_REPLACEMENT_PENDING" = 1 ]; then
     RELAUNCH_REPLACEMENT_PENDING=0
@@ -2897,6 +2908,16 @@ if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
 fi
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
+# Reserve a task-incarnation browser session only after durable task metadata is
+# published. The owner record is private and makes every later cleanup exact;
+# the worker receives the same session through its environment below.
+SPAWN_BROWSER_STATE=$STATE_REAL
+SPAWN_BROWSER_SESSION=$(fm_browser_owner_arm "$STATE_REAL" "$ID" "$SPAWN_GEN") || {
+  echo "error: could not reserve browser lifecycle ownership for $ID" >&2
+  exit 1
+}
+SPAWN_BROWSER_ARMED=1
+
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
 sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
@@ -2990,6 +3011,18 @@ spawn_record_traceparent() {
 # process (go build, go test, ...) inherit it. Sent before the launch command so
 # the env is set when the agent starts; the brief sleep lets the export land.
 spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
+# Bind browser commands to this task incarnation. Raw chrome-devtools-axi calls
+# inherit the named session; custom named sessions and direct Playwright/Puppeteer
+# launches use fm-browser-lifecycle.sh, which records their exact ownership.
+sq_browser_lifecycle=$(shell_quote "$FM_ROOT/bin/fm-browser-lifecycle.sh")
+sq_browser_state=$(shell_quote "$STATE_REAL")
+sq_browser_task=$(shell_quote "$ID")
+sq_browser_gen=$(shell_quote "$SPAWN_GEN")
+sq_browser_session=$(shell_quote "$SPAWN_BROWSER_SESSION")
+if ! spawn_send_text_line "$T" "export FM_BROWSER_LIFECYCLE=$sq_browser_lifecycle FM_BROWSER_STATE=$sq_browser_state FM_BROWSER_TASK_ID=$sq_browser_task FM_BROWSER_SPAWN_GEN=$sq_browser_gen FM_BROWSER_SESSION=$sq_browser_session CHROME_DEVTOOLS_AXI_SESSION=$sq_browser_session"; then
+  echo "error: browser lifecycle environment could not be delivered to task $ID" >&2
+  exit 1
+fi
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
 # entirely when trace context is off.
@@ -3010,6 +3043,10 @@ fi
 sleep 0.3
 spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3
+# The launch command is now delivered to the endpoint. Later readiness or
+# delivery checks must preserve its browser owner because the worker may have
+# started even when one of those checks fails.
+SPAWN_BROWSER_ARMED=0
 if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
   HERDR_PROJECTION_ABORT_CLEANUP=0
   spawn_herdr_presentation_order_lock_release
@@ -3049,6 +3086,9 @@ if [ "$KIND" = secondmate ] && [ "${FM_SKIP_SECONDMATE_INHERIT:-0}" != 1 ]; then
   fi
 fi
 
+# The worker owns the reserved incarnation. Leave its browser records in place
+# for fm-control, the exact dead-endpoint watcher path, and teardown.
+SPAWN_BROWSER_ARMED=0
 SPAWN_DELIVERY=
 [ -z "$MODE" ] || SPAWN_DELIVERY=" mode=$MODE yolo=$YOLO"
 echo "spawned $ID harness=$HARNESS kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT"

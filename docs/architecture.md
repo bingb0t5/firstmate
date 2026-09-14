@@ -185,6 +185,19 @@ cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or b
 cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `FM_ROOT` path, and `--secondmate` spawns are refused, mirroring Orca.
 Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectable as a runtime backend.
 
+## Browser sessions follow task lifecycles
+
+`bin/fm-browser-lifecycle-lib.sh` is the single owner of browser resource records, and `bin/fm-browser-lifecycle.sh` is the worker-facing wrapper for named `chrome-devtools-axi` sessions and directly launched Playwright or Puppeteer commands.
+`fm-spawn.sh` reserves one session for each task incarnation and exports that session to the worker, so ordinary `chrome-devtools-axi` calls use a task-scoped bridge without changing the browser tool's public lifecycle.
+A worker that deliberately selects another named session must use the wrapper, which registers that exact session before invoking the existing `chrome-devtools-axi` CLI.
+The bridge remains the owner of its Chrome and MCP children, and Firstmate proves the task, incarnation, session reservation, bridge PID liveness, and bridge command identity before delegating cleanup to `chrome-devtools-axi stop`.
+`fm-control.sh exit`, the existing watcher when an exact recorded endpoint is dead or missing, and `fm-teardown.sh` all use the same finalizer, so success, failure, timeout, and worker exit converge on one lifecycle contract rather than a host-wide reaper.
+Harness Stop and SessionEnd hooks continue to report the harness's own turn state, but they do not close browsers while a worker may still be using them; Firstmate's verified endpoint lifecycle decides when the finalizer may run.
+A browser-like process found by teardown's generic cwd fallback is preserved; an exact wrapper-created process group is retired earlier by the lifecycle finalizer, and the fallback never signals one from parentlessness, ancestry, cwd, or age.
+Direct Playwright or Puppeteer launches are owned only through the wrapper's `setsid` process group and recorded leader identity; detached children that leave that proven group remain untouched for inspection.
+`CHROME_DEVTOOLS_AXI_BROWSER_URL` and auto-connect sessions may attach to a captain- or operator-owned browser, so finalization stops only the exact Firstmate bridge and never the attached browser.
+The implementation mechanics and the version-scoped real-tool evidence live in [`bin/fm-browser-lifecycle.sh`](../bin/fm-browser-lifecycle.sh) and [`docs/verification/runtime-backends.md#browser-lifecycle-ownership`](verification/runtime-backends.md#browser-lifecycle-ownership).
+
 ## Worktrees, not branches in your checkout
 
 Crewmates never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) pools clean worktrees for tmux, herdr, zellij, and cmux tasks, while Orca creates its own worktrees for `backend=orca`.

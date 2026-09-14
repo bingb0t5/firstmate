@@ -125,6 +125,8 @@ fm_watch_config_load "$CONFIG/watch.env"
 . "$SCRIPT_DIR/fm-push-transition-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-browser-lifecycle-lib.sh
+. "$SCRIPT_DIR/fm-browser-lifecycle-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh
 . "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
@@ -416,6 +418,43 @@ recorded_windows() {
     seen="$seen|$w|"
     printf '%s\n' "$w"
   done
+}
+
+# Reconcile browser ownership only for a task whose exact recorded endpoint is
+# authoritatively dead or missing. This is part of the existing lifecycle
+# supervision path, not a process sweep: it never scans browser processes or
+# infers ownership from ancestry, cwd, parentlessness, or age.
+browser_lifecycle_dead_endpoint_check() {  # <window> <task>
+  local w=$1 task=$2 meta owner_dir gen endpoint_state marker reason key queued
+  [ -n "$task" ] || return 0
+  meta="$STATE/$task.meta"
+  owner_dir="$STATE/$task.browser"
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
+  [ -d "$owner_dir" ] && [ ! -L "$owner_dir" ] || return 0
+  endpoint_state=$(fm_backend_agent_state "$(window_backend "$w")" "$w")
+  case "$endpoint_state" in
+    dead|missing) ;;
+    *) return 0 ;;
+  esac
+  gen=$(fm_browser_record_field "$meta" spawn_gen 2>/dev/null || true)
+  [ -n "$gen" ] || return 0
+  if fm_browser_finalize_meta "$STATE" "$meta" "$task" worker-exit; then
+    return 0
+  fi
+  marker=$(fm_browser_cleanup_notification_path "$STATE" "$task") || return 1
+  [ "$(cat "$marker" 2>/dev/null || true)" != "$gen" ] || return 0
+  printf '%s\n' "$gen" > "$marker" || return 1
+  key="browser-cleanup-$task-$gen"
+  reason="check: browser resources for task $task could not be retired after its worker stopped; inspect the exact bridge or direct-launch ownership record"
+  queued=$(fm_wake_queued_keys check)
+  if printf '%s\n' "$queued" | grep -Fx "$key" >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! fm_wake_append check "$key" "$reason"; then
+    rm -f "$marker"
+    return 1
+  fi
+  wake "$reason"
 }
 
 # Print the oldest structurally valid row in a local secondmate's foreign queue
@@ -1528,6 +1567,7 @@ EOF
   while IFS= read -r w; do
     kind=$(window_kind "$w")
     task=$(window_to_task "$w" "$STATE")
+    [ -z "$task" ] || browser_lifecycle_dead_endpoint_check "$w" "$task"
     # Steering-inbox loss detection runs before the secondmate stale
     # exemption below, because a mate's steers land in an inbox too.
     [ -z "$task" ] || inbox_steer_check "$w" "$task"

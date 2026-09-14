@@ -152,6 +152,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-browser-lifecycle-lib.sh
+. "$SCRIPT_DIR/fm-browser-lifecycle-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-lock-lib.sh
@@ -1611,7 +1613,7 @@ $dir_pids"
 }
 
 reap_task_backend_process_group() {  # <label>
-  local label=$1 leader leader_start pgid current_pgid own_pgid
+  local label=$1 leader leader_start pgid current_pgid own_pgid browser_probe_rc
   if [ "$BACKEND" != tmux ]; then
     echo "warning: lsof is unavailable; cannot resolve a process-group fallback for $BACKEND task $ID" >&2
     return 0
@@ -1640,9 +1642,29 @@ reap_task_backend_process_group() {  # <label>
     return 0
   fi
   task_process_identity_matches "$leader" "$leader_start" || return 0
+  if fm_browser_process_is_browser_like "$leader"; then
+    echo "REFUSED: the leaked process-group leader for $ID looks like a browser, but no exact browser owner was proven; preserving it instead of signaling by ancestry" >&2
+    return 1
+  else
+    browser_probe_rc=$?
+    if [ "$browser_probe_rc" -eq 2 ]; then
+      echo "REFUSED: could not identify the leaked process-group leader for $ID as a browser or non-browser; preserving it instead of signaling blindly" >&2
+      return 1
+    fi
+  fi
   current_pgid=$(ps -o pgid= -p "$leader" 2>/dev/null) || current_pgid=""
   current_pgid=$(printf '%s' "$current_pgid" | tr -d '[:space:]')
   [ "$current_pgid" = "$pgid" ] || return 0
+  if fm_browser_process_group_probe "$pgid"; then
+    echo "REFUSED: leaked process group $pgid for $ID contains a browser without an exact browser owner; preserving it instead of signaling by process-group ancestry" >&2
+    return 1
+  else
+    browser_probe_rc=$?
+    if [ "$browser_probe_rc" -eq 2 ]; then
+      echo "REFUSED: could not inspect every member of leaked process group $pgid for $ID; preserving it instead of signaling blindly" >&2
+      return 1
+    fi
+  fi
   echo "teardown: reaping leaked $label process group for $ID: $pgid" >&2
   kill -TERM -- "-$pgid" 2>/dev/null || true
   sleep 1
@@ -1661,11 +1683,11 @@ reap_task_backend_process_group() {  # <label>
 # the recheck. A missing lsof uses the backend process-group fallback; an lsof
 # scan error refuses before destructive teardown.
 reap_task_worktree_processes() {  # <label> <dir>...
-  local label=$1 pids pid identity current_pids i pass=1 max_passes=3
+  local label=$1 pids pid identity current_pids i pass=1 max_passes=3 browser_probe_rc
   local -a tracked_pids tracked_identities remaining_pids remaining_identities
   shift
   if ! command -v lsof >/dev/null 2>&1; then
-    reap_task_backend_process_group "$label"
+    reap_task_backend_process_group "$label" || return 1
     return 0
   fi
   while [ "$pass" -le "$max_passes" ]; do
@@ -1689,6 +1711,16 @@ reap_task_worktree_processes() {  # <label> <dir>...
           return 1
         fi
         continue
+      fi
+      if fm_browser_process_is_browser_like "$pid"; then
+        echo "REFUSED: process $pid under $label looks like a browser, but no exact browser owner was proven; preserving it instead of signaling by cwd or ancestry" >&2
+        return 1
+      else
+        browser_probe_rc=$?
+        if [ "$browser_probe_rc" -eq 2 ]; then
+          echo "REFUSED: could not identify leaked process $pid under $label as a browser or non-browser; preserving it instead of signaling blindly" >&2
+          return 1
+        fi
       fi
       tracked_pids+=("$pid")
       tracked_identities+=("$identity")
@@ -2427,6 +2459,7 @@ cleanup_firstmate_home_children() {
     child_proj=$(meta_value "$child_meta" project)
     child_kind=$(meta_value "$child_meta" kind)
     [ -n "$child_kind" ] || child_kind=ship
+    fm_browser_finalize_meta "$sub_state" "$child_meta" "$child_id" teardown || return 1
     child_backend=$(fm_backend_of_meta "$child_meta")
     if [ "$child_backend" = orca ]; then
       child_t=$(meta_value "$child_meta" terminal)
@@ -2560,6 +2593,7 @@ fi
 
 if [ "$KIND" = secondmate ]; then
   preflight_firstmate_home_process_event_tree "$HOME_PATH" "secondmate home" || exit 1
+  fm_browser_finalize_meta "$STATE" "$META" "$ID" teardown || exit 1
 fi
 
 if [ "$KIND" = secondmate ] && [ "$FORCE" = "--force" ]; then
@@ -2646,10 +2680,18 @@ fi
 # Every landed/discard-work refusal above has now passed (or --force skipped
 # them). Fix 1 and Fix 2 (see script header) run here, unconditionally on
 # --force, and before ANY destructive step below - a still-parked run or a
-# leaked process can own live work in this exact worktree. Not for
-# kind=secondmate: a secondmate home's own runtime lifecycle is owned by the
-# dedicated process-event and firstmate-home removal machinery further below,
-# not by task-worktree cleanup.
+# leaked process can own live work in this exact worktree. Before Fix 1, the
+# exact task-incarnation browser owner in bin/fm-browser-lifecycle-lib.sh is
+# finalized through chrome-devtools-axi stop or its proven direct process-group
+# finalizer; a failure preserves the task rather than falling through to a
+# generic process kill. Not for kind=secondmate: a secondmate home's own runtime
+# lifecycle is owned by the dedicated process-event and firstmate-home removal
+# machinery further below, not by task-worktree cleanup.
+# Browser ownership is finalized before the generic cwd/process cleanup. That
+# generic reaper is deliberately forbidden from deciding browser ownership.
+if [ "$KIND" != secondmate ]; then
+  fm_browser_finalize_meta "$STATE" "$META" "$ID" teardown || exit 1
+fi
 if [ "$KIND" != secondmate ]; then
   conclude_task_no_mistakes_run "$WT"
   reap_task_worktree_processes worktree "$WT" "$TASK_TMP"
