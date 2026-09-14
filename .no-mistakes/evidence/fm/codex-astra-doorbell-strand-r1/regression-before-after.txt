@@ -1,0 +1,3 @@
+Scenario: captured Codex 0.154.0 idle row with its first placeholder letter replaced by a bright Braille cell
+Base commit 8ab499168d373f553950cf4286a2a5692a8cf260 classifier verdict: pending
+Target commit b52f8393fdfb81a57fd6f7455b9d573cd0821bf9 classifier verdict: empty

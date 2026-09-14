@@ -1,0 +1,28 @@
+Codex CLI: codex-cli 0.154.0
+Model: current default
+Idle classifier verdict before typing: unknown
+Classifier verdict after typing a 24-cell Braille draft: unknown
+
+Visible idle composer capture:
+
+  Hooks need review
+  4 hooks are new or changed.
+  Hooks can run outside the sandbox after you trust them.
+
+› 1. Review hooks
+  2. Trust all and continue
+  3. Continue without trusting (hooks won't run)
+
+  Press enter to confirm or esc to go back
+
+Visible composer capture after the 24-cell Braille draft:
+
+  Hooks need review
+  4 hooks are new or changed.
+  Hooks can run outside the sandbox after you trust them.
+
+› 1. Review hooks
+  2. Trust all and continue
+  3. Continue without trusting (hooks won't run)
+
+  Press enter to confirm or esc to go back

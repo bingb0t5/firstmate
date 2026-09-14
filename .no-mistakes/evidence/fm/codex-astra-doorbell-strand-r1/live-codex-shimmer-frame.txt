@@ -1,0 +1,19 @@
+Codex CLI: codex-cli 0.154.0
+No Unicode Braille frame was emitted during 600 50ms samples of an untouched idle composer.
+Last visible terminal capture:
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                               │
+│                                                          │
+│ model:       gpt-6-astra high   /model to change         │
+│ directory:   ~/…/7ce0540b75f4/01M2FVPJ86YVDF5884FVPWYGD6 │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Use /fast to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+› Ask Codex to do anything
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2FVPJ86YVDF5884FVPWYGD6 · ← for agents

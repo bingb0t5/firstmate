@@ -1,0 +1,20 @@
+Codex CLI: codex-cli 0.154.0
+Classifier verdict after typing an ASCII draft: pending
+
+Visible composer capture:
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                               │
+│                                                          │
+│ model:       gpt-6-astra high   /model to change         │
+│ directory:   ~/…/7ce0540b75f4/01M2FVPJ86YVDF5884FVPWYGD6 │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Use /feedback to send logs to the maintainers when something looks off.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+› preserve this genuine draft
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2FVPJ86YVDF5884FVPWYGD6

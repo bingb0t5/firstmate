@@ -1,0 +1,37 @@
+Codex CLI: codex-cli 0.154.0
+Model: current default
+Startup choice: Continue without trusting hooks
+Idle classifier verdict before typing: empty
+Classifier verdict after typing a 24-cell Braille draft: pending
+
+Visible idle composer capture:
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                               │
+│                                                          │
+│ model:       loading   /model to change                  │
+│ directory:   ~/…/7ce0540b75f4/01M2FVPJ86YVDF5884FVPWYGD6 │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+
+› Ask Codex to do anything
+
+  ? for shortcuts
+
+Visible composer capture after the 24-cell Braille draft:
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                               │
+│                                                          │
+│ model:       gpt-6-astra high   /model to change         │
+│ directory:   ~/…/7ce0540b75f4/01M2FVPJ86YVDF5884FVPWYGD6 │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Use /fast to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+› ⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋⠋
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2FVPJ86YVDF5884FVPWYGD6

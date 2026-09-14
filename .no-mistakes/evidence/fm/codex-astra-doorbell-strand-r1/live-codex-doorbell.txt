@@ -1,0 +1,3 @@
+# codex (codex-cli 0.154.0): idle composer never classified empty; proceeding as production does (advisory check skips only on pending)
+not ok - codex (codex-cli 0.154.0): fm-send refused the live steer
+not ok - live steering-inbox doorbell guard found failures above

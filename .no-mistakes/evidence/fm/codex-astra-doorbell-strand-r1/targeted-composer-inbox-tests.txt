@@ -1,0 +1,115 @@
+FM_TEST_BEGIN 2026-09-14T12:04:35Z tests/fm-composer-lib.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm_composer_classify_content: a bare shell prompt glyph (>/$/%/#) reads unknown, never empty
+ok - fm_composer_classify_content: stripped unbordered content is unknown except verified agent glyphs
+ok - fm_composer_classify_content: a bare shell prompt carrying a command is not empty
+ok - fm_composer_classify_content: a bare prompt glyph inside a bordered composer box reads empty (claude's own idle composer)
+ok - fm_composer_classify_content: agent prompt glyphs (❯ claude, › codex, ⟩ muse) read empty bordered or bare
+ok - fm_composer_classify_content: an empty composer reads empty
+ok - fm_composer_classify_content: idle matching is limited to proven placeholder positions
+ok - fm_composer_classify_content: idle matching preserves the caller's case mode
+ok - fm_composer_classify_content: real unsubmitted text reads pending (including a popup argument-hint fill)
+ok - matrix: claude's ❯+NBSP row reads empty on every profile in both locales (#1988)
+ok - matrix: codex's dim hint is empty when styling proves it, unknown (never pending) when it cannot
+ok - matrix: captured Codex idle is empty, Braille-only animation is ignored, and mixed or neighboring text stays pending
+ok - matrix: Codex idle-placeholder letter-shimmer Braille (gpt-6-astra, gpt-5.6-luna) reads empty, and genuine typed drafts stay pending
+ok - matrix: shorter, placeholder-length, and longer all-Braille Codex drafts stay pending
+ok - matrix: muse's ⟩ reads empty everywhere and survives losing the styled-glyph signal
+ok - matrix: cursor's reverse-video placeholder remnant reads empty; real typed text stays pending
+ok - matrix: herdr half-block rules bound a bare composer's wrap region
+ok - matrix: pi's separated composer needs identity + structure; the blank row alone never proves it
+ok - matrix: opencode's left-bar composer reads empty everywhere and scans the full active run
+ok - matrix: grok's titled bottom border is tolerated as a title, not read as ambiguity
+ok - matrix: kimi's bordered shell-glyph box reads empty through the shared owner (spawn's fourth copy retired)
+ok - matrix: the real claude-in-zellij --ansi dump reads empty in both locales
+ok - strict posture: blank and unidentified rows are unknown, never injectable empty
+ok - fm_composer_classify_screen: the bare composer's wrap region stays identified; structure breaks it
+ok - fm_composer_classify_screen: a row-leading agent glyph reanchors the live composer
+ok - fm_composer_classify_screen: a lower dead shell invalidates only cursorless stale composers
+ok - fm_composer_classify_screen: cursorless bare wrap regions participate in verdicts
+ok - fm_composer_classify_screen: cursorless containers reject only contiguous unclaimed activity
+ok - fm_composer_classify_screen: the bottom-most candidate wins; stale banners cannot
+ok - fm_composer_classify_screen: incomplete lower structure invalidates stale boxes
+ok - fm_composer_classify_screen: titled bottoms retain full box geometry
+ok - fm_composer_classify_screen: a proven box tolerates a bottom-border cursor
+ok - fm_composer_extract_selected_content: scopes user content and excludes furniture
+ok - fm_composer_queued_enter_verdict: pending + busy returns empty (queued Enter)
+ok - fm_composer_queued_enter_verdict: pending + idle/unknown stays pending
+ok - fm_composer_queued_enter_verdict: only proven pending is converted
+FM_TEST_END 2026-09-14T12:04:41Z tests/fm-composer-lib.test.sh exit=0 duration_ms=5729 gate_skip=false
+FM_TEST_BEGIN 2026-09-14T12:04:41Z tests/fm-composer-ghost.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm_tmux_strip_ghost drops dim/faint runs, keeps normal and bold text
+ok - fm_tmux_strip_ghost handles combined SGR, ESC[22m, and reset-then-dim
+ok - fm_tmux_strip_ghost keeps bright colored text with 2 payloads
+ok - fm_tmux_strip_ghost drops a dark/muted truecolor foreground (grok placeholder)
+ok - fm_tmux_strip_ghost keeps muse's near-threshold glyph and its typed text
+ok - fm_pane_input_pending: a dim ghost-only composer is NOT pending
+ok - fm_pane_input_pending: dim ghost inside a bordered composer is NOT pending
+ok - fm_pane_input_pending: normal-intensity typed text is still pending
+ok - fm_pane_input_pending: bright colored text with 2 payloads is still pending
+ok - fm_pane_input_pending: a dark truecolor ghost-only composer (grok placeholder) is NOT pending
+ok - fm_tmux_composer_state: dark truecolor shell prompts read unknown
+ok - fm_pane_input_pending: real text plus a trailing ghost run is still pending
+ok - fm_tmux_composer_state: text above an empty cursor row is pending
+ok - fm_tmux_composer_state: a message wrapped across three rows is pending
+ok - fm_tmux_composer_state: a proven titled box tolerates a bottom-border cursor
+ok - fm_tmux_composer_identity: unknown busy state cannot become idle identity
+ok - fm_tmux_composer_state: typed Pi and Grok busy signatures inside a box are pending
+ok - fm_tmux_composer_state: a bare busy-footer row reads unknown (strict container-proof rule)
+ok - fm_tmux_composer_state: an unbounded bordered box fails closed as unknown
+ok - fm_tmux_composer_state: clipped and asymmetric composer edges fail closed
+ok - fm_tmux_composer_state: inconsistent box geometry fails closed
+ok - fm_tmux_composer_state: misaligned box bounds fail closed
+ok - fm_tmux_composer_state: unproved ghost and malformed geometry stay unknown while styled placeholder-like text stays pending-unproven
+ok - fm_tmux_composer_state: differing widths prefer pending or unknown, never empty
+ok - fm_tmux_composer_state: emoji and CJK text remain pending under the C locale
+ok - fm_tmux_composer_state: all tmux harnesses share empty and pending classification
+ok - fm_pane_input_pending: unrecognized states defer by default
+ok - fm_tmux_composer_state: one capture feeds the classifier; no band-capture race remains
+ok - fm_tmux_composer_state: absent Pi identity preserves Claude's enclosed bare verdict
+ok - fm_tmux_composer_state: only proven structural and non-bordered empty routes stay empty
+ok - fm_tmux_composer_state: panes without bordered structure retain compatibility fallback
+ok - fm_tmux_composer_state: interior edge glyphs retain non-bordered fallback
+ok - fm-peek output is escape-free (no raw -e bytes reach firstmate context)
+FM_TEST_END 2026-09-14T12:04:44Z tests/fm-composer-ghost.test.sh exit=0 duration_ms=3001 gate_skip=false
+FM_TEST_BEGIN 2026-09-14T12:04:44Z tests/fm-send-inbox.test.sh family=backend-dispatch expected_gate_skip=none
+ok - fm-send inbox: the payload is recorded durably and only the doorbell is typed
+ok - fm-send inbox: newlines are legal and the terminal can no longer truncate a steer
+ok - fm-send inbox: a re-send is a new durable record, never a retyped payload
+ok - fm-send inbox: a visibly pending composer skips the ring, and the steer stays durably sent
+ok - fm-send inbox: a failed doorbell is still a durably sent steer
+ok - fm-send inbox: Pi MCP status banners do not look like pending composer text
+ok - fm-send planes: slash and codex $skill invocations stay typed; plain $-text rides the inbox
+ok - fm-send planes: an explicit backend target keeps the typed plane
+ok - fm-send planes: --inbox-only pins slash and codex dollar steers to the durable inbox
+ok - fm-send planes: the --key lifecycle path never touches the inbox
+ok - fm-send inbox: a secondmate steer records marker+corr in the body and is delivered at enqueue
+ok - fm-send inbox: lost reply bookkeeping never invites a resend, and the delivered steer is never duplicated
+ok - fm-send inbox: metadata lock contention fails bounded without enqueue
+ok - fm-send inbox: an unwritable record is a loud local failure that leaves no false expectation
+FM_TEST_END 2026-09-14T12:05:53Z tests/fm-send-inbox.test.sh exit=0 duration_ms=68930 gate_skip=false
+FM_TEST_BEGIN 2026-09-14T12:05:53Z tests/fm-task-inbox.test.sh family=watcher-wake-lock expected_gate_skip=none
+ok - inbox: a steer is written durably and round-trips byte-exact with a self-describing doorbell
+ok - inbox: the idempotent enqueue dedups an exact re-run onto the same record, handled or not
+ok - inbox: idempotent enqueue follows a record concurrently moved to handled
+ok - inbox: the handled mv is the idempotent ack and sequences are never reissued
+ok - inbox: concurrent writers serialize on the sequence lock and lose nothing
+ok - inbox: a lost create race retries after the winning owner releases before recheck
+ok - inbox: unavailable lock age evidence refuses without recursive steal acquisition
+ok - inbox: ladder bookkeeping ignores a concurrently removed inbox
+ok - inbox: the re-ring ladder paces by grace, escalates once, and resets on ack
+ok - watcher: an unhandled aged message on an idle pane re-rings without waking firstmate, and the ack silences it
+ok - watcher: a busy pane just waits - the record is durable and no doorbell is typed
+ok - watcher: an idle Codex pane receives its durable inbox row through the doorbell
+ok - watcher: a healthy or empty inbox stays completely silent
+ok - watcher: acknowledgement silences an unwritable ladder without a stale wake
+ok - watcher: unwritable ladder bookkeeping surfaces a stale wake after the doorbell
+ok - watcher: a spent ring budget emits exactly one ordinary stale wake for recovery
+FM_TEST_END 2026-09-14T12:06:23Z tests/fm-task-inbox.test.sh exit=0 duration_ms=30613 gate_skip=false
+FM_TEST_SUMMARY total=4 failed=0 skipped_gate=0 duration_ms=108428
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=1 duration_ms=68930 failed=0
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=2 duration_ms=8730 failed=0
+FM_TEST_SUMMARY_FAMILY family=watcher-wake-lock count=1 duration_ms=30613 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-send-inbox.test.sh duration_ms=68930
+FM_TEST_SLOWEST rank=2 script=tests/fm-task-inbox.test.sh duration_ms=30613
+FM_TEST_SLOWEST rank=3 script=tests/fm-composer-lib.test.sh duration_ms=5729
+FM_TEST_SLOWEST rank=4 script=tests/fm-composer-ghost.test.sh duration_ms=3001
