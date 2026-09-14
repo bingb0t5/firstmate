@@ -231,21 +231,11 @@ test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending() {
   pass "matrix: captured Codex idle is empty, Braille-only animation is ignored, and mixed or neighboring text stays pending"
 }
 
-# Regression for fm-codex-astra-doorbell-strand-r1: the PR 71 fix above only
-# proved Braille bracketing the placeholder (dots added before/after the
-# literal text). Verified live on Codex CLI 0.154.0 under BOTH gpt-6-astra
-# and gpt-5.6-luna, the idle placeholder also shimmers letter-by-letter: one
-# character of "Ask Codex to do anything" is itself temporarily rendered as a
-# bright (non-dim) Braille dot INSTEAD OF the literal letter, rather than only
-# being decorated around. The animation shape - not either model - is the
-# actual cause, so a third model reproduces it too. Before this fix, every
-# case below read `pending` against current main and starved the doorbell
-# exactly as reported (fm-send: "doorbell skipped (composer visibly holds
-# pending text)") even though the composer was genuinely empty; `fm-control
-# interrupt` cannot clear it because interrupting does not stop the
-# animation. Fixing the shared classifier is the fix AND the unstick: the
-# very next composer read (no relaunch, no code beyond this file) reads the
-# same pane as empty.
+# Codex CLI 0.154.0 on gpt-6-astra and gpt-5.6-luna can shimmer this idle
+# placeholder letter-by-letter: a bright, non-dim Braille dot temporarily
+# replaces a literal character rather than only decorating the intact text.
+# These cases ensure the shared classifier accepts the bounded idle animation
+# while preserving its pending verdict for genuine typed content.
 test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending() {
   local encoded capture dot='⠋'
   local shimmer_first shimmer_mid shimmer_last shimmer_multi shimmer_four typed shimmer_plus_typed
@@ -267,8 +257,7 @@ test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending() {
   shimmer_four=${capture/Ask Codex to do anything/$'\033[0m'"$dot"$'\033[2msk Codex \033[0m'"$dot"$'\033[2mo d\033[0m'"$dot"$'\033[2m anyt\033[0m'"$dot"$'\033[2ming'}
   assert_screen "Codex idle placeholder shimmering four letters at once" pending "$CAPS_STYLED" "$shimmer_four"
 
-  # Acceptance criterion 3, its own dedicated assertion: a genuine typed
-  # draft, with no shimmer at all, must still read pending.
+  # A genuine typed draft, with no shimmer at all, must still read pending.
   typed=${capture/Ask Codex to do anything/$'\033[0m'"Fix the release pipeline before merging"}
   assert_screen "genuine typed draft on a Codex pane stays pending" pending "$CAPS_STYLED" "$typed"
 
