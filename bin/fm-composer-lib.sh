@@ -170,12 +170,37 @@ fm_composer_normalize_trim_var() {  # <varname>
   printf -v "$__fmnt_name" '%s' "$__fmnt_text"
 }
 
+# _fm_composer_codex_idle_placeholder_re: a byte-level ERE (LC_ALL=C) that
+# matches Codex's literal idle placeholder 'Ask Codex to do anything' while
+# tolerating a Unicode Braille Pattern glyph (U+2800-U+28FF) ANYWHERE in the
+# row: bracketing the text (the original reported shape - braille dots before
+# and/or after the placeholder) or standing in place of any single
+# placeholder character (a letter-by-letter shimmer/materialize animation -
+# verified live on Codex CLI 0.154.0 under both gpt-6-astra and gpt-5.6-luna;
+# the animation shape, not the model, is what the original fix missed, so a
+# third model would reproduce it too). Every placeholder character still has
+# to appear in order - literally or as a braille stand-in - so this stays a
+# proof of the recognised idle shape, never a rule that Braille means empty.
+_fm_composer_codex_idle_placeholder_re() {
+  local placeholder='Ask Codex to do anything' braille=$'\342[\240-\243][\200-\277]'
+  local re i=0 n=${#placeholder} c
+  re="^($braille)*"
+  while [ "$i" -lt "$n" ]; do
+    c=${placeholder:$i:1}
+    re="$re(($braille)*($c|$braille))"
+    i=$((i + 1))
+  done
+  printf '%s' "$re(($braille)*)\$"
+}
+
 # _fm_composer_is_codex_braille_placeholder: prove that the styled Codex `›`
-# row is its recognised `Ask Codex to do anything` placeholder after both the
-# ghost-stripped and unstripped paths discard Unicode Braille Patterns.
-# This narrow proof admits a Braille-only decoration as empty without teaching
-# the shared classifier that Braille means empty for another harness, an
-# unknown row, or a row containing any non-Braille typed content.
+# row is its recognised `Ask Codex to do anything` placeholder once the
+# ghost-stripped path proves every non-decorative byte is dim, and the
+# unstripped path proves the visible bytes spell the placeholder with only
+# Braille standing in for or bracketing its characters (see the regex builder
+# above). This narrow proof admits Braille-only decoration as empty without
+# teaching the shared classifier that Braille means empty for another
+# harness, an unknown row, or a row containing any non-Braille typed content.
 _fm_composer_is_codex_braille_placeholder() {  # <raw-row> <ghost-stripped-row>
   local raw=$1 stripped=$2 plain glyph='' remainder pattern=$'\342[\240-\243][\200-\277]'
   fm_composer_leading_agent_glyph_var glyph "$stripped" || return 1
@@ -198,9 +223,8 @@ _fm_composer_is_codex_braille_placeholder() {  # <raw-row> <ghost-stripped-row>
   [ "$glyph" = '›' ] || return 1
   plain=${plain#*"$glyph"}
   fm_composer_normalize_spaces_var plain
-  plain=$(printf '%s' "$plain" | LC_ALL=C sed "s/$pattern//g")
   fm_composer_normalize_trim_var plain
-  [ "$plain" = 'Ask Codex to do anything' ]
+  printf '%s' "$plain" | LC_ALL=C grep -Eq "$(_fm_composer_codex_idle_placeholder_re)"
 }
 
 # fm_composer_strip_ghost: the ONE fleet-wide ANSI-aware extractor of "real typed

@@ -231,6 +231,52 @@ test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending() {
   pass "matrix: captured Codex idle is empty, Braille-only animation is ignored, and mixed or neighboring text stays pending"
 }
 
+# Regression for fm-codex-astra-doorbell-strand-r1: the PR 71 fix above only
+# proved Braille bracketing the placeholder (dots added before/after the
+# literal text). Verified live on Codex CLI 0.154.0 under BOTH gpt-6-astra
+# and gpt-5.6-luna, the idle placeholder also shimmers letter-by-letter: one
+# character of "Ask Codex to do anything" is itself temporarily rendered as a
+# bright (non-dim) Braille dot INSTEAD OF the literal letter, rather than only
+# being decorated around. The animation shape - not either model - is the
+# actual cause, so a third model reproduces it too. Before this fix, every
+# case below read `pending` against current main and starved the doorbell
+# exactly as reported (fm-send: "doorbell skipped (composer visibly holds
+# pending text)") even though the composer was genuinely empty; `fm-control
+# interrupt` cannot clear it because interrupting does not stop the
+# animation. Fixing the shared classifier is the fix AND the unstick: the
+# very next composer read (no relaunch, no code beyond this file) reads the
+# same pane as empty.
+test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending() {
+  local encoded capture dot='⠋'
+  local shimmer_first shimmer_mid shimmer_last shimmer_multi typed shimmer_plus_typed
+  encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-idle.ansi-escaped")
+  printf -v capture '%b' "$encoded"
+
+  shimmer_first=${capture/Ask Codex/$'\033[0m'"$dot"$'\033[2msk Codex'}
+  assert_screen "Codex idle placeholder shimmering its first letter (A)" empty "$CAPS_STYLED" "$shimmer_first"
+
+  shimmer_mid=${capture/to do/$'\033[2mt\033[0m'"$dot"$'\033[2m do'}
+  assert_screen "Codex idle placeholder shimmering a middle letter (o in to)" empty "$CAPS_STYLED" "$shimmer_mid"
+
+  shimmer_last=${capture/anything/$'\033[2manythin\033[0m'"$dot"}
+  assert_screen "Codex idle placeholder shimmering its last letter (g)" empty "$CAPS_STYLED" "$shimmer_last"
+
+  shimmer_multi=${capture/Ask Codex to do anything/$'\033[0m'"$dot"$'\033[2msk Codex \033[0m'"$dot"$'\033[2mo do anythin\033[0m'"$dot"}
+  assert_screen "Codex idle placeholder shimmering three letters at once" empty "$CAPS_STYLED" "$shimmer_multi"
+
+  # Acceptance criterion 3, its own dedicated assertion: a genuine typed
+  # draft, with no shimmer at all, must still read pending.
+  typed=${capture/Ask Codex to do anything/$'\033[0m'"Fix the release pipeline before merging"}
+  assert_screen "genuine typed draft on a Codex pane stays pending" pending "$CAPS_STYLED" "$typed"
+
+  # A shimmering placeholder with real typed text appended must also stay
+  # pending - the shimmer must never mask real content sitting next to it.
+  shimmer_plus_typed="${shimmer_mid} extra real words"
+  assert_screen "shimmering placeholder plus appended real text stays pending" pending "$CAPS_STYLED" "$shimmer_plus_typed"
+
+  pass "matrix: Codex idle-placeholder letter-shimmer Braille (gpt-6-astra, gpt-5.6-luna) reads empty, and genuine typed drafts stay pending"
+}
+
 test_matrix_muse_truecolor_glyph_survives_signal_loss() {
   # Real idle muse: truecolor `⟩` (38;2;90;160;255, luminance ~149.9) under a
   # TITLED rule. Two independent signals prove emptiness: the glyph surviving
@@ -649,6 +695,7 @@ test_real_text_is_pending
 test_matrix_claude_bare_nbsp_row
 test_matrix_codex_dim_hint_row
 test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending
+test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending
 test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant
 test_matrix_herdr_halfblock_rule_bounds_bare_wrap
