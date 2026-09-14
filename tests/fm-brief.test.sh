@@ -739,6 +739,27 @@ test_scout_and_secondmate_load_decision_hold_policy() {
   pass "fm-brief.sh: investigation and visual-review completions load the shared decision policy"
 }
 
+test_browser_lifecycle_contract_is_emitted() {
+  local home ship scout brief
+  home="$TMP_ROOT/browser-lifecycle-home"
+  mkdir -p "$home/data"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" browser-ship sample --mode no-mistakes >/dev/null 2>&1 \
+    || fail "ship browser-lifecycle brief scaffold exited non-zero"
+  ship="$home/data/browser-ship/brief.md"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" browser-scout sample --scout >/dev/null 2>&1 \
+    || fail "scout browser-lifecycle brief scaffold exited non-zero"
+  scout="$home/data/browser-scout/brief.md"
+  for brief in "$ship" "$scout"; do
+    assert_grep 'Use `chrome-devtools-axi` normally; it inherits your task-scoped session.' "$brief" \
+      "browser lifecycle contract omitted ordinary task-scoped session use"
+    assert_grep '$FM_BROWSER_LIFECYCLE axi --session <name> -- <chrome-devtools-axi arguments>' "$brief" \
+      "browser lifecycle contract omitted named-session wrapper"
+    assert_grep '$FM_BROWSER_LIFECYCLE launch -- <command>' "$brief" \
+      "browser lifecycle contract omitted direct-launch wrapper"
+  done
+  pass "fm-brief.sh: browser lifecycle wrapper contract is emitted for workers"
+}
+
 # Scout and secondmate paths still scaffold well-formed briefs.
 test_scout_and_secondmate_scaffold() {
   local brief
@@ -781,4 +802,5 @@ test_secondmate_marked_request_reporting_contract
 test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
+test_browser_lifecycle_contract_is_emitted
 test_scout_and_secondmate_scaffold

@@ -321,6 +321,15 @@ EOF
 HERDR_SECTION=${HERDR_SECTION%$'\n'}
 fi
 
+IFS= read -r -d '' BROWSER_LIFECYCLE_SECTION <<'EOF' || true
+# Browser lifecycle
+Use `chrome-devtools-axi` normally; it inherits your task-scoped session.
+For another named browser session, use `$FM_BROWSER_LIFECYCLE axi --session <name> -- <chrome-devtools-axi arguments>`.
+For a direct Playwright or Puppeteer launch, use `$FM_BROWSER_LIFECYCLE launch -- <command>`.
+Do not set a custom `CHROME_DEVTOOLS_AXI_SESSION`, invoke a raw custom named session, or launch Playwright or Puppeteer directly outside these wrapper commands.
+EOF
+BROWSER_LIFECYCLE_SECTION=${BROWSER_LIFECYCLE_SECTION%$'\n'}
+
 if [ "$KIND" = scout ]; then
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
@@ -358,6 +367,8 @@ The report is the only thing that survives, so anything worth keeping must be in
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+
+$BROWSER_LIFECYCLE_SECTION
 
 $INBOX_SECTION
 
@@ -485,6 +496,8 @@ $RULE1
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+
+$BROWSER_LIFECYCLE_SECTION
 
 $INBOX_SECTION
 
