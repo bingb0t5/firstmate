@@ -740,7 +740,7 @@ test_scout_and_secondmate_load_decision_hold_policy() {
 }
 
 test_browser_lifecycle_contract_is_emitted() {
-  local home ship scout brief
+  local home ship scout charter brief
   home="$TMP_ROOT/browser-lifecycle-home"
   mkdir -p "$home/data"
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" browser-ship sample --mode no-mistakes >/dev/null 2>&1 \
@@ -749,7 +749,11 @@ test_browser_lifecycle_contract_is_emitted() {
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" browser-scout sample --scout >/dev/null 2>&1 \
     || fail "scout browser-lifecycle brief scaffold exited non-zero"
   scout="$home/data/browser-scout/brief.md"
-  for brief in "$ship" "$scout"; do
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='browser work' \
+    "$ROOT/bin/fm-brief.sh" browser-secondmate --secondmate --no-projects >/dev/null 2>&1 \
+    || fail "secondmate browser-lifecycle charter scaffold exited non-zero"
+  charter="$home/data/browser-secondmate/brief.md"
+  for brief in "$ship" "$scout" "$charter"; do
     assert_grep 'Use `chrome-devtools-axi` normally; it inherits your task-scoped session.' "$brief" \
       "browser lifecycle contract omitted ordinary task-scoped session use"
     assert_grep '$FM_BROWSER_LIFECYCLE axi --session <name> -- <chrome-devtools-axi arguments>' "$brief" \

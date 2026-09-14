@@ -282,6 +282,79 @@ fm_browser_owner_matches() {  # <dir> <task-id> <generation>
   [ "$owner_task" = "$task" ] && [ "$owner_gen" = "$generation" ]
 }
 
+fm_browser_recorded_process_state() {  # <pid> <identity>
+  local pid=$1 identity=$2 current
+  case "$pid" in ''|*[!0-9]*|0) printf unknown; return 0 ;; esac
+  [ -n "$identity" ] || { printf unknown; return 0; }
+  if ! kill -0 "$pid" 2>/dev/null; then
+    printf gone
+    return 0
+  fi
+  current=$(fm_browser_process_identity "$pid" 2>/dev/null || true)
+  [ -n "$current" ] || { printf unknown; return 0; }
+  if [ "$current" = "$identity" ]; then
+    printf alive
+  else
+    printf gone
+  fi
+}
+
+fm_browser_owner_register_worker() {  # <state> <task-id> <generation> <supervisor-pid> <child-pid>
+  local state=$1 task=$2 generation=$3 supervisor_pid=$4 child_pid=$5
+  local dir lock owner default_session supervisor_identity child_identity
+  fm_browser_validate_task_id "$task" \
+    && fm_browser_validate_generation "$generation" || return 1
+  case "$supervisor_pid" in ''|*[!0-9]*|0) return 1 ;; esac
+  case "$child_pid" in ''|*[!0-9]*|0) return 1 ;; esac
+  supervisor_identity=$(fm_browser_process_identity "$supervisor_pid" 2>/dev/null || true)
+  child_identity=$(fm_browser_process_identity "$child_pid" 2>/dev/null || true)
+  [ -n "$supervisor_identity" ] && [ -n "$child_identity" ] || return 1
+  dir=$(fm_browser_owner_dir "$state" "$task") || return 1
+  lock=$(fm_browser_lock_dir "$state" "$task") || return 1
+  fm_browser_lock_take "$state" "$task" || return 1
+  fm_browser_owner_matches "$dir" "$task" "$generation" || {
+    fm_browser_lock_release "$lock"
+    return 1
+  }
+  owner="$dir/owner"
+  default_session=$(fm_browser_record_field "$owner" default_session 2>/dev/null || true)
+  fm_browser_validate_session "$default_session" || {
+    fm_browser_lock_release "$lock"
+    return 1
+  }
+  fm_browser_atomic_record "$owner" \
+    "version=1" "task_id=$task" "spawn_gen=$generation" \
+    "default_session=$default_session" \
+    "worker_supervisor_pid=$supervisor_pid" "worker_supervisor_identity=$supervisor_identity" \
+    "worker_child_pid=$child_pid" "worker_child_identity=$child_identity" || {
+      fm_browser_lock_release "$lock"
+      return 1
+    }
+  fm_browser_lock_release "$lock"
+}
+
+fm_browser_owner_worker_state() {  # <state> <task-id> <generation>
+  local state=$1 task=$2 generation=$3 dir owner supervisor_pid supervisor_identity child_pid child_identity supervisor child
+  dir=$(fm_browser_owner_dir "$state" "$task") || { printf unknown; return 0; }
+  owner="$dir/owner"
+  fm_browser_owner_matches "$dir" "$task" "$generation" || { printf unknown; return 0; }
+  supervisor_pid=$(fm_browser_record_field "$owner" worker_supervisor_pid 2>/dev/null || true)
+  supervisor_identity=$(fm_browser_record_field "$owner" worker_supervisor_identity 2>/dev/null || true)
+  child_pid=$(fm_browser_record_field "$owner" worker_child_pid 2>/dev/null || true)
+  child_identity=$(fm_browser_record_field "$owner" worker_child_identity 2>/dev/null || true)
+  if [ -z "$supervisor_pid" ] && [ -z "$supervisor_identity" ] && [ -z "$child_pid" ] && [ -z "$child_identity" ]; then
+    printf absent
+    return 0
+  fi
+  supervisor=$(fm_browser_recorded_process_state "$supervisor_pid" "$supervisor_identity")
+  child=$(fm_browser_recorded_process_state "$child_pid" "$child_identity")
+  case "$supervisor:$child" in
+    alive:*|*:alive) printf alive ;;
+    gone:gone) printf gone ;;
+    *) printf unknown ;;
+  esac
+}
+
 fm_browser_owner_arm() {  # <state> <task-id> <generation>; prints default session
   local state=$1 task=$2 generation=$3 dir lock default_session pid_state
   fm_browser_validate_task_id "$task" || return 1
@@ -797,16 +870,26 @@ fm_browser_finalize_meta() {  # <state> <meta> <task-id> <reason>
 }
 
 fm_browser_worker_run() {  # <state> <task-id> <generation> -- <command...>
-  local state=$1 task=$2 generation=$3 rc cleaned=0
+  local state=$1 task=$2 generation=$3 rc cleaned=0 child= registered=0 worker_state
   shift 3
   [ "${1:-}" = -- ] || return 2
   shift
   [ "$#" -gt 0 ] || return 2
   fm_browser_worker_run_cleanup() {
-    [ "$cleaned" = 1 ] || fm_browser_owner_finalize "$state" "$task" "$generation" worker-exit
+    [ "$cleaned" = 1 ] && return 0
+    if [ "$registered" = 1 ]; then
+      worker_state=$(fm_browser_owner_worker_state "$state" "$task" "$generation")
+      [ "$worker_state" = gone ] || return 0
+    fi
+    fm_browser_owner_finalize "$state" "$task" "$generation" worker-exit
   }
   trap 'fm_browser_worker_run_cleanup >/dev/null 2>&1 || true' EXIT HUP INT TERM
-  "$@"
+  "$@" &
+  child=$!
+  if fm_browser_owner_register_worker "$state" "$task" "$generation" "${BASHPID:-$$}" "$child"; then
+    registered=1
+  fi
+  wait "$child"
   rc=$?
   fm_browser_owner_finalize "$state" "$task" "$generation" worker-exit || return 1
   cleaned=1

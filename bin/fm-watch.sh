@@ -425,19 +425,27 @@ recorded_windows() {
 # supervision path, not a process sweep: it never scans browser processes or
 # infers ownership from ancestry, cwd, parentlessness, or age.
 browser_lifecycle_dead_endpoint_check() {  # <window> <task>
-  local w=$1 task=$2 meta owner_dir gen endpoint_state marker reason key queued
+  local w=$1 task=$2 meta owner_dir gen endpoint_state worker_state marker reason key queued
   [ -n "$task" ] || return 0
   meta="$STATE/$task.meta"
   owner_dir="$STATE/$task.browser"
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
   [ -d "$owner_dir" ] && [ ! -L "$owner_dir" ] || return 0
-  endpoint_state=$(fm_backend_agent_state "$(window_backend "$w")" "$w")
-  case "$endpoint_state" in
-    dead|missing) ;;
-    *) return 0 ;;
-  esac
   gen=$(fm_browser_record_field "$meta" spawn_gen 2>/dev/null || true)
   [ -n "$gen" ] || return 0
+  worker_state=$(fm_browser_owner_worker_state "$STATE" "$task" "$gen")
+  case "$worker_state" in
+    alive|unknown) return 0 ;;
+    absent)
+      endpoint_state=$(fm_backend_agent_state "$(window_backend "$w")" "$w")
+      case "$endpoint_state" in
+        dead|missing) ;;
+        *) return 0 ;;
+      esac
+      ;;
+    gone) ;;
+    *) return 0 ;;
+  esac
   if fm_browser_finalize_meta "$STATE" "$meta" "$task" worker-exit; then
     return 0
   fi

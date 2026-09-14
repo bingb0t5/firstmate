@@ -143,6 +143,33 @@ assert_absent "$STATE/worker-exit.browser" "worker exit retires named browser ow
 wait "$worker_pid" 2>/dev/null || true
 kill -0 "$worker_pid" 2>/dev/null && fail "worker exit left its owned bridge running"
 
+fm_browser_owner_arm "$STATE" abrupt-exit w2 >/dev/null
+abrupt_session=$(fm_browser_session_for_task "$STATE" abrupt-exit)
+make_bridge "$abrupt_session"
+abrupt_bridge_pid=$BRIDGE_PID_RESULT
+fm_browser_worker_run "$STATE" abrupt-exit w2 -- bash -c 'exec sleep 30' &
+abrupt_supervisor=$!
+for _ in $(seq 1 100); do
+  abrupt_child=$(fm_browser_record_field "$STATE/abrupt-exit.browser/owner" worker_child_pid 2>/dev/null || true)
+  [ -n "$abrupt_child" ] && break
+  sleep 0.01
+done
+[ -n "${abrupt_child:-}" ] || fail "worker launch did not record its exact child identity"
+kill -KILL "$abrupt_supervisor" 2>/dev/null || fail "could not simulate abrupt worker-supervisor loss"
+wait "$abrupt_supervisor" 2>/dev/null || true
+[ "$(fm_browser_owner_worker_state "$STATE" abrupt-exit w2)" = alive ] \
+  || fail "an active exact worker child was not preserved after supervisor loss"
+kill -KILL "$abrupt_child" 2>/dev/null || fail "could not simulate abrupt worker-child loss"
+for _ in $(seq 1 100); do
+  [ "$(fm_browser_owner_worker_state "$STATE" abrupt-exit w2)" = gone ] && break
+  sleep 0.01
+done
+[ "$(fm_browser_owner_worker_state "$STATE" abrupt-exit w2)" = gone ] \
+  || fail "abrupt loss did not produce exact worker-exit proof"
+fm_browser_owner_finalize "$STATE" abrupt-exit w2 worker-exit
+wait "$abrupt_bridge_pid" 2>/dev/null || true
+kill -0 "$abrupt_bridge_pid" 2>/dev/null && fail "proven abrupt worker loss left its bridge running"
+
 # A live PID with the wrong process identity is never treated as a bridge.
 $BROWSER --help >/dev/null || fail "browser lifecycle worker interface is unavailable"
 fm_browser_owner_arm "$STATE" task-a s2 >/dev/null

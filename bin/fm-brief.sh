@@ -196,6 +196,15 @@ The move IS the acknowledgement: without it firstmate rings again and eventually
 EOF
 INBOX_SECTION=${INBOX_SECTION%$'\n'}
 
+IFS= read -r -d '' BROWSER_LIFECYCLE_SECTION <<'EOF' || true
+# Browser lifecycle
+Use `chrome-devtools-axi` normally; it inherits your task-scoped session.
+For another named browser session, use `$FM_BROWSER_LIFECYCLE axi --session <name> -- <chrome-devtools-axi arguments>`.
+For a direct Playwright or Puppeteer launch, use `$FM_BROWSER_LIFECYCLE launch -- <command>`.
+Do not set a custom `CHROME_DEVTOOLS_AXI_SESSION`, invoke a raw custom named session, or launch Playwright or Puppeteer directly outside these wrapper commands.
+EOF
+BROWSER_LIFECYCLE_SECTION=${BROWSER_LIFECYCLE_SECTION%$'\n'}
+
 if [ "$KIND" = secondmate ]; then
 SECONDMATE_PROJECTS=""
 idx=1
@@ -254,6 +263,8 @@ A message with NO marker is the captain typing directly into your pane: treat it
 A request arriving through the instruction inbox below follows the same marker and reply rules.
 
 $INBOX_SECTION
+
+$BROWSER_LIFECYCLE_SECTION
 
 # Escalation to main firstmate
 Handle routine work yourself.
@@ -320,15 +331,6 @@ Do not add Herdr lifecycle commands to this unguarded brief by hand.
 EOF
 HERDR_SECTION=${HERDR_SECTION%$'\n'}
 fi
-
-IFS= read -r -d '' BROWSER_LIFECYCLE_SECTION <<'EOF' || true
-# Browser lifecycle
-Use `chrome-devtools-axi` normally; it inherits your task-scoped session.
-For another named browser session, use `$FM_BROWSER_LIFECYCLE axi --session <name> -- <chrome-devtools-axi arguments>`.
-For a direct Playwright or Puppeteer launch, use `$FM_BROWSER_LIFECYCLE launch -- <command>`.
-Do not set a custom `CHROME_DEVTOOLS_AXI_SESSION`, invoke a raw custom named session, or launch Playwright or Puppeteer directly outside these wrapper commands.
-EOF
-BROWSER_LIFECYCLE_SECTION=${BROWSER_LIFECYCLE_SECTION%$'\n'}
 
 if [ "$KIND" = scout ]; then
 cat > "$BRIEF" <<EOF
