@@ -1,0 +1,3 @@
+# codex (codex-cli 0.154.0): re-rang the doorbell once (watcher's role) at 12s
+ok - codex (codex-cli 0.154.0): the doorbell reached a real worker, which acted and acked with the mv
+ok - live steering-inbox doorbell guard: 1 harness(es) honored the doorbell contract

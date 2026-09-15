@@ -1,0 +1,2 @@
+error: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
+fm-send exit=3

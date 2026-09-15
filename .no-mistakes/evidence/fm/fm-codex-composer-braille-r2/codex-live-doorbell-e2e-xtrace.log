@@ -1,0 +1,4240 @@
++ set -u
++++ dirname tests/fm-send-inbox-doorbell-live-e2e.test.sh
+++ cd tests/..
+++ pwd
++ ROOT=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
++ '[' 1 '!=' 1 ']'
++ command -v tmux
++ unset NO_MISTAKES_GATE
++ SOCKET=fm-inbox-live-3656218
++ SESSION=inboxlive
+++ mktemp -d /tmp/fm-inbox-live.XXXXXX
++ LAB=/tmp/fm-inbox-live.vPYO5J
+++ cd /tmp/fm-inbox-live.vPYO5J
+++ pwd
++ LAB=/tmp/fm-inbox-live.vPYO5J
++ TIMEOUT=25
++ CHECKED=0
++ FAILED=0
++ trap cleanup EXIT
++ SHIM_DIR=/tmp/fm-inbox-live.vPYO5J/shim
++ mkdir -p /tmp/fm-inbox-live.vPYO5J/shim
+++ command -v tmux
++ REAL_TMUX=/usr/bin/tmux
++ cat
++ chmod +x /tmp/fm-inbox-live.vPYO5J/shim/tmux
++ PATH=/tmp/fm-inbox-live.vPYO5J/shim:/home/rich/.codex/packages/standalone/releases/0.154.0-x86_64-unknown-linux-musl/codex-path:/home/rich/.local/bin:/home/rich/bin:/home/rich/.grok/bin:/home/rich/.codex/tmp/arg0/codex-arg0W7ZuuB:/home/rich/.codex/packages/standalone/releases/0.154.0-x86_64-unknown-linux-musl/codex-path:/home/rich/.local/bin:/home/rich/bin:/home/rich/.grok/bin:/home/rich/.local/bin:/home/rich/bin:/home/rich/.grok/bin:/home/rich/.local/bin:/home/rich/bin:/home/rich/.grok/bin:/home/rich/.nvm/versions/node/v22.23.2/bin:/home/rich/.local/bin:/home/rich/bin:/home/rich/.local/bin:/home/rich/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/rich/.local/bin:/home/rich/go/bin:/home/rich/.cargo/bin:/opt/homebrew/bin:/opt/homebrew/sbin
++ . /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-tmux-lib.sh
++++ dirname -- /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-tmux-lib.sh
+++ . /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-composer-lib.sh
++++ FM_COMPOSER_UNICODE_SPACES=()
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0302\0205'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0302\0240'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0341\0232\0200'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0200'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0201'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0202'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0203'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0204'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0205'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0206'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0207'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0210'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0211'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0212'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0250'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0251'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0257'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0201\0237'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0343\0200\0200'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ unset -v _fm_composer_space_octal _fm_composer_space_utf8
++++ FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS=3
++++ FM_COMPOSER_CODEX_BRAILLE_RE='�[�-�][�-�]'
++++ FM_COMPOSER_CODEX_BRAILLE_MARK=$'\001'
++++ FM_DELIVERY_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel|ctrl\+c to stop'
++++ FM_DELIVERY_CLAUDE_BUSY_REGEX_DEFAULT='esc to interrupt|…[[:space:]]+\([0-9]+[smh]'
++++ FM_DELIVERY_CODEX_BUSY_REGEX_DEFAULT='esc to interrupt'
++++ FM_DELIVERY_OPENCODE_BUSY_REGEX_DEFAULT='esc interrupt'
++++ FM_DELIVERY_PI_BUSY_REGEX_DEFAULT='Working\.\.\.'
++++ FM_DELIVERY_GROK_BUSY_REGEX_DEFAULT='Ctrl\+c:cancel'
++++ FM_DELIVERY_CURSOR_BUSY_REGEX_DEFAULT='ctrl\+c to stop'
++++ FM_DELIVERY_KIMI_BUSY_REGEX_DEFAULT='^[[:space:]]*(🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘)[[:space:]]+·[[:space:]]+'
+++++ printf '%s\n' ❯ › ⟩ →
++++ FM_COMPOSER_AGENT_PROMPT_GLYPHS='❯
+›
+⟩
+→'
+++++ printf '%s\n' '>' '$' % '#'
++++ FM_COMPOSER_SHELL_PROMPT_GLYPHS='>
+$
+%
+#'
++++ FM_COMPOSER_IDLE_RE_DEFAULT='^Type a message\.\.\.$|^Ask anything\.\.\.|^Plan, search, build anything$|^Add a follow-up$'
++++ FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT='^(Build|Plan)[[:space:]]+·[[:space:]]+'
++++ FM_COMPOSER_CAPTURE_LINES=20
++++ FM_COMPOSER_PI_MAX_LINES=8
++++ dirname -- /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-tmux-lib.sh
+++ . /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-cursor-lib.sh
++++ FM_CURSOR_PROBE_TIMEOUT=10
++ . /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-task-inbox-lib.sh
+++++ dirname /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-task-inbox-lib.sh
++++ cd /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin
++++ pwd
+++ _FM_TASK_INBOX_LIB_DIR=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin
+++ . /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-wake-lib.sh
++++++ dirname /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-wake-lib.sh
+++++ cd /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin
+++++ pwd
++++ FM_WAKE_LIB_DIR=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin
+++++ cd /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/..
+++++ pwd
++++ FM_WAKE_DEFAULT_ROOT=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
++++ FM_ROOT=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
++++ FM_HOME=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
++++ STATE=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/state
++++ FM_WAKE_QUEUE=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/state/.wake-queue
++++ FM_WAKE_QUEUE_LOCK=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/state/.wake-queue.lock
++++ FM_LOCK_STALE_AFTER=2
+++++ uname
++++ _FM_UNAME=Linux
++++ mkdir -p /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/state
++++ FM_WATCHER_MATCHED_IDENTITY=
++++ FM_WATCHER_HEALTHY_PID=
++++ FM_WATCHER_HEALTHY_IDENTITY=
++++ FM_WATCHER_VERDICT_OK=false
++++ FM_WATCHER_VERDICT_REASON=stale-beacon
++++ FM_RECOVERY_MARKER_TOKEN=
++++ FM_RECOVERY_MARKER_ACTION=none
++++ FM_WAKE_STATUS_KEY=
++++ FM_WAKE_STATUS_HISTORICAL=false
++++ FM_WAKE_EVENT_LINE=
++++ FM_WAKE_UNREAD_LINES=
+++ . /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-backend.sh
++++ FM_BACKEND_SCRIPT=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-backend.sh
++++++ dirname /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-backend.sh
+++++ cd /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin
+++++ pwd
++++ FM_BACKEND_LIB_DIR=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin
++++ unset FM_BACKEND_SCRIPT
+++++ cd /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/..
+++++ pwd
++++ FM_BACKEND_DEFAULT_ROOT=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
++++ FM_ROOT=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
++++ FM_HOME=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
++++ FM_BACKEND_CONFIG_DIR=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/config
++++ FM_BACKEND_KNOWN='tmux herdr zellij orca cmux'
++++ FM_BACKEND_SPAWN='tmux herdr zellij orca cmux'
++++ FM_BACKEND_CMUX_BUNDLE_ID=com.cmuxterm.app
+++ FM_TASK_INBOX_SCHEMA=fm-task-inbox.v1
+++ FM_TASK_INBOX_GRACE_DEFAULT=90
+++ FM_TASK_INBOX_RING_MAX_DEFAULT=3
+++ FM_TASK_INBOX_LOCK_WAIT_DEFAULT=5
+++ FM_TASK_INBOX_UNREAD_MAX_DEFAULT=50
++ tmux -L fm-inbox-live-3656218 new-session -d -s inboxlive -x 220 -y 50 -c /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
++ HARNESSES=codex
++ for h in $HARNESSES
++ command -v codex
++ check_harness_doorbell codex
++ local name=codex version cmd win=hx-codex home task acted rec handled i ready_rc
+++ harness_version codex
+++ codex --version
+++ head -1
++ version='codex-cli 0.154.0'
+++ launch_cmd codex
+++ case "$1" in
+++ printf %s 'codex --dangerously-bypass-approvals-and-sandbox'
++ cmd='codex --dangerously-bypass-approvals-and-sandbox'
++ home=/tmp/fm-inbox-live.vPYO5J/codex-home
++ mkdir -p /tmp/fm-inbox-live.vPYO5J/codex-home/state
++ task=live-codex
++ acted=/tmp/fm-inbox-live.vPYO5J/acted-codex
++ tmux -L fm-inbox-live-3656218 new-window -d -t inboxlive: -n hx-codex -c /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE -- bash -lc 'codex --dangerously-bypass-approvals-and-sandbox'
++ wait_ready hx-codex
++ local win=hx-codex i=0 budget=60 verdict dismissed=0 screen
++ '[' 0 -lt 60 ']'
+++ fm_tmux_composer_state inboxlive:hx-codex
+++ local target=inboxlive:hx-codex cy pane verdict identity
++++ fm_tmux_composer_cursor_row inboxlive:hx-codex
++++ tmux display-message -p -t inboxlive:hx-codex '#{cursor_y}'
+++ cy=0
+++ case "$cy" in
++++ fm_tmux_composer_capture inboxlive:hx-codex
++++ tmux capture-pane -e -p -t inboxlive:hx-codex -S 0 -E -
+++ pane=
+++++ fm_tmux_composer_caps
+++++ printf 'styled=1\ncursor=1\nidentity=1\nrows=0\n'
++++ fm_composer_classify_screen 'styled=1
+cursor=1
+identity=1
+rows=0' '' 0
++++ local 'caps=styled=1
+cursor=1
+identity=1
+rows=0' screen= cy=0 identity=
++++ local styled=0 cursor=0 has_identity=0 kv plain
++++ IFS=
++++ read -r kv
++++ case "$kv" in
++++ styled=1
++++ IFS=
++++ read -r kv
++++ case "$kv" in
++++ cursor=1
++++ IFS=
++++ read -r kv
++++ case "$kv" in
++++ has_identity=1
++++ IFS=
++++ read -r kv
++++ case "$kv" in
++++ IFS=
++++ read -r kv
++++ '[' 1 = 1 ']'
++++ '[' -n 0 ']'
++++ case "$cy" in
+++++ printf '%s\n' ''
+++++ fm_composer_strip_ansi
+++++ local esc
++++++ printf '\033'
+++++ esc=$'\E'
+++++ LC_ALL=C
+++++ sed 's/\[[0-9;:?]*[[:alpha:]]//g'
++++ plain=
++++ _fm_composer_scan_screen '' 0
++++ local pane= cy=0
++++ local line indent left_stripped trimmed kind family side_family
++++ local top_inner top_spaces= geometry_check=0 geometry_ambiguous=0
++++ local content_inner content_spaces bottom_inner bottom_spaces glyph
++++ local current_indent= current_family= row=0 top=-1 valid=0 content_rows=0
++++ FM_COMPOSER_SCAN_BOX_TOP=-1
++++ FM_COMPOSER_SCAN_BOX_BOTTOM=-1
++++ FM_COMPOSER_SCAN_BOX_AMBIG=0
++++ FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM=-1
++++ FM_COMPOSER_SCAN_UNSAFE=0
++++ FM_COMPOSER_SCAN_CURSOR_EDGE=0
++++ FM_COMPOSER_SCAN_BARE_ROW=-1
++++ FM_COMPOSER_SCAN_SHELL_ROW=-1
++++ FM_COMPOSER_SCAN_LEFTBAR_START=-1
++++ FM_COMPOSER_SCAN_LEFTBAR_END=-1
++++ FM_COMPOSER_SCAN_PI_PAIR_FOUND=0
++++ FM_COMPOSER_SCAN_PI_PAIR_VALID=0
++++ FM_COMPOSER_SCAN_PI_OPEN=-1
++++ FM_COMPOSER_SCAN_PI_CLOSE=-1
++++ FM_COMPOSER_SCAN_PI_LAST_SEPARATOR=-1
++++ local leftbar_start=-1 pi_open=-1 pi_lines=0 pi_max
++++ pi_max=8
++++ case "$pi_max" in
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped=
++++ trimmed=
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed __fmns_text= __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ printf -v trimmed %s ''
++++ __fmnt_text=
++++ __fmnt_text=
++++ __fmnt_text=
++++ printf -v trimmed %s ''
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row ''
++++ local row=
++++ '[' -n '' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph ''
++++ local __fmsg_out=glyph __fmsg_text= __fmsg_glyph
++++ __fmsg_text=
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph ''
++++ local __fmag_out=glyph __fmag_text= __fmag_glyph
++++ __fmag_text=
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 0 ']'
++++ '[' 0 -eq 0 ']'
++++ fm_composer_row_has_edge ''
++++ local row=
++++ fm_composer_normalize_trim_var row
++++ local __fmnt_name=row __fmnt_text
++++ fm_composer_normalize_spaces_var row
++++ local __fmns_name=row __fmns_text= __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ printf -v row %s ''
++++ __fmnt_text=
++++ __fmnt_text=
++++ __fmnt_text=
++++ printf -v row %s ''
++++ case "$row" in
++++ return 1
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=1
++++ IFS=
++++ read -r line
++++ '[' -n 0 ']'
++++ '[' -1 -ge 0 ']'
++++ '[' -n 0 ']'
++++ '[' 0 = 1 ']'
++++ '[' -1 -ge 0 ']'
++++ '[' -1 -ge 0 ']'
++++ '[' -1 -ge 0 ']'
++++ '[' -1 -ge 0 ']'
++++ '[' 0 = 1 ']'
++++ '[' 0 = 1 ']'
++++ printf unknown
++++ return 0
+++ verdict=unknown
+++ '[' unknown = need-identity ']'
+++ '[' unknown = unknown ']'
+++ fm_tmux_pane_is_cursor inboxlive:hx-codex
+++ local target=inboxlive:hx-codex tty pid pgid tpgid comm args argv0
++++ tmux display-message -p -t inboxlive:hx-codex '#{pane_tty}'
+++ tty=/dev/pts/54
+++ case "$tty" in
++++ LC_ALL=C
++++ ps -t pts/54 -o pid=,pgid=,tpgid=,comm=
+++ read -r pid pgid tpgid comm
+++ '[' -n codex ']'
+++ '[' 3656510 = 3656510 ']'
++++ LC_ALL=C
++++ ps -p 3656510 -o args=
+++ args='codex --dangerously-bypass-approvals-and-sandbox'
+++ args='codex --dangerously-bypass-approvals-and-sandbox'
+++ argv0=codex
+++ fm_cursor_process_matches codex '' codex
+++ local comm=codex argv0=codex base
+++ '[' -n codex ']'
+++ argv0=codex
++++ basename -- codex
+++ base=codex
+++ base=codex
+++ case "$base" in
+++ case "$comm" in
+++ return 1
+++ read -r pid pgid tpgid comm
+++ return 1
+++ printf %s unknown
++ verdict=unknown
++ '[' unknown = empty ']'
++ i=1
++ '[' 0 -eq 0 ']'
++ '[' 1 -ge 20 ']'
++ sleep 1
++ '[' 1 -lt 60 ']'
+++ fm_tmux_composer_state inboxlive:hx-codex
+++ local target=inboxlive:hx-codex cy pane verdict identity
++++ fm_tmux_composer_cursor_row inboxlive:hx-codex
++++ tmux display-message -p -t inboxlive:hx-codex '#{cursor_y}'
+++ cy=13
+++ case "$cy" in
++++ fm_tmux_composer_capture inboxlive:hx-codex
++++ tmux capture-pane -e -p -t inboxlive:hx-codex -S 0 -E -
+++ pane='[2m╭──────────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.154.0)                               │[0m
+[2m│                                                          │[0m
+[2m│ model:       [0mgpt-6-astra high[2m   [0m/model to change         │
+[2m│ directory:   [0m~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE[2m │[0m
+[2m│ permissions: [0mYOLO mode                                   │
+[2m╰──────────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m [3mNew[0m Use [1m/fast[0m to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
+++++ fm_tmux_composer_caps
+++++ printf 'styled=1\ncursor=1\nidentity=1\nrows=0\n'
++++ fm_composer_classify_screen 'styled=1
+cursor=1
+identity=1
+rows=0' '[2m╭──────────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.154.0)                               │[0m
+[2m│                                                          │[0m
+[2m│ model:       [0mgpt-6-astra high[2m   [0m/model to change         │
+[2m│ directory:   [0m~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE[2m │[0m
+[2m│ permissions: [0mYOLO mode                                   │
+[2m╰──────────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m [3mNew[0m Use [1m/fast[0m to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' 13
++++ local 'caps=styled=1
+cursor=1
+identity=1
+rows=0' 'screen=[2m╭──────────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.154.0)                               │[0m
+[2m│                                                          │[0m
+[2m│ model:       [0mgpt-6-astra high[2m   [0m/model to change         │
+[2m│ directory:   [0m~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE[2m │[0m
+[2m│ permissions: [0mYOLO mode                                   │
+[2m╰──────────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m [3mNew[0m Use [1m/fast[0m to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' cy=13 identity=
++++ local styled=0 cursor=0 has_identity=0 kv plain
++++ IFS=
++++ read -r kv
++++ case "$kv" in
++++ styled=1
++++ IFS=
++++ read -r kv
++++ case "$kv" in
++++ cursor=1
++++ IFS=
++++ read -r kv
++++ case "$kv" in
++++ has_identity=1
++++ IFS=
++++ read -r kv
++++ case "$kv" in
++++ IFS=
++++ read -r kv
++++ '[' 1 = 1 ']'
++++ '[' -n 13 ']'
++++ case "$cy" in
+++++ printf '%s\n' '[2m╭──────────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.154.0)                               │[0m
+[2m│                                                          │[0m
+[2m│ model:       [0mgpt-6-astra high[2m   [0m/model to change         │
+[2m│ directory:   [0m~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE[2m │[0m
+[2m│ permissions: [0mYOLO mode                                   │
+[2m╰──────────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m [3mNew[0m Use [1m/fast[0m to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
+++++ fm_composer_strip_ansi
+++++ local esc
++++++ printf '\033'
+++++ esc=$'\E'
+++++ LC_ALL=C
+++++ sed 's/\[[0-9;:?]*[[:alpha:]]//g'
++++ plain='╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                               │
+│                                                          │
+│ model:       gpt-6-astra high   /model to change         │
+│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Use /fast to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+› Ask Codex to do anything
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ _fm_composer_scan_screen '╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                               │
+│                                                          │
+│ model:       gpt-6-astra high   /model to change         │
+│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Use /fast to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+› Ask Codex to do anything
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' 13
++++ local 'pane=╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                               │
+│                                                          │
+│ model:       gpt-6-astra high   /model to change         │
+│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Use /fast to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+› Ask Codex to do anything
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' cy=13
++++ local line indent left_stripped trimmed kind family side_family
++++ local top_inner top_spaces= geometry_check=0 geometry_ambiguous=0
++++ local content_inner content_spaces bottom_inner bottom_spaces glyph
++++ local current_indent= current_family= row=0 top=-1 valid=0 content_rows=0
++++ FM_COMPOSER_SCAN_BOX_TOP=-1
++++ FM_COMPOSER_SCAN_BOX_BOTTOM=-1
++++ FM_COMPOSER_SCAN_BOX_AMBIG=0
++++ FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM=-1
++++ FM_COMPOSER_SCAN_UNSAFE=0
++++ FM_COMPOSER_SCAN_CURSOR_EDGE=0
++++ FM_COMPOSER_SCAN_BARE_ROW=-1
++++ FM_COMPOSER_SCAN_SHELL_ROW=-1
++++ FM_COMPOSER_SCAN_LEFTBAR_START=-1
++++ FM_COMPOSER_SCAN_LEFTBAR_END=-1
++++ FM_COMPOSER_SCAN_PI_PAIR_FOUND=0
++++ FM_COMPOSER_SCAN_PI_PAIR_VALID=0
++++ FM_COMPOSER_SCAN_PI_OPEN=-1
++++ FM_COMPOSER_SCAN_PI_CLOSE=-1
++++ FM_COMPOSER_SCAN_PI_LAST_SEPARATOR=-1
++++ local leftbar_start=-1 pi_open=-1 pi_lines=0 pi_max
++++ pi_max=8
++++ case "$pi_max" in
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped=╭──────────────────────────────────────────────────────────╮
++++ trimmed=╭──────────────────────────────────────────────────────────╮
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed __fmns_text=╭──────────────────────────────────────────────────────────╮ __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╭──────────────────────────────────────────────────────────╮
++++ printf -v trimmed %s ╭──────────────────────────────────────────────────────────╮
++++ __fmnt_text=╭──────────────────────────────────────────────────────────╮
++++ __fmnt_text=╭──────────────────────────────────────────────────────────╮
++++ __fmnt_text=╭──────────────────────────────────────────────────────────╮
++++ printf -v trimmed %s ╭──────────────────────────────────────────────────────────╮
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ kind=top
++++ family=rounded
++++ _fm_composer_pi_separator_row ╭──────────────────────────────────────────────────────────╮
++++ local row=╭──────────────────────────────────────────────────────────╮
++++ '[' -n ╭──────────────────────────────────────────────────────────╮ ']'
++++ '[' -z ╭╮ ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph ╭──────────────────────────────────────────────────────────╮
++++ local __fmsg_out=glyph __fmsg_text=╭──────────────────────────────────────────────────────────╮ __fmsg_glyph
++++ __fmsg_text=╭──────────────────────────────────────────────────────────╮
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph ╭──────────────────────────────────────────────────────────╮
++++ local __fmag_out=glyph __fmag_text=╭──────────────────────────────────────────────────────────╮ __fmag_glyph
++++ __fmag_text=╭──────────────────────────────────────────────────────────╮
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 0 -eq 13 ']'
++++ '[' top = top ']'
++++ '[' -n 13 ']'
++++ '[' -1 -ge 0 ']'
++++ top=0
++++ FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM=0
++++ current_family=rounded
++++ current_indent=
++++ valid=1
++++ content_rows=0
++++ geometry_ambiguous=0
++++ geometry_check=1
++++ top_inner=╭──────────────────────────────────────────────────────────╮
++++ case "$family" in
++++ top_inner=──────────────────────────────────────────────────────────╮
++++ top_inner=──────────────────────────────────────────────────────────
++++ top_spaces='                                                          '
++++ case "$top_spaces" in
++++ row=1
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ trimmed='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed '__fmns_text=│ >_ OpenAI Codex (v0.154.0)                               │' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ printf -v trimmed %s '│ >_ OpenAI Codex (v0.154.0)                               │'
++++ __fmnt_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ __fmnt_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ __fmnt_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ printf -v trimmed %s '│ >_ OpenAI Codex (v0.154.0)                               │'
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row '│ >_ OpenAI Codex (v0.154.0)                               │'
++++ local 'row=│ >_ OpenAI Codex (v0.154.0)                               │'
++++ '[' -n '│ >_ OpenAI Codex (v0.154.0)                               │' ']'
++++ '[' -z '│ >_ OpenAI Codex (v0.154.0)                               │' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' 0 -lt 0 ']'
++++ fm_composer_leading_agent_glyph_var glyph '│ >_ OpenAI Codex (v0.154.0)                               │'
++++ local __fmag_out=glyph '__fmag_text=│ >_ OpenAI Codex (v0.154.0)                               │' __fmag_glyph
++++ __fmag_text='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 1 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' 0 -ge 0 ']'
++++ side_family=
++++ case "$trimmed" in
++++ side_family=single
++++ case "$current_family:$side_family" in
++++ content_rows=1
++++ '[' '' = '' ']'
++++ '[' 1 = 1 ']'
++++ content_inner='│ >_ OpenAI Codex (v0.154.0)                               │'
++++ case "$side_family" in
++++ content_inner=' >_ OpenAI Codex (v0.154.0)                               │'
++++ content_inner=' >_ OpenAI Codex (v0.154.0)                               '
+++++ fm_composer_geometry_spaces ' >_ OpenAI Codex (v0.154.0)                               '
+++++ local 'content= >_ OpenAI Codex (v0.154.0)                               ' glyph
+++++ fm_composer_normalize_spaces_var content
+++++ local __fmns_name=content '__fmns_text= >_ OpenAI Codex (v0.154.0)                               ' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' >_ OpenAI Codex (v0.154.0)                               '
+++++ printf -v content %s ' >_ OpenAI Codex (v0.154.0)                               '
+++++ fm_composer_leading_prompt_glyph_var glyph ' >_ OpenAI Codex (v0.154.0)                               '
+++++ local __fmpg_out=glyph '__fmpg_text= >_ OpenAI Codex (v0.154.0)                               ' __fmpg_glyph
+++++ __fmpg_text='>_ OpenAI Codex (v0.154.0)                               '
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ❯ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n › ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ⟩ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n → ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '>' ']'
+++++ case "$__fmpg_text" in
+++++ printf -v glyph %s '>'
+++++ return 0
+++++ content='  _ OpenAI Codex (v0.154.0)                               '
++++++ printf %s '  _ OpenAI Codex (v0.154.0)                               '
++++++ LC_ALL=C
++++++ sed 's/[!-~]/ /g'
+++++ content='                                                          '
+++++ case "$content" in
+++++ printf %s '                                                          '
++++ content_spaces='                                                          '
++++ '[' '                                                          ' = '                                                          ' ']'
++++ row=2
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped='│                                                          │'
++++ trimmed='│                                                          │'
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed '__fmns_text=│                                                          │' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│                                                          │'
++++ printf -v trimmed %s '│                                                          │'
++++ __fmnt_text='│                                                          │'
++++ __fmnt_text='│                                                          │'
++++ __fmnt_text='│                                                          │'
++++ printf -v trimmed %s '│                                                          │'
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row '│                                                          │'
++++ local 'row=│                                                          │'
++++ '[' -n '│                                                          │' ']'
++++ '[' -z '│                                                          │' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' 0 -lt 0 ']'
++++ fm_composer_leading_agent_glyph_var glyph '│                                                          │'
++++ local __fmag_out=glyph '__fmag_text=│                                                          │' __fmag_glyph
++++ __fmag_text='│                                                          │'
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 2 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' 0 -ge 0 ']'
++++ side_family=
++++ case "$trimmed" in
++++ side_family=single
++++ case "$current_family:$side_family" in
++++ content_rows=2
++++ '[' '' = '' ']'
++++ '[' 1 = 1 ']'
++++ content_inner='│                                                          │'
++++ case "$side_family" in
++++ content_inner='                                                          │'
++++ content_inner='                                                          '
+++++ fm_composer_geometry_spaces '                                                          '
+++++ local 'content=                                                          ' glyph
+++++ fm_composer_normalize_spaces_var content
+++++ local __fmns_name=content '__fmns_text=                                                          ' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='                                                          '
+++++ printf -v content %s '                                                          '
+++++ fm_composer_leading_prompt_glyph_var glyph '                                                          '
+++++ local __fmpg_out=glyph '__fmpg_text=                                                          ' __fmpg_glyph
+++++ __fmpg_text=
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ❯ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n › ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ⟩ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n → ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '>' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '$' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n % ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '#' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ printf -v glyph %s ''
+++++ return 1
++++++ LC_ALL=C
++++++ printf %s '                                                          '
++++++ sed 's/[!-~]/ /g'
+++++ content='                                                          '
+++++ case "$content" in
+++++ printf %s '                                                          '
++++ content_spaces='                                                          '
++++ '[' '                                                          ' = '                                                          ' ']'
++++ row=3
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped='│ model:       gpt-6-astra high   /model to change         │'
++++ trimmed='│ model:       gpt-6-astra high   /model to change         │'
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed '__fmns_text=│ model:       gpt-6-astra high   /model to change         │' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ model:       gpt-6-astra high   /model to change         │'
++++ printf -v trimmed %s '│ model:       gpt-6-astra high   /model to change         │'
++++ __fmnt_text='│ model:       gpt-6-astra high   /model to change         │'
++++ __fmnt_text='│ model:       gpt-6-astra high   /model to change         │'
++++ __fmnt_text='│ model:       gpt-6-astra high   /model to change         │'
++++ printf -v trimmed %s '│ model:       gpt-6-astra high   /model to change         │'
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row '│ model:       gpt-6-astra high   /model to change         │'
++++ local 'row=│ model:       gpt-6-astra high   /model to change         │'
++++ '[' -n '│ model:       gpt-6-astra high   /model to change         │' ']'
++++ '[' -z '│ model:       gpt-6-astra high   /model to change         │' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' 0 -lt 0 ']'
++++ fm_composer_leading_agent_glyph_var glyph '│ model:       gpt-6-astra high   /model to change         │'
++++ local __fmag_out=glyph '__fmag_text=│ model:       gpt-6-astra high   /model to change         │' __fmag_glyph
++++ __fmag_text='│ model:       gpt-6-astra high   /model to change         │'
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 3 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' 0 -ge 0 ']'
++++ side_family=
++++ case "$trimmed" in
++++ side_family=single
++++ case "$current_family:$side_family" in
++++ content_rows=3
++++ '[' '' = '' ']'
++++ '[' 1 = 1 ']'
++++ content_inner='│ model:       gpt-6-astra high   /model to change         │'
++++ case "$side_family" in
++++ content_inner=' model:       gpt-6-astra high   /model to change         │'
++++ content_inner=' model:       gpt-6-astra high   /model to change         '
+++++ fm_composer_geometry_spaces ' model:       gpt-6-astra high   /model to change         '
+++++ local 'content= model:       gpt-6-astra high   /model to change         ' glyph
+++++ fm_composer_normalize_spaces_var content
+++++ local __fmns_name=content '__fmns_text= model:       gpt-6-astra high   /model to change         ' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' model:       gpt-6-astra high   /model to change         '
+++++ printf -v content %s ' model:       gpt-6-astra high   /model to change         '
+++++ fm_composer_leading_prompt_glyph_var glyph ' model:       gpt-6-astra high   /model to change         '
+++++ local __fmpg_out=glyph '__fmpg_text= model:       gpt-6-astra high   /model to change         ' __fmpg_glyph
+++++ __fmpg_text='model:       gpt-6-astra high   /model to change         '
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ❯ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n › ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ⟩ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n → ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '>' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '$' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n % ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '#' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ printf -v glyph %s ''
+++++ return 1
++++++ printf %s ' model:       gpt-6-astra high   /model to change         '
++++++ LC_ALL=C
++++++ sed 's/[!-~]/ /g'
+++++ content='                                                          '
+++++ case "$content" in
+++++ printf %s '                                                          '
++++ content_spaces='                                                          '
++++ '[' '                                                          ' = '                                                          ' ']'
++++ row=4
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ trimmed='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed '__fmns_text=│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ printf -v trimmed %s '│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ __fmnt_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ __fmnt_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ __fmnt_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ printf -v trimmed %s '│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row '│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ local 'row=│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ '[' -n '│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │' ']'
++++ '[' -z '│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' 0 -lt 0 ']'
++++ fm_composer_leading_agent_glyph_var glyph '│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ local __fmag_out=glyph '__fmag_text=│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │' __fmag_glyph
++++ __fmag_text='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 4 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' 0 -ge 0 ']'
++++ side_family=
++++ case "$trimmed" in
++++ side_family=single
++++ case "$current_family:$side_family" in
++++ content_rows=4
++++ '[' '' = '' ']'
++++ '[' 1 = 1 ']'
++++ content_inner='│ directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ case "$side_family" in
++++ content_inner=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE │'
++++ content_inner=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ fm_composer_geometry_spaces ' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ local 'content= directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE ' glyph
+++++ fm_composer_normalize_spaces_var content
+++++ local __fmns_name=content '__fmns_text= directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE ' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ printf -v content %s ' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ fm_composer_leading_prompt_glyph_var glyph ' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ local __fmpg_out=glyph '__fmpg_text= directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE ' __fmpg_glyph
+++++ __fmpg_text='directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ❯ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n › ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ⟩ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n → ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '>' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '$' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n % ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '#' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ printf -v glyph %s ''
+++++ return 1
++++++ printf %s ' directory:   ~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE '
++++++ LC_ALL=C
++++++ sed 's/[!-~]/ /g'
+++++ content='                …                                         '
+++++ case "$content" in
+++++ return 1
++++ content_spaces=
++++ geometry_ambiguous=1
++++ row=5
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped='│ permissions: YOLO mode                                   │'
++++ trimmed='│ permissions: YOLO mode                                   │'
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed '__fmns_text=│ permissions: YOLO mode                                   │' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='│ permissions: YOLO mode                                   │'
++++ printf -v trimmed %s '│ permissions: YOLO mode                                   │'
++++ __fmnt_text='│ permissions: YOLO mode                                   │'
++++ __fmnt_text='│ permissions: YOLO mode                                   │'
++++ __fmnt_text='│ permissions: YOLO mode                                   │'
++++ printf -v trimmed %s '│ permissions: YOLO mode                                   │'
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row '│ permissions: YOLO mode                                   │'
++++ local 'row=│ permissions: YOLO mode                                   │'
++++ '[' -n '│ permissions: YOLO mode                                   │' ']'
++++ '[' -z '│ permissions: YOLO mode                                   │' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' 0 -lt 0 ']'
++++ fm_composer_leading_agent_glyph_var glyph '│ permissions: YOLO mode                                   │'
++++ local __fmag_out=glyph '__fmag_text=│ permissions: YOLO mode                                   │' __fmag_glyph
++++ __fmag_text='│ permissions: YOLO mode                                   │'
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 5 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' 0 -ge 0 ']'
++++ side_family=
++++ case "$trimmed" in
++++ side_family=single
++++ case "$current_family:$side_family" in
++++ content_rows=5
++++ '[' '' = '' ']'
++++ '[' 1 = 1 ']'
++++ content_inner='│ permissions: YOLO mode                                   │'
++++ case "$side_family" in
++++ content_inner=' permissions: YOLO mode                                   │'
++++ content_inner=' permissions: YOLO mode                                   '
+++++ fm_composer_geometry_spaces ' permissions: YOLO mode                                   '
+++++ local 'content= permissions: YOLO mode                                   ' glyph
+++++ fm_composer_normalize_spaces_var content
+++++ local __fmns_name=content '__fmns_text= permissions: YOLO mode                                   ' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' permissions: YOLO mode                                   '
+++++ printf -v content %s ' permissions: YOLO mode                                   '
+++++ fm_composer_leading_prompt_glyph_var glyph ' permissions: YOLO mode                                   '
+++++ local __fmpg_out=glyph '__fmpg_text= permissions: YOLO mode                                   ' __fmpg_glyph
+++++ __fmpg_text='permissions: YOLO mode                                   '
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ❯ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n › ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n ⟩ ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n → ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '>' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '$' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n % ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ '[' -n '#' ']'
+++++ case "$__fmpg_text" in
+++++ IFS=
+++++ read -r __fmpg_glyph
+++++ printf -v glyph %s ''
+++++ return 1
++++++ printf %s ' permissions: YOLO mode                                   '
++++++ LC_ALL=C
++++++ sed 's/[!-~]/ /g'
+++++ content='                                                          '
+++++ case "$content" in
+++++ printf %s '                                                          '
++++ content_spaces='                                                          '
++++ '[' '                                                          ' = '                                                          ' ']'
++++ row=6
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped=╰──────────────────────────────────────────────────────────╯
++++ trimmed=╰──────────────────────────────────────────────────────────╯
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed __fmns_text=╰──────────────────────────────────────────────────────────╯ __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=╰──────────────────────────────────────────────────────────╯
++++ printf -v trimmed %s ╰──────────────────────────────────────────────────────────╯
++++ __fmnt_text=╰──────────────────────────────────────────────────────────╯
++++ __fmnt_text=╰──────────────────────────────────────────────────────────╯
++++ __fmnt_text=╰──────────────────────────────────────────────────────────╯
++++ printf -v trimmed %s ╰──────────────────────────────────────────────────────────╯
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ kind=bottom
++++ family=rounded
++++ _fm_composer_pi_separator_row ╰──────────────────────────────────────────────────────────╯
++++ local row=╰──────────────────────────────────────────────────────────╯
++++ '[' -n ╰──────────────────────────────────────────────────────────╯ ']'
++++ '[' -z ╰╯ ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' 0 -lt 0 ']'
++++ fm_composer_leading_agent_glyph_var glyph ╰──────────────────────────────────────────────────────────╯
++++ local __fmag_out=glyph __fmag_text=╰──────────────────────────────────────────────────────────╯ __fmag_glyph
++++ __fmag_text=╰──────────────────────────────────────────────────────────╯
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 6 -eq 13 ']'
++++ '[' bottom = top ']'
++++ '[' bottom = ascii ']'
++++ '[' bottom = bottom ']'
++++ '[' 0 -ge 0 ']'
++++ '[' rounded = rounded ']'
++++ '[' 1 = 1 ']'
++++ '[' 5 -gt 0 ']'
++++ '[' '' = '' ']'
++++ '[' 1 = 1 ']'
++++ bottom_inner=╰──────────────────────────────────────────────────────────╯
++++ case "$family" in
++++ bottom_inner=──────────────────────────────────────────────────────────╯
++++ bottom_inner=──────────────────────────────────────────────────────────
++++ bottom_spaces='                                                          '
++++ '[' '                                                          ' '!=' '                                                          ' ']'
++++ '[' -n 13 ']'
++++ '[' 0 -lt 13 ']'
++++ '[' 13 -le 6 ']'
++++ FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM=-1
++++ top=-1
++++ current_family=
++++ current_indent=
++++ valid=0
++++ content_rows=0
++++ row=7
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped=
++++ trimmed=
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed __fmns_text= __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ printf -v trimmed %s ''
++++ __fmnt_text=
++++ __fmnt_text=
++++ __fmnt_text=
++++ printf -v trimmed %s ''
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row ''
++++ local row=
++++ '[' -n '' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph ''
++++ local __fmsg_out=glyph __fmsg_text= __fmsg_glyph
++++ __fmsg_text=
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph ''
++++ local __fmag_out=glyph __fmag_text= __fmag_glyph
++++ __fmag_text=
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 7 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=8
++++ IFS=
++++ read -r line
++++ indent='  '
++++ left_stripped='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ trimmed='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed '__fmns_text=Tip: New Use /fast to enable our fastest inference with increased plan usage.' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ printf -v trimmed %s 'Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ __fmnt_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ __fmnt_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ __fmnt_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ printf -v trimmed %s 'Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row 'Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ local 'row=Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ '[' -n 'Tip: New Use /fast to enable our fastest inference with increased plan usage.' ']'
++++ '[' -z 'Tip: New Use /fast to enable our fastest inference with increased plan usage.' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph 'Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ local __fmsg_out=glyph '__fmsg_text=Tip: New Use /fast to enable our fastest inference with increased plan usage.' __fmsg_glyph
++++ __fmsg_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph 'Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ local __fmag_out=glyph '__fmag_text=Tip: New Use /fast to enable our fastest inference with increased plan usage.' __fmag_glyph
++++ __fmag_text='Tip: New Use /fast to enable our fastest inference with increased plan usage.'
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 8 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=9
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped=
++++ trimmed=
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed __fmns_text= __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ printf -v trimmed %s ''
++++ __fmnt_text=
++++ __fmnt_text=
++++ __fmnt_text=
++++ printf -v trimmed %s ''
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row ''
++++ local row=
++++ '[' -n '' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph ''
++++ local __fmsg_out=glyph __fmsg_text= __fmsg_glyph
++++ __fmsg_text=
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph ''
++++ local __fmag_out=glyph __fmag_text= __fmag_glyph
++++ __fmag_text=
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 9 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=10
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ trimmed='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed '__fmns_text=⚠ 2 startup issues (1 MCP) · ctrl + t for details' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ printf -v trimmed %s '⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ __fmnt_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ __fmnt_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ __fmnt_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ printf -v trimmed %s '⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row '⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ local 'row=⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ '[' -n '⚠ 2 startup issues (1 MCP) · ctrl + t for details' ']'
++++ '[' -z '⚠ 2 startup issues (1 MCP) · ctrl + t for details' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph '⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ local __fmsg_out=glyph '__fmsg_text=⚠ 2 startup issues (1 MCP) · ctrl + t for details' __fmsg_glyph
++++ __fmsg_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph '⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ local __fmag_out=glyph '__fmag_text=⚠ 2 startup issues (1 MCP) · ctrl + t for details' __fmag_glyph
++++ __fmag_text='⚠ 2 startup issues (1 MCP) · ctrl + t for details'
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 10 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=11
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped=
++++ trimmed=
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed __fmns_text= __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ printf -v trimmed %s ''
++++ __fmnt_text=
++++ __fmnt_text=
++++ __fmnt_text=
++++ printf -v trimmed %s ''
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row ''
++++ local row=
++++ '[' -n '' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph ''
++++ local __fmsg_out=glyph __fmsg_text= __fmsg_glyph
++++ __fmsg_text=
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph ''
++++ local __fmag_out=glyph __fmag_text= __fmag_glyph
++++ __fmag_text=
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 11 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=12
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped=
++++ trimmed=
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed __fmns_text= __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ printf -v trimmed %s ''
++++ __fmnt_text=
++++ __fmnt_text=
++++ __fmnt_text=
++++ printf -v trimmed %s ''
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row ''
++++ local row=
++++ '[' -n '' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph ''
++++ local __fmsg_out=glyph __fmsg_text= __fmsg_glyph
++++ __fmsg_text=
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph ''
++++ local __fmag_out=glyph __fmag_text= __fmag_glyph
++++ __fmag_text=
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 12 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=13
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped='› Ask Codex to do anything'
++++ trimmed='› Ask Codex to do anything'
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed '__fmns_text=› Ask Codex to do anything' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ printf -v trimmed %s '› Ask Codex to do anything'
++++ __fmnt_text='› Ask Codex to do anything'
++++ __fmnt_text='› Ask Codex to do anything'
++++ __fmnt_text='› Ask Codex to do anything'
++++ printf -v trimmed %s '› Ask Codex to do anything'
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row '› Ask Codex to do anything'
++++ local 'row=› Ask Codex to do anything'
++++ '[' -n '› Ask Codex to do anything' ']'
++++ '[' -z '› Ask Codex to do anything' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph '› Ask Codex to do anything'
++++ local __fmsg_out=glyph '__fmsg_text=› Ask Codex to do anything' __fmsg_glyph
++++ __fmsg_text='› Ask Codex to do anything'
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph '› Ask Codex to do anything'
++++ local __fmag_out=glyph '__fmag_text=› Ask Codex to do anything' __fmag_glyph
++++ __fmag_text='› Ask Codex to do anything'
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ printf -v glyph %s ›
++++ return 0
++++ FM_COMPOSER_SCAN_BARE_ROW=13
++++ '[' -n 13 ']'
++++ '[' 13 -eq 13 ']'
++++ fm_composer_row_has_edge '› Ask Codex to do anything'
++++ local 'row=› Ask Codex to do anything'
++++ fm_composer_normalize_trim_var row
++++ local __fmnt_name=row __fmnt_text
++++ fm_composer_normalize_spaces_var row
++++ local __fmns_name=row '__fmns_text=› Ask Codex to do anything' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='› Ask Codex to do anything'
++++ printf -v row %s '› Ask Codex to do anything'
++++ __fmnt_text='› Ask Codex to do anything'
++++ __fmnt_text='› Ask Codex to do anything'
++++ __fmnt_text='› Ask Codex to do anything'
++++ printf -v row %s '› Ask Codex to do anything'
++++ case "$row" in
++++ return 1
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=14
++++ IFS=
++++ read -r line
++++ indent=
++++ left_stripped=
++++ trimmed=
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed __fmns_text= __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text=
++++ printf -v trimmed %s ''
++++ __fmnt_text=
++++ __fmnt_text=
++++ __fmnt_text=
++++ printf -v trimmed %s ''
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row ''
++++ local row=
++++ '[' -n '' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph ''
++++ local __fmsg_out=glyph __fmsg_text= __fmsg_glyph
++++ __fmsg_text=
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph ''
++++ local __fmag_out=glyph __fmag_text= __fmag_glyph
++++ __fmag_text=
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 14 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=15
++++ IFS=
++++ read -r line
++++ indent='  '
++++ left_stripped='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ trimmed='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ fm_composer_normalize_trim_var trimmed
++++ local __fmnt_name=trimmed __fmnt_text
++++ fm_composer_normalize_spaces_var trimmed
++++ local __fmns_name=trimmed '__fmns_text=gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' __fmns_space
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
++++ __fmns_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ printf -v trimmed %s 'gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ __fmnt_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ __fmnt_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ __fmnt_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ printf -v trimmed %s 'gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ kind=
++++ family=
++++ case "$trimmed" in
++++ _fm_composer_pi_separator_row 'gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ local 'row=gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ '[' -n 'gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' ']'
++++ '[' -z 'gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' ']'
++++ return 1
++++ '[' -1 -ge 0 ']'
++++ case "$trimmed" in
++++ leftbar_start=-1
++++ '[' -1 -lt 0 ']'
++++ fm_composer_leading_shell_glyph_var glyph 'gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ local __fmsg_out=glyph '__fmsg_text=gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' __fmsg_glyph
++++ __fmsg_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '>' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '$' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n % ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ '[' -n '#' ']'
++++ case "$__fmsg_text" in
++++ IFS=
++++ read -r __fmsg_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ fm_composer_leading_agent_glyph_var glyph 'gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ local __fmag_out=glyph '__fmag_text=gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' __fmag_glyph
++++ __fmag_text='gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ❯ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n › ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n ⟩ ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ '[' -n → ']'
++++ case "$__fmag_text" in
++++ IFS=
++++ read -r __fmag_glyph
++++ printf -v glyph %s ''
++++ return 1
++++ '[' -n 13 ']'
++++ '[' 15 -eq 13 ']'
++++ '[' '' = top ']'
++++ '[' '' = ascii ']'
++++ '[' '' = bottom ']'
++++ '[' '' = ascii ']'
++++ '[' -1 -ge 0 ']'
++++ row=16
++++ IFS=
++++ read -r line
++++ '[' -n 13 ']'
++++ '[' -1 -ge 0 ']'
++++ '[' -n 13 ']'
++++ '[' 0 = 1 ']'
++++ '[' -1 -ge 0 ']'
++++ '[' -1 -ge 0 ']'
++++ '[' 13 -ge 0 ']'
++++ '[' 13 -eq 13 ']'
++++ '[' 0 = 1 ']'
++++ _fm_composer_classify_bare_row '[2m╭──────────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.154.0)                               │[0m
+[2m│                                                          │[0m
+[2m│ model:       [0mgpt-6-astra high[2m   [0m/model to change         │
+[2m│ directory:   [0m~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE[2m │[0m
+[2m│ permissions: [0mYOLO mode                                   │
+[2m╰──────────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m [3mNew[0m Use [1m/fast[0m to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' 1 13
++++ local 'screen=[2m╭──────────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.154.0)                               │[0m
+[2m│                                                          │[0m
+[2m│ model:       [0mgpt-6-astra high[2m   [0m/model to change         │
+[2m│ directory:   [0m~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE[2m │[0m
+[2m│ permissions: [0mYOLO mode                                   │
+[2m╰──────────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m [3mNew[0m Use [1m/fast[0m to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents' styled=1 row=13 raw content plain state
+++++ _fm_composer_screen_row 13 '[2m╭──────────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.154.0)                               │[0m
+[2m│                                                          │[0m
+[2m│ model:       [0mgpt-6-astra high[2m   [0m/model to change         │
+[2m│ directory:   [0m~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE[2m │[0m
+[2m│ permissions: [0mYOLO mode                                   │
+[2m╰──────────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m [3mNew[0m Use [1m/fast[0m to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
+++++ printf '%s\n' '[2m╭──────────────────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.154.0)                               │[0m
+[2m│                                                          │[0m
+[2m│ model:       [0mgpt-6-astra high[2m   [0m/model to change         │
+[2m│ directory:   [0m~/…/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE[2m │[0m
+[2m│ permissions: [0mYOLO mode                                   │
+[2m╰──────────────────────────────────────────────────────────╯[0m
+
+  [1mTip:[0m [3mNew[0m Use [1m/fast[0m to enable our fastest inference with increased plan usage.
+
+⚠ 2 startup issues (1 MCP) · ctrl + t for details
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  gpt-6-astra high · ~/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE · ← for agents'
+++++ sed -n 14p
++++ raw='[1m›[0m [2mAsk Codex to do anything[0m'
+++++ _fm_composer_row_content '[1m›[0m [2mAsk Codex to do anything[0m' 1
+++++ local 'raw=[1m›[0m [2mAsk Codex to do anything[0m' styled=1 stripped
+++++ '[' 1 = 1 ']'
++++++ printf '%s\n' '[1m›[0m [2mAsk Codex to do anything[0m'
++++++ fm_composer_strip_ghost
++++++ LC_ALL=C
++++++ awk -v lumamax=128 '
+    function sgr_code(v, b) {
+      b = v
+      sub(/:.*/, "", b)
+      if (b == "") b = "0"
+      return b
+    }
+    function skip_color_payload(a, p, k, mode, code) {
+      if (index(a[p], ":") > 0) return p
+      if (p >= k) return p
+      mode = a[p + 1]
+      code = sgr_code(mode)
+      if (index(mode, ":") > 0) return p + 1
+      if (code == "5") return p + 2
+      if (code == "2") return p + 4
+      return p + 1
+    }
+    # fg38_is_dark: 1 when the SGR 38 foreground starting at param p is a
+    # TRUECOLOR (38;2 / 38:2) whose luminance is below lumamax; 0 otherwise
+    # (a 38;5 palette colour, a bright truecolor, or a malformed run).
+    function fg38_is_dark(a, p, k, lumamax,   spec, nf, f, r, g, b) {
+      spec = a[p]
+      if (index(spec, ":") > 0) {           # colon form: whole colour in a[p]
+        nf = split(spec, f, ":")
+        if (f[2] != "2" || nf < 5) return 0
+        r = f[nf - 2] + 0; g = f[nf - 1] + 0; b = f[nf] + 0
+        return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
+      }
+      if (p + 1 > k || a[p + 1] != "2" || p + 4 > k) return 0
+      r = a[p + 2] + 0; g = a[p + 3] + 0; b = a[p + 4] + 0
+      return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
+    }
+    {
+      line = $0; out = ""; dim = 0; darkfg = 0; n = length(line); i = 1
+      while (i <= n) {
+        c = substr(line, i, 1)
+        if (c == "\033") {            # ESC: consume a CSI ... final-byte sequence
+          j = i + 1
+          if (substr(line, j, 1) == "[") {
+            j++; params = ""
+            while (j <= n) {
+              cc = substr(line, j, 1)
+              if (cc ~ /[@-~]/) break
+              params = params cc; j++
+            }
+            if (j <= n && substr(line, j, 1) == "m") {   # SGR: update de-emphasis
+              if (params == "") params = "0"
+              k = split(params, a, ";")
+              for (p = 1; p <= k; p++) {
+                v = a[p]; code = sgr_code(v)
+                if (code == "38") {
+                  darkfg = fg38_is_dark(a, p, k, lumamax)
+                  p = skip_color_payload(a, p, k)
+                } else if (code == "48" || code == "58") {
+                  p = skip_color_payload(a, p, k)
+                } else if (code == "2") dim = 1
+                else if (code == "0") { dim = 0; darkfg = 0 }
+                else if (code == "22") dim = 0
+                else if (code == "39") darkfg = 0
+                else if (code + 0 >= 30 && code + 0 <= 37) darkfg = 0
+                else if (code + 0 >= 90 && code + 0 <= 97) darkfg = 0
+              }
+            }
+            if (j <= n) { i = j + 1; continue }
+          }
+          i = i + 1; continue          # lone/other ESC: drop the ESC byte only
+        }
+        if (dim == 0 && darkfg == 0) out = out c   # keep only non-de-emphasised bytes
+        i++
+      }
+      print out
+    }
+  '
+++++ stripped='› '
+++++ fm_composer_normalize_trim_var stripped
+++++ local __fmnt_name=stripped __fmnt_text
+++++ fm_composer_normalize_spaces_var stripped
+++++ local __fmns_name=stripped '__fmns_text=› ' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› '
+++++ printf -v stripped %s '› '
+++++ __fmnt_text='› '
+++++ __fmnt_text='› '
+++++ __fmnt_text=›
+++++ printf -v stripped %s ›
+++++ case "$stripped" in
+++++ fm_composer_normalize_trim_var stripped
+++++ local __fmnt_name=stripped __fmnt_text
+++++ fm_composer_normalize_spaces_var stripped
+++++ local __fmns_name=stripped __fmns_text=› __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ printf -v stripped %s ›
+++++ __fmnt_text=›
+++++ __fmnt_text=›
+++++ __fmnt_text=›
+++++ printf -v stripped %s ›
+++++ '[' 1 = 1 ']'
+++++ _fm_composer_is_codex_braille_placeholder '[1m›[0m [2mAsk Codex to do anything[0m' ›
+++++ local 'raw=[1m›[0m [2mAsk Codex to do anything[0m' stripped=› plain core span glyph= remainder
+++++ local 'pattern=�[�-�][�-�]'
+++++ local 'placeholder=Ask Codex to do anything' expected actual
+++++ local $'mark=\001'
+++++ local i j first last lo hi width substitutions
+++++ fm_composer_leading_agent_glyph_var glyph ›
+++++ local __fmag_out=glyph __fmag_text=› __fmag_glyph
+++++ __fmag_text=›
+++++ IFS=
+++++ read -r __fmag_glyph
+++++ '[' -n ❯ ']'
+++++ case "$__fmag_text" in
+++++ IFS=
+++++ read -r __fmag_glyph
+++++ '[' -n › ']'
+++++ case "$__fmag_text" in
+++++ printf -v glyph %s ›
+++++ return 0
+++++ '[' › = › ']'
+++++ remainder=
+++++ fm_composer_normalize_spaces_var remainder
+++++ local __fmns_name=remainder __fmns_text= __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ printf -v remainder %s ''
++++++ printf %s ''
++++++ LC_ALL=C
++++++ sed 's/�[�-�][�-�]//g'
+++++ remainder=
+++++ fm_composer_normalize_trim_var remainder
+++++ local __fmnt_name=remainder __fmnt_text
+++++ fm_composer_normalize_spaces_var remainder
+++++ local __fmns_name=remainder __fmns_text= __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ printf -v remainder %s ''
+++++ __fmnt_text=
+++++ __fmnt_text=
+++++ __fmnt_text=
+++++ printf -v remainder %s ''
+++++ '[' -z '' ']'
++++++ printf '%s\n' '[1m›[0m [2mAsk Codex to do anything[0m'
++++++ fm_composer_strip_ansi
++++++ local esc
+++++++ printf '\033'
++++++ esc=$'\E'
++++++ LC_ALL=C
++++++ sed 's/\[[0-9;:?]*[[:alpha:]]//g'
+++++ plain='› Ask Codex to do anything'
+++++ fm_composer_normalize_trim_var plain
+++++ local __fmnt_name=plain __fmnt_text
+++++ fm_composer_normalize_spaces_var plain
+++++ local __fmns_name=plain '__fmns_text=› Ask Codex to do anything' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ printf -v plain %s '› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ printf -v plain %s '› Ask Codex to do anything'
+++++ case "$plain" in
+++++ fm_composer_normalize_trim_var plain
+++++ local __fmnt_name=plain __fmnt_text
+++++ fm_composer_normalize_spaces_var plain
+++++ local __fmns_name=plain '__fmns_text=› Ask Codex to do anything' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ printf -v plain %s '› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ printf -v plain %s '› Ask Codex to do anything'
+++++ fm_composer_leading_agent_glyph_var glyph '› Ask Codex to do anything'
+++++ local __fmag_out=glyph '__fmag_text=› Ask Codex to do anything' __fmag_glyph
+++++ __fmag_text='› Ask Codex to do anything'
+++++ IFS=
+++++ read -r __fmag_glyph
+++++ '[' -n ❯ ']'
+++++ case "$__fmag_text" in
+++++ IFS=
+++++ read -r __fmag_glyph
+++++ '[' -n › ']'
+++++ case "$__fmag_text" in
+++++ printf -v glyph %s ›
+++++ return 0
+++++ '[' › = › ']'
+++++ plain=' Ask Codex to do anything'
+++++ fm_composer_normalize_spaces_var plain
+++++ local __fmns_name=plain '__fmns_text= Ask Codex to do anything' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ printf -v plain %s ' Ask Codex to do anything'
+++++ fm_composer_normalize_trim_var plain
+++++ local __fmnt_name=plain __fmnt_text
+++++ fm_composer_normalize_spaces_var plain
+++++ local __fmns_name=plain '__fmns_text= Ask Codex to do anything' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=' Ask Codex to do anything'
+++++ printf -v plain %s ' Ask Codex to do anything'
+++++ __fmnt_text=' Ask Codex to do anything'
+++++ __fmnt_text='Ask Codex to do anything'
+++++ __fmnt_text='Ask Codex to do anything'
+++++ printf -v plain %s 'Ask Codex to do anything'
++++++ printf %s 'Ask Codex to do anything'
++++++ LC_ALL=C
++++++ sed 's/�[�-�][�-�]//g'
+++++ core='Ask Codex to do anything'
+++++ width=24
+++++ '[' 24 -ge 24 ']'
+++++ first=-1
+++++ last=-1
+++++ (( i = 0 ))
+++++ (( i < 24 ))
+++++ actual=A
+++++ '[' A = $'\001' ']'
+++++ case "$actual" in
+++++ '[' -1 -lt 0 ']'
+++++ first=0
+++++ last=0
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=s
+++++ '[' s = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=1
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=k
+++++ '[' k = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=2
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=' '
+++++ '[' ' ' = $'\001' ']'
+++++ case "$actual" in
+++++ continue
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=C
+++++ '[' C = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=4
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=o
+++++ '[' o = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=5
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=d
+++++ '[' d = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=6
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=e
+++++ '[' e = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=7
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=x
+++++ '[' x = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=8
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=' '
+++++ '[' ' ' = $'\001' ']'
+++++ case "$actual" in
+++++ continue
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=t
+++++ '[' t = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=10
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=o
+++++ '[' o = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=11
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=' '
+++++ '[' ' ' = $'\001' ']'
+++++ case "$actual" in
+++++ continue
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=d
+++++ '[' d = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=13
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=o
+++++ '[' o = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=14
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=' '
+++++ '[' ' ' = $'\001' ']'
+++++ case "$actual" in
+++++ continue
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=a
+++++ '[' a = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=16
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=n
+++++ '[' n = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=17
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=y
+++++ '[' y = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=18
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=t
+++++ '[' t = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=19
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=h
+++++ '[' h = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=20
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=i
+++++ '[' i = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=21
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=n
+++++ '[' n = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=22
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ actual=g
+++++ '[' g = $'\001' ']'
+++++ case "$actual" in
+++++ '[' 0 -lt 0 ']'
+++++ last=23
+++++ (( i++ ))
+++++ (( i < 24 ))
+++++ '[' 0 -ge 0 ']'
+++++ lo=0
+++++ '[' 0 -ge 0 ']'
+++++ hi=0
+++++ '[' 0 -le 0 ']'
+++++ (( i = lo ))
+++++ (( i <= hi ))
+++++ _fm_composer_codex_idle_decoration_only ''
+++++ local text=
+++++ fm_composer_normalize_trim_var text
+++++ local __fmnt_name=text __fmnt_text
+++++ fm_composer_normalize_spaces_var text
+++++ local __fmns_name=text __fmns_text= __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ printf -v text %s ''
+++++ __fmnt_text=
+++++ __fmnt_text=
+++++ __fmnt_text=
+++++ printf -v text %s ''
+++++ '[' -z '' ']'
+++++ _fm_composer_codex_idle_decoration_only ''
+++++ local text=
+++++ fm_composer_normalize_trim_var text
+++++ local __fmnt_name=text __fmnt_text
+++++ fm_composer_normalize_spaces_var text
+++++ local __fmns_name=text __fmns_text= __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=
+++++ printf -v text %s ''
+++++ __fmnt_text=
+++++ __fmnt_text=
+++++ __fmnt_text=
+++++ printf -v text %s ''
+++++ '[' -z '' ']'
+++++ span='Ask Codex to do anything'
+++++ substitutions=0
+++++ (( j = 0 ))
+++++ (( j < width ))
+++++ expected=A
+++++ actual=A
+++++ '[' A = $'\001' ']'
+++++ '[' A '!=' A ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=s
+++++ actual=s
+++++ '[' s = $'\001' ']'
+++++ '[' s '!=' s ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=k
+++++ actual=k
+++++ '[' k = $'\001' ']'
+++++ '[' k '!=' k ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=' '
+++++ actual=' '
+++++ '[' ' ' = $'\001' ']'
+++++ '[' ' ' '!=' ' ' ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=C
+++++ actual=C
+++++ '[' C = $'\001' ']'
+++++ '[' C '!=' C ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=o
+++++ actual=o
+++++ '[' o = $'\001' ']'
+++++ '[' o '!=' o ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=d
+++++ actual=d
+++++ '[' d = $'\001' ']'
+++++ '[' d '!=' d ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=e
+++++ actual=e
+++++ '[' e = $'\001' ']'
+++++ '[' e '!=' e ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=x
+++++ actual=x
+++++ '[' x = $'\001' ']'
+++++ '[' x '!=' x ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=' '
+++++ actual=' '
+++++ '[' ' ' = $'\001' ']'
+++++ '[' ' ' '!=' ' ' ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=t
+++++ actual=t
+++++ '[' t = $'\001' ']'
+++++ '[' t '!=' t ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=o
+++++ actual=o
+++++ '[' o = $'\001' ']'
+++++ '[' o '!=' o ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=' '
+++++ actual=' '
+++++ '[' ' ' = $'\001' ']'
+++++ '[' ' ' '!=' ' ' ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=d
+++++ actual=d
+++++ '[' d = $'\001' ']'
+++++ '[' d '!=' d ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=o
+++++ actual=o
+++++ '[' o = $'\001' ']'
+++++ '[' o '!=' o ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=' '
+++++ actual=' '
+++++ '[' ' ' = $'\001' ']'
+++++ '[' ' ' '!=' ' ' ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=a
+++++ actual=a
+++++ '[' a = $'\001' ']'
+++++ '[' a '!=' a ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=n
+++++ actual=n
+++++ '[' n = $'\001' ']'
+++++ '[' n '!=' n ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=y
+++++ actual=y
+++++ '[' y = $'\001' ']'
+++++ '[' y '!=' y ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=t
+++++ actual=t
+++++ '[' t = $'\001' ']'
+++++ '[' t '!=' t ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=h
+++++ actual=h
+++++ '[' h = $'\001' ']'
+++++ '[' h '!=' h ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=i
+++++ actual=i
+++++ '[' i = $'\001' ']'
+++++ '[' i '!=' i ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=n
+++++ actual=n
+++++ '[' n = $'\001' ']'
+++++ '[' n '!=' n ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ expected=g
+++++ actual=g
+++++ '[' g = $'\001' ']'
+++++ '[' g '!=' g ']'
+++++ (( j++ ))
+++++ (( j < width ))
+++++ '[' 24 -eq 24 ']'
+++++ '[' 0 -le 3 ']'
+++++ return 0
+++++ stripped=›
+++++ printf %s ›
++++ content=›
+++++ _fm_composer_row_content '[1m›[0m [2mAsk Codex to do anything[0m' 0
+++++ local 'raw=[1m›[0m [2mAsk Codex to do anything[0m' styled=0 stripped
+++++ '[' 0 = 1 ']'
++++++ fm_composer_strip_ansi
++++++ local esc
+++++++ printf '\033'
++++++ esc=$'\E'
++++++ printf '%s\n' '[1m›[0m [2mAsk Codex to do anything[0m'
++++++ LC_ALL=C
++++++ sed 's/\[[0-9;:?]*[[:alpha:]]//g'
+++++ stripped='› Ask Codex to do anything'
+++++ fm_composer_normalize_trim_var stripped
+++++ local __fmnt_name=stripped __fmnt_text
+++++ fm_composer_normalize_spaces_var stripped
+++++ local __fmns_name=stripped '__fmns_text=› Ask Codex to do anything' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ printf -v stripped %s '› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ printf -v stripped %s '› Ask Codex to do anything'
+++++ case "$stripped" in
+++++ fm_composer_normalize_trim_var stripped
+++++ local __fmnt_name=stripped __fmnt_text
+++++ fm_composer_normalize_spaces_var stripped
+++++ local __fmns_name=stripped '__fmns_text=› Ask Codex to do anything' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ printf -v stripped %s '› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ printf -v stripped %s '› Ask Codex to do anything'
+++++ '[' 0 = 1 ']'
+++++ printf %s '› Ask Codex to do anything'
++++ plain='› Ask Codex to do anything'
+++++ fm_composer_classify_content 0 › '^Type a message\.\.\.$|^Ask anything\.\.\.|^Plan, search, build anything$|^Add a follow-up$' insensitive '› Ask Codex to do anything' 0 1
+++++ local bordered=0 'idle_re=^Type a message\.\.\.$|^Ask anything\.\.\.|^Plan, search, build anything$|^Add a follow-up$' idle_case=insensitive content plain_content glyph=
+++++ local placeholder_position=0 styled=1 idle_collision=0
+++++ content=›
+++++ fm_composer_normalize_trim_var content
+++++ local __fmnt_name=content __fmnt_text
+++++ fm_composer_normalize_spaces_var content
+++++ local __fmns_name=content __fmns_text=› __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text=›
+++++ printf -v content %s ›
+++++ __fmnt_text=›
+++++ __fmnt_text=›
+++++ __fmnt_text=›
+++++ printf -v content %s ›
+++++ plain_content='› Ask Codex to do anything'
+++++ fm_composer_normalize_trim_var plain_content
+++++ local __fmnt_name=plain_content __fmnt_text
+++++ fm_composer_normalize_spaces_var plain_content
+++++ local __fmns_name=plain_content '__fmns_text=› Ask Codex to do anything' __fmns_space
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ for __fmns_space in "${FM_COMPOSER_UNICODE_SPACES[@]}"
+++++ __fmns_text='› Ask Codex to do anything'
+++++ printf -v plain_content %s '› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ __fmnt_text='› Ask Codex to do anything'
+++++ printf -v plain_content %s '› Ask Codex to do anything'
+++++ '[' 0 '!=' 1 ']'
+++++ '[' -z › ']'
+++++ _fm_composer_is_prompt_glyph › '❯
+›
+⟩
+→'
+++++ local content=› glyph
+++++ IFS=
+++++ read -r glyph
+++++ '[' -n ❯ ']'
+++++ '[' › = ❯ ']'
+++++ IFS=
+++++ read -r glyph
+++++ '[' -n › ']'
+++++ '[' › = › ']'
+++++ return 0
+++++ printf empty
+++++ return 0
++++ state=empty
++++ '[' 1 '!=' 1 ']'
++++ printf %s empty
++++ return 0
+++ verdict=empty
+++ '[' empty = need-identity ']'
+++ '[' empty = unknown ']'
+++ printf %s empty
++ verdict=empty
++ '[' empty = empty ']'
++ return 0
++ ready_rc=0
++ '[' 0 -eq 1 ']'
++ '[' 0 -eq 0 ']'
++ printf 'window=%s:%s\nkind=ship\nharness=%s\n' inboxlive hx-codex codex
++ FM_HOME=/tmp/fm-inbox-live.vPYO5J/codex-home
++ FM_ROOT_OVERRIDE=/tmp/fm-inbox-live.vPYO5J/codex-home
++ /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/bin/fm-send.sh live-codex 'Firstmate live check: run exactly this shell command now: touch /tmp/fm-inbox-live.vPYO5J/acted-codex - then follow the mv instruction you were given for this message. Reply with one short line.'
++ FAILED=1
++ printf 'not ok - %s (%s): fm-send refused the live steer\n' codex 'codex-cli 0.154.0'
+not ok - codex (codex-cli 0.154.0): fm-send refused the live steer
++ tmux -L fm-inbox-live-3656218 kill-window -t inboxlive:hx-codex
++ return 0
++ '[' 1 -ne 0 ']'
++ printf 'not ok - live steering-inbox doorbell guard found failures above\n'
+not ok - live steering-inbox doorbell guard found failures above
++ exit 1
++ cleanup
++ tmux -L fm-inbox-live-3656218 kill-server
++ rm -rf /tmp/fm-inbox-live.vPYO5J

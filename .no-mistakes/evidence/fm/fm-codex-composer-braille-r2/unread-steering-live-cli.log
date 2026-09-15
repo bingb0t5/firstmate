@@ -1,0 +1,8 @@
+BEFORE_ACK_SNAPSHOT
+{"id":"observable","steering":{"unread":1,"oldest_unread_age_secs":2,"truncated":false,"source":"local-inbox","observed_at":"2026-09-15T07:53:41Z","freshness":"fresh"}}
+BEFORE_ACK_SESSION_DIGEST
+steering: 1 unacknowledged instruction(s) waiting, oldest 13s ago (state/observable.inbox)
+PRIVACY_CHECK
+PASS: steering body absent from fleet snapshot
+AFTER_ACK_SNAPSHOT
+{"id":"observable","steering":{"unread":0,"oldest_unread_age_secs":0,"truncated":false,"source":"local-inbox","observed_at":"2026-09-15T07:53:54Z","freshness":"fresh"}}

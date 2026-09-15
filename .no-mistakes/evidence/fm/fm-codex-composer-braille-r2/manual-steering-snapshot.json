@@ -1,0 +1,164 @@
+{
+  "schema": "fm-fleet-snapshot.v1",
+  "generated": "2026-09-15T07:33:32Z",
+  "fm_home": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering",
+  "roots": {
+    "fm_root": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE",
+    "state": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/state",
+    "data": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/data",
+    "config": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/config",
+    "projects": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/projects"
+  },
+  "backlog": {
+    "path": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/data/backlog.md",
+    "present": false,
+    "records": []
+  },
+  "tasks": [
+    {
+      "id": "waiting",
+      "kind": "ship",
+      "harness": "codex",
+      "mode": "ship",
+      "yolo": "",
+      "project": "example",
+      "last_changed_at": "2026-09-15T07:33:32Z",
+      "backend": "tmux",
+      "remote": null,
+      "paths": {
+        "meta": {
+          "path": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/state/waiting.meta",
+          "present": true
+        },
+        "status_log": {
+          "path": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/state/waiting.status",
+          "present": false,
+          "kind": "event_history",
+          "last_event": {
+            "state": "",
+            "note": "",
+            "raw": ""
+          }
+        },
+        "worktree": {
+          "path": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/projects/example",
+          "present": false
+        },
+        "home": {
+          "path": null,
+          "present": false
+        },
+        "report": {
+          "path": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/data/waiting/report.md",
+          "present": false
+        }
+      },
+      "secondmate_projects": [],
+      "current_state": {
+        "state": "unknown",
+        "source": "none",
+        "detail": "worktree gone (torn down?)",
+        "raw": "state: unknown · source: none · worktree gone (torn down?)",
+        "observed_at": "2026-09-15T07:33:32Z",
+        "freshness": "fresh"
+      },
+      "endpoint": {
+        "target": "fm-manual-steering:waiting",
+        "exists": true,
+        "agent_alive": "not_checked",
+        "status": "unknown",
+        "observed_at": "2026-09-15T07:33:32Z",
+        "freshness": "fresh"
+      },
+      "steering": {
+        "unread": 1,
+        "oldest_unread_age_secs": 211646013,
+        "truncated": false,
+        "source": "local-inbox",
+        "observed_at": "2026-09-15T07:33:32Z",
+        "freshness": "fresh"
+      },
+      "pr": {
+        "url": null,
+        "source": "absent"
+      },
+      "hints": {
+        "pending_decision": false,
+        "blocked_event": false,
+        "open_decisions": [],
+        "scout_report_present": false,
+        "last_event_text": ""
+      },
+      "actions": {
+        "watch": "bin/fm-peek.sh fm-waiting",
+        "steer": "bin/fm-send.sh fm-waiting '<instruction>'",
+        "return_channel_note": null
+      },
+      "backlog": null
+    }
+  ],
+  "main_inventory": {
+    "valid": true,
+    "reason": null,
+    "orphan_in_flight": [],
+    "unstructured_current_count": 0
+  },
+  "attention": {
+    "limit": 4,
+    "count": 1,
+    "remaining": 3,
+    "valid": true,
+    "workers": [
+      {
+        "id": "waiting",
+        "kind": "ship",
+        "state": "unknown",
+        "source": "none",
+        "class": "unknown",
+        "counts": true
+      }
+    ],
+    "reservations": [],
+    "reported": []
+  },
+  "pull": {
+    "eligible": [],
+    "ineligible": [],
+    "rows": []
+  },
+  "scout_reports": [],
+  "secondmate_current": {
+    "registry": {
+      "present": false,
+      "available": true,
+      "complete": true,
+      "reason": null,
+      "provenance": "registered-table",
+      "path": "/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE/.manual-live-steering/data/secondmates.md",
+      "freshness": {
+        "status": "fresh",
+        "observed_at": "2026-09-15T07:33:32Z"
+      },
+      "records": [],
+      "input_truncated": false,
+      "records_truncated": false,
+      "reasons": [],
+      "lines_in_window": 0,
+      "records_in_window": 0
+    },
+    "records": [],
+    "total_registered": 0,
+    "total": 0,
+    "shown": 0,
+    "truncated": 0
+  },
+  "secondmate_landed": {
+    "records": [],
+    "truncated": [],
+    "unreadable": [],
+    "partial": []
+  },
+  "secondmate_guidance": {
+    "note": "For kind=secondmate, bearings selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."
+  }
+}

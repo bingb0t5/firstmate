@@ -1,0 +1,36 @@
+# claude pane tail at failure:
+#    Accessing workspace:
+#    /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
+#    Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first.
+#    Claude Code'll be able to read, edit, and execute files here.
+#    Security guide
+#    ❯ No, exit
+#      Yes, I trust this folder
+#    Enter to confirm · Esc to cancel
+not ok - claude (2.1.272 (Claude Code)): idle composer never classified empty (last verdict: pending)
+# codex pane tail at failure:
+#     Hooks need review
+#     4 hooks are new or changed.
+#     Hooks can run outside the sandbox after you trust them.
+#   › 1. Review hooks
+#     2. Trust all and continue
+#     3. Continue without trusting (hooks won't run)
+#     Press enter to confirm or esc to go back
+not ok - codex (codex-cli 0.154.0): idle composer never classified empty (last verdict: unknown)
+# harness absent, not verified here: opencode
+ok - pi (0.85.0): real idle composer classifies empty
+# grok pane tail at failure:
+#                                                                                                          ⠐⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+#                                                                                           Do you trust the contents of this directory?
+#                                                                             /home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2HYHEMRRW06X1G9HY3WJDHE
+#                                                                                     Grok Build may run or modify contents in this directory,
+#                                                                                                      posing security risks.
+#                                                                                                  Yes, proceed                 y
+#                                                                                                  No, quit                     n
+#                                                                                                                                                                                                  Grok Build  1.0.30 [stable]
+not ok - grok (grok 1.0.30 (04b7ffed98c6)): idle composer never classified empty (last verdict: unknown)
+# harness absent, not verified here: kimi
+# harness absent, not verified here: muse
+ok - strict posture live: a blank shell row classifies unknown and injection defers
+# harness absent, not verified here: zellij (false-positive regression not exercised)
+not ok - live composer-matrix guard observed failures above
