@@ -192,6 +192,10 @@ test_surface_override_routing() {
   assert_signal 'fm-send state override into another home' surface-override
   [ ! -e "$PRIMARY/state/override-task.inbox" ] \
     || fail 'fm-send followed a state override into another home'
+  grep -Fq "protected 'primary' home ($PRIMARY)" "$OUT" \
+    || fail 'surface override refusal did not name the protected home identity and path'
+  grep -Fq "selected 'mate-a' home ($MATE)" "$OUT" \
+    || fail 'surface override refusal did not name the selected home identity and path'
 
   RC=0
   FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" FM_HOME="$MATE" \
@@ -202,6 +206,20 @@ test_surface_override_routing() {
   assert_signal 'fm-send primary-bin state override into the launch-bound primary' surface-override
   [ ! -e "$PRIMARY/state/primary-task.inbox" ] \
     || fail 'fm-send primary-bin override wrote into the launch-bound primary'
+
+  RC=0
+  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" FM_HOME="$MATE" \
+    FM_STATE_OVERRIDE="$SIBLING/state" \
+    "$PRIMARY/bin/fm-send.sh" fm-sibling-task --inbox-only 'absolute primary-bin sibling override steer' \
+    >"$OUT" 2>&1 || RC=$?
+  assert_refused 'fm-send primary-bin state override into a launch-bound sibling'
+  assert_signal 'fm-send primary-bin state override into a launch-bound sibling' surface-override
+  [ ! -e "$SIBLING/state/sibling-task.inbox" ] \
+    || fail 'fm-send primary-bin override wrote into the launch-bound sibling'
+  grep -Fq "protected 'mate-b' home ($SIBLING)" "$OUT" \
+    || fail 'surface override refusal did not name the protected sibling identity and path'
+  grep -Fq "selected 'mate-a' home ($MATE)" "$OUT" \
+    || fail 'surface override refusal did not name the selected sibling-route identity and path'
 
   run_surface_override "$MATE" "$MATE" FM_DATA_OVERRIDE "$PRIMARY/data" \
     fm-startup-memory-budget.sh report

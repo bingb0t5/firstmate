@@ -100,6 +100,8 @@ FM_HOME_IDENTITY_VALUE=
 FM_HOME_IDENTITY_ERROR=
 FM_HOME_IDENTITY_SIGNAL=
 FM_HOME_IDENTITY_REASON=
+FM_HOME_IDENTITY_PROTECTED_HOME=
+FM_HOME_IDENTITY_PROTECTED_ID=
 
 # The physical directory of the home whose bin/ is executing. Resolved from this
 # file's own location rather than from FM_ROOT/FM_ROOT_OVERRIDE so an env
@@ -224,6 +226,16 @@ fm_home_identity_remote_home() {
   [ "$home_key" = "$registry_key" ]
 }
 
+fm_home_identity_set_protected_home() {
+  local home=${1-}
+  FM_HOME_IDENTITY_PROTECTED_HOME=$home
+  if fm_home_identity_read "$home"; then
+    FM_HOME_IDENTITY_PROTECTED_ID=$FM_HOME_IDENTITY_VALUE
+  else
+    FM_HOME_IDENTITY_PROTECTED_ID=unknown
+  fi
+}
+
 fm_home_identity_surface_is_protected_elsewhere() {
   local target_abs=${1-} override_abs=${2-} surface=${3-} parent_abs= bound_primary_abs= registry probe
   if fm_home_identity_origin_id >/dev/null; then
@@ -232,15 +244,24 @@ fm_home_identity_surface_is_protected_elsewhere() {
   if [ -n "${FM_PUBLIC_FOLLOWUP_PRIMARY_HOME:-}" ]; then
     bound_primary_abs=$(fm_home_identity_canonical "$FM_PUBLIC_FOLLOWUP_PRIMARY_HOME") || bound_primary_abs=
   fi
+  if [ -z "$parent_abs" ] && [ -n "$bound_primary_abs" ]; then
+    parent_abs=$bound_primary_abs
+  fi
   registry="${parent_abs:-$target_abs}/data/secondmates.md"
   case "$override_abs" in
     "$parent_abs/$surface"|"$parent_abs/$surface/"*)
-      [ -n "$parent_abs" ] && [ "$target_abs" != "$parent_abs" ] && return 0
+      if [ -n "$parent_abs" ] && [ "$target_abs" != "$parent_abs" ]; then
+        fm_home_identity_set_protected_home "$parent_abs"
+        return 0
+      fi
       ;;
   esac
   case "$override_abs" in
     "$bound_primary_abs/$surface"|"$bound_primary_abs/$surface/"*)
-      [ -n "$bound_primary_abs" ] && [ "$target_abs" != "$bound_primary_abs" ] && return 0
+      if [ -n "$bound_primary_abs" ] && [ "$target_abs" != "$bound_primary_abs" ]; then
+        fm_home_identity_set_protected_home "$bound_primary_abs"
+        return 0
+      fi
       ;;
   esac
   probe=$override_abs
@@ -251,6 +272,7 @@ fm_home_identity_surface_is_protected_elsewhere() {
           if { [ -n "$parent_abs" ] \
             && fm_home_identity_corroborated_id "$probe" "$parent_abs" >/dev/null; } \
             || fm_home_identity_remote_home "$probe" "$registry"; then
+            fm_home_identity_set_protected_home "$probe"
             return 0
           fi
         fi
@@ -262,7 +284,9 @@ fm_home_identity_surface_is_protected_elsewhere() {
 }
 
 fm_home_identity_surface_override() {
-  local target=${1-} surface=${2-} override override_name target_abs override_abs
+  local target=${1-} surface=${2-} override override_name target_abs override_abs target_id
+  FM_HOME_IDENTITY_PROTECTED_HOME=
+  FM_HOME_IDENTITY_PROTECTED_ID=
   case "$surface" in
     state) override=${FM_STATE_OVERRIDE:-}; override_name=FM_STATE_OVERRIDE ;;
     data) override=${FM_DATA_OVERRIDE:-}; override_name=FM_DATA_OVERRIDE ;;
@@ -282,8 +306,13 @@ fm_home_identity_surface_override() {
     return 0
   }
   if fm_home_identity_surface_is_protected_elsewhere "$target_abs" "$override_abs" "$surface"; then
+    if fm_home_identity_read "$target_abs"; then
+      target_id=$FM_HOME_IDENTITY_VALUE
+    else
+      target_id=unknown
+    fi
     FM_HOME_IDENTITY_SIGNAL='surface-override'
-    FM_HOME_IDENTITY_REASON="$override_name selects $override_abs inside another protected home's $surface surface instead of the selected home ($target_abs)"
+    FM_HOME_IDENTITY_REASON="$override_name selects $override_abs inside the protected '$FM_HOME_IDENTITY_PROTECTED_ID' home ($FM_HOME_IDENTITY_PROTECTED_HOME) $surface surface instead of the selected '$target_id' home ($target_abs)"
     return 0
   fi
   return 1
