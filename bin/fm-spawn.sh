@@ -108,6 +108,8 @@
 #   Fresh ordinary ship and scout spawns also recompute fm-fleet-snapshot.sh
 #   --local-json attention facts under that same task-set lock and refuse when
 #   inventory is invalid or the fixed four-worker limit is already reached.
+#   They publish a launch-reservation epoch while holding that lock and clear it
+#   after endpoint metadata publication; teardown removes any leftover marker.
 #   A reservation retry for the same id is allowed only while count stays at or
 #   below four; --secondmate and --relaunch bypass this backstop.
 #   A home marked .fm-secondmate-home refuses fresh --secondmate spawns; only the
@@ -2884,7 +2886,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_META_LOCK_HELD=0
 fi
 # The published metadata is now the authoritative endpoint evidence, so the
-# short-lived backlog-only launch reservation is no longer needed.
+# short-lived no-endpoint launch reservation is no longer needed.
 rm -f -- "$STATE/$ID.launch-reservation" 2>/dev/null || true
 if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
   # The record is published, so this task is now part of the set a teardown

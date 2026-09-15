@@ -8,9 +8,9 @@
 # This command operates only on the active FM_HOME. `ready` is read-only and
 # reports every backlog row with its mechanical eligibility reason. `start`
 # holds the home's existing task-set lock while it recomputes attention, checks
-# priority order, and creates the tasks-axi In flight reservation. It releases
-# that lock only before invoking fm-spawn.sh, whose own fresh-spawn backstop
-# recomputes the same local limit while holding the same lock.
+# priority order, creates the tasks-axi In flight reservation, and records its
+# launch epoch before releasing the lock to invoke fm-spawn.sh. The spawn
+# backstop recomputes the same local limit while holding the same lock.
 #
 # A failed spawn with no published metadata intentionally leaves the In flight
 # row as an unknown reservation. Retrying the same id resumes that reservation;

@@ -62,8 +62,10 @@
 #   attention: {limit,count,remaining,valid,workers[],reservations[],reported[]} -
 #     fail-closed local worker inventory and the fixed four-worker accounting
 #     consumed by pull and fresh ordinary spawn transactions.
-#     A backlog-only worker reservation counts only when its per-task launch
-#     reservation record is less than 300 seconds old.
+#     A no-endpoint ship/scout launch reservation counts only when its per-task
+#     epoch record is less than 300 seconds old and not in the future.
+#     A marker with no backlog row represents a direct launch, while a held or
+#     blocked row prevents its marker from consuming a slot.
 #     Structured backlog holds and unresolved blockers take precedence over endpoint reconciliation:
 #     every held or blocked row is reported in a non-counting attention class,
 #     while only an unheld, unblocked row can consume a slot from its live state.
