@@ -238,6 +238,27 @@ fm_browser_owner_finalize "$STATE" task-a s4 worker-exit
 
 # Direct launches are owned only inside the process group created by the
 # wrapper, and a command's failure is returned after its resource is retired.
+fm_browser_owner_arm "$STATE" task-a s5 >/dev/null
+LOCKED_DIRECT_PID_FILE="$TMP_ROOT/locked-direct-child.pid"
+export LOCKED_DIRECT_PID_FILE
+fm_browser_lock_take "$STATE" task-a || fail "could not stage the direct-launch ownership lock"
+set +e
+FM_BROWSER_STATE="$STATE" FM_BROWSER_TASK_ID=task-a FM_BROWSER_SPAWN_GEN=s5 \
+  $BROWSER launch -- bash -c 'echo $$ > "$LOCKED_DIRECT_PID_FILE"; exec sleep 30' >/dev/null 2>&1
+launch_rc=$?
+set -u
+expect_code 1 "$launch_rc" "direct launch should refuse while its owner is finalizing"
+if [ -e "$LOCKED_DIRECT_PID_FILE" ]; then
+  locked_direct_pgid=$(ps -o pgid= -p "$(cat "$LOCKED_DIRECT_PID_FILE")" 2>/dev/null | tr -d '[:space:]')
+  [ -z "$locked_direct_pgid" ] || kill -KILL -- "-$locked_direct_pgid" 2>/dev/null || true
+  fail "direct launch started a browser process before acquiring its ownership lock"
+fi
+for pending_status in "$STATE/task-a.browser"/.direct-status.*; do
+  [ ! -e "$pending_status" ] || fail "direct launch left pending ownership after lock refusal"
+done
+fm_browser_lock_release "$(fm_browser_lock_dir "$STATE" task-a)"
+fm_browser_owner_finalize "$STATE" task-a s5 lock-refusal
+
 fm_browser_owner_arm "$STATE" task-a s3 >/dev/null
 set +e
 FM_BROWSER_STATE="$STATE" FM_BROWSER_TASK_ID=task-a FM_BROWSER_SPAWN_GEN=s3 \

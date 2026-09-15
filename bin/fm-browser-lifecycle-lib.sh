@@ -593,6 +593,39 @@ fm_browser_direct_graceful_close() {  # <record>; child has already completed
   fm_browser_stop_direct_record "$record"
 }
 
+fm_browser_stop_direct_group() {  # <pid> <identity> <pgid>
+  local pid=$1 identity=$2 pgid=$3 i=0 current_pgid
+  case "$pid" in ''|*[!0-9]*|0) return 1 ;; esac
+  case "$pgid" in ''|*[!0-9]*|0) return 1 ;; esac
+  [ -n "$identity" ] || return 1
+  fm_browser_process_identity_matches "$pid" "$identity" || return 1
+  current_pgid=$(fm_browser_process_pgid "$pid" 2>/dev/null || true)
+  [ "$current_pgid" = "$pgid" ] || return 1
+  kill -TERM -- "-$pgid" 2>/dev/null || true
+  while [ "$i" -lt 20 ]; do
+    if ! fm_browser_process_identity_matches "$pid" "$identity"; then
+      kill -0 -- "-$pgid" 2>/dev/null || return 0
+      return 1
+    fi
+    sleep 0.1
+    i=$((i + 1))
+  done
+  fm_browser_process_identity_matches "$pid" "$identity" || return 1
+  current_pgid=$(fm_browser_process_pgid "$pid" 2>/dev/null || true)
+  [ "$current_pgid" = "$pgid" ] || return 1
+  kill -KILL -- "-$pgid" 2>/dev/null || true
+  i=0
+  while [ "$i" -lt 10 ]; do
+    if ! fm_browser_process_identity_matches "$pid" "$identity"; then
+      kill -0 -- "-$pgid" 2>/dev/null || return 0
+      return 1
+    fi
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 1
+}
+
 fm_browser_direct_launch() {  # <state> <task-id> <generation> [--timeout seconds] -- <command...>
   local state=$1 task=$2 generation=$3 timeout=0 start now pid identity pgid dir lock record rc timed=0
   local status_file result child_done=0
@@ -607,17 +640,25 @@ fm_browser_direct_launch() {  # <state> <task-id> <generation> [--timeout second
   [ "$#" -gt 0 ] || { fm_browser_lifecycle_error "direct browser launch command is empty"; return 2; }
   dir=$(fm_browser_owner_dir "$state" "$task") || return 1
   lock=$(fm_browser_lock_dir "$state" "$task") || return 1
-  fm_browser_owner_matches "$dir" "$task" "$generation" || {
-    fm_browser_lifecycle_error "direct browser launch has no matching task owner"
-    return 1
-  }
   command -v setsid >/dev/null 2>&1 || {
     fm_browser_lifecycle_error "setsid is unavailable; refusing an untracked direct browser launch"
     return 1
   }
+  fm_browser_lock_take "$state" "$task" || {
+    fm_browser_lifecycle_error "could not reserve task $task's browser ownership for a direct launch"
+    return 1
+  }
+  fm_browser_owner_matches "$dir" "$task" "$generation" || {
+    fm_browser_lock_release "$lock"
+    fm_browser_lifecycle_error "direct browser launch has no matching task owner"
+    return 1
+  }
   status_file="$dir/.direct-status.${BASHPID:-$$}.$RANDOM"
   fm_browser_atomic_record "$status_file" \
-    "version=1" "task_id=$task" "spawn_gen=$generation" || return 1
+    "version=1" "task_id=$task" "spawn_gen=$generation" || {
+      fm_browser_lock_release "$lock"
+      return 1
+    }
   # Keep a supervisor as the exact process-group leader until the caller has
   # observed the direct command's result and retired the group. This preserves
   # an identity proof even when a Playwright/Puppeteer command exits before its
@@ -670,19 +711,31 @@ EOF
   pgid=$(fm_browser_process_pgid "$pid" 2>/dev/null || true)
   if [ -z "$identity" ] || [ "$pgid" != "$pid" ]; then
     if kill -0 "$pid" 2>/dev/null; then
+      fm_browser_lock_release "$lock"
       fm_browser_lifecycle_error "could not prove the direct browser process group for pid $pid; preserving it for inspection"
       return 1
     fi
+    rm -f -- "$status_file" "$status_file.stop"
+    fm_browser_lock_release "$lock"
     if wait "$pid"; then return 0; else return $?; fi
   fi
   record=$(fm_browser_direct_record_path "$dir" "$pid")
-  if [ -e "$record" ] || [ -L "$record" ] || ! fm_browser_lock_take "$state" "$task"; then
+  if [ -e "$record" ] || [ -L "$record" ]; then
+    if fm_browser_stop_direct_group "$pid" "$identity" "$pgid"; then
+      wait "$pid" 2>/dev/null || true
+      rm -f -- "$status_file" "$status_file.stop"
+    fi
+    fm_browser_lock_release "$lock"
     fm_browser_lifecycle_error "could not reserve the direct browser process record for pid $pid"
     return 1
   fi
   if ! fm_browser_atomic_record "$record" \
       "version=1" "kind=direct" "task_id=$task" "spawn_gen=$generation" \
       "pid=$pid" "identity=$identity" "pgid=$pgid" "status_file=$status_file"; then
+    if fm_browser_stop_direct_group "$pid" "$identity" "$pgid"; then
+      wait "$pid" 2>/dev/null || true
+      rm -f -- "$status_file" "$status_file.stop"
+    fi
     fm_browser_lock_release "$lock"
     fm_browser_lifecycle_error "could not persist direct browser ownership for pid $pid"
     return 1
@@ -787,7 +840,7 @@ fm_browser_stop_axi_record() {  # <record>; bridge stop is the only Chrome clean
 }
 
 fm_browser_owner_finalize() {  # <state> <task-id> <generation> <reason>
-  local state=$1 task=$2 generation=$3 reason=${4:-lifecycle} dir lock entry entry_task entry_gen rc=0
+  local state=$1 task=$2 generation=$3 reason=${4:-lifecycle} dir lock entry entry_task entry_gen process_status status_match rc=0
   fm_browser_validate_task_id "$task" \
     && fm_browser_validate_generation "$generation" || return 1
   dir=$(fm_browser_owner_dir "$state" "$task") || return 1
@@ -822,12 +875,22 @@ fm_browser_owner_finalize() {  # <state> <task-id> <generation> <reason>
   for entry in "$dir"/.[!.]*; do
     [ -e "$entry" ] || continue
     case "$(basename "$entry")" in
-      .direct-status.*) ;;
+      .direct-status.*)
+        status_match=0
+        for process_status in "$dir"/process.*; do
+          [ -f "$process_status" ] && [ ! -L "$process_status" ] || continue
+          [ "$(fm_browser_record_field "$process_status" status_file 2>/dev/null || true)" = "$entry" ] || continue
+          entry_task=$(fm_browser_record_field "$process_status" task_id 2>/dev/null || true)
+          entry_gen=$(fm_browser_record_field "$process_status" spawn_gen 2>/dev/null || true)
+          if [ "$entry_task" = "$task" ] && [ "$entry_gen" = "$generation" ]; then
+            status_match=1
+            break
+          fi
+        done
+        [ "$status_match" = 1 ] || { rc=1; break; }
+        ;;
       *) rc=1; break ;;
     esac
-    entry_task=$(fm_browser_record_field "$entry" task_id 2>/dev/null || true)
-    entry_gen=$(fm_browser_record_field "$entry" spawn_gen 2>/dev/null || true)
-    [ "$entry_task" = "$task" ] && [ "$entry_gen" = "$generation" ] || { rc=1; break; }
   done
   if [ "$rc" -ne 0 ]; then
     fm_browser_lock_release "$lock"
