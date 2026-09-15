@@ -28,11 +28,6 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-# tests/lib.sh exports the harness bypass so the rest of the suite can drive the
-# real entrypoints from $ROOT/bin. This file verifies the REAL refusal, so it
-# drops the bypass for every run below, exactly as fm-gate-refuse.test.sh does.
-unset FM_HOME_IDENTITY_BYPASS
-
 TMP=$(fm_test_tmproot fm-home-identity)
 TMP=$(cd "$TMP" && pwd -P)
 
@@ -170,6 +165,18 @@ test_stow_memory_routing() {
     || fail 'primary-owned mate accounting did not run'
 
   pass 'stow memory accounting refuses another home and keeps valid routing'
+}
+
+test_bypass_rejected() {
+  RC=0
+  FM_HOME_IDENTITY_BYPASS=1 FM_HOME="$PRIMARY" \
+    "$MATE/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
+  assert_refused 'an inherited identity bypass, mate -> primary'
+  assert_signal 'an inherited identity bypass, mate -> primary' code-root
+  grep -Fq 'estimated_tokens' "$OUT" \
+    && fail 'an inherited identity bypass still read the primary home'
+
+  pass 'an inherited identity bypass cannot disable the boundary'
 }
 
 test_surface_override_routing() {
@@ -328,6 +335,34 @@ test_launch_binding_signal() {
   assert_ok 'launch binding, secondmate session -> its own home'
   grep -Fq 'role=secondmate' "$OUT" || fail 'own-home accounting did not run'
 
+  RC=0
+  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" FM_HOME="$MATE" \
+    "$MATE/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
+  assert_ok 'a local secondmate with the earlier binding -> its own home'
+
+  local remote="$TMP/remote" remote_sibling="$TMP/remote-sibling"
+  make_home "$remote"
+  make_home "$remote_sibling"
+  printf 'schema=fm-secondmate-parent.v1\nroute=remote\nparent_host=remote-host\n' \
+    > "$remote/.fm-secondmate-parent"
+  printf 'remote-a\n' > "$remote/.fm-secondmate-home"
+  printf 'schema=fm-secondmate-parent.v1\nroute=remote\nparent_host=remote-host\n' \
+    > "$remote_sibling/.fm-secondmate-parent"
+  printf 'remote-b\n' > "$remote_sibling/.fm-secondmate-home"
+
+  RC=0
+  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" \
+    FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME="$remote" FM_HOME="$remote" \
+    "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
+  assert_ok 'a remote secondmate launch binding -> its own home'
+
+  RC=0
+  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" \
+    FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME="$remote" FM_HOME="$remote_sibling" \
+    "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
+  assert_refused 'a remote secondmate launch binding -> sibling home'
+  assert_signal 'a remote secondmate launch binding -> sibling home' launch-binding
+
   pass 'the secondmate session binding refuses the primary home it is bound to'
 }
 
@@ -357,6 +392,10 @@ test_unsafe_identity_marker() {
   printf 'mate a/../..\n' > "$broken/.fm-secondmate-home"
   run "$broken" "$broken" fm-startup-memory-budget.sh report
   assert_refused 'identity marker outside the registry id charset'
+
+  printf 'mate\000-a\n' > "$broken/.fm-secondmate-home"
+  run "$broken" "$broken" fm-startup-memory-budget.sh report
+  assert_refused 'identity marker containing a NUL byte'
 
   printf 'mate-c\n' > "$broken/.fm-secondmate-home"
   run "$broken" "$broken" fm-startup-memory-budget.sh report
@@ -413,18 +452,8 @@ test_uncorroborated_marker() {
   pass 'only a registry-corroborated marker establishes a home identity'
 }
 
-# --- the documented test-harness hatch --------------------------------------
-
-test_bypass_hatch() {
-  RC=0
-  FM_HOME_IDENTITY_BYPASS=1 FM_HOME="$PRIMARY" \
-    "$MATE/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
-  assert_ok 'the documented harness bypass'
-  grep -Fq 'estimated_tokens' "$OUT" || fail 'the bypassed run did not execute'
-  pass 'FM_HOME_IDENTITY_BYPASS=1 restores the pre-guard behavior for the suite'
-}
-
 test_stow_memory_routing
+test_bypass_rejected
 test_surface_override_routing
 test_send_routing
 test_spawn_routing
@@ -433,4 +462,3 @@ test_launch_binding_signal
 test_unsafe_identity_marker
 test_uncorroborated_marker
 test_copied_marker_path
-test_bypass_hatch

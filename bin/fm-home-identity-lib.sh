@@ -73,19 +73,6 @@
 # A home operating on ITSELF is always allowed: its selected canonical path
 # must equal the corroborated canonical path of the executing or bound home.
 #
-# TEST-HARNESS ESCAPE HATCH (FM_HOME_IDENTITY_BYPASS=1), mirroring
-# bin/fm-gate-refuse-lib.sh: firstmate's own suite drives the REAL
-# fm-spawn/fm-send against temp-sandbox homes from $ROOT/bin, so a suite run
-# from inside a genuinely registered secondmate home would otherwise refuse
-# every unrelated test. tests/lib.sh exports the bypass for that reason;
-# tests/fm-home-identity.test.sh strips it to verify the real refusal. The
-# bypass is not what keeps a leftover marker quiet - corroboration is - so it is
-# never needed by a test that strips the environment (an `env -i` fixture or a
-# remote entrypoint), and no production env allowlist has to carry it.
-# This does not weaken the boundary against the real hazard, which is a confused
-# agent running these entrypoints directly - it never sources firstmate's test
-# helpers, so it never carries the bypass.
-#
 # Sourced by bin/fm-spawn.sh, bin/fm-send.sh, bin/fm-startup-memory-budget.sh,
 # bin/fm-stow-cascade.sh, and the tests. Sourcing defines functions and resolves
 # the executing code root; it pulls in the shared secondmate parent and registry
@@ -152,6 +139,10 @@ fm_home_identity_read() {
     FM_HOME_IDENTITY_ERROR="home identity marker is not a regular file: $marker"
     return 1
   fi
+  if [ "$(wc -c < "$marker")" -ne "$(LC_ALL=C tr -d '\0' < "$marker" | wc -c)" ]; then
+    FM_HOME_IDENTITY_ERROR="home identity marker contains NUL bytes: $marker"
+    return 1
+  fi
   id=$(sed -n '1p' "$marker" 2>/dev/null) || id=
   if awk 'NR == 2 { found=1; exit } END { exit !found }' "$marker"; then
     FM_HOME_IDENTITY_ERROR="home identity marker holds more than one id: $marker"
@@ -207,6 +198,19 @@ fm_home_identity_origin_id() {
   fm_home_identity_corroborated_id "$FM_HOME_IDENTITY_CODE_ROOT"
 }
 
+fm_home_identity_launch_id() {
+  local home=${1-} expected_parent=${2-} id
+  fm_home_identity_read "$home" || return 1
+  id=$FM_HOME_IDENTITY_VALUE
+  [ "$id" != primary ] || return 1
+  fm_secondmate_parent_record_parse "$home/.fm-secondmate-parent" || return 1
+  case "$FM_SECONDMATE_PARENT_ROUTE" in
+    local) fm_home_identity_corroborated_id "$home" "$expected_parent" ;;
+    remote) printf '%s\n' "$id" ;;
+    *) return 1 ;;
+  esac
+}
+
 fm_home_identity_surface_override() {
   local target=${1-} surface=${2-} override override_name target_abs expected_abs override_abs
   case "$surface" in
@@ -248,9 +252,6 @@ fm_home_identity_cross_home() {
   local target=${1-} target_id origin_id target_abs origin_abs primary_abs caller_abs caller_id
   FM_HOME_IDENTITY_SIGNAL=
   FM_HOME_IDENTITY_REASON=
-  if [ "${FM_HOME_IDENTITY_BYPASS:-}" = 1 ]; then
-    return 1
-  fi
   [ -n "$target" ] || return 1
 
   if ! fm_home_identity_read "$target"; then
@@ -272,6 +273,7 @@ fm_home_identity_cross_home() {
       FM_HOME_IDENTITY_REASON="this process runs from the '$origin_id' secondmate home ($origin_abs) but FM_HOME selects the '$target_id' home ($target_abs)"
       return 0
     fi
+    return 1
   fi
 
   # Signal 2: a secondmate session's launch bindings identify its primary and
@@ -284,7 +286,7 @@ fm_home_identity_cross_home() {
       return 0
     fi
     caller_abs=$(fm_home_identity_canonical "${FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME:-}") || caller_abs=
-    if ! caller_id=$(fm_home_identity_corroborated_id \
+    if ! caller_id=$(fm_home_identity_launch_id \
       "${FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME:-}" \
       "${FM_PUBLIC_FOLLOWUP_PRIMARY_HOME:-}"); then
       FM_HOME_IDENTITY_SIGNAL='launch-binding'
@@ -305,11 +307,10 @@ fm_home_identity_cross_home() {
 # exit FM_HOME_IDENTITY_EXIT with an actionable diagnostic when <target-home>
 # belongs to another home or a named override does not resolve inside it. Call
 # after FM_HOME is resolved and before anything is written, spawned, or steered.
-# A no-op (returns 0) for a same-home operation, for a primary home reaching a
-# home it owns, and under FM_HOME_IDENTITY_BYPASS=1.
+# A no-op (returns 0) for a same-home operation or for a primary home reaching
+# a home it owns.
 fm_refuse_cross_home() {
   local target=${1-} operation=${2:-this operation}
-  [ "${FM_HOME_IDENTITY_BYPASS:-}" = 1 ] && return 0
   shift 2 || true
   if fm_home_identity_cross_home "$target"; then
     :
