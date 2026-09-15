@@ -170,25 +170,88 @@ fm_composer_normalize_trim_var() {  # <varname>
   printf -v "$__fmnt_name" '%s' "$__fmnt_text"
 }
 
-# Codex CLI 0.154.0 shimmers one placeholder character at a time on both
-# gpt-6-astra and gpt-5.6-luna, so three substitutions leave a deliberate
-# safety margin while requiring at least 21 literal placeholder characters.
-# Do not simplify this into an unbounded check: the doorbell could overwrite
-# an all-Braille genuine draft, including a blind captain's Braille input.
+# Codex CLI 0.154.0 paints an ambient Braille "starfield" across the FULL WIDTH
+# of every row of its idle composer region: isolated Unicode Braille Pattern
+# glyphs land on arbitrary columns, separated by wide runs of spaces, fading in
+# and out through a truecolor luminance ramp, so each frame leaves a different
+# handful of them bright enough to survive the ghost strip. Verified live on a
+# gpt-6-astra pane over sixty consecutive one-second samples (task
+# fm-codex-composer-braille-r2), where the region was three rows; the five
+# gpt-5.6-luna panes captured on the same host at the same time were static,
+# which locates the animation in the vendor's rendering rather than in any
+# property of this classifier. Nothing below depends on the region's height.
+#
+# That is DECORATION, not content, and the placeholder itself is the proof:
+# Codex draws `Ask Codex to do anything` if and only if the composer is empty
+# and replaces it the instant anything is typed - verified live for ASCII input
+# AND for a genuine Braille-only draft shaped exactly like the starfield, which
+# removes the placeholder just as ASCII does. So the placeholder's presence is
+# the emptiness proof, and decoration AROUND it needs no counting at all.
+#
+# What still needs a bound is SUBSTITUTION: a dot landing ON a placeholder
+# character consumes the literal evidence that the placeholder is there. Three
+# keeps at least 21 literal characters, which an all-Braille draft (a blind
+# captain's Braille input) can never supply. Decoration outside the placeholder
+# is deliberately unbounded; substitution inside it stays bounded. Counting
+# every Braille glyph on the row instead - the fm-codex-composer-braille-r1
+# shape this replaced - measured the animation's width rather than the
+# placeholder's integrity, so a full-width starfield read as typed text and
+# silently suppressed the steering doorbell.
 FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS=3
 
+# The Unicode Braille Patterns block (U+2800..U+28FF) as a byte pattern, and
+# the single-byte stand-in each of its glyphs collapses to so the placeholder
+# can be indexed character by character. Both are declared exactly once: every
+# decision below reaches the starfield through these two. The mark is a
+# control byte, not a printable one, because a printable marker would let the
+# same character typed into the composer masquerade as decoration, and this
+# proof must fail closed.
+FM_COMPOSER_CODEX_BRAILLE_RE=$'\342[\240-\243][\200-\277]'
+FM_COMPOSER_CODEX_BRAILLE_MARK=$'\001'
+
+# _fm_composer_codex_idle_decoration_only: 0 when <marked-text> is nothing but
+# Braille marks and whitespace - the starfield's padding between its dots.
+_fm_composer_codex_idle_decoration_only() {  # <marked-text>
+  local text=${1//"$FM_COMPOSER_CODEX_BRAILLE_MARK"/}
+  fm_composer_normalize_trim_var text
+  [ -z "$text" ]
+}
+
+# _fm_composer_codex_idle_decoration_row: 0 when the row holds at least one
+# Braille starfield dot and nothing else but whitespace. Never container proof
+# on its own: it only ever tells a caller that this row is decoration painted
+# over a row that was blank before the animation started.
+#
+# WHY BOUNDING NEEDS THIS TOO: a bare composer's region ends at the first blank
+# row, and an idle Codex composer's own region is bounded by exactly such a
+# blank row under its prompt glyph. The starfield paints dots onto that blank
+# row, so without this the region runs straight past it and swallows Codex's
+# bright `<model> · <cwd> · <title>` footer as if it were a wrapped draft
+# (fm-codex-composer-braille-r2). Restoring the boundary the decoration hid is
+# what keeps the footer outside the composer, exactly as it is on a still pane.
+_fm_composer_codex_idle_decoration_row() {  # <row-text>
+  local text=$1 marked
+  marked=$(printf '%s' "$text" \
+    | LC_ALL=C sed "s/$FM_COMPOSER_CODEX_BRAILLE_RE/$FM_COMPOSER_CODEX_BRAILLE_MARK/g")
+  [ "$marked" != "$text" ] || return 1
+  _fm_composer_codex_idle_decoration_only "$marked"
+}
+
 # _fm_composer_is_codex_braille_placeholder: prove that the styled Codex `›`
-# row is its recognised `Ask Codex to do anything` placeholder once the
-# ghost-stripped path proves every non-decorative byte is dim, and the
-# unstripped path proves the visible bytes spell the placeholder with bounded
-# Braille substitutions and separately bracketed decoration. This narrow proof
-# admits idle decoration as empty without teaching the shared classifier that
-# Braille means empty for another harness, an unknown row, or a genuine
-# Braille-only draft.
+# row is its recognised `Ask Codex to do anything` placeholder under the idle
+# starfield. Two independent proofs must both hold: the ghost-stripped path
+# proves every byte bright enough to read as typed input is Braille decoration,
+# and the unstripped path proves the visible bytes still spell the placeholder,
+# with every character outside it decoration or padding and bounded Braille
+# substitution inside it. This narrow proof admits the idle animation as empty
+# without teaching the shared classifier that Braille means empty for another
+# harness, an unknown row, or a genuine Braille-only draft.
 _fm_composer_is_codex_braille_placeholder() {  # <raw-row> <ghost-stripped-row>
-  local raw=$1 stripped=$2 plain core candidate without_prefix glyph='' remainder pattern=$'\342[\240-\243][\200-\277]'
-  local placeholder='Ask Codex to do anything' leading trailing expected actual
-  local i prefix_keep suffix_keep remove n substitutions
+  local raw=$1 stripped=$2 plain core span glyph='' remainder
+  local pattern=$FM_COMPOSER_CODEX_BRAILLE_RE
+  local placeholder='Ask Codex to do anything' expected actual
+  local mark=$FM_COMPOSER_CODEX_BRAILLE_MARK
+  local i j first last lo hi width substitutions
   fm_composer_leading_agent_glyph_var glyph "$stripped" || return 1
   [ "$glyph" = '›' ] || return 1
   remainder=${stripped#*"$glyph"}
@@ -210,32 +273,44 @@ _fm_composer_is_codex_braille_placeholder() {  # <raw-row> <ghost-stripped-row>
   plain=${plain#*"$glyph"}
   fm_composer_normalize_spaces_var plain
   fm_composer_normalize_trim_var plain
-  core=$(printf '%s' "$plain" | LC_ALL=C sed "s/$pattern/@/g")
-  leading=${core%%[^@]*}
-  for prefix_keep in 0 1; do
-    [ "${#leading}" -ge "$prefix_keep" ] || continue
-    remove=$((${#leading} - prefix_keep))
-    without_prefix=${core:$remove}
-    trailing=${without_prefix##*[^@]}
-    for suffix_keep in 0 1; do
-      [ "${#trailing}" -ge "$suffix_keep" ] || continue
-      remove=$((${#trailing} - suffix_keep))
-      n=$((${#without_prefix} - remove))
-      candidate=${without_prefix:0:$n}
-      [ "${#candidate}" -eq "${#placeholder}" ] || continue
-      substitutions=0
-      for ((i = 0; i < ${#placeholder}; i++)); do
-        expected=${placeholder:$i:1}
-        actual=${candidate:$i:1}
-        if [ "$actual" = '@' ]; then
-          substitutions=$((substitutions + 1))
-        elif [ "$actual" != "$expected" ]; then
-          break
-        fi
-      done
-      [ "$i" -eq "${#placeholder}" ] || continue
-      [ "$substitutions" -le "$FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS" ] && return 0
+  core=$(printf '%s' "$plain" | LC_ALL=C sed "s/$pattern/$mark/g")
+  width=${#placeholder}
+  [ "${#core}" -ge "$width" ] || return 1
+  # The placeholder span must cover every literal character on the row: what
+  # lies outside it is decoration or padding by definition, so `first` and
+  # `last` (the outermost non-decoration characters) bound where the span can
+  # start. A row with no literal character at all is an all-Braille draft, not
+  # a placeholder, and is rejected here rather than by the substitution bound.
+  first=-1
+  last=-1
+  for ((i = 0; i < ${#core}; i++)); do
+    actual=${core:i:1}
+    [ "$actual" = "$mark" ] && continue
+    case "$actual" in ' '|'') continue ;; esac
+    [ "$first" -lt 0 ] && first=$i
+    last=$i
+  done
+  [ "$first" -ge 0 ] || return 1
+  lo=$((last - width + 1))
+  [ "$lo" -ge 0 ] || lo=0
+  hi=$first
+  [ "$hi" -le $((${#core} - width)) ] || hi=$((${#core} - width))
+  for ((i = lo; i <= hi; i++)); do
+    _fm_composer_codex_idle_decoration_only "${core:0:i}" || continue
+    _fm_composer_codex_idle_decoration_only "${core:i + width}" || continue
+    span=${core:i:width}
+    substitutions=0
+    for ((j = 0; j < width; j++)); do
+      expected=${placeholder:j:1}
+      actual=${span:j:1}
+      if [ "$actual" = "$mark" ]; then
+        substitutions=$((substitutions + 1))
+      elif [ "$actual" != "$expected" ]; then
+        break
+      fi
     done
+    [ "$j" -eq "$width" ] || continue
+    [ "$substitutions" -le "$FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS" ] && return 0
   done
   return 1
 }
@@ -1029,12 +1104,25 @@ _fm_composer_wrap_region_ok() {  # <plain-screen> <glyph-row> <cursor-row>
 # glyph row itself).
 _fm_composer_classify_bare_wrap() {  # <screen> <styled> <glyph-row> <cursor-row>
   local screen=$1 styled=$2 g=$3 cy=$4 row raw content glyph='' text_seen=0
+  local codex_idle=0
   row=$g
   while [ "$row" -le "$cy" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
     content=$(_fm_composer_row_content "$raw" "$styled")
-    if [ "$row" -eq "$g" ] && fm_composer_leading_agent_glyph_var glyph "$content"; then
-      content=${content#*"$glyph"}
+    if [ "$row" -eq "$g" ]; then
+      if fm_composer_leading_agent_glyph_var glyph "$content"; then
+        content=${content#*"$glyph"}
+      fi
+      fm_composer_normalize_trim_var content
+      # An EMPTY Codex prompt row proves the composer holds no input, so the
+      # idle starfield Codex paints on the rows around it cannot be wrapped
+      # input - there is nothing to wrap. Without this those decoration rows
+      # read as a long typed draft and suppress the steering doorbell
+      # (fm-codex-composer-braille-r2). The glyph row's own verdict already
+      # carries the placeholder proof above, so this costs no extra work.
+      [ "$glyph" = '›' ] && [ -z "$content" ] && codex_idle=1
+    elif [ "$codex_idle" = 1 ] && _fm_composer_codex_idle_decoration_row "$content"; then
+      content=''
     fi
     fm_composer_normalize_trim_var content
     [ -z "$content" ] || text_seen=1
@@ -1098,7 +1186,7 @@ _fm_composer_leftbar_floor_row() {  # <trimmed-row>
 }
 
 _fm_composer_select_cursorless() {
-  local plain=$1 generic=-1 next boundary raw trimmed
+  local plain=$1 generic=-1 next boundary raw trimmed glyph='' codex_bare=0
   FM_COMPOSER_SELECTED_KIND=
   FM_COMPOSER_SELECTED_FIRST=-1
   FM_COMPOSER_SELECTED_LAST=-1
@@ -1144,6 +1232,14 @@ _fm_composer_select_cursorless() {
     return 1
   fi
   if [ "$FM_COMPOSER_SELECTED_KIND" = bare ]; then
+    # Codex's idle starfield paints over the blank row that bounds its own
+    # composer, so for a Codex prompt row a decoration-only row still ends the
+    # region - otherwise the extension runs past it into Codex's bright footer.
+    codex_bare=0
+    raw=$(_fm_composer_screen_row "$FM_COMPOSER_SELECTED_FIRST" "$plain")
+    if fm_composer_leading_agent_glyph_var glyph "$raw" && [ "$glyph" = '›' ]; then
+      codex_bare=1
+    fi
     next=$((FM_COMPOSER_SELECTED_LAST + 1))
     while :; do
       raw=$(_fm_composer_screen_row "$next" "$plain")
@@ -1151,6 +1247,7 @@ _fm_composer_select_cursorless() {
       fm_composer_normalize_trim_var trimmed
       [ -n "$trimmed" ] || break
       fm_composer_row_has_edge "$trimmed" && break
+      [ "$codex_bare" = 1 ] && _fm_composer_codex_idle_decoration_row "$trimmed" && break
       FM_COMPOSER_SELECTED_LAST=$next
       next=$((next + 1))
     done
