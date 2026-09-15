@@ -188,7 +188,8 @@ Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectab
 ## Browser sessions follow task lifecycles
 
 `bin/fm-browser-lifecycle-lib.sh` is the single owner of browser resource records, and `bin/fm-browser-lifecycle.sh` is the worker-facing wrapper for named `chrome-devtools-axi` sessions and directly launched Playwright or Puppeteer commands.
-`fm-spawn.sh` reserves one named session derived from the resolved state home and task identity for each task incarnation and exports that session to the worker, so ordinary `chrome-devtools-axi` calls use that bridge without changing the browser tool's public lifecycle.
+`fm-spawn.sh` reserves a named session derived from the resolved state home and task identity, and exports it to the worker, so ordinary `chrome-devtools-axi` calls use that bridge without changing the browser tool's public lifecycle.
+A relaunch finalizes the prior incarnation's browser ownership before reserving the replacement worker's session.
 A worker that deliberately selects another named session must use the wrapper, which registers that exact session before invoking the existing `chrome-devtools-axi` CLI.
 The bridge remains the owner of its Chrome and MCP children, and Firstmate proves the task, incarnation, session reservation, bridge PID liveness, and bridge command identity before delegating cleanup to `chrome-devtools-axi stop`.
 `fm-control.sh exit`, `fm-spawn.sh --relaunch` after its agent-free endpoint proof, the watcher after exact worker-exit proof or a dead/missing pre-worker endpoint, and `fm-teardown.sh` after requesting endpoint closure all use the same finalizer, so success, failure, timeout, relaunch, teardown, and worker exit converge on one lifecycle contract rather than a host-wide reaper.
