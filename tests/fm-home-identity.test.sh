@@ -60,6 +60,11 @@ register() {
     "$1" "$2" "$1" >> "$REGISTRY"
 }
 
+register_remote() {
+  printf -- '- %s - remote domain (host: remote-host; root: /remote/code; home: %s; scope: %s work; projects: alpha; added 2026-09-15)\n' \
+    "$1" "$2" "$1" >> "$REGISTRY"
+}
+
 make_home "$PRIMARY"
 make_home "$MATE" mate-a
 make_home "$SIBLING" mate-b
@@ -233,6 +238,7 @@ test_remote_control_overrides() {
     > "$remote/.fm-secondmate-parent"
   printf 'remote-control\n' > "$remote/.fm-secondmate-home"
   mkdir -p "$remote/state/parent-route" "$remote/data/.parent-route"
+  register_remote remote-control "$remote"
 
   RC=0
   FM_HOME="$PRIMARY" FM_SKIP_SECONDMATE_INHERIT=1 \
@@ -252,6 +258,20 @@ test_remote_control_overrides() {
     "$PRIMARY/bin/fm-spawn.sh" 'bad id' "$TMP/proj" --mode no-mistakes --yolo off \
     >"$OUT" 2>&1 || RC=$?
   assert_not_cross_home 'authenticated remote control overrides'
+
+  local stale="$TMP/recycled-remote"
+  make_home "$stale"
+  printf 'schema=fm-secondmate-parent.v1\nroute=remote\nparent_host=remote-host\n' \
+    > "$stale/.fm-secondmate-parent"
+  printf 'retired-remote\n' > "$stale/.fm-secondmate-home"
+  RC=0
+  FM_HOME="$PRIMARY" FM_DATA_OVERRIDE="$stale/data" \
+    "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
+  assert_not_cross_home 'an uncorroborated remote marker data override'
+
+  printf '# Second mates\n\n' > "$REGISTRY"
+  register mate-a "$MATE"
+  register mate-b "$SIBLING"
 
   pass 'remote control accepts only its authenticated endpoint layout'
 }

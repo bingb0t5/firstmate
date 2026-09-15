@@ -206,18 +206,30 @@ fm_home_identity_origin_id() {
 }
 
 fm_home_identity_remote_home() {
-  local home=${1-}
+  local home=${1-} registry=${2-} id home_key registry_key
+  [ -n "$registry" ] || return 1
   fm_home_identity_read "$home" || return 1
-  [ "$FM_HOME_IDENTITY_VALUE" != primary ] || return 1
+  id=$FM_HOME_IDENTITY_VALUE
+  [ "$id" != primary ] || return 1
   fm_secondmate_parent_record_parse "$home/.fm-secondmate-parent" || return 1
   [ "$FM_SECONDMATE_PARENT_ROUTE" = remote ]
+  secondmate_registry_line_for_id "$registry" "$id" || return 1
+  [ "$SECONDMATE_REGISTRY_REMOTE" -eq 1 ] || return 1
+  if [ -n "$FM_SECONDMATE_PARENT_HOST" ] \
+    && [ "$FM_SECONDMATE_PARENT_HOST" != "$SECONDMATE_REGISTRY_HOST" ]; then
+    return 1
+  fi
+  home_key=$(secondmate_registry_path_key "$home") || return 1
+  registry_key=$(secondmate_registry_path_key "$SECONDMATE_REGISTRY_HOME") || return 1
+  [ "$home_key" = "$registry_key" ]
 }
 
 fm_home_identity_surface_is_protected_elsewhere() {
-  local target_abs=${1-} override_abs=${2-} surface=${3-} parent_abs= probe
+  local target_abs=${1-} override_abs=${2-} surface=${3-} parent_abs= registry probe
   if fm_home_identity_origin_id >/dev/null; then
     parent_abs=$(fm_home_identity_canonical "$FM_SECONDMATE_PARENT_HOME") || return 1
   fi
+  registry="${parent_abs:-$target_abs}/data/secondmates.md"
   case "$override_abs" in
     "$parent_abs/$surface"|"$parent_abs/$surface/"*)
       [ -n "$parent_abs" ] && [ "$target_abs" != "$parent_abs" ] && return 0
@@ -230,7 +242,7 @@ fm_home_identity_surface_is_protected_elsewhere() {
         if [ "$probe" != "$target_abs" ]; then
           if { [ -n "$parent_abs" ] \
             && fm_home_identity_corroborated_id "$probe" "$parent_abs" >/dev/null; } \
-            || fm_home_identity_remote_home "$probe"; then
+            || fm_home_identity_remote_home "$probe" "$registry"; then
             return 0
           fi
         fi
@@ -270,7 +282,7 @@ fm_home_identity_surface_override() {
 }
 
 fm_home_identity_remote_control_overrides() {
-  local selected=${1-} selected_abs state_abs data_abs config_abs remote_home id
+  local selected=${1-} selected_abs state_abs data_abs config_abs remote_home
   [ "${FM_REMOTE_JOB_ACTIVE:-}" = 1 ] || return 1
   [ "${FM_SKIP_SECONDMATE_INHERIT:-}" = 1 ] || return 1
   [ -n "${FM_STATE_OVERRIDE:-}" ] || return 1
@@ -289,11 +301,7 @@ fm_home_identity_remote_control_overrides() {
   [ "$selected_abs" != "$remote_home" ] || return 1
   [ "$data_abs" = "$remote_home/data/.parent-route" ] || return 1
   [ "$config_abs" = "$remote_home/config" ] || return 1
-  fm_home_identity_read "$remote_home" || return 1
-  id=$FM_HOME_IDENTITY_VALUE
-  [ "$id" != primary ] || return 1
-  fm_secondmate_parent_record_parse "$remote_home/.fm-secondmate-parent" || return 1
-  [ "$FM_SECONDMATE_PARENT_ROUTE" = remote ]
+  fm_home_identity_remote_home "$remote_home" "$selected_abs/data/secondmates.md"
 }
 
 # fm_home_identity_cross_home <target-home>: return 0 when this process must NOT
