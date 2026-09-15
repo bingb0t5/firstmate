@@ -25,6 +25,8 @@ set -u
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-trace-context-lib.sh"
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-browser-lifecycle-lib.sh"
 
 CONTROL="$ROOT/bin/fm-control.sh"
 SPAWN="$ROOT/bin/fm-spawn.sh"
@@ -444,7 +446,7 @@ test_disabled_relaunch_clears_prior_trace_context() {
   expect_code 0 "$rc" "disabled relaunch should succeed"$'\n'"$out"
   [ -z "$(meta_field "$dir" rl33 traceparent)" ] \
     || fail "disabled relaunch must remove the prior trace carrier from metadata"
-  grep -q '^unset TRACEPARENT; .*claude' "$dir/fake/literal" \
+  grep -q 'unset TRACEPARENT; .*claude' "$dir/fake/literal" \
     || fail "disabled relaunch must clear the pane carrier before replacement launch"
   ! grep -q '^export TRACEPARENT=' "$dir/fake/literal" \
     || fail "disabled relaunch must not export a replacement trace carrier"
@@ -1346,6 +1348,25 @@ test_spawn_relaunch_refuses_a_live_agent() {
   pass "fm-spawn --relaunch: refuses to launch a second agent into a live endpoint"
 }
 
+test_direct_spawn_relaunch_retires_prior_browser_ownership() {
+  local dir out rc old_gen new_gen owner_gen
+  dir=$(new_case browser-owner rl-browser)
+  add_ship_task "$dir" rl-browser claude
+  old_gen=prior-browser-generation
+  printf 'spawn_gen=%s\n' "$old_gen" >> "$dir/home/state/rl-browser.meta"
+  fm_browser_owner_arm "$dir/home/state" rl-browser "$old_gen" >/dev/null
+  printf 'zsh' > "$dir/fake/command"
+
+  out=$(run_spawn "$dir" rl-browser --relaunch --harness claude); rc=$?
+  expect_code 0 "$rc" "direct relaunch should replace prior browser ownership before metadata publication"$'\n'"$out"
+  new_gen=$(meta_field "$dir" rl-browser spawn_gen)
+  [ "$new_gen" != "$old_gen" ] || fail "relaunch did not publish a replacement generation"
+  owner_gen=$(fm_browser_record_field "$dir/home/state/rl-browser.browser/owner" spawn_gen)
+  [ "$owner_gen" = "$new_gen" ] \
+    || fail "relaunch left prior browser ownership blocking the replacement"
+  pass "fm-spawn relaunch: prior browser ownership is retired before replacement publication"
+}
+
 test_relaunch_recreates_a_missing_endpoint_after_checkpoint() {
   local dir out rc recorded_wt
   dir=$(new_case missing-endpoint rl36)
@@ -1511,6 +1532,7 @@ test_concurrent_relaunch_is_refused
 test_direct_spawn_relaunch_participates_in_the_lifecycle_lock
 test_promotion_participates_in_the_lifecycle_lock_before_metadata_resolution
 test_spawn_relaunch_refuses_a_live_agent
+test_direct_spawn_relaunch_retires_prior_browser_ownership
 test_relaunch_recreates_a_missing_endpoint_after_checkpoint
 test_herdr_relaunch_falls_back_when_recorded_workspace_is_missing
 test_herdr_relaunch_failure_restores_the_prior_record

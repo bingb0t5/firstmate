@@ -2888,6 +2888,10 @@ preserve_relaunch_meta() {
   fi
 } > "$SPAWN_META_PATH"
 if [ "$RELAUNCH" -eq 1 ]; then
+  if ! fm_browser_finalize_meta "$STATE_REAL" "$RELAUNCH_META" "$ID" relaunch; then
+    echo "error: could not retire browser lifecycle ownership for the previous $ID incarnation" >&2
+    exit 1
+  fi
   SPAWN_META_PUBLISH_STARTED=1
   mv -f "$SPAWN_META_TMP" "$STATE/$ID.meta"
   RELAUNCH_REPLACEMENT_PENDING=0

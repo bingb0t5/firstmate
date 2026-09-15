@@ -281,6 +281,52 @@ test_recorded_process_identity_cleanup_is_exact() {
   pass "process cleanup: creation-time PID identity removes only the exact child and preserves the control child"
 }
 
+test_browser_cleanup_follows_endpoint_close() {
+  local dir id=browser-order generation=browser-generation browser_home session bridge bridge_pid tmux_line browser_line
+  dir=$(make_case browser-order)
+  browser_home="$dir/browser-home"
+  generation=browser-generation
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/nonexistent-worktree" "project=$dir/nonexistent-project" \
+    "kind=scout" "spawn_gen=$generation"
+  session=$(HOME="$browser_home" bash -c '. "$1/bin/fm-browser-lifecycle-lib.sh"; fm_browser_owner_arm "$2" "$3" "$4"' _ \
+    "$ROOT" "$dir/home/state" "$id" "$generation")
+  mkdir -p "$browser_home/.chrome-devtools-axi/sessions/$session"
+  bridge="$dir/fakebin/chrome-devtools-axi-bridge"
+  cat > "$bridge" <<'SH'
+#!/usr/bin/env bash
+trap 'exit 0' TERM INT
+while :; do sleep 1; done
+SH
+  cat > "$dir/fakebin/chrome-devtools-axi" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf 'browser <%s> <%s>\n' "${CHROME_DEVTOOLS_AXI_SESSION:-}" "$*" >> "${FM_RUNTIME_LOG:?}"
+[ "${1:-}" = stop ] || exit 1
+pid_file="$HOME/.chrome-devtools-axi/sessions/${CHROME_DEVTOOLS_AXI_SESSION}/bridge.pid"
+pid=$(jq -r '.pid' "$pid_file")
+kill "$pid" 2>/dev/null || true
+rm -f "$pid_file"
+SH
+  chmod +x "$bridge" "$dir/fakebin/chrome-devtools-axi"
+  "$bridge" &
+  bridge_pid=$!
+  printf '{"pid":%s,"port":9230}\n' "$bridge_pid" > "$browser_home/.chrome-devtools-axi/sessions/$session/bridge.pid"
+
+  HOME="$browser_home" FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_RUNTIME_LOG="$dir/runtime.log" PATH="$dir/fakebin:$PATH" \
+    "$TEARDOWN" "$id" --force > "$dir/stdout" 2> "$dir/stderr" \
+    || { kill "$bridge_pid" 2>/dev/null || true; wait "$bridge_pid" 2>/dev/null || true; fail "teardown did not close the endpoint and its owned bridge: $(cat "$dir/stderr")"; }
+  wait "$bridge_pid" 2>/dev/null || true
+  kill -0 "$bridge_pid" 2>/dev/null && fail "owned browser bridge survived teardown"
+  tmux_line=$(grep -n '^tmux <kill-window>' "$dir/runtime.log" | head -1 | cut -d: -f1)
+  browser_line=$(grep -n '^browser <' "$dir/runtime.log" | head -1 | cut -d: -f1)
+  [ -n "$tmux_line" ] && [ -n "$browser_line" ] && [ "$tmux_line" -lt "$browser_line" ] \
+    || fail "teardown stopped the browser before closing its recorded endpoint: $(cat "$dir/runtime.log")"
+  pass "fm-teardown: endpoint close precedes exact owned browser cleanup"
+}
+
 isolated_tmux_window_exists() {  # <dir> <socket> <session> <window>
   ( cd "$1" && "$REAL_TMUX" -S "$2" list-windows -t "$3" -F '#{window_name}' 2>/dev/null ) \
     | grep -Fqx "$4"
@@ -371,4 +417,5 @@ test_metadata_lock_serializes_destructive_cleanup
 test_supported_backend_endpoint_records_validate
 test_tmux_empty_target_refuses_without_invocation
 test_recorded_process_identity_cleanup_is_exact
+test_browser_cleanup_follows_endpoint_close
 test_isolated_tmux_invalid_and_valid_cleanup
