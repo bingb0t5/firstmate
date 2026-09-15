@@ -781,6 +781,8 @@ reservation_info_json() {  # <backlog-json-file> <tasks-json-file>
     ($tasks[0] | map(.id)) as $task_ids
     | .records[]?
     | select(.structured == true and .state == "in_flight" and .current_role == "worker")
+    | select(((.unresolved_blocker_ids // []) | length) == 0)
+    | select(.hold_kind == null and .hold_reason == null)
     | select(.id as $id | ($task_ids | index($id) | not))
     | .id
   ' "$1") || return 1
@@ -860,11 +862,13 @@ attention_json() {  # <backlog-json-file> <tasks-json-file> <inventory-valid> <r
        | .counts = (.class == "validating" or .class == "working" or .class == "unknown" or .class == "failed_uncleaned") ]) as $task_rows
     | ([ $backlog.records[]?
        | select(.structured == true and .state == "in_flight" and .current_role == "worker")
+       | select(((.unresolved_blocker_ids // []) | length) == 0)
+       | select(.hold_kind == null and .hold_reason == null)
        | . as $record
        | select($record.id as $id | ($tasks | map(.id) | index($id) | not))
        | ($reservation_info.records[]? | select(.id == $record.id)) as $reservation
        | select(($snapshot_epoch - $reservation.started_at_epoch) >= 0
-               and ($snapshot_epoch - $reservation.started_at_epoch) <= $reservation_window)
+               and ($snapshot_epoch - $reservation.started_at_epoch) < $reservation_window)
        | {id:$record.id,kind:($record.kind // null),state:"in_flight",source:"backlog",class:"unknown_reservation",counts:true,
           reservation_at_epoch:$reservation.started_at_epoch} ]) as $reservations
     | ($task_rows + $reservations) as $all

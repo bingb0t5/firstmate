@@ -1021,7 +1021,9 @@ if [ "$RELAUNCH" -eq 0 ]; then
   fi
   SPAWN_TASK_SET_LOCK_HELD=1
   fm_spawn_attention_guard || exit 1
-  write_launch_reservation "$ID" || exit 1
+  if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
+    write_launch_reservation "$ID" || exit 1
+  fi
 fi
 if [ "$KIND" = secondmate ]; then
   if spawn_remote_secondmate "$ID"; then

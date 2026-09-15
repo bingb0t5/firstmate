@@ -214,8 +214,8 @@ test_fresh_and_stale_launch_reservations() {
 ## Queued
 ## Done
 EOF
-  printf '1900\n' > "$home/state/fresh-reservation.launch-reservation"
-  printf '1000\n' > "$home/state/stale-reservation.launch-reservation"
+  printf '1701\n' > "$home/state/fresh-reservation.launch-reservation"
+  printf '1700\n' > "$home/state/stale-reservation.launch-reservation"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_SNAPSHOT_NOW_EPOCH=2000 FM_ATTENTION_RESERVATION_WINDOW_SECS=300 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
@@ -223,9 +223,33 @@ EOF
     .attention.valid == true
     and .attention.count == 1
     and ([.attention.reservations[].id] == ["fresh-reservation"])
-    and ([.attention.reservations[].reservation_at_epoch] == [1900])
+    and ([.attention.reservations[].reservation_at_epoch] == [1701])
   ' >/dev/null || fail "fresh and stale launch reservations were classified incorrectly: $out"
-  pass "fresh launch reservations consume capacity and stale in-flight rows do not"
+  pass "299-second launch reservations count and 300-second reservations expire"
+}
+
+test_held_and_blocked_launch_reservations_do_not_count() {
+  local home out
+  home=$(make_home reservation-exclusions)
+  add_task "$home" blocker 1
+  add_task "$home" fresh-reservation 1
+  add_task "$home" blocked-reservation 1
+  add_task "$home" held-reservation 1
+  for id in fresh-reservation blocked-reservation held-reservation; do
+    (cd "$home" && tasks-axi start "$id" >/dev/null)
+    printf '1701\n' > "$home/state/$id.launch-reservation"
+  done
+  (cd "$home" && tasks-axi block blocked-reservation --by blocker >/dev/null)
+  (cd "$home" && tasks-axi hold held-reservation --reason "waiting externally" --kind external >/dev/null)
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_SNAPSHOT_NOW_EPOCH=2000 FM_ATTENTION_RESERVATION_WINDOW_SECS=300 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
+  printf '%s' "$out" | jq -e '
+    .attention.valid == true
+    and .attention.count == 1
+    and ([.attention.reservations[].id] == ["fresh-reservation"])
+  ' >/dev/null || fail "held or blocked launch reservations consumed attention capacity: $out"
+  pass "held and blocked launch reservations do not consume capacity"
 }
 
 test_same_id_reservation_retry() {
@@ -365,6 +389,7 @@ test_unreadable_inventory_fails_closed
 test_spawn_backstops_refuse_at_four
 test_untyped_inflight_reservation_counts_toward_cap
 test_fresh_and_stale_launch_reservations
+test_held_and_blocked_launch_reservations_do_not_count
 test_incomplete_inventory_retains_readable_tasks_in_summary
 test_same_id_reservation_retry
 test_two_concurrent_starts_at_three
