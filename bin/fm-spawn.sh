@@ -255,6 +255,22 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 SUB_HOME_MARKER=".fm-secondmate-home"
+# shellcheck source=bin/fm-gate-refuse-lib.sh
+. "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
+# shellcheck source=bin/fm-home-identity-lib.sh
+. "$SCRIPT_DIR/fm-home-identity-lib.sh"
+# Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
+# a direct report (see bin/fm-gate-refuse-lib.sh).
+fm_refuse_if_gate_agent
+# Fail closed before any fleet mutation: this home's process must never spawn into
+# ANOTHER home. The primary-only domain-mate check below asks what $FM_HOME is;
+# this asks what the RUNNING PROCESS is, which is the half a mispointed FM_HOME
+# defeats (see bin/fm-home-identity-lib.sh).
+if fm_home_identity_remote_control_overrides "$FM_HOME"; then
+  fm_refuse_cross_home "$FM_HOME" fm-spawn projects
+else
+  fm_refuse_cross_home "$FM_HOME" fm-spawn state data config projects
+fi
 # shellcheck source=bin/fm-ff-lib.sh
 . "$SCRIPT_DIR/fm-ff-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -269,10 +285,6 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-browser-lifecycle-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
-# shellcheck source=bin/fm-gate-refuse-lib.sh
-. "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
-# shellcheck source=bin/fm-home-identity-lib.sh
-. "$SCRIPT_DIR/fm-home-identity-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-cursor-lib.sh
@@ -330,18 +342,6 @@ fm_spawn_attention_guard() {
     return 1
   fi
 }
-# Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
-# a direct report (see bin/fm-gate-refuse-lib.sh).
-fm_refuse_if_gate_agent
-# Fail closed before any fleet mutation: this home's process must never spawn into
-# ANOTHER home. The primary-only domain-mate check below asks what $FM_HOME is;
-# this asks what the RUNNING PROCESS is, which is the half a mispointed FM_HOME
-# defeats (see bin/fm-home-identity-lib.sh).
-if fm_home_identity_remote_control_overrides "$FM_HOME"; then
-  fm_refuse_cross_home "$FM_HOME" fm-spawn projects
-else
-  fm_refuse_cross_home "$FM_HOME" fm-spawn state data config projects
-fi
 # Skip the watcher guard when re-exec'd for one pair of a batch (FM_SPAWN_NO_GUARD is
 # set by the batch loop below), so the guard runs once for the batch, not once per pair.
 [ -n "${FM_SPAWN_NO_GUARD:-}" ] || "$FM_ROOT/bin/fm-guard.sh" || true

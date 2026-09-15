@@ -300,6 +300,14 @@ test_spawn_routing() {
   [ ! -e "$PRIMARY/data/worker" ] \
     || fail 'fm-spawn wrote task data into the other home before refusing'
 
+  local absent_state_primary="$TMP/absent-state-primary"
+  make_home "$absent_state_primary"
+  rmdir "$absent_state_primary/state"
+  run "$MATE" "$absent_state_primary" fm-spawn.sh worker "$TMP/proj" --mode no-mistakes --yolo off
+  assert_refused 'fm-spawn, mate -> primary without state'
+  [ ! -e "$absent_state_primary/state" ] \
+    || fail 'fm-spawn created other-home state before refusing'
+
   # The pre-existing primary-only domain-mate boundary must still fire on its
   # own terms when a mate correctly names its own home.
   run "$MATE" "$MATE" fm-spawn.sh newmate "$SIBLING" --secondmate
