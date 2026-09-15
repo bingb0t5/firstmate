@@ -1,0 +1,36 @@
+$ tests/fm-fleet-snapshot-view.test.sh
+ok - large secondmate landed projection survives file-based transport beyond ARG_MAX
+ok - SIGTERM terminates the snapshot instead of emitting a partial fleet
+ok - structured-home failure keeps its specific diagnostic
+ok - empty fleet snapshot and view use explicit absence markers
+ok - tasks expose a bounded, body-free unread-steering signal that delivery alone never clears
+ok - tasks expose independent change timestamps while freshness stays snapshot-wide
+ok - fixture snapshot covers task rows, backlog rows, pointers, and stable ordering
+ok - main_inventory discloses orphan/unstructured and clears when inventory is consistent
+ok - backlog normalization preserves strict roles and resolves every blocker compatibly
+ok - snapshot event hints follow reconciled current state
+ok - durable fold keeps an open decision past a later unrelated event
+ok - a live secondmate endpoint preserves unrelated open decisions
+ok - durable captain-held transfer closes the duplicate live status decision
+ok - durable fold clears a decision only on a keyed resolution
+ok - attention cap excludes held/blocked unknown endpoints and keeps four active workers
+ok - a completed scout's stale decision surfaces as a report pointer, not pending
+ok - a scout still parked at a decision stays pending (terminal clear does not over-fire)
+ok - snapshot includes durable scout reports after teardown
+ok - snapshot parses tasks-axi rows and respects operational overrides
+ok - fleet view renders the snapshot without secondmate peek guidance
+ok - fleet view renders secondmate agent liveness
+
+$ tests/fm-pull.test.sh
+ok - ready orders by priority and exposes missing-priority rows
+ok - lowercase compatibility markers remain ineligible for pull
+ok - start refuses a fifth worker before backlog or launch side effects
+ok - local snapshot reports attention without cross-home aggregation
+ok - snapshot, direct spawn, and batch spawn fail closed on incomplete inventory
+ok - direct and batch fresh spawn enforce the hard-four backstop
+ok - untyped in-flight reservations consume attention capacity
+ok - incomplete inventory retains readable tasks and surfaces the fact
+ok - same-id retries resume their visible reservation
+ok - two concurrent starts at count three reserve only one slot
+ok - secondmate homes cannot create nested secondmates
+ALL TESTS PASSED

@@ -1,0 +1,125 @@
+REAL TMUX ENDPOINTS
+firstmate:fm-active-one:1=claude
+firstmate:fm-active-two:1=claude
+firstmate:fm-blocked-unknown:1=codex
+firstmate:fm-held-unknown:1=codex
+
+TARGET SNAPSHOT (f4b4757f)
+{
+  "attention": {
+    "limit": 4,
+    "count": 2,
+    "remaining": 2,
+    "valid": true,
+    "workers": [
+      {
+        "id": "active-one",
+        "kind": "scout",
+        "state": "working",
+        "source": "status-log",
+        "class": "working",
+        "counts": true
+      },
+      {
+        "id": "active-two",
+        "kind": "scout",
+        "state": "working",
+        "source": "status-log",
+        "class": "working",
+        "counts": true
+      }
+    ],
+    "reservations": [],
+    "reported": [
+      {
+        "id": "blocked-unknown",
+        "kind": "scout",
+        "state": "unknown",
+        "source": "pane",
+        "class": "blocked",
+        "counts": false
+      },
+      {
+        "id": "held-unknown",
+        "kind": "scout",
+        "state": "unknown",
+        "source": "pane",
+        "class": "parked",
+        "counts": false
+      }
+    ]
+  },
+  "classes": [
+    {
+      "id": "active-one",
+      "state": "working",
+      "source": "status-log",
+      "class": "working",
+      "counts": true
+    },
+    {
+      "id": "active-two",
+      "state": "working",
+      "source": "status-log",
+      "class": "working",
+      "counts": true
+    },
+    {
+      "id": "blocked-unknown",
+      "state": "unknown",
+      "source": "pane",
+      "class": "blocked",
+      "counts": false
+    },
+    {
+      "id": "held-unknown",
+      "state": "unknown",
+      "source": "pane",
+      "class": "parked",
+      "counts": false
+    }
+  ]
+}
+
+BASELINE SNAPSHOT (c946876)
+{
+  "attention": {
+    "count": 4,
+    "remaining": 0
+  },
+  "classes": [
+    {
+      "id": "active-one",
+      "class": "working",
+      "counts": true
+    },
+    {
+      "id": "active-two",
+      "class": "working",
+      "counts": true
+    },
+    {
+      "id": "blocked-unknown",
+      "class": "unknown",
+      "counts": true
+    },
+    {
+      "id": "held-unknown",
+      "class": "unknown",
+      "counts": true
+    }
+  ]
+}
+
+FRESH SPAWN PROBE
+exit=1 (expected downstream invalid-backend refusal, not cap refusal)
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  4 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: unknown backend 'invalid' (known: tmux herdr zellij orca cmux)
+
+RESULT: real tmux endpoint inspection leaves held and blocked Codex lanes semantically unreadable, while target accounting frees both slots (4 -> 2 vs base) and lets the fresh-spawn guard proceed.
