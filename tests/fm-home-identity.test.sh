@@ -417,6 +417,13 @@ test_launch_binding_signal() {
     && fail 'the bound session still read the primary home s memory accounting'
 
   RC=0
+  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" FM_HOME="$SIBLING" \
+    "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
+  assert_ok 'primary-only launch containment leaves a sibling selection unclassified'
+  grep -Fq 'estimated_tokens' "$OUT" \
+    || fail 'the primary-only launch-bound sibling selection did not run'
+
+  RC=0
   FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" FM_HOME="$MATE" \
     "$MATE/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
   assert_ok 'a local secondmate with the earlier binding -> its own home'

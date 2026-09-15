@@ -60,17 +60,18 @@
 #      binding bin/fm-spawn.sh stamps into every secondmate agent session,
 #      naming that session's PRIMARY home. When the selected FM_HOME
 #      canonicalizes to that same path, it prevents accidental primary-home
-#      selection through the PRIMARY home's own bin/ by absolute path. This
-#      covers the gap in signal 1, but identifies only the primary home - it
-#      cannot identify the invoking home.
+#      selection through the PRIMARY home's own bin/ by absolute path. This is
+#      primary-only containment: it identifies only the primary home and cannot
+#      identify the invoking home or classify a non-primary selection.
 #
 # LIMIT. This is an accidental-misrouting guard, not process provenance. A
 # process can unset or alter its inherited environment, leaving only code-root
 # protection. Remote sessions likewise lack an authoritative own-home binding:
 # their launch binding identifies only the primary home. Stronger provenance is
-# out of scope. The marker itself is non-authoritative: it never establishes an
-# invoking identity unless the local parent registry corroborates that exact
-# code-root path.
+# out of scope. Absolute-primary-bin use therefore gets primary-only containment,
+# not sibling protection. The marker itself is non-authoritative: it never
+# establishes an invoking identity unless the local parent registry corroborates
+# that exact code-root path.
 #
 # DIRECTION. The refusal is deliberately one-way. A PRIMARY home legitimately
 # reaches into the secondmate homes it owns - bin/fm-stow-cascade.sh runs each
@@ -386,7 +387,7 @@ fm_home_identity_cross_home() {
     return 1
   fi
 
-  # Signal 2: the option-B launch binding names the selected primary home.
+  # Signal 2: the option-B launch binding provides primary-only containment.
   if [ -n "${FM_PUBLIC_FOLLOWUP_PRIMARY_HOME:-}" ]; then
     primary_abs=$(fm_home_identity_canonical "$FM_PUBLIC_FOLLOWUP_PRIMARY_HOME") || primary_abs=
     if [ -n "$target_abs" ] && [ "$target_abs" = "$primary_abs" ]; then
