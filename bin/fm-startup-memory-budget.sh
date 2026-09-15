@@ -39,7 +39,7 @@ esac
 # home's captain and learning records to rewrite them. A PRIMARY home reaching
 # its own mates is unaffected, which keeps bin/fm-stow-cascade.sh working
 # (see bin/fm-home-identity-lib.sh).
-fm_refuse_cross_home "$FM_HOME" fm-startup-memory-budget
+fm_refuse_cross_home "$FM_HOME" fm-startup-memory-budget data config
 
 print_error() {
   printf 'startup-memory-budget: %s\n' "$1" >&2

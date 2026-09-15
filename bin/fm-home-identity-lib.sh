@@ -53,13 +53,14 @@
 #      its scripts run from that host's separate tracked code root, which carries
 #      no identity marker at all, so this signal never fires there either way.
 #
-#   2. launch-binding. FM_PUBLIC_FOLLOWUP_PRIMARY_HOME is the durable env
-#      binding bin/fm-spawn.sh stamps into every secondmate agent session, naming
-#      that session's PRIMARY home. When it is set and the selected FM_HOME
-#      canonicalizes to that same path, a secondmate session is operating on the
-#      primary home. This covers the gap in signal 1: a secondmate agent that
-#      invokes the PRIMARY home's own bin/ by absolute path has a primary code
-#      root, so only the session binding still knows what it is.
+#   2. launch-binding. FM_PUBLIC_FOLLOWUP_PRIMARY_HOME and
+#      FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME are durable env bindings
+#      bin/fm-spawn.sh stamps into every secondmate agent session. They name
+#      that session's PRIMARY and own home. When the selected FM_HOME differs
+#      from either permitted path, the session is operating outside its own
+#      home. This covers the gap in signal 1: a secondmate agent that invokes
+#      the PRIMARY home's own bin/ by absolute path has a primary code root, so
+#      only the trusted session bindings still know what it is.
 #
 # DIRECTION. The refusal is deliberately one-way. A PRIMARY home legitimately
 # reaches into the secondmate homes it owns - bin/fm-stow-cascade.sh runs each
@@ -69,8 +70,8 @@
 # The primary home's own data is what stays read-only from everywhere else, which
 # is the boundary the incidents crossed.
 #
-# A home operating on ITSELF is always allowed: identical identities never
-# refuse, whatever the path spelling.
+# A home operating on ITSELF is always allowed: its selected canonical path
+# must equal the corroborated canonical path of the executing or bound home.
 #
 # TEST-HARNESS ESCAPE HATCH (FM_HOME_IDENTITY_BYPASS=1), mirroring
 # bin/fm-gate-refuse-lib.sh: firstmate's own suite drives the REAL
@@ -131,7 +132,7 @@ fm_home_identity_id_valid() {
 # identity - "primary" when it carries no marker, otherwise the mate id. Returns
 # 1 with FM_HOME_IDENTITY_ERROR set when the marker is present but unsafe.
 fm_home_identity_read() {
-  local home=${1-} marker id extra
+  local home=${1-} marker id
   FM_HOME_IDENTITY_VALUE=
   FM_HOME_IDENTITY_ERROR=
   if [ -z "$home" ]; then
@@ -152,8 +153,7 @@ fm_home_identity_read() {
     return 1
   fi
   id=$(sed -n '1p' "$marker" 2>/dev/null) || id=
-  extra=$(sed -n '2,$p' "$marker" 2>/dev/null | tr -d '[:space:]') || extra=
-  if [ -n "$extra" ]; then
+  if awk 'NR == 2 { found=1; exit } END { exit !found }' "$marker"; then
     FM_HOME_IDENTITY_ERROR="home identity marker holds more than one id: $marker"
     return 1
   fi
@@ -165,6 +165,36 @@ fm_home_identity_read() {
   return 0
 }
 
+# fm_home_identity_corroborated_id <home> [expected-parent]: print a secondmate
+# id only when the home's own durable parent binding and that parent's registry
+# place the same id at the same path. When an expected parent is supplied, its
+# canonical path must also equal the home binding's parent.
+fm_home_identity_corroborated_id() {
+  local home=${1-} expected_parent=${2-} id registry home_key root_key parent_key expected_parent_key
+  [ -n "$home" ] || return 1
+  fm_home_identity_read "$home" || return 1
+  id=$FM_HOME_IDENTITY_VALUE
+  [ "$id" != primary ] || return 1
+
+  fm_secondmate_parent_record_parse \
+    "$home/.fm-secondmate-parent" || return 1
+  [ "$FM_SECONDMATE_PARENT_ROUTE" = local ] || return 1
+  if [ -n "$expected_parent" ]; then
+    parent_key=$(fm_home_identity_canonical "$FM_SECONDMATE_PARENT_HOME") || return 1
+    expected_parent_key=$(fm_home_identity_canonical "$expected_parent") || return 1
+    [ "$parent_key" = "$expected_parent_key" ] || return 1
+  fi
+  registry="$FM_SECONDMATE_PARENT_HOME/data/secondmates.md"
+
+  # The registry owns its own lookup, duplicate-id refusal, and path spelling.
+  secondmate_registry_line_for_id "$registry" "$id" || return 1
+  [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || return 1
+  home_key=$(secondmate_registry_path_key "$SECONDMATE_REGISTRY_HOME") || return 1
+  root_key=$(secondmate_registry_path_key "$home") || return 1
+  [ "$home_key" = "$root_key" ] || return 1
+  printf '%s\n' "$id"
+}
+
 # fm_home_identity_origin_id: print the secondmate id of the home whose bin/ is
 # executing, and return 0, only when that identity is corroborated by the home's
 # own durable parent binding and that parent's registry placing the SAME id at
@@ -173,24 +203,39 @@ fm_home_identity_read() {
 # register at this exact path - a leftover marker in a re-leased pool worktree
 # establishes nothing.
 fm_home_identity_origin_id() {
-  local id registry home_key root_key
   [ -n "$FM_HOME_IDENTITY_CODE_ROOT" ] || return 1
-  fm_home_identity_read "$FM_HOME_IDENTITY_CODE_ROOT" || return 1
-  id=$FM_HOME_IDENTITY_VALUE
-  [ "$id" != primary ] || return 1
+  fm_home_identity_corroborated_id "$FM_HOME_IDENTITY_CODE_ROOT"
+}
 
-  fm_secondmate_parent_record_parse \
-    "$FM_HOME_IDENTITY_CODE_ROOT/.fm-secondmate-parent" || return 1
-  [ "$FM_SECONDMATE_PARENT_ROUTE" = local ] || return 1
-  registry="$FM_SECONDMATE_PARENT_HOME/data/secondmates.md"
-
-  # The registry owns its own lookup, duplicate-id refusal, and path spelling.
-  secondmate_registry_line_for_id "$registry" "$id" || return 1
-  [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || return 1
-  home_key=$(secondmate_registry_path_key "$SECONDMATE_REGISTRY_HOME") || return 1
-  root_key=$(secondmate_registry_path_key "$FM_HOME_IDENTITY_CODE_ROOT") || return 1
-  [ "$home_key" = "$root_key" ] || return 1
-  printf '%s\n' "$id"
+fm_home_identity_surface_override() {
+  local target=${1-} surface=${2-} override override_name target_abs expected_abs override_abs
+  case "$surface" in
+    state) override=${FM_STATE_OVERRIDE:-}; override_name=FM_STATE_OVERRIDE ;;
+    data) override=${FM_DATA_OVERRIDE:-}; override_name=FM_DATA_OVERRIDE ;;
+    config) override=${FM_CONFIG_OVERRIDE:-}; override_name=FM_CONFIG_OVERRIDE ;;
+    projects) override=${FM_PROJECTS_OVERRIDE:-}; override_name=FM_PROJECTS_OVERRIDE ;;
+    *) return 1 ;;
+  esac
+  [ -n "$override" ] || return 1
+  target_abs=$(fm_home_identity_canonical "$target") || {
+    FM_HOME_IDENTITY_SIGNAL='surface-override'
+    FM_HOME_IDENTITY_REASON="the selected home ($target) cannot establish its $surface surface while $override_name selects $override"
+    return 0
+  }
+  expected_abs=$(fm_home_identity_canonical "$target_abs/$surface") || {
+    FM_HOME_IDENTITY_SIGNAL='surface-override'
+    FM_HOME_IDENTITY_REASON="the selected home ($target_abs) has no resolvable $surface surface while $override_name selects $override"
+    return 0
+  }
+  override_abs=$(fm_home_identity_canonical "$override") || {
+    FM_HOME_IDENTITY_SIGNAL='surface-override'
+    FM_HOME_IDENTITY_REASON="$override_name selects an unreadable $surface surface ($override) instead of $expected_abs"
+    return 0
+  }
+  [ "$override_abs" = "$expected_abs" ] && return 1
+  FM_HOME_IDENTITY_SIGNAL='surface-override'
+  FM_HOME_IDENTITY_REASON="$override_name selects $override_abs instead of the selected home's $surface surface ($expected_abs)"
+  return 0
 }
 
 # fm_home_identity_cross_home <target-home>: return 0 when this process must NOT
@@ -200,7 +245,7 @@ fm_home_identity_origin_id() {
 # Returns 1 when the operation is this process's own home, a primary reaching a
 # home it owns, or an origin this library cannot establish.
 fm_home_identity_cross_home() {
-  local target=${1-} target_id origin_id target_abs bound_abs
+  local target=${1-} target_id origin_id target_abs origin_abs primary_abs caller_abs caller_id
   FM_HOME_IDENTITY_SIGNAL=
   FM_HOME_IDENTITY_REASON=
   if [ "${FM_HOME_IDENTITY_BYPASS:-}" = 1 ]; then
@@ -214,24 +259,41 @@ fm_home_identity_cross_home() {
     return 0
   fi
   target_id=$FM_HOME_IDENTITY_VALUE
+  target_abs=$(fm_home_identity_canonical "$target") || target_abs=
 
   # Signal 1: the executing code root is a corroborated secondmate home whose
   # identity differs from the selected home's.
   if origin_id=$(fm_home_identity_origin_id); then
-    if [ "$origin_id" != "$target_id" ]; then
+    origin_abs=$(fm_home_identity_canonical "$FM_HOME_IDENTITY_CODE_ROOT") || origin_abs=
+    if [ "$origin_id" != "$target_id" ] \
+      || [ -z "$target_abs" ] \
+      || [ "$origin_abs" != "$target_abs" ]; then
       FM_HOME_IDENTITY_SIGNAL='code-root'
-      FM_HOME_IDENTITY_REASON="this process runs from the '$origin_id' secondmate home ($FM_HOME_IDENTITY_CODE_ROOT) but FM_HOME selects the '$target_id' home ($target)"
+      FM_HOME_IDENTITY_REASON="this process runs from the '$origin_id' secondmate home ($origin_abs) but FM_HOME selects the '$target_id' home ($target_abs)"
       return 0
     fi
   fi
 
-  # Signal 2: a secondmate session's own launch binding names the selected home.
+  # Signal 2: a secondmate session's launch bindings identify its primary and
+  # its corroborated own home even when it invokes the primary bin by path.
   if [ -n "${FM_PUBLIC_FOLLOWUP_PRIMARY_HOME:-}" ]; then
-    target_abs=$(fm_home_identity_canonical "$target") || target_abs=
-    bound_abs=$(fm_home_identity_canonical "$FM_PUBLIC_FOLLOWUP_PRIMARY_HOME") || bound_abs=
-    if [ -n "$target_abs" ] && [ "$target_abs" = "$bound_abs" ]; then
+    primary_abs=$(fm_home_identity_canonical "$FM_PUBLIC_FOLLOWUP_PRIMARY_HOME") || primary_abs=
+    if [ -n "$target_abs" ] && [ "$target_abs" = "$primary_abs" ]; then
       FM_HOME_IDENTITY_SIGNAL='launch-binding'
-      FM_HOME_IDENTITY_REASON="this secondmate session is bound to the primary home ($bound_abs) and FM_HOME selects that same primary home"
+      FM_HOME_IDENTITY_REASON="this secondmate session is bound to the primary home ($primary_abs) and FM_HOME selects that same primary home"
+      return 0
+    fi
+    caller_abs=$(fm_home_identity_canonical "${FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME:-}") || caller_abs=
+    if ! caller_id=$(fm_home_identity_corroborated_id \
+      "${FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME:-}" \
+      "${FM_PUBLIC_FOLLOWUP_PRIMARY_HOME:-}"); then
+      FM_HOME_IDENTITY_SIGNAL='launch-binding'
+      FM_HOME_IDENTITY_REASON="this secondmate session has no trusted caller-home binding but FM_HOME selects the '$target_id' home ($target_abs)"
+      return 0
+    fi
+    if [ -z "$target_abs" ] || [ "$caller_abs" != "$target_abs" ]; then
+      FM_HOME_IDENTITY_SIGNAL='launch-binding'
+      FM_HOME_IDENTITY_REASON="this secondmate session is bound to the '$caller_id' home ($caller_abs) but FM_HOME selects the '$target_id' home ($target_abs)"
       return 0
     fi
   fi
@@ -239,14 +301,27 @@ fm_home_identity_cross_home() {
   return 1
 }
 
-# fm_refuse_cross_home <target-home> <operation>: exit FM_HOME_IDENTITY_EXIT with
-# an actionable diagnostic when <target-home> belongs to another home. Call after
-# FM_HOME is resolved and before anything is written, spawned, or steered. A
-# no-op (returns 0) for a same-home operation, for a primary home reaching a home
-# it owns, and under FM_HOME_IDENTITY_BYPASS=1.
+# fm_refuse_cross_home <target-home> <operation> [state] [data] [config] [projects]:
+# exit FM_HOME_IDENTITY_EXIT with an actionable diagnostic when <target-home>
+# belongs to another home or a named override does not resolve inside it. Call
+# after FM_HOME is resolved and before anything is written, spawned, or steered.
+# A no-op (returns 0) for a same-home operation, for a primary home reaching a
+# home it owns, and under FM_HOME_IDENTITY_BYPASS=1.
 fm_refuse_cross_home() {
   local target=${1-} operation=${2:-this operation}
-  fm_home_identity_cross_home "$target" || return 0
+  [ "${FM_HOME_IDENTITY_BYPASS:-}" = 1 ] && return 0
+  shift 2 || true
+  if fm_home_identity_cross_home "$target"; then
+    :
+  else
+    while [ "$#" -gt 0 ]; do
+      if fm_home_identity_surface_override "$target" "$1"; then
+        break
+      fi
+      shift
+    done
+    [ -n "$FM_HOME_IDENTITY_SIGNAL" ] || return 0
+  fi
   printf 'error: %s refuses a cross-home operation: %s.\n' \
     "$operation" "$FM_HOME_IDENTITY_REASON" >&2
   printf 'error: a home may only operate on itself; another home - the primary home above all - is read-only from here. Set FM_HOME to this home, or run the operation from the owning home'"'"'s own session. [signal: %s]\n' \

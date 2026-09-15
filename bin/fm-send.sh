@@ -207,7 +207,7 @@ fi
 # against the wrong home by accident - but "explicit" is not "this home's".
 # Refuse the cross-home case before any steering record is written
 # (see bin/fm-home-identity-lib.sh).
-fm_refuse_cross_home "$FM_HOME" fm-send
+fm_refuse_cross_home "$FM_HOME" fm-send state
 if [ ! -d "$STATE" ]; then
   echo "error: state dir '$STATE' is missing; fm-send cannot resolve targets for FM_HOME '$FM_HOME'" >&2
   exit 1

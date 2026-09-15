@@ -83,7 +83,7 @@ SUB_HOME_MARKER="${SUB_HOME_MARKER:-.fm-secondmate-home}"
 # The cascade reads one home's registry and then steers or curates the homes it
 # names, so it must run from the home it is sweeping. Refuse before any of that
 # when FM_HOME names another home (see bin/fm-home-identity-lib.sh).
-fm_refuse_cross_home "$FM_HOME" fm-stow-cascade
+fm_refuse_cross_home "$FM_HOME" fm-stow-cascade data state
 
 BOUND=${FM_STOW_CASCADE_TIMEOUT:-60}
 case "$BOUND" in

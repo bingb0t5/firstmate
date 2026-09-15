@@ -14,10 +14,10 @@
 #                      identity differs from the selected FM_HOME's identity.
 #                      This is the only signal that covers a SIBLING mate.
 #   2. launch-binding: FM_PUBLIC_FOLLOWUP_PRIMARY_HOME (stamped by fm-spawn into
-#                      every secondmate agent session) names the selected home.
-#                      This covers a secondmate agent invoking the PRIMARY home's
-#                      own bin/ by absolute path, where signal 1 sees a primary
-#                      code root and cannot fire.
+#                      every secondmate agent session) and its own-home binding
+#                      distinguish the caller from both the primary and siblings
+#                      when it invokes the PRIMARY home's own bin by absolute
+#                      path, where signal 1 sees a primary code root.
 #
 # The refusal is one-way on purpose: a PRIMARY home reaching a mate it owns (the
 # fm-stow-cascade shape) must keep working, and each home operating on itself
@@ -96,6 +96,14 @@ run() {
     >"$OUT" 2>&1 || RC=$?
 }
 
+run_surface_override() {
+  local bin_home=$1 fm_home=$2 override_name=$3 override_value=$4 script=$5
+  shift 5
+  RC=0
+  env FM_BACKEND=tmux FM_HOME="$fm_home" "${override_name}=${override_value}" \
+    "$bin_home/bin/$script" "$@" >"$OUT" 2>&1 || RC=$?
+}
+
 assert_refused() {
   local label=$1
   [ "$RC" -eq "$REFUSE_EXIT" ] \
@@ -162,6 +170,54 @@ test_stow_memory_routing() {
     || fail 'primary-owned mate accounting did not run'
 
   pass 'stow memory accounting refuses another home and keeps valid routing'
+}
+
+test_surface_override_routing() {
+  record_task "$PRIMARY" override-task
+
+  run_surface_override "$MATE" "$MATE" FM_STATE_OVERRIDE "$PRIMARY/state" \
+    fm-send.sh fm-override-task --inbox-only 'override steer'
+  assert_refused 'fm-send state override into another home'
+  assert_signal 'fm-send state override into another home' surface-override
+  [ ! -e "$PRIMARY/state/override-task.inbox" ] \
+    || fail 'fm-send followed a state override into another home'
+
+  run_surface_override "$MATE" "$MATE" FM_DATA_OVERRIDE "$PRIMARY/data" \
+    fm-startup-memory-budget.sh report
+  assert_refused 'memory accounting data override into another home'
+  assert_signal 'memory accounting data override into another home' surface-override
+  grep -Fq 'estimated_tokens' "$OUT" \
+    && fail 'memory accounting read another home through a data override'
+
+  run_surface_override "$MATE" "$MATE" FM_CONFIG_OVERRIDE "$PRIMARY/config" \
+    fm-startup-memory-budget.sh report
+  assert_refused 'memory accounting config override into another home'
+  assert_signal 'memory accounting config override into another home' surface-override
+
+  run_surface_override "$MATE" "$MATE" FM_DATA_OVERRIDE "$PRIMARY/data" \
+    fm-stow-cascade.sh
+  assert_refused 'stow cascade data override into another home'
+  assert_signal 'stow cascade data override into another home' surface-override
+
+  run_surface_override "$MATE" "$MATE" FM_STATE_OVERRIDE "$PRIMARY/state" \
+    fm-stow-cascade.sh
+  assert_refused 'stow cascade state override into another home'
+  assert_signal 'stow cascade state override into another home' surface-override
+
+  for surface in FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE; do
+    case "$surface" in
+      FM_STATE_OVERRIDE) value="$PRIMARY/state" ;;
+      FM_DATA_OVERRIDE) value="$PRIMARY/data" ;;
+      FM_CONFIG_OVERRIDE) value="$PRIMARY/config" ;;
+      FM_PROJECTS_OVERRIDE) value="$PRIMARY/projects" ;;
+    esac
+    run_surface_override "$MATE" "$MATE" "$surface" "$value" \
+      fm-spawn.sh 'bad id' "$TMP/proj" --mode no-mistakes --yolo off
+    assert_refused "fm-spawn $surface into another home"
+    assert_signal "fm-spawn $surface into another home" surface-override
+  done
+
+  pass 'surface overrides cannot escape the selected home'
 }
 
 # --- fm-send ----------------------------------------------------------------
@@ -254,10 +310,21 @@ test_launch_binding_signal() {
   grep -Fq 'estimated_tokens' "$OUT" \
     && fail 'the bound session still read the primary home s memory accounting'
 
-  # The same session operating on its OWN home is untouched.
+  # The primary bin has no secondmate code-root signal, so a caller binding is
+  # required to reject a sibling without also refusing the caller's own home.
   RC=0
-  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" FM_HOME="$MATE" \
-    "$MATE/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
+  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" \
+    FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME="$MATE" FM_HOME="$SIBLING" \
+    "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
+  assert_refused 'launch binding, primary bin session -> sibling home'
+  assert_signal 'launch binding, primary bin session -> sibling home' launch-binding
+  grep -Fq 'estimated_tokens' "$OUT" \
+    && fail 'the primary-bin session still read the sibling home s memory accounting'
+
+  RC=0
+  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" \
+    FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME="$MATE" FM_HOME="$MATE" \
+    "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
   assert_ok 'launch binding, secondmate session -> its own home'
   grep -Fq 'role=secondmate' "$OUT" || fail 'own-home accounting did not run'
 
@@ -283,6 +350,10 @@ test_unsafe_identity_marker() {
   run "$broken" "$broken" fm-startup-memory-budget.sh report
   assert_refused 'identity marker holding two ids'
 
+  printf 'mate-a\n\n' > "$broken/.fm-secondmate-home"
+  run "$broken" "$broken" fm-startup-memory-budget.sh report
+  assert_refused 'identity marker holding an empty second line'
+
   printf 'mate a/../..\n' > "$broken/.fm-secondmate-home"
   run "$broken" "$broken" fm-startup-memory-budget.sh report
   assert_refused 'identity marker outside the registry id charset'
@@ -292,6 +363,21 @@ test_unsafe_identity_marker() {
   assert_ok 'a repaired identity marker'
 
   pass 'an unreadable home identity refuses instead of collapsing to primary'
+}
+
+# --- copied identity markers ------------------------------------------------
+
+test_copied_marker_path() {
+  local copied="$TMP/copied"
+  make_home "$copied" mate-a
+
+  run "$MATE" "$copied" fm-startup-memory-budget.sh report
+  assert_refused 'a copied marker reusing the caller id'
+  assert_signal 'a copied marker reusing the caller id' code-root
+  grep -Fq 'estimated_tokens' "$OUT" \
+    && fail 'a copied marker path was accepted as the caller home'
+
+  pass 'an own-home exception requires the canonical registered path'
 }
 
 # --- a leftover marker is not an identity -----------------------------------
@@ -339,10 +425,12 @@ test_bypass_hatch() {
 }
 
 test_stow_memory_routing
+test_surface_override_routing
 test_send_routing
 test_spawn_routing
 test_cascade_routing
 test_launch_binding_signal
 test_unsafe_identity_marker
 test_uncorroborated_marker
+test_copied_marker_path
 test_bypass_hatch
