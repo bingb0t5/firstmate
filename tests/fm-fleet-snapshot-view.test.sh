@@ -1008,7 +1008,10 @@ test_attention_cap_honors_backlog_holds_and_blockers() {
   local home fakebin out validating_wt branch head id state class counts
   home=$(make_home attention-cap)
   validating_wt="$home/projects/validating-wt"
-  mkdir -p "$home/projects/held-wt" "$home/projects/blocked-wt" \
+  mkdir -p "$home/projects/held-wt" "$home/projects/captain-held-wt" \
+    "$home/projects/external-held-wt" "$home/projects/load-held-wt" \
+    "$home/projects/future-held-wt" "$home/projects/reason-held-wt" \
+    "$home/projects/blocked-wt" \
     "$home/projects/working-wt" "$home/projects/unknown-wt" "$home/projects/failed-wt" \
     "$validating_wt"
   git -C "$validating_wt" init -q
@@ -1021,6 +1024,11 @@ test_attention_cap_honors_backlog_holds_and_blockers() {
   cat > "$home/data/backlog.md" <<'EOF'
 ## In flight
 - [ ] held-unknown - Held Codex lane (repo: alpha) (kind: scout) (hold: parked lane) (hold-kind: parked)
+- [ ] captain-held-unknown - Captain-held Codex lane (repo: alpha) (kind: scout) (hold: captain choice) (hold-kind: captain)
+- [ ] external-held-unknown - External-held Codex lane (repo: alpha) (kind: scout) (hold: upstream release) (hold-kind: external)
+- [ ] load-held-unknown - Load-held Codex lane (repo: alpha) (kind: scout) (hold: fleet capacity) (hold-kind: load)
+- [ ] future-held-unknown - Future-held Codex lane (repo: alpha) (kind: scout) (hold: future policy) (hold-kind: future)
+- [ ] reason-held-unknown - Reason-held Codex lane (repo: alpha) (kind: scout) (hold: temporary pause)
 - [ ] blocked-unknown - Blocked Codex lane blocked-by: missing-worker (repo: alpha) (kind: scout)
 - [ ] validating-active - Active validating lane (repo: alpha) (kind: ship)
 - [ ] working-active - Active working lane (repo: alpha) (kind: scout)
@@ -1033,6 +1041,21 @@ test_attention_cap_honors_backlog_holds_and_blockers() {
 EOF
   fm_write_meta "$home/state/held-unknown.meta" \
     "window=firstmate:fm-held-unknown" "worktree=$home/projects/held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/captain-held-unknown.meta" \
+    "window=firstmate:fm-captain-held-unknown" "worktree=$home/projects/captain-held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/external-held-unknown.meta" \
+    "window=firstmate:fm-external-held-unknown" "worktree=$home/projects/external-held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/load-held-unknown.meta" \
+    "window=firstmate:fm-load-held-unknown" "worktree=$home/projects/load-held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/future-held-unknown.meta" \
+    "window=firstmate:fm-future-held-unknown" "worktree=$home/projects/future-held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/reason-held-unknown.meta" \
+    "window=firstmate:fm-reason-held-unknown" "worktree=$home/projects/reason-held-wt" \
     "project=alpha" "harness=codex" "kind=scout" "mode=scout"
   fm_write_meta "$home/state/blocked-unknown.meta" \
     "window=firstmate:fm-blocked-unknown" "worktree=$home/projects/blocked-wt" \
@@ -1118,6 +1141,11 @@ EOF
     ' >/dev/null || fail "attention classification mismatch for $id: $out"
   done <<'EOF'
 held-unknown|unknown|parked|false
+captain-held-unknown|unknown|captain_held|false
+external-held-unknown|unknown|paused|false
+load-held-unknown|unknown|parked|false
+future-held-unknown|unknown|paused|false
+reason-held-unknown|unknown|paused|false
 blocked-unknown|unknown|blocked|false
 validating-active|working|validating|true
 working-active|working|working|true
