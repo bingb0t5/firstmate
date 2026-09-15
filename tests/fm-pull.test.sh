@@ -250,6 +250,30 @@ test_held_and_blocked_launch_reservations_do_not_count() {
   pass "held and blocked launch reservations do not consume capacity"
 }
 
+test_direct_launch_reservations() {
+  local home out
+  home=$(make_home direct-reservations)
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] row-plus-marker - pull launch (kind: ship) (priority: 1)
+
+## Queued
+## Done
+EOF
+  printf '1701\n' > "$home/state/fresh-direct.launch-reservation"
+  printf '1700\n' > "$home/state/stale-direct.launch-reservation"
+  printf '1701\n' > "$home/state/row-plus-marker.launch-reservation"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SNAPSHOT_NOW_EPOCH=2000 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
+  printf '%s' "$out" | jq -e '
+    .attention.valid == true
+    and .attention.count == 2
+    and ([.attention.reservations[].id] | sort == ["fresh-direct", "row-plus-marker"])
+    and ([.attention.reservations[].reservation_at_epoch] | sort == [1701, 1701])
+  ' >/dev/null || fail "direct launch reservations were classified incorrectly: $out"
+  pass "fresh direct markers count, stale markers expire, and pull markers deduplicate"
+}
+
 test_same_id_reservation_retry() {
   local home out rc=0
   home=$(make_home retry)
@@ -388,6 +412,7 @@ test_spawn_backstops_refuse_at_four
 test_untyped_inflight_reservation_counts_toward_cap
 test_fresh_and_stale_launch_reservations
 test_held_and_blocked_launch_reservations_do_not_count
+test_direct_launch_reservations
 test_incomplete_inventory_retains_readable_tasks_in_summary
 test_same_id_reservation_retry
 test_two_concurrent_starts_at_three

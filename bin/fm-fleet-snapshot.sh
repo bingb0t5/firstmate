@@ -773,21 +773,16 @@ EOF
 }
 
 reservation_info_json() {  # <backlog-json-file> <tasks-json-file>
-  local records_file candidate_ids id marker value record valid=1
+  local records_file id marker value record candidate valid=1
   records_file="$SNAPSHOT_TMPDIR/reservation-records"
   snapshot_write "$records_file" ""
-  candidate_ids=$(jq -r --slurpfile tasks "$2" '
-    ($tasks[0] | map(.id)) as $task_ids
-    | .records[]?
-    | select(.structured == true and .state == "in_flight" and .current_role == "worker")
-    | select(((.unresolved_blocker_ids // []) | length) == 0)
-    | select(.hold_kind == null and .hold_reason == null)
-    | select(.id as $id | ($task_ids | index($id) | not))
-    | .id
-  ' "$1") || return 1
-  while IFS= read -r id; do
-    [ -n "$id" ] || continue
-    marker="$STATE/$id.launch-reservation"
+  for marker in "$STATE"/*.launch-reservation; do
+    [ -e "$marker" ] || [ -L "$marker" ] || continue
+    id=$(basename "$marker" .launch-reservation)
+    if ! fm_task_id_creation_valid "$id"; then
+      valid=0
+      continue
+    fi
     if [ -L "$marker" ] || { [ -e "$marker" ] && [ ! -f "$marker" ]; } ||
        { [ -e "$marker" ] && [ ! -r "$marker" ]; }; then
       valid=0
@@ -804,12 +799,22 @@ reservation_info_json() {  # <backlog-json-file> <tasks-json-file>
         continue
         ;;
     esac
+    candidate=$(jq -r --arg id "$id" --slurpfile tasks "$2" '
+      ($tasks[0] | map(.id)) as $task_ids
+      | ([.records[]?
+          | select(.structured == true and .id == $id)][0] // null) as $record
+      | if ($task_ids | index($id)) then false
+        elif $record == null then true
+        elif ($record.state == "in_flight" and $record.current_role == "worker"
+              and (($record.unresolved_blocker_ids // []) | length) == 0
+              and $record.hold_kind == null and $record.hold_reason == null) then true
+        else false end
+    ' "$1") || return 1
+    [ "$candidate" = true ] || continue
     record=$(jq -n --arg id "$id" --argjson epoch "$value" \
       '{id:$id,started_at_epoch:$epoch}') || return 1
     snapshot_append_json "$records_file" "$record"
-  done <<EOF
-$candidate_ids
-EOF
+  done
   jq -n \
     --slurpfile records "$records_file" \
     --argjson valid "$(bool_json "$valid")" \
@@ -859,16 +864,12 @@ attention_json() {  # <backlog-json-file> <tasks-json-file> <inventory-valid> <r
        | select(.kind == "ship" or .kind == "scout")
        | {id,kind,state:(.current_state.state // "unknown"),source:(.current_state.source // "none"),class:attention_class(.)}
        | .counts = (.class == "validating" or .class == "working" or .class == "unknown" or .class == "failed_uncleaned") ]) as $task_rows
-    | ([ $backlog.records[]?
-       | select(.structured == true and .state == "in_flight" and .current_role == "worker")
-       | select(((.unresolved_blocker_ids // []) | length) == 0)
-       | select(.hold_kind == null and .hold_reason == null)
-       | . as $record
-       | select($record.id as $id | ($tasks | map(.id) | index($id) | not))
-       | ($reservation_info.records[]? | select(.id == $record.id)) as $reservation
+    | ([ $reservation_info.records[]?
+       | . as $reservation
+       | (backlog_record($reservation.id)) as $record
        | select(($snapshot_epoch - $reservation.started_at_epoch) >= 0
                and ($snapshot_epoch - $reservation.started_at_epoch) < $reservation_window)
-       | {id:$record.id,kind:($record.kind // null),state:"in_flight",source:"backlog",class:"unknown_reservation",counts:true,
+       | {id:$reservation.id,kind:($record.kind // null),state:"in_flight",source:"backlog",class:"unknown_reservation",counts:true,
           reservation_at_epoch:$reservation.started_at_epoch} ]) as $reservations
     | ($task_rows + $reservations) as $all
     | ([ $all[] | select(.counts == true) ]) as $workers
