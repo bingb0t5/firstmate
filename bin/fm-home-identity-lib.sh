@@ -49,9 +49,10 @@
 #      the identity uncorroborated rather than assumed, so a broken registry
 #      cannot brick a mate - signal 2 still stands behind it.
 #
-#      A remotely placed home is never corroborated here and does not need to be:
-#      its scripts run from that host's separate tracked code root, which carries
-#      no identity marker at all, so this signal never fires there either way.
+#      A remotely placed home is never corroborated here: its scripts run from
+#      that host's separate tracked code root, which carries no identity marker.
+#      This option-B boundary therefore does not establish a remote session's
+#      own-home provenance or protect a same-host sibling from that session.
 #
 #   2. launch-binding. FM_PUBLIC_FOLLOWUP_PRIMARY_HOME is the durable env
 #      binding bin/fm-spawn.sh stamps into every secondmate agent session,
@@ -63,7 +64,9 @@
 #
 # LIMIT. This is an accidental-misrouting guard, not process provenance. A
 # process can unset or alter its inherited environment, leaving only code-root
-# protection. The marker itself is non-authoritative: it never establishes an
+# protection. Remote sessions likewise lack an authoritative own-home binding:
+# their launch binding identifies only the primary home. Stronger provenance is
+# out of scope. The marker itself is non-authoritative: it never establishes an
 # invoking identity unless the local parent registry corroborates that exact
 # code-root path.
 #
@@ -111,13 +114,12 @@ fm_home_identity_canonical() {
 }
 
 # fm_home_identity_id_valid <id>: the same id charset data/secondmates.md accepts
-# (bin/fm-secondmate-registry-lib.sh), with no leading dot and a sane length.
+# (bin/fm-secondmate-registry-lib.sh).
 fm_home_identity_id_valid() {
   local id=${1-}
   case "$id" in
-    ''|.*|*[!A-Za-z0-9._-]*) return 1 ;;
+    ''|*[!A-Za-z0-9._-]*) return 1 ;;
   esac
-  [ "${#id}" -le 128 ]
 }
 
 # fm_home_identity_read <home-dir>: set FM_HOME_IDENTITY_VALUE to that home's

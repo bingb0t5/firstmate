@@ -411,6 +411,23 @@ test_unsafe_identity_marker() {
   pass 'an unreadable home identity refuses instead of collapsing to primary'
 }
 
+test_registry_id_charset() {
+  local dotted="$TMP/dotted-id" long="$TMP/long-id" dotted_id='.mate' long_id
+  long_id=$(printf 'a%.0s' {1..129})
+  make_home "$dotted" "$dotted_id"
+  make_home "$long" "$long_id"
+  register "$dotted_id" "$dotted"
+  register "$long_id" "$long"
+
+  run "$dotted" "$dotted" fm-startup-memory-budget.sh report
+  assert_ok 'a registry-confirmed leading-dot identity'
+
+  run "$long" "$long" fm-startup-memory-budget.sh report
+  assert_ok 'a registry-confirmed identity longer than 128 characters'
+
+  pass 'identity markers accept the registry id charset'
+}
+
 # --- copied identity markers ------------------------------------------------
 
 test_copied_marker_path() {
@@ -468,5 +485,6 @@ test_spawn_routing
 test_cascade_routing
 test_launch_binding_signal
 test_unsafe_identity_marker
+test_registry_id_charset
 test_uncorroborated_marker
 test_copied_marker_path

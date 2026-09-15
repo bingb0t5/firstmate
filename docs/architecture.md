@@ -244,7 +244,8 @@ That has actually happened twice: a secondmate spawned a worker into the primary
 `fm-spawn.sh`, `fm-send.sh`, `fm-startup-memory-budget.sh`, and `fm-stow-cascade.sh` therefore source `bin/fm-home-identity-lib.sh` and exit with status 4 before any spawn, steer, or memory accounting when the selected home is not this process's own.
 The refusal is one-way: a primary home keeps reaching the secondmate homes it owns, which is what the `/stow` cascade, backlog handoff, and `--secondmate` spawns depend on, while ordinary secondmate execution is refused before entering the primary home's records.
 The helper's header owns the identity marker's safety rules, what corroborates a home's identity so a marker left behind in a re-leased worktree establishes nothing, and the two independent signals and what each one covers.
-This is an accidental-misrouting guard rather than process provenance: a mate can unset or alter the inherited launch binding, so the code-root signal is then the only protection.
+This is an option-B accidental-misrouting guard rather than process provenance: a mate can unset or alter the inherited launch binding, so the code-root signal is then the only protection.
+Remote secondmate sessions likewise have no authoritative own-home provenance: their launch binding identifies only the primary home, so this boundary does not prevent a remote session from selecting a same-host sibling home.
 An identity marker alone is non-authoritative and establishes no invoking identity unless the local parent registry corroborates that exact code-root path.
 
 ## Two task shapes
