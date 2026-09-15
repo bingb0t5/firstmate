@@ -236,6 +236,15 @@ Independently, `fm-spawn.sh`, `fm-send.sh`, `fm-control.sh`, and `fm-teardown.sh
 A normal primary checkout or crewmate worktree has neither signal and remains unaffected.
 The helper's header owns the exact signal detection, relocated-home limitation, test-harness bypass, and relationship to no-mistakes' HEAD-continuity guard.
 
+## Cross-home authority boundary
+
+`FM_HOME` selects which home's `data/`, `state/`, `config/`, and `projects/` a command operates on, so a secondmate process whose `FM_HOME` names a different home operates on that home with full authority.
+That has actually happened twice: a secondmate spawned a worker into the primary home, and a secondmate's memory sweep read and rewrote the primary home's captain and learning records.
+`fm-spawn.sh`'s primary-only domain-mate check could not stop the first, because it inspects `$FM_HOME` - the value that was already wrong - rather than the running process.
+`fm-spawn.sh`, `fm-send.sh`, `fm-startup-memory-budget.sh`, and `fm-stow-cascade.sh` therefore source `bin/fm-home-identity-lib.sh` and exit with status 4 before any spawn, steer, or memory accounting when the selected home is not this process's own.
+The refusal is one-way: a primary home keeps reaching the secondmate homes it owns, which is what the `/stow` cascade, backlog handoff, and `--secondmate` spawns depend on, while the primary home's own data stays read-only from every mate and worker.
+The helper's header owns the identity marker's safety rules, what corroborates a home's identity so a marker left behind in a re-leased worktree establishes nothing, the two independent signals and what each one covers, and the test-harness bypass.
+
 ## Two task shapes
 
 Ship tasks change projects and ship by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.

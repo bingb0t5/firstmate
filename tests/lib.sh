@@ -34,6 +34,16 @@ FM_TEST_LIB_SOURCED=1
 # strips this to verify real refusal.
 export FM_GATE_REFUSE_BYPASS=1
 
+# Exempt firstmate's own test suite from the cross-home refusal
+# (bin/fm-home-identity-lib.sh). The suite drives the real fm-spawn/fm-send/stow
+# entrypoints from $ROOT/bin against temp-sandbox homes, and a pooled firstmate
+# task worktree can carry a stale .fm-secondmate-home left by an earlier lease of
+# that pool slot - which would read $ROOT as a secondmate home and refuse every
+# unrelated test. A confused agent never sources this helper, so the boundary
+# against the real hazard is unaffected. tests/fm-home-identity.test.sh strips
+# this to verify real refusal.
+export FM_HOME_IDENTITY_BYPASS=1
+
 # Resolve the repo root from this library's own location. Consumed by sourcing
 # test files, not by this library, so it reads as "unused" here.
 # shellcheck disable=SC2034

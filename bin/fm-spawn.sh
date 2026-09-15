@@ -113,7 +113,10 @@
 #   A reservation retry for the same id is allowed only while count stays at or
 #   below four; --secondmate and --relaunch bypass this backstop.
 #   A home marked .fm-secondmate-home refuses fresh --secondmate spawns; only the
-#   primary home may create a domain mate.
+#   primary home may create a domain mate. That check reads $FM_HOME, so it is
+#   layered above the cross-home refusal owned by bin/fm-home-identity-lib.sh,
+#   which asks instead what home this PROCESS belongs to and exits 4 before any
+#   spawn when FM_HOME names a different one.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
 #   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch
@@ -268,6 +271,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
+# shellcheck source=bin/fm-home-identity-lib.sh
+. "$SCRIPT_DIR/fm-home-identity-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-cursor-lib.sh
@@ -328,6 +333,11 @@ fm_spawn_attention_guard() {
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
+# Fail closed before any fleet mutation: this home's process must never spawn into
+# ANOTHER home. The primary-only domain-mate check below asks what $FM_HOME is;
+# this asks what the RUNNING PROCESS is, which is the half a mispointed FM_HOME
+# defeats (see bin/fm-home-identity-lib.sh).
+fm_refuse_cross_home "$FM_HOME" fm-spawn
 # Skip the watcher guard when re-exec'd for one pair of a batch (FM_SPAWN_NO_GUARD is
 # set by the batch loop below), so the guard runs once for the batch, not once per pair.
 [ -n "${FM_SPAWN_NO_GUARD:-}" ] || "$FM_ROOT/bin/fm-guard.sh" || true

@@ -42,13 +42,17 @@
 # A secondmate home never cascades: secondmates do not own secondmates, so this
 # command reports the empty cascade there rather than reaching for a registry.
 #
+# The cascade reaches the homes its own registry names, so it must run from the
+# home it is sweeping: status 4 refuses a cascade aimed at another home
+# (bin/fm-home-identity-lib.sh).
+#
 # Exit status: 0 every home reported cleanly (or there were none); 3 at least
 # one home reported an exception and every home was still reported; 1 the
 # cascade input itself is unusable; 2 invalid use.
 set -u
 
 usage() {
-  sed -n '2,47{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,51{s/^# \{0,1\}//;p;}' "$0"
 }
 
 case "${1:-}" in
@@ -69,10 +73,17 @@ SUB_HOME_MARKER="${SUB_HOME_MARKER:-.fm-secondmate-home}"
 
 # shellcheck source=bin/fm-ff-lib.sh
 . "$SCRIPT_DIR/fm-ff-lib.sh"
+# shellcheck source=bin/fm-home-identity-lib.sh
+. "$SCRIPT_DIR/fm-home-identity-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+
+# The cascade reads one home's registry and then steers or curates the homes it
+# names, so it must run from the home it is sweeping. Refuse before any of that
+# when FM_HOME names another home (see bin/fm-home-identity-lib.sh).
+fm_refuse_cross_home "$FM_HOME" fm-stow-cascade
 
 BOUND=${FM_STOW_CASCADE_TIMEOUT:-60}
 case "$BOUND" in

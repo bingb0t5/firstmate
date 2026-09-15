@@ -228,6 +228,7 @@ To move a live LOCAL secondmate onto a newly pinned harness, model, or effort wi
 That plane refuses a remotely placed secondmate by name, because its agent runs on another host where none of the plane's postconditions can be read; [`docs/remote-secondmates.md`](../../../docs/remote-secondmates.md#normal-operation) owns the remote profile-change procedure.
 
 Do not reconstruct a secondmate's whole tree from the main home.
+A secondmate home's own spawn, steer, and memory commands refuse outright when `FM_HOME` names another home, so a cross-home refusal is a mispointed home to fix, never a boundary to route around ([`docs/architecture.md`](../../../docs/architecture.md) "Cross-home authority boundary").
 The main firstmate reconciles only direct reports.
 Each secondmate is a firstmate in its own home, so it runs recovery on startup and reconciles its own crewmates.
 A secondmate's recovery reconciles only work that is already its own and then idles.
