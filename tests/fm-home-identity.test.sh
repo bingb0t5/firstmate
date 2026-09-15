@@ -227,6 +227,36 @@ test_surface_override_routing() {
   pass 'surface overrides cannot escape the selected home'
 }
 
+test_remote_control_overrides() {
+  local remote="$TMP/remote-control"
+  make_home "$remote"
+  printf 'schema=fm-secondmate-parent.v1\nroute=remote\nparent_host=remote-host\n' \
+    > "$remote/.fm-secondmate-parent"
+  printf 'remote-control\n' > "$remote/.fm-secondmate-home"
+  mkdir -p "$remote/state/parent-route" "$remote/data/.parent-route"
+
+  RC=0
+  FM_HOME="$PRIMARY" FM_SKIP_SECONDMATE_INHERIT=1 \
+    FM_STATE_OVERRIDE="$remote/state/parent-route" \
+    FM_DATA_OVERRIDE="$remote/data/.parent-route" \
+    FM_CONFIG_OVERRIDE="$remote/config" \
+    "$PRIMARY/bin/fm-spawn.sh" 'bad id' "$TMP/proj" --mode no-mistakes --yolo off \
+    >"$OUT" 2>&1 || RC=$?
+  assert_refused 'untrusted remote control overrides'
+  assert_signal 'untrusted remote control overrides' surface-override
+
+  RC=0
+  FM_HOME="$PRIMARY" FM_REMOTE_JOB_ACTIVE=1 FM_SKIP_SECONDMATE_INHERIT=1 \
+    FM_STATE_OVERRIDE="$remote/state/parent-route" \
+    FM_DATA_OVERRIDE="$remote/data/.parent-route" \
+    FM_CONFIG_OVERRIDE="$remote/config" \
+    "$PRIMARY/bin/fm-spawn.sh" 'bad id' "$TMP/proj" --mode no-mistakes --yolo off \
+    >"$OUT" 2>&1 || RC=$?
+  assert_not_cross_home 'authenticated remote control overrides'
+
+  pass 'remote control accepts only its authenticated endpoint layout'
+}
+
 # --- fm-send ----------------------------------------------------------------
 
 test_send_routing() {
@@ -455,6 +485,7 @@ test_uncorroborated_marker() {
 test_stow_memory_routing
 test_bypass_rejected
 test_surface_override_routing
+test_remote_control_overrides
 test_send_routing
 test_spawn_routing
 test_cascade_routing

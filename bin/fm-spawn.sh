@@ -337,7 +337,11 @@ fm_refuse_if_gate_agent
 # ANOTHER home. The primary-only domain-mate check below asks what $FM_HOME is;
 # this asks what the RUNNING PROCESS is, which is the half a mispointed FM_HOME
 # defeats (see bin/fm-home-identity-lib.sh).
-fm_refuse_cross_home "$FM_HOME" fm-spawn state data config projects
+if fm_home_identity_remote_control_overrides "$FM_HOME"; then
+  fm_refuse_cross_home "$FM_HOME" fm-spawn projects
+else
+  fm_refuse_cross_home "$FM_HOME" fm-spawn state data config projects
+fi
 # Skip the watcher guard when re-exec'd for one pair of a batch (FM_SPAWN_NO_GUARD is
 # set by the batch loop below), so the guard runs once for the batch, not once per pair.
 [ -n "${FM_SPAWN_NO_GUARD:-}" ] || "$FM_ROOT/bin/fm-guard.sh" || true

@@ -242,6 +242,33 @@ fm_home_identity_surface_override() {
   return 0
 }
 
+fm_home_identity_remote_control_overrides() {
+  local selected=${1-} selected_abs state_abs data_abs config_abs remote_home id
+  [ "${FM_REMOTE_JOB_ACTIVE:-}" = 1 ] || return 1
+  [ "${FM_SKIP_SECONDMATE_INHERIT:-}" = 1 ] || return 1
+  [ -n "${FM_STATE_OVERRIDE:-}" ] || return 1
+  [ -n "${FM_DATA_OVERRIDE:-}" ] || return 1
+  [ -n "${FM_CONFIG_OVERRIDE:-}" ] || return 1
+  [ -z "${FM_PROJECTS_OVERRIDE:-}" ] || return 1
+  selected_abs=$(fm_home_identity_canonical "$selected") || return 1
+  state_abs=$(fm_home_identity_canonical "$FM_STATE_OVERRIDE") || return 1
+  data_abs=$(fm_home_identity_canonical "$FM_DATA_OVERRIDE") || return 1
+  config_abs=$(fm_home_identity_canonical "$FM_CONFIG_OVERRIDE") || return 1
+  case "$state_abs" in
+    */state/parent-route) remote_home=${state_abs%/state/parent-route} ;;
+    *) return 1 ;;
+  esac
+  remote_home=$(fm_home_identity_canonical "$remote_home") || return 1
+  [ "$selected_abs" != "$remote_home" ] || return 1
+  [ "$data_abs" = "$remote_home/data/.parent-route" ] || return 1
+  [ "$config_abs" = "$remote_home/config" ] || return 1
+  fm_home_identity_read "$remote_home" || return 1
+  id=$FM_HOME_IDENTITY_VALUE
+  [ "$id" != primary ] || return 1
+  fm_secondmate_parent_record_parse "$remote_home/.fm-secondmate-parent" || return 1
+  [ "$FM_SECONDMATE_PARENT_ROUTE" = remote ]
+}
+
 # fm_home_identity_cross_home <target-home>: return 0 when this process must NOT
 # operate on <target-home>, setting FM_HOME_IDENTITY_SIGNAL (code-root,
 # launch-binding, or target-identity for a selected home whose own identity

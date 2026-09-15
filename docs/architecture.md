@@ -243,7 +243,7 @@ That has actually happened twice: a secondmate spawned a worker into the primary
 `fm-spawn.sh`'s primary-only domain-mate check could not stop the first, because it inspects `$FM_HOME` - the value that was already wrong - rather than the running process.
 `fm-spawn.sh`, `fm-send.sh`, `fm-startup-memory-budget.sh`, and `fm-stow-cascade.sh` therefore source `bin/fm-home-identity-lib.sh` and exit with status 4 before any spawn, steer, or memory accounting when the selected home is not this process's own.
 The refusal is one-way: a primary home keeps reaching the secondmate homes it owns, which is what the `/stow` cascade, backlog handoff, and `--secondmate` spawns depend on, while the primary home's own data stays read-only from every mate and worker.
-The helper's header owns the identity marker's safety rules, what corroborates a home's identity so a marker left behind in a re-leased worktree establishes nothing, the two independent signals and what each one covers, and the test-harness bypass.
+The helper's header owns the identity marker's safety rules, what corroborates a home's identity so a marker left behind in a re-leased worktree establishes nothing, and the two independent signals and what each one covers.
 
 ## Two task shapes
 
