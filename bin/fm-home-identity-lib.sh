@@ -22,10 +22,12 @@
 # HOME IDENTITY
 #
 # A firstmate home's identity is the gitignored .fm-secondmate-home marker seeded
-# by bin/fm-home-seed.sh: its contents are the mate id, and its ABSENCE is itself
-# the identity "primary". A present-but-unsafe marker (a symlink, a directory, an
-# empty file, more than one line, or an id outside the registry's own
-# [A-Za-z0-9._-] charset) is an error, never a silent fallback to "primary" -
+# by bin/fm-home-seed.sh: its contents are the mate id, and its ABSENCE reports
+# the identity "primary". Marker presence remains distinct from that reported id
+# because "primary" is itself valid under the registry charset. A present-but-
+# unsafe marker (a symlink, a directory, an empty file, more than one line, or
+# an id outside the registry's own [A-Za-z0-9._-] charset) is an error, never a
+# silent fallback to "primary" -
 # collapsing an unreadable marker into "primary" is exactly the direction that
 # would re-open the hazard.
 #
@@ -57,10 +59,10 @@
 #   2. launch-binding. FM_PUBLIC_FOLLOWUP_PRIMARY_HOME is the durable env
 #      binding bin/fm-spawn.sh stamps into every secondmate agent session,
 #      naming that session's PRIMARY home. When the selected FM_HOME
-#      canonicalizes to that same path, a secondmate session is operating on the
-#      primary home. This covers the gap in signal 1: a secondmate agent that
-#      invokes the PRIMARY home's own bin/ by absolute path has a primary code
-#      root, so only the session binding still knows what it is.
+#      canonicalizes to that same path, it prevents accidental primary-home
+#      selection through the PRIMARY home's own bin/ by absolute path. This
+#      covers the gap in signal 1, but identifies only the primary home - it
+#      cannot identify the invoking home.
 #
 # LIMIT. This is an accidental-misrouting guard, not process provenance. A
 # process can unset or alter its inherited environment, leaving only code-root
@@ -97,6 +99,7 @@ FM_HOME_IDENTITY_EXIT=4
 . "$(dirname -- "${BASH_SOURCE[0]}")/fm-secondmate-registry-lib.sh"
 
 FM_HOME_IDENTITY_VALUE=
+FM_HOME_IDENTITY_MARKER_PRESENT=0
 FM_HOME_IDENTITY_ERROR=
 FM_HOME_IDENTITY_SIGNAL=
 FM_HOME_IDENTITY_REASON=
@@ -130,6 +133,7 @@ fm_home_identity_id_valid() {
 fm_home_identity_read() {
   local home=${1-} marker id
   FM_HOME_IDENTITY_VALUE=
+  FM_HOME_IDENTITY_MARKER_PRESENT=0
   FM_HOME_IDENTITY_ERROR=
   if [ -z "$home" ]; then
     FM_HOME_IDENTITY_ERROR='no home directory given'
@@ -162,6 +166,7 @@ fm_home_identity_read() {
     return 1
   fi
   FM_HOME_IDENTITY_VALUE=$id
+  FM_HOME_IDENTITY_MARKER_PRESENT=1
   return 0
 }
 
@@ -174,7 +179,7 @@ fm_home_identity_corroborated_id() {
   [ -n "$home" ] || return 1
   fm_home_identity_read "$home" || return 1
   id=$FM_HOME_IDENTITY_VALUE
-  [ "$id" != primary ] || return 1
+  [ "$FM_HOME_IDENTITY_MARKER_PRESENT" = 1 ] || return 1
 
   fm_secondmate_parent_record_parse \
     "$home/.fm-secondmate-parent" || return 1
@@ -208,19 +213,25 @@ fm_home_identity_origin_id() {
 }
 
 fm_home_identity_remote_home() {
-  local home=${1-} registry=${2-} id home_key registry_key
+  local home=${1-} registry=${2-}
   [ -n "$registry" ] || return 1
-  fm_home_identity_read "$home" || return 1
-  id=$FM_HOME_IDENTITY_VALUE
-  [ "$id" != primary ] || return 1
   fm_secondmate_parent_record_parse "$home/.fm-secondmate-parent" || return 1
-  [ "$FM_SECONDMATE_PARENT_ROUTE" = remote ]
-  secondmate_registry_line_for_id "$registry" "$id" || return 1
-  [ "$SECONDMATE_REGISTRY_REMOTE" -eq 1 ] || return 1
+  [ "$FM_SECONDMATE_PARENT_ROUTE" = remote ] || return 1
+  fm_home_identity_registered_remote_home "$home" "$registry" || return 1
   if [ -n "$FM_SECONDMATE_PARENT_HOST" ] \
     && [ "$FM_SECONDMATE_PARENT_HOST" != "$SECONDMATE_REGISTRY_HOST" ]; then
     return 1
   fi
+}
+
+fm_home_identity_registered_remote_home() {
+  local home=${1-} registry=${2-} id home_key registry_key
+  [ -n "$registry" ] || return 1
+  fm_home_identity_read "$home" || return 1
+  id=$FM_HOME_IDENTITY_VALUE
+  [ "$FM_HOME_IDENTITY_MARKER_PRESENT" = 1 ] || return 1
+  secondmate_registry_line_for_id "$registry" "$id" || return 1
+  [ "$SECONDMATE_REGISTRY_REMOTE" -eq 1 ] || return 1
   home_key=$(secondmate_registry_path_key "$home") || return 1
   registry_key=$(secondmate_registry_path_key "$SECONDMATE_REGISTRY_HOME") || return 1
   [ "$home_key" = "$registry_key" ]
@@ -271,7 +282,7 @@ fm_home_identity_surface_is_protected_elsewhere() {
         if [ "$probe" != "$target_abs" ]; then
           if { [ -n "$parent_abs" ] \
             && fm_home_identity_corroborated_id "$probe" "$parent_abs" >/dev/null; } \
-            || fm_home_identity_remote_home "$probe" "$registry"; then
+            || fm_home_identity_registered_remote_home "$probe" "$registry"; then
             fm_home_identity_set_protected_home "$probe"
             return 0
           fi
@@ -375,12 +386,12 @@ fm_home_identity_cross_home() {
     return 1
   fi
 
-  # Signal 2: a secondmate session's launch binding names the selected home.
+  # Signal 2: the option-B launch binding names the selected primary home.
   if [ -n "${FM_PUBLIC_FOLLOWUP_PRIMARY_HOME:-}" ]; then
     primary_abs=$(fm_home_identity_canonical "$FM_PUBLIC_FOLLOWUP_PRIMARY_HOME") || primary_abs=
     if [ -n "$target_abs" ] && [ "$target_abs" = "$primary_abs" ]; then
       FM_HOME_IDENTITY_SIGNAL='launch-binding'
-      FM_HOME_IDENTITY_REASON="this secondmate session is bound to the primary home ($primary_abs) and FM_HOME selects that same primary home"
+      FM_HOME_IDENTITY_REASON="the option-B launch binding names the primary home ($primary_abs) and FM_HOME selects that same primary home; it cannot identify the invoking home"
       return 0
     fi
   fi

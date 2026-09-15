@@ -27,7 +27,7 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-home-identity-lib.sh"
 
 usage() {
-  sed -n '2,14{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,15{s/^# \{0,1\}//;p;}' "$0"
 }
 
 # Help stays readable from anywhere; everything else is this home's own business.

@@ -287,6 +287,18 @@ test_remote_control_overrides() {
     >"$OUT" 2>&1 || RC=$?
   assert_not_cross_home 'authenticated remote control overrides'
 
+  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' \
+    "$PRIMARY" > "$remote/.fm-secondmate-parent"
+  RC=0
+  FM_HOME="$PRIMARY" FM_REMOTE_JOB_ACTIVE=1 FM_SKIP_SECONDMATE_INHERIT=1 \
+    FM_STATE_OVERRIDE="$remote/state/parent-route" \
+    FM_DATA_OVERRIDE="$remote/data/.parent-route" \
+    FM_CONFIG_OVERRIDE="$remote/config" \
+    "$PRIMARY/bin/fm-spawn.sh" 'bad id' "$TMP/proj" --mode no-mistakes --yolo off \
+    >"$OUT" 2>&1 || RC=$?
+  assert_refused 'remote control overrides with a local parent binding'
+  assert_signal 'remote control overrides with a local parent binding' surface-override
+
   local stale="$TMP/recycled-remote"
   make_home "$stale"
   printf 'schema=fm-secondmate-parent.v1\nroute=remote\nparent_host=remote-host\n' \
@@ -399,6 +411,8 @@ test_launch_binding_signal() {
     "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
   assert_refused 'launch binding, secondmate session -> primary home'
   assert_signal 'launch binding, secondmate session -> primary home' launch-binding
+  grep -Fq 'it cannot identify the invoking home' "$OUT" \
+    || fail 'the launch-binding diagnostic overstated unavailable invoking provenance'
   grep -Fq 'estimated_tokens' "$OUT" \
     && fail 'the bound session still read the primary home s memory accounting'
 
@@ -476,6 +490,33 @@ test_registry_id_charset() {
   pass 'identity markers accept the registry id charset'
 }
 
+test_primary_marker_identity() {
+  local primary_id_home="$TMP/primary-id-home"
+  make_home "$primary_id_home" primary
+  register primary "$primary_id_home"
+
+  run "$primary_id_home" "$primary_id_home" fm-startup-memory-budget.sh report
+  assert_ok 'a registry-confirmed primary id operating on itself'
+
+  run "$primary_id_home" "$PRIMARY" fm-startup-memory-budget.sh report
+  assert_refused 'a registry-confirmed primary id reaching the primary home'
+  assert_signal 'a registry-confirmed primary id reaching the primary home' code-root
+  grep -Fq 'estimated_tokens' "$OUT" \
+    && fail 'a registry-confirmed primary id read the primary home memory accounting'
+
+  pass 'a marker identity of primary remains distinct from marker absence'
+}
+
+test_startup_memory_help() {
+  RC=0
+  "$PRIMARY/bin/fm-startup-memory-budget.sh" --help >"$OUT" 2>&1 || RC=$?
+  assert_ok 'startup-memory-budget help'
+  grep -Fq 'owns that contract and its limitations.' "$OUT" \
+    || fail 'startup-memory-budget help omitted its final header sentence'
+
+  pass 'startup-memory-budget help renders its full contract'
+}
+
 # --- copied identity markers ------------------------------------------------
 
 test_copied_marker_path() {
@@ -536,3 +577,5 @@ test_unsafe_identity_marker
 test_registry_id_charset
 test_uncorroborated_marker
 test_copied_marker_path
+test_primary_marker_identity
+test_startup_memory_help
