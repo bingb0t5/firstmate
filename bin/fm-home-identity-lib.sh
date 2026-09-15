@@ -205,8 +205,44 @@ fm_home_identity_origin_id() {
   fm_home_identity_corroborated_id "$FM_HOME_IDENTITY_CODE_ROOT"
 }
 
+fm_home_identity_remote_home() {
+  local home=${1-}
+  fm_home_identity_read "$home" || return 1
+  [ "$FM_HOME_IDENTITY_VALUE" != primary ] || return 1
+  fm_secondmate_parent_record_parse "$home/.fm-secondmate-parent" || return 1
+  [ "$FM_SECONDMATE_PARENT_ROUTE" = remote ]
+}
+
+fm_home_identity_surface_is_protected_elsewhere() {
+  local target_abs=${1-} override_abs=${2-} surface=${3-} parent_abs= probe
+  if fm_home_identity_origin_id >/dev/null; then
+    parent_abs=$(fm_home_identity_canonical "$FM_SECONDMATE_PARENT_HOME") || return 1
+  fi
+  case "$override_abs" in
+    "$parent_abs/$surface"|"$parent_abs/$surface/"*)
+      [ -n "$parent_abs" ] && [ "$target_abs" != "$parent_abs" ] && return 0
+      ;;
+  esac
+  probe=$override_abs
+  while [ "$probe" != / ]; do
+    case "$override_abs" in
+      "$probe/$surface"|"$probe/$surface/"*)
+        if [ "$probe" != "$target_abs" ]; then
+          if { [ -n "$parent_abs" ] \
+            && fm_home_identity_corroborated_id "$probe" "$parent_abs" >/dev/null; } \
+            || fm_home_identity_remote_home "$probe"; then
+            return 0
+          fi
+        fi
+        ;;
+    esac
+    probe=$(dirname -- "$probe")
+  done
+  return 1
+}
+
 fm_home_identity_surface_override() {
-  local target=${1-} surface=${2-} override override_name target_abs expected_abs override_abs
+  local target=${1-} surface=${2-} override override_name target_abs override_abs
   case "$surface" in
     state) override=${FM_STATE_OVERRIDE:-}; override_name=FM_STATE_OVERRIDE ;;
     data) override=${FM_DATA_OVERRIDE:-}; override_name=FM_DATA_OVERRIDE ;;
@@ -220,20 +256,17 @@ fm_home_identity_surface_override() {
     FM_HOME_IDENTITY_REASON="the selected home ($target) cannot establish its $surface surface while $override_name selects $override"
     return 0
   }
-  expected_abs=$(fm_home_identity_canonical "$target_abs/$surface") || {
-    FM_HOME_IDENTITY_SIGNAL='surface-override'
-    FM_HOME_IDENTITY_REASON="the selected home ($target_abs) has no resolvable $surface surface while $override_name selects $override"
-    return 0
-  }
   override_abs=$(fm_home_identity_canonical "$override") || {
     FM_HOME_IDENTITY_SIGNAL='surface-override'
-    FM_HOME_IDENTITY_REASON="$override_name selects an unreadable $surface surface ($override) instead of $expected_abs"
+    FM_HOME_IDENTITY_REASON="$override_name selects an unreadable $surface directory ($override)"
     return 0
   }
-  [ "$override_abs" = "$expected_abs" ] && return 1
-  FM_HOME_IDENTITY_SIGNAL='surface-override'
-  FM_HOME_IDENTITY_REASON="$override_name selects $override_abs instead of the selected home's $surface surface ($expected_abs)"
-  return 0
+  if fm_home_identity_surface_is_protected_elsewhere "$target_abs" "$override_abs" "$surface"; then
+    FM_HOME_IDENTITY_SIGNAL='surface-override'
+    FM_HOME_IDENTITY_REASON="$override_name selects $override_abs inside another protected home's $surface surface instead of the selected home ($target_abs)"
+    return 0
+  fi
+  return 1
 }
 
 fm_home_identity_remote_control_overrides() {

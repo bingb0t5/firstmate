@@ -82,7 +82,7 @@ test_projects_path_scoping() {
   while IFS='|' read -r label use_override id; do
     [ -n "$label" ] || continue
     home="$TMP_ROOT/$id home"
-    projects="$home/projects"
+    projects="$TMP_ROOT/$id projects"
     mkdir -p "$home/data" "$projects/alpha"
     if [ "$use_override" = yes ]; then
       out=$(FM_ROOT_OVERRIDE='' FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
