@@ -51,6 +51,14 @@
 #     endpoint.exists is the cheap backend endpoint-presence read.
 #     endpoint.agent_alive is populated for secondmates only, where it is useful
 #     return-channel supervision data; other tasks use "not_checked".
+#     steering is the bounded unread-instruction signal from
+#     fm-task-inbox-lib.sh's fm_task_inbox_unread_summary: {unread,
+#     oldest_unread_age_secs, truncated, source}. It counts records the worker
+#     has never acknowledged, never records merely delivered to it, so a mate
+#     left unreachable by a swallowed doorbell stays distinguishable from a
+#     healthy idle one. It carries counts and ages only and never any steer
+#     text. A remote secondmate's inbox lives in its own home, so those rows
+#     report source "remote-not-read" with null counts rather than a local zero.
 #   attention: {limit,count,remaining,valid,workers[],reservations[],reported[]} -
 #     fail-closed local worker inventory and the fixed four-worker accounting
 #     consumed by pull and fresh ordinary spawn transactions.
@@ -172,6 +180,9 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 # shellcheck source=bin/fm-timeout-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-timeout-lib.sh"  # fm_run_timed: the shared hard bound
+# shellcheck source=bin/fm-task-inbox-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-task-inbox-lib.sh"  # fm_task_inbox_unread_summary: the unread-steering signal
 
 usage() {
   cat <<'EOF'
@@ -508,6 +519,7 @@ task_json_lines() {
   local current_state_file status_json_file open_decisions_file last_event_raw_file pr_file projects_file
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
   local last_changed_at open_decisions_tsv open_decisions_json rows_file
+  local unread_depth unread_oldest unread_truncated unread_json
 
   rows_file="$SNAPSHOT_TMPDIR/task-rows"
   snapshot_write "$rows_file" ""
@@ -643,6 +655,22 @@ task_json_lines() {
       fi
     fi
 
+    # Bounded unread-steering depth and age. Local inboxes only: a remote
+    # secondmate's records live in its own home, and reporting a local zero for
+    # one would be worse than reporting nothing.
+    if [ -n "$remote_host" ]; then
+      unread_json=$(jq -n '{unread:null,oldest_unread_age_secs:null,truncated:false,source:"remote-not-read"}')
+    else
+      IFS=$(printf '\t') read -r unread_depth unread_oldest unread_truncated <<EOF
+$(fm_task_inbox_unread_summary "$STATE" "$id")
+EOF
+      unread_json=$(jq -n \
+        --argjson unread "${unread_depth:-0}" \
+        --argjson oldest "${unread_oldest:-0}" \
+        --argjson truncated "$(bool_json "${unread_truncated:-0}")" \
+        '{unread:$unread,oldest_unread_age_secs:$oldest,truncated:$truncated,source:"local-inbox"}')
+    fi
+
     [ -f "$report_path" ] && report_present=1 || report_present=0
     meta_json=$(path_present_json "$meta")
     report_json=$(path_present_json "$report_path")
@@ -682,6 +710,7 @@ task_json_lines() {
       --argjson worktree_path "$worktree_json" \
       --argjson home_path "$home_json" \
       --argjson endpoint_exists "$endpoint_exists" \
+      --argjson steering "$unread_json" \
       --slurpfile open_decisions "$open_decisions_file" \
       --argjson pending_decision "$(bool_json "$pending_decision")" \
       --argjson blocked_event "$(bool_json "$blocked_event")" \
@@ -710,6 +739,7 @@ task_json_lines() {
                   elif $agent_alive == "alive" or $agent_alive == "dead" then $agent_alive
                   else "unknown" end),
           observed_at:$observed_at,freshness:"fresh"},
+        steering:($steering + {observed_at:$observed_at,freshness:"fresh"}),
         pr:{url:($pr | if . == "" then null else . end),source:$pr_source},
         hints:{
           pending_decision:$pending_decision,

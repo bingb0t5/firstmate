@@ -337,6 +337,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-line-cap-lib.sh
 . "$SCRIPT_DIR/fm-line-cap-lib.sh"
+# shellcheck source=bin/fm-task-inbox-lib.sh
+. "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 
 # One tasks-axi compatibility verdict per session start. The probe costs three
 # tasks-axi subprocesses and this digest needs the same answer twice - here for
@@ -567,6 +569,34 @@ print_status_tail() {
   while IFS= read -r line || [ -n "$line" ]; do
     fm_cap_line "$line"
   done < <(tail -n "$STATUS_TAIL" "$status")
+}
+
+# One bounded line per task that is holding steering it never acknowledged.
+# Silent otherwise, so a healthy idle mate stays quiet and an unreachable one
+# does not: a swallowed doorbell used to leave every other signal in this block
+# reading normal (task fm-codex-composer-braille-r2).
+# Counts and ages only, never a steer body - fm-task-inbox-lib.sh's summary
+# reads directory entries and mtimes and never opens a record.
+print_unread_steering() {  # <task-id>
+  local id=$1 depth oldest truncated
+  IFS=$(printf '\t') read -r depth oldest truncated <<EOF
+$(fm_task_inbox_unread_summary "$STATE" "$id")
+EOF
+  [ "${depth:-0}" -gt 0 ] || return 0
+  printf 'steering: %s%s unacknowledged instruction(s) waiting, oldest %s ago (state/%s.inbox)\n' \
+    "$depth" "$([ "${truncated:-0}" = 1 ] && printf '+')" "$(format_age_secs "${oldest:-0}")" "$id"
+}
+
+# Whole units only, largest that fits: the digest needs "how stale", not
+# precision, and a bounded token keeps the line short.
+format_age_secs() {  # <seconds>
+  local s=$1
+  case "$s" in ''|*[!0-9]*) printf 'unknown'; return 0 ;; esac
+  if [ "$s" -ge 86400 ]; then printf '%sd' "$((s / 86400))"
+  elif [ "$s" -ge 3600 ]; then printf '%sh' "$((s / 3600))"
+  elif [ "$s" -ge 60 ]; then printf '%sm' "$((s / 60))"
+  else printf '%ss' "$s"
+  fi
 }
 
 hash_file_sha256() {
@@ -869,6 +899,7 @@ for meta in "$STATE"/*.meta; do
   else
     printf 'endpoint: unknown (no window recorded)\n'
   fi
+  print_unread_steering "$id"
 
   status="$STATE/$id.status"
   if [ -f "$status" ]; then
