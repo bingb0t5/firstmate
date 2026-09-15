@@ -249,7 +249,7 @@ fm_home_identity_set_protected_home() {
 }
 
 fm_home_identity_surface_is_protected_elsewhere() {
-  local target_abs=${1-} override_abs=${2-} surface=${3-} parent_abs= bound_primary_abs= registry probe
+  local target_abs=${1-} override_abs=${2-} surface=${3-} parent_abs='' bound_primary_abs='' registry probe
   if fm_home_identity_origin_id >/dev/null; then
     parent_abs=$(fm_home_identity_canonical "$FM_SECONDMATE_PARENT_HOME") || return 1
   fi
