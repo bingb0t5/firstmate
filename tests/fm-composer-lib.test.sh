@@ -378,6 +378,83 @@ EOF
   pass "matrix: the captured Codex gpt-6-astra idle starfield reads empty across its whole composer region, and genuine Braille or typed drafts stay pending"
 }
 
+# The rendered screen is not the composer buffer. Codex's idle starfield puts a
+# different, unpredictable amount of BRIGHT ink on the rendered row every frame
+# while the buffer behind it stays empty, and the verdict has to follow the
+# buffer. These are five unedited consecutive live frames off the affected pane,
+# chosen to span the observed range of decoration that survives the ghost strip,
+# so the animation is proven over time rather than at one lucky instant
+# (fm-codex-composer-braille-r2).
+test_matrix_codex_astra_idle_animation_over_frames() {
+  local encoded blob frame line frames=0 ink min_ink=-1 max_ink=-1 draft draft_ink
+  encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-astra-idle-starfield-frames.ansi-escaped")
+  printf -v blob '%b' "$encoded"
+
+  frame=''
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$line" = '--FRAME--' ]; then
+      frames=$((frames + 1))
+      ink=$(codex_frame_surviving_ink "$frame")
+      assert_screen "live Codex starfield frame $frames" empty "$CAPS_STYLED" "$frame"
+      [ "$min_ink" -lt 0 ] || [ "$ink" -ge "$min_ink" ] || min_ink=$ink
+      [ "$min_ink" -ge 0 ] || min_ink=$ink
+      [ "$ink" -le "$max_ink" ] || max_ink=$ink
+      frame=''
+      continue
+    fi
+    frame=${frame:+$frame$'\n'}$line
+  done <<EOF
+$blob
+EOF
+  if [ -n "$frame" ]; then
+    frames=$((frames + 1))
+    ink=$(codex_frame_surviving_ink "$frame")
+    assert_screen "live Codex starfield frame $frames" empty "$CAPS_STYLED" "$frame"
+    [ "$min_ink" -ge 0 ] && [ "$ink" -ge "$min_ink" ] || min_ink=$ink
+    [ "$ink" -le "$max_ink" ] || max_ink=$ink
+  fi
+
+  [ "$frames" -eq 5 ] || fail "the live-animation fixture must carry 5 frames, found $frames"
+  # Every frame must actually be the hard case: bright decoration that survived
+  # the ghost strip, in quantities the bounded substitution rule can never
+  # explain. Without this the frames could all be quiet and prove nothing.
+  [ "$min_ink" -gt "$FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS" ] \
+    || fail "every frame must carry more surviving decoration than the substitution bound, min was $min_ink"
+  [ "$max_ink" -gt "$min_ink" ] \
+    || fail "the frames must differ in surviving decoration, got min=$min_ink max=$max_ink"
+
+  # THE CONTRACT, stated as an inequality the rendered screen alone cannot
+  # satisfy: the busiest idle frame puts MORE bright Braille on screen than a
+  # real Braille-only draft does, and still reads empty, while the draft reads
+  # pending. Ink on the rendered row is not evidence; what the composer buffer
+  # holds is, and the placeholder is how that buffer state reaches the screen.
+  encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-astra-braille-draft.ansi-escaped")
+  printf -v draft '%b' "$encoded"
+  draft_ink=$(codex_frame_surviving_ink "$draft")
+  [ "$draft_ink" -gt 0 ] || fail "the captured Braille draft should carry visible Braille, got $draft_ink"
+  [ "$max_ink" -gt "$draft_ink" ] \
+    || fail "the busiest idle frame ($max_ink) must out-ink the genuine draft ($draft_ink) for this contract to mean anything"
+  assert_screen "genuine Braille draft carrying less ink than an idle frame" pending "$CAPS_STYLED" $'transcript\n'"$draft"
+
+  pass "matrix: every frame of the captured live Codex idle animation reads empty, across the full range of decoration that survives styling, while a lighter genuine draft stays pending"
+}
+
+# Bright Braille left on a screen after the ghost strip - the ink that used to
+# be read as typed input. Counted through the production strip so the test
+# measures what the classifier actually sees.
+codex_frame_surviving_ink() {  # <screen>
+  local raw kept total=0 n
+  local braille_bytes=$'\342[\240-\243][\200-\277]'
+  while IFS= read -r raw || [ -n "$raw" ]; do
+    kept=$(printf '%s\n' "$raw" | fm_composer_strip_ghost)
+    n=$(printf '%s' "$kept" | LC_ALL=C grep -o "$braille_bytes" | wc -l | tr -d ' ')
+    total=$((total + n))
+  done <<EOF
+$1
+EOF
+  printf '%s' "$total"
+}
+
 test_matrix_codex_all_braille_drafts_are_pending() {
   local braille='⠋' all_braille_23='' all_braille_24='' all_braille_25='' i=0
   local draft
@@ -813,6 +890,7 @@ test_matrix_codex_dim_hint_row
 test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending
 test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending
 test_matrix_codex_astra_idle_starfield_is_empty_but_braille_draft_is_pending
+test_matrix_codex_astra_idle_animation_over_frames
 test_matrix_codex_all_braille_drafts_are_pending
 test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant
