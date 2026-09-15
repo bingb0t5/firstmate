@@ -18,6 +18,11 @@ add_task() {
   (cd "$home" && tasks-axi add "$id" "$id title" --kind "$kind" --repo demo --priority "$priority" >/dev/null)
 }
 
+write_reservation_marker() {
+  local home=$1 id=$2
+  printf '%s\n' "$(date +%s)" > "$home/state/$id.launch-reservation"
+}
+
 write_reservations() {
   local home=$1 count=$2 i
   {
@@ -29,6 +34,11 @@ write_reservations() {
     done
     printf '## Queued\n## Done\n'
   } > "$home/data/backlog.md"
+  i=1
+  while [ "$i" -le "$count" ]; do
+    write_reservation_marker "$home" "reservation-$i"
+    i=$((i + 1))
+  done
 }
 
 test_ready_priority_and_reasons() {
@@ -177,6 +187,9 @@ test_untyped_inflight_reservation_counts_toward_cap() {
     printf -- '- [ ] untyped-reservation - reserved without kind metadata (priority: 1)\n'
     printf '## Queued\n## Done\n'
   } > "$home/data/backlog.md"
+  for id in reservation-1 reservation-2 reservation-3 untyped-reservation; do
+    write_reservation_marker "$home" "$id"
+  done
   mkdir -p "$home/data/fifth"
   printf '# brief\n' > "$home/data/fifth/brief.md"
   add_task "$home" fifth 1
@@ -188,6 +201,31 @@ test_untyped_inflight_reservation_counts_toward_cap() {
   [ "$rc" -ne 0 ] || fail "start succeeded with four reservations including an untyped row"
   assert_contains "$out" 'attention limit reached' "untyped reservation cap refusal was not explicit"
   pass "untyped in-flight reservations consume attention capacity"
+}
+
+test_fresh_and_stale_launch_reservations() {
+  local home out
+  home=$(make_home reservation-freshness)
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] fresh-reservation - fresh launch (kind: ship) (priority: 1)
+- [ ] stale-reservation - finished launch (kind: ship) (priority: 1)
+
+## Queued
+## Done
+EOF
+  printf '1900\n' > "$home/state/fresh-reservation.launch-reservation"
+  printf '1000\n' > "$home/state/stale-reservation.launch-reservation"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_SNAPSHOT_NOW_EPOCH=2000 FM_ATTENTION_RESERVATION_WINDOW_SECS=300 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
+  printf '%s' "$out" | jq -e '
+    .attention.valid == true
+    and .attention.count == 1
+    and ([.attention.reservations[].id] == ["fresh-reservation"])
+    and ([.attention.reservations[].reservation_at_epoch] == [1900])
+  ' >/dev/null || fail "fresh and stale launch reservations were classified incorrectly: $out"
+  pass "fresh launch reservations consume capacity and stale in-flight rows do not"
 }
 
 test_same_id_reservation_retry() {
@@ -326,6 +364,7 @@ test_snapshot_attention_and_local_mode
 test_unreadable_inventory_fails_closed
 test_spawn_backstops_refuse_at_four
 test_untyped_inflight_reservation_counts_toward_cap
+test_fresh_and_stale_launch_reservations
 test_incomplete_inventory_retains_readable_tasks_in_summary
 test_same_id_reservation_retry
 test_two_concurrent_starts_at_three

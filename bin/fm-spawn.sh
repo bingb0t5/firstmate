@@ -275,6 +275,27 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 
+write_launch_reservation() {  # <task-id>
+  local id=$1 marker tmp now
+  now=${FM_LAUNCH_RESERVATION_NOW_EPOCH:-$(date +%s)}
+  case "$now" in
+    ''|*[!0-9]*)
+      echo "error: launch reservation timestamp is not an epoch integer" >&2
+      return 1
+      ;;
+  esac
+  marker="$STATE/$id.launch-reservation"
+  tmp=$(umask 077; mktemp "$STATE/.$id.launch-reservation.XXXXXX") || {
+    echo "error: could not create launch reservation record for $id" >&2
+    return 1
+  }
+  if ! printf '%s\n' "$now" > "$tmp" || ! mv -f -- "$tmp" "$marker"; then
+    rm -f -- "$tmp"
+    echo "error: could not publish launch reservation record for $id" >&2
+    return 1
+  fi
+}
+
 fm_spawn_attention_guard() {
   [ "$KIND" = secondmate ] && return 0
   [ "$RELAUNCH" -eq 1 ] && return 0
@@ -1000,6 +1021,7 @@ if [ "$RELAUNCH" -eq 0 ]; then
   fi
   SPAWN_TASK_SET_LOCK_HELD=1
   fm_spawn_attention_guard || exit 1
+  write_launch_reservation "$ID" || exit 1
 fi
 if [ "$KIND" = secondmate ]; then
   if spawn_remote_secondmate "$ID"; then
@@ -2866,6 +2888,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fm_lock_release "$SPAWN_META_LOCK"
   SPAWN_META_LOCK_HELD=0
 fi
+# The published metadata is now the authoritative endpoint evidence, so the
+# short-lived backlog-only launch reservation is no longer needed.
+rm -f -- "$STATE/$ID.launch-reservation" 2>/dev/null || true
 if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
   # The record is published, so this task is now part of the set a teardown
   # enumerates and locks per task. The set lock is only needed across that
