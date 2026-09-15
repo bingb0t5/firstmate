@@ -53,25 +53,30 @@
 #      its scripts run from that host's separate tracked code root, which carries
 #      no identity marker at all, so this signal never fires there either way.
 #
-#   2. launch-binding. FM_PUBLIC_FOLLOWUP_PRIMARY_HOME and
-#      FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME are durable env bindings
-#      bin/fm-spawn.sh stamps into every secondmate agent session. They name
-#      that session's PRIMARY and own home. When the selected FM_HOME differs
-#      from either permitted path, the session is operating outside its own
-#      home. This covers the gap in signal 1: a secondmate agent that invokes
-#      the PRIMARY home's own bin/ by absolute path has a primary code root, so
-#      only the trusted session bindings still know what it is.
+#   2. launch-binding. FM_PUBLIC_FOLLOWUP_PRIMARY_HOME is the durable env
+#      binding bin/fm-spawn.sh stamps into every secondmate agent session,
+#      naming that session's PRIMARY home. When the selected FM_HOME
+#      canonicalizes to that same path, a secondmate session is operating on the
+#      primary home. This covers the gap in signal 1: a secondmate agent that
+#      invokes the PRIMARY home's own bin/ by absolute path has a primary code
+#      root, so only the session binding still knows what it is.
+#
+# LIMIT. This is an accidental-misrouting guard, not process provenance. A
+# process can unset or alter its inherited environment, leaving only code-root
+# protection. The marker itself is non-authoritative: it never establishes an
+# invoking identity unless the local parent registry corroborates that exact
+# code-root path.
 #
 # DIRECTION. The refusal is deliberately one-way. A PRIMARY home legitimately
 # reaches into the secondmate homes it owns - bin/fm-stow-cascade.sh runs each
 # mate's own memory accounting under that mate's FM_HOME, bin/fm-backlog-handoff.sh
 # files work into a mate's backlog, and `fm-spawn.sh --secondmate` stands a mate
 # up - so neither signal fires when the executing home's identity is "primary".
-# The primary home's own data is what stays read-only from everywhere else, which
-# is the boundary the incidents crossed.
+# The primary home's own data is protected from ordinary secondmate execution,
+# which is the boundary the incidents crossed.
 #
 # A home operating on ITSELF is always allowed: its selected canonical path
-# must equal the corroborated canonical path of the executing or bound home.
+# must equal the corroborated canonical path of the executing home.
 #
 # Sourced by bin/fm-spawn.sh, bin/fm-send.sh, bin/fm-startup-memory-budget.sh,
 # bin/fm-stow-cascade.sh, and the tests. Sourcing defines functions and resolves
@@ -198,19 +203,6 @@ fm_home_identity_origin_id() {
   fm_home_identity_corroborated_id "$FM_HOME_IDENTITY_CODE_ROOT"
 }
 
-fm_home_identity_launch_id() {
-  local home=${1-} expected_parent=${2-} id
-  fm_home_identity_read "$home" || return 1
-  id=$FM_HOME_IDENTITY_VALUE
-  [ "$id" != primary ] || return 1
-  fm_secondmate_parent_record_parse "$home/.fm-secondmate-parent" || return 1
-  case "$FM_SECONDMATE_PARENT_ROUTE" in
-    local) fm_home_identity_corroborated_id "$home" "$expected_parent" ;;
-    remote) printf '%s\n' "$id" ;;
-    *) return 1 ;;
-  esac
-}
-
 fm_home_identity_surface_override() {
   local target=${1-} surface=${2-} override override_name target_abs expected_abs override_abs
   case "$surface" in
@@ -276,7 +268,7 @@ fm_home_identity_remote_control_overrides() {
 # Returns 1 when the operation is this process's own home, a primary reaching a
 # home it owns, or an origin this library cannot establish.
 fm_home_identity_cross_home() {
-  local target=${1-} target_id origin_id target_abs origin_abs primary_abs caller_abs caller_id
+  local target=${1-} target_id origin_id target_abs origin_abs primary_abs
   FM_HOME_IDENTITY_SIGNAL=
   FM_HOME_IDENTITY_REASON=
   [ -n "$target" ] || return 1
@@ -303,26 +295,12 @@ fm_home_identity_cross_home() {
     return 1
   fi
 
-  # Signal 2: a secondmate session's launch bindings identify its primary and
-  # its corroborated own home even when it invokes the primary bin by path.
+  # Signal 2: a secondmate session's launch binding names the selected home.
   if [ -n "${FM_PUBLIC_FOLLOWUP_PRIMARY_HOME:-}" ]; then
     primary_abs=$(fm_home_identity_canonical "$FM_PUBLIC_FOLLOWUP_PRIMARY_HOME") || primary_abs=
     if [ -n "$target_abs" ] && [ "$target_abs" = "$primary_abs" ]; then
       FM_HOME_IDENTITY_SIGNAL='launch-binding'
       FM_HOME_IDENTITY_REASON="this secondmate session is bound to the primary home ($primary_abs) and FM_HOME selects that same primary home"
-      return 0
-    fi
-    caller_abs=$(fm_home_identity_canonical "${FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME:-}") || caller_abs=
-    if ! caller_id=$(fm_home_identity_launch_id \
-      "${FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME:-}" \
-      "${FM_PUBLIC_FOLLOWUP_PRIMARY_HOME:-}"); then
-      FM_HOME_IDENTITY_SIGNAL='launch-binding'
-      FM_HOME_IDENTITY_REASON="this secondmate session has no trusted caller-home binding but FM_HOME selects the '$target_id' home ($target_abs)"
-      return 0
-    fi
-    if [ -z "$target_abs" ] || [ "$caller_abs" != "$target_abs" ]; then
-      FM_HOME_IDENTITY_SIGNAL='launch-binding'
-      FM_HOME_IDENTITY_REASON="this secondmate session is bound to the '$caller_id' home ($caller_abs) but FM_HOME selects the '$target_id' home ($target_abs)"
       return 0
     fi
   fi

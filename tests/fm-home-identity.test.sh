@@ -14,8 +14,7 @@
 #                      identity differs from the selected FM_HOME's identity.
 #                      This is the only signal that covers a SIBLING mate.
 #   2. launch-binding: FM_PUBLIC_FOLLOWUP_PRIMARY_HOME (stamped by fm-spawn into
-#                      every secondmate agent session) and its own-home binding
-#                      distinguish the caller from both the primary and siblings
+#                      every secondmate agent session) names the PRIMARY home
 #                      when it invokes the PRIMARY home's own bin by absolute
 #                      path, where signal 1 sees a primary code root.
 #
@@ -347,53 +346,23 @@ test_launch_binding_signal() {
   grep -Fq 'estimated_tokens' "$OUT" \
     && fail 'the bound session still read the primary home s memory accounting'
 
-  # The primary bin has no secondmate code-root signal, so a caller binding is
-  # required to reject a sibling without also refusing the caller's own home.
-  RC=0
-  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" \
-    FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME="$MATE" FM_HOME="$SIBLING" \
-    "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
-  assert_refused 'launch binding, primary bin session -> sibling home'
-  assert_signal 'launch binding, primary bin session -> sibling home' launch-binding
-  grep -Fq 'estimated_tokens' "$OUT" \
-    && fail 'the primary-bin session still read the sibling home s memory accounting'
-
-  RC=0
-  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" \
-    FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME="$MATE" FM_HOME="$MATE" \
-    "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
-  assert_ok 'launch binding, secondmate session -> its own home'
-  grep -Fq 'role=secondmate' "$OUT" || fail 'own-home accounting did not run'
-
   RC=0
   FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" FM_HOME="$MATE" \
     "$MATE/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
   assert_ok 'a local secondmate with the earlier binding -> its own home'
 
-  local remote="$TMP/remote" remote_sibling="$TMP/remote-sibling"
+  local remote="$TMP/remote"
   make_home "$remote"
-  make_home "$remote_sibling"
   printf 'schema=fm-secondmate-parent.v1\nroute=remote\nparent_host=remote-host\n' \
     > "$remote/.fm-secondmate-parent"
   printf 'remote-a\n' > "$remote/.fm-secondmate-home"
-  printf 'schema=fm-secondmate-parent.v1\nroute=remote\nparent_host=remote-host\n' \
-    > "$remote_sibling/.fm-secondmate-parent"
-  printf 'remote-b\n' > "$remote_sibling/.fm-secondmate-home"
 
   RC=0
-  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" \
-    FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME="$remote" FM_HOME="$remote" \
+  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" FM_HOME="$remote" \
     "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
-  assert_ok 'a remote secondmate launch binding -> its own home'
+  assert_ok 'a remote secondmate with the earlier binding -> its own home'
 
-  RC=0
-  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" \
-    FM_PUBLIC_FOLLOWUP_SECONDMATE_HOME="$remote" FM_HOME="$remote_sibling" \
-    "$PRIMARY/bin/fm-startup-memory-budget.sh" report >"$OUT" 2>&1 || RC=$?
-  assert_refused 'a remote secondmate launch binding -> sibling home'
-  assert_signal 'a remote secondmate launch binding -> sibling home' launch-binding
-
-  pass 'the secondmate session binding refuses the primary home it is bound to'
+  pass 'the secondmate session binding refuses its bound primary home'
 }
 
 # --- identity marker safety -------------------------------------------------
