@@ -1,0 +1,66 @@
+{
+  "backlog_inputs": [
+    {
+      "id": "row-plus-marker",
+      "state": "in_flight",
+      "current_role": "worker",
+      "hold_kind": null,
+      "hold_reason": null,
+      "unresolved_blocker_ids": []
+    },
+    {
+      "id": "held-reservation",
+      "state": "in_flight",
+      "current_role": "held",
+      "hold_kind": "external",
+      "hold_reason": "waiting externally",
+      "unresolved_blocker_ids": []
+    },
+    {
+      "id": "blocked-reservation",
+      "state": "in_flight",
+      "current_role": "worker",
+      "hold_kind": null,
+      "hold_reason": null,
+      "unresolved_blocker_ids": [
+        "blocker"
+      ]
+    },
+    {
+      "id": "stale-backlog",
+      "state": "in_flight",
+      "current_role": "worker",
+      "hold_kind": null,
+      "hold_reason": null,
+      "unresolved_blocker_ids": []
+    },
+    {
+      "id": "fresh-backlog",
+      "state": "in_flight",
+      "current_role": "worker",
+      "hold_kind": null,
+      "hold_reason": null,
+      "unresolved_blocker_ids": []
+    }
+  ],
+  "attention": {
+    "limit": 4,
+    "count": 3,
+    "remaining": 1,
+    "valid": true,
+    "reservations": [
+      {
+        "id": "fresh-backlog",
+        "reservation_at_epoch": 1701
+      },
+      {
+        "id": "fresh-direct",
+        "reservation_at_epoch": 1701
+      },
+      {
+        "id": "row-plus-marker",
+        "reservation_at_epoch": 1701
+      }
+    ]
+  }
+}

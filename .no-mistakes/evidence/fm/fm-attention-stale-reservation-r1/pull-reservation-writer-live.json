@@ -1,0 +1,17 @@
+{
+  "marker_epoch": 1789482456,
+  "writer_window": {
+    "before": 1789482456,
+    "after": 1789482456
+  },
+  "snapshot": {
+    "attention_count": 1,
+    "reservations": [
+      {
+        "id": "pull-writer",
+        "reservation_at_epoch": 1789482456
+      }
+    ]
+  },
+  "spawn_result": "ok: start pull-writer -> In flight\nhelp[1]:\n  - Run `tasks-axi done pull-writer --pr <url>` when it ships\nerror: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)\nerror: spawn for pull-writer failed; its In flight row remains as a visible unknown reservation\n"
+}
