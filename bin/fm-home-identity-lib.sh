@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# fm-home-identity-lib.sh - fail-closed refusal that keeps one firstmate home's
-# process out of ANOTHER home's operational surface.
+# fm-home-identity-lib.sh - fail-closed accidental-misrouting guard for
+# cross-home operational surfaces.
 #
 # The hazard: FM_HOME selects which home's data/, state/, config/, and projects/
 # a command operates on, and every fm-* entrypoint resolves it the same way
@@ -401,9 +401,10 @@ fm_home_identity_cross_home() {
 }
 
 # fm_refuse_cross_home <target-home> <operation> [state] [data] [config] [projects]:
-# exit FM_HOME_IDENTITY_EXIT with an actionable diagnostic when <target-home>
-# belongs to another home or a named override does not resolve inside it. Call
-# after FM_HOME is resolved and before anything is written, spawned, or steered.
+# exit FM_HOME_IDENTITY_EXIT with an actionable diagnostic when the guarded
+# signals establish that <target-home> belongs to another home, or a named
+# override resolves inside a protected different home. Call after FM_HOME is
+# resolved and before anything is written, spawned, or steered.
 # A no-op (returns 0) for a same-home operation or for a primary home reaching
 # a home it owns.
 fm_refuse_cross_home() {

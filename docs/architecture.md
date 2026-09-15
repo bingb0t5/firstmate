@@ -238,7 +238,7 @@ The helper's header owns the exact signal detection, relocated-home limitation, 
 
 ## Cross-home authority boundary
 
-`FM_HOME` selects which home's `data/`, `state/`, `config/`, and `projects/` a command operates on, so a secondmate process whose `FM_HOME` names a different home operates on that home with full authority.
+`FM_HOME` selects which home's `data/`, `state/`, `config/`, and `projects/` a command operates on, so a secondmate process whose `FM_HOME` named a different home could operate on that home with full authority.
 That has actually happened twice: a secondmate spawned a worker into the primary home, and a secondmate's memory sweep read and rewrote the primary home's captain and learning records.
 `fm-spawn.sh`'s primary-only domain-mate check could not stop the first, because it inspects `$FM_HOME` - the value that was already wrong - rather than the running process.
 `fm-spawn.sh`, `fm-send.sh`, `fm-startup-memory-budget.sh`, and `fm-stow-cascade.sh` therefore source `bin/fm-home-identity-lib.sh` and exit with status 4 before any spawn, steer, or memory accounting when its guarded signals establish that the selected home belongs to another process.
