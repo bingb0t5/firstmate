@@ -225,14 +225,22 @@ fm_home_identity_remote_home() {
 }
 
 fm_home_identity_surface_is_protected_elsewhere() {
-  local target_abs=${1-} override_abs=${2-} surface=${3-} parent_abs= registry probe
+  local target_abs=${1-} override_abs=${2-} surface=${3-} parent_abs= bound_primary_abs= registry probe
   if fm_home_identity_origin_id >/dev/null; then
     parent_abs=$(fm_home_identity_canonical "$FM_SECONDMATE_PARENT_HOME") || return 1
+  fi
+  if [ -n "${FM_PUBLIC_FOLLOWUP_PRIMARY_HOME:-}" ]; then
+    bound_primary_abs=$(fm_home_identity_canonical "$FM_PUBLIC_FOLLOWUP_PRIMARY_HOME") || bound_primary_abs=
   fi
   registry="${parent_abs:-$target_abs}/data/secondmates.md"
   case "$override_abs" in
     "$parent_abs/$surface"|"$parent_abs/$surface/"*)
       [ -n "$parent_abs" ] && [ "$target_abs" != "$parent_abs" ] && return 0
+      ;;
+  esac
+  case "$override_abs" in
+    "$bound_primary_abs/$surface"|"$bound_primary_abs/$surface/"*)
+      [ -n "$bound_primary_abs" ] && [ "$target_abs" != "$bound_primary_abs" ] && return 0
       ;;
   esac
   probe=$override_abs

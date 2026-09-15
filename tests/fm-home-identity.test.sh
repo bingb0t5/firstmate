@@ -193,6 +193,16 @@ test_surface_override_routing() {
   [ ! -e "$PRIMARY/state/override-task.inbox" ] \
     || fail 'fm-send followed a state override into another home'
 
+  RC=0
+  FM_PUBLIC_FOLLOWUP_PRIMARY_HOME="$PRIMARY" FM_HOME="$MATE" \
+    FM_STATE_OVERRIDE="$PRIMARY/state" \
+    "$PRIMARY/bin/fm-send.sh" fm-primary-task --inbox-only 'absolute primary-bin override steer' \
+    >"$OUT" 2>&1 || RC=$?
+  assert_refused 'fm-send primary-bin state override into the launch-bound primary'
+  assert_signal 'fm-send primary-bin state override into the launch-bound primary' surface-override
+  [ ! -e "$PRIMARY/state/primary-task.inbox" ] \
+    || fail 'fm-send primary-bin override wrote into the launch-bound primary'
+
   run_surface_override "$MATE" "$MATE" FM_DATA_OVERRIDE "$PRIMARY/data" \
     fm-startup-memory-budget.sh report
   assert_refused 'memory accounting data override into another home'
