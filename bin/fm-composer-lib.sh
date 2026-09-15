@@ -170,16 +170,11 @@ fm_composer_normalize_trim_var() {  # <varname>
   printf -v "$__fmnt_name" '%s' "$__fmnt_text"
 }
 
-# Codex CLI 0.154.0 paints an ambient Braille "starfield" across the FULL WIDTH
-# of every row of its idle composer region: isolated Unicode Braille Pattern
-# glyphs land on arbitrary columns, separated by wide runs of spaces, fading in
-# and out through a truecolor luminance ramp, so each frame leaves a different
-# handful of them bright enough to survive the ghost strip. Verified live on a
-# gpt-6-astra pane over sixty consecutive one-second samples (task
-# fm-codex-composer-braille-r2), where the region was three rows; the five
-# gpt-5.6-luna panes captured on the same host at the same time were static,
-# which locates the animation in the vendor's rendering rather than in any
-# property of this classifier. Nothing below depends on the region's height.
+# Codex CLI 0.154.0 can paint an ambient Braille "starfield" over every row of
+# its idle composer region: isolated Unicode Braille Pattern glyphs land on
+# arbitrary columns, separated by wide runs of spaces, with a varying
+# luminance that leaves a different handful bright enough to survive the ghost
+# strip in each frame. Nothing below depends on the region's height.
 #
 # That is DECORATION, not content, and the placeholder itself is the proof:
 # Codex draws `Ask Codex to do anything` if and only if the composer is empty
@@ -195,8 +190,8 @@ fm_composer_normalize_trim_var() {  # <varname>
 # is deliberately unbounded; substitution inside it stays bounded. Counting
 # every Braille glyph on the row instead - the fm-codex-composer-braille-r1
 # shape this replaced - measured the animation's width rather than the
-# placeholder's integrity, so a full-width starfield read as typed text and
-# silently suppressed the steering doorbell.
+# placeholder's integrity, so a full-width starfield must not read as typed
+# text.
 FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS=3
 
 # The Unicode Braille Patterns block (U+2800..U+28FF) as a byte pattern, and

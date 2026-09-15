@@ -572,9 +572,8 @@ print_status_tail() {
 }
 
 # One bounded line per task that is holding steering it never acknowledged.
-# Silent otherwise, so a healthy idle mate stays quiet and an unreachable one
-# does not: a swallowed doorbell used to leave every other signal in this block
-# reading normal (task fm-codex-composer-braille-r2).
+# Silent otherwise, so a healthy idle mate stays quiet while a worker with
+# unread instructions remains visibly distinct.
 # Counts and ages only, never a steer body - fm-task-inbox-lib.sh's summary
 # reads directory entries and mtimes and never opens a record.
 print_unread_steering() {  # <task-id>

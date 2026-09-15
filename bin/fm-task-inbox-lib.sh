@@ -311,8 +311,8 @@ fm_task_inbox_oldest_unhandled() {  # <state-dir> <task-id>
 # re-rung, or ladder-escalated is still unread until the worker moves it into
 # handled/, because only that move is evidence the worker took it. The delivery
 # bookkeeping (.ring-state, .escalated) is deliberately not consulted: reading
-# it here would let a doorbell that was sent but silently swallowed - exactly
-# the fm-codex-composer-braille-r2 failure - present as read.
+# it here would let a doorbell that was sent but silently swallowed present as
+# read.
 #
 # Records are allocated in never-reused ascending sequence, zero-padded to three
 # digits, so through 999 records per task lifetime the glob's sorted order is
