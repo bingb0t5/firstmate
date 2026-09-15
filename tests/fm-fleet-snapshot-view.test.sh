@@ -1002,6 +1002,163 @@ test_open_decision_clears_on_keyed_resolution() {
   pass "durable fold clears a decision only on a keyed resolution"
 }
 
+# Held and blocked backlog records must override an unreadable endpoint when the
+# attention cap is calculated, while every non-held active classification remains counted.
+test_attention_cap_honors_backlog_holds_and_blockers() {
+  local home fakebin out validating_wt branch head id state class counts
+  home=$(make_home attention-cap)
+  validating_wt="$home/projects/validating-wt"
+  mkdir -p "$home/projects/held-wt" "$home/projects/captain-held-wt" \
+    "$home/projects/external-held-wt" "$home/projects/load-held-wt" \
+    "$home/projects/future-held-wt" "$home/projects/reason-held-wt" \
+    "$home/projects/blocked-wt" \
+    "$home/projects/working-wt" "$home/projects/unknown-wt" "$home/projects/failed-wt" \
+    "$validating_wt"
+  git -C "$validating_wt" init -q
+  git -C "$validating_wt" config user.email fmtest@example.invalid
+  git -C "$validating_wt" config user.name fmtest
+  git -C "$validating_wt" commit -q --allow-empty -m init
+  branch=fm-attention-cap-test
+  git -C "$validating_wt" checkout -q -b "$branch"
+  head=$(git -C "$validating_wt" rev-parse HEAD)
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] held-unknown - Held Codex lane (repo: alpha) (kind: scout) (hold: parked lane) (hold-kind: parked)
+- [ ] captain-held-unknown - Captain-held Codex lane (repo: alpha) (kind: scout) (hold: captain choice) (hold-kind: captain)
+- [ ] external-held-unknown - External-held Codex lane (repo: alpha) (kind: scout) (hold: upstream release) (hold-kind: external)
+- [ ] load-held-unknown - Load-held Codex lane (repo: alpha) (kind: scout) (hold: fleet capacity) (hold-kind: load)
+- [ ] future-held-unknown - Future-held Codex lane (repo: alpha) (kind: scout) (hold: future policy) (hold-kind: future)
+- [ ] reason-held-unknown - Reason-held Codex lane (repo: alpha) (kind: scout) (hold: temporary pause)
+- [ ] blocked-unknown - Blocked Codex lane blocked-by: missing-worker (repo: alpha) (kind: scout)
+- [ ] validating-active - Active validating lane (repo: alpha) (kind: ship)
+- [ ] working-active - Active working lane (repo: alpha) (kind: scout)
+- [ ] unknown-active - Active unknown lane (repo: alpha) (kind: scout)
+- [ ] failed-active - Active failed lane (repo: alpha) (kind: scout)
+
+## Queued
+
+## Done
+EOF
+  fm_write_meta "$home/state/held-unknown.meta" \
+    "window=firstmate:fm-held-unknown" "worktree=$home/projects/held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/captain-held-unknown.meta" \
+    "window=firstmate:fm-captain-held-unknown" "worktree=$home/projects/captain-held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/external-held-unknown.meta" \
+    "window=firstmate:fm-external-held-unknown" "worktree=$home/projects/external-held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/load-held-unknown.meta" \
+    "window=firstmate:fm-load-held-unknown" "worktree=$home/projects/load-held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/future-held-unknown.meta" \
+    "window=firstmate:fm-future-held-unknown" "worktree=$home/projects/future-held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/reason-held-unknown.meta" \
+    "window=firstmate:fm-reason-held-unknown" "worktree=$home/projects/reason-held-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/blocked-unknown.meta" \
+    "window=firstmate:fm-blocked-unknown" "worktree=$home/projects/blocked-wt" \
+    "project=alpha" "harness=codex" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/validating-active.meta" \
+    "window=firstmate:fm-validating-active" "worktree=$validating_wt" \
+    "project=alpha" "harness=codex" "kind=ship" "mode=ship"
+  fm_write_meta "$home/state/working-active.meta" \
+    "window=firstmate:fm-working-active" "worktree=$home/projects/working-wt" \
+    "project=alpha" "harness=claude" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/unknown-active.meta" \
+    "window=firstmate:fm-unknown-active" "worktree=$home/projects/unknown-wt" \
+    "project=alpha" "harness=claude" "kind=scout" "mode=scout"
+  fm_write_meta "$home/state/failed-active.meta" \
+    "window=firstmate:fm-failed-active" "worktree=$home/projects/failed-wt" \
+    "project=alpha" "harness=claude" "kind=scout" "mode=scout"
+  record_claude_idle "$home/state" working-active
+  record_claude_idle "$home/state" failed-active
+  printf 'working: active lane\n' > "$home/state/working-active.status"
+  printf 'failed: active lane\n' > "$home/state/failed-active.status"
+  fakebin=$(make_fakebin "$home")
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+target=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = -t ]; then target=$arg; fi
+  prev=$arg
+done
+case "${1:-}" in
+  list-windows)
+    sed -n 's/^window=[^:]*://p' "${FM_HOME:?}"/state/*.meta
+    ;;
+  display-message)
+    case "$*" in
+      *pane_current_command*)
+        case "$target" in
+          *held-unknown*|*blocked-unknown*) printf 'codex\\n' ;;
+          *) printf 'claude\\n' ;;
+        esac
+        ;;
+      *) printf '%%1\\n' ;;
+    esac
+    ;;
+  capture-pane) printf 'all quiet\\n> \\n' ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  cat > "$fakebin/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ "${1:-}" = axi ] && [ "${2:-}" = status ]; then
+  printf '%s\n' "${FM_FAKE_AXI_STATUS:-}"
+fi
+exit 0
+SH
+  chmod +x "$fakebin/no-mistakes"
+  FM_FAKE_AXI_STATUS=$(cat <<EOF
+run:
+  id: "01ATTENTION"
+  branch: $branch
+  status: running
+  head: "$head"
+  findings: none
+  steps[2]{step,status,findings,duration_ms}:
+    intent,completed,0,0
+    review,running,0,0
+EOF
+  )
+  export FM_FAKE_AXI_STATUS
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '.attention.count == 4' >/dev/null \
+    || fail "held and blocked endpoint tasks consumed attention slots: $out"
+  while IFS='|' read -r id state class counts; do
+    [ -n "$id" ] || continue
+    printf '%s' "$out" | jq -e --arg id "$id" --arg state "$state" \
+      --arg class "$class" --argjson counts "$counts" '
+      (.attention.workers[]?, .attention.reported[]?)
+      | select(.id == $id)
+      | .state == $state and .class == $class and .counts == $counts
+    ' >/dev/null || fail "attention classification mismatch for $id: $out"
+  done <<'EOF'
+held-unknown|unknown|parked|false
+captain-held-unknown|unknown|captain_held|false
+external-held-unknown|unknown|paused|false
+load-held-unknown|unknown|parked|false
+future-held-unknown|unknown|paused|false
+reason-held-unknown|unknown|paused|false
+blocked-unknown|unknown|blocked|false
+validating-active|working|validating|true
+working-active|working|working|true
+unknown-active|unknown|unknown|true
+failed-active|failed|failed_uncleaned|true
+EOF
+  printf '%s' "$out" | jq -e '
+    (.attention.workers | map(.id) | sort) ==
+      ["failed-active", "unknown-active", "validating-active", "working-active"]
+  ' >/dev/null || fail "genuine active workers were not preserved: $out"
+  pass "attention cap excludes held/blocked unknown endpoints and keeps four active workers"
+}
+
 # A COMPLETED scout report must never be read as a pending decision. A scout that
 # raised a needs-decision and then finished (done) - its report delivered, its
 # decision either answered or captured in the report for the captain - must surface
@@ -1080,6 +1237,7 @@ test_open_decision_survives_later_unrelated_event
 test_secondmate_open_decision_survives_live_endpoint
 test_open_decision_transfers_to_captain_hold
 test_open_decision_clears_on_keyed_resolution
+test_attention_cap_honors_backlog_holds_and_blockers
 test_completed_scout_report_is_pointer_not_pending
 test_parked_scout_decision_stays_pending
 test_scout_reports_include_teardown_reports

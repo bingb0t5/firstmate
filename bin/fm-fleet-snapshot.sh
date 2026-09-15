@@ -62,6 +62,9 @@
 #   attention: {limit,count,remaining,valid,workers[],reservations[],reported[]} -
 #     fail-closed local worker inventory and the fixed four-worker accounting
 #     consumed by pull and fresh ordinary spawn transactions.
+#     Structured backlog holds and unresolved blockers take precedence over endpoint reconciliation:
+#     every held or blocked row is reported in a non-counting attention class,
+#     while only an unheld, unblocked row can consume a slot from its live state.
 #   pull: {eligible[],ineligible[],rows[]} - local backlog rows with mechanical
 #     eligibility reasons, ordered by priority, since date, and id.
 #   scout_reports[]: present data/<id>/report.md pointers.
@@ -771,10 +774,24 @@ attention_json() {  # <backlog-json-file> <tasks-json-file> <inventory-valid>
     ($backlog[0]) as $backlog
     | ($tasks[0]) as $tasks
     |
+    def backlog_record($id):
+      ([ $backlog.records[]?
+         | select(.structured == true and .id == $id) ][0] // null);
+    def backlog_is_held($record):
+      ($record != null
+       and (($record.hold_kind // null) != null or ($record.hold_reason // null) != null));
+    def backlog_is_blocked($record):
+      ($record != null and (($record.unresolved_blocker_ids // []) | length) > 0);
     def attention_class($task):
       ($task.current_state.state // "unknown") as $state
       | ($task.current_state.source // "none") as $source
-      | if $state == "working" and $source == "run-step" then "validating"
+      | (backlog_record($task.id)) as $backlog_task
+      | if backlog_is_blocked($backlog_task) then "blocked"
+        elif backlog_is_held($backlog_task) then
+          if $backlog_task.hold_kind == "captain" then "captain_held"
+          elif $backlog_task.hold_kind == "load" or $backlog_task.hold_kind == "parked" then "parked"
+          else "paused" end
+        elif $state == "working" and $source == "run-step" then "validating"
         elif $state == "working" then "working"
         elif $state == "unknown" then "unknown"
         elif $state == "failed" then "failed_uncleaned"
