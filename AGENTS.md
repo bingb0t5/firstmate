@@ -97,6 +97,7 @@ state/               runtime records and signals; gitignored
   <id>.kimi-turnend-token   firstmate-owned Kimi hook registry token for the task; removed by teardown
   <id>.muse-session  muse busy-source binding (sessions root plus task worktree) written by fm-spawn; removed by teardown
   <id>.cursor-session  cursor busy-source binding (projects root, task worktree, prior conversations) written by fm-spawn; removed by teardown
+  <id>.launch-reservation  short-lived fresh ship/scout launch epoch marker; fm-fleet-snapshot.sh owns its attention eligibility, while pull, spawn, and teardown own its lifecycle
   <id>.inbox/          durable steering inbox: sequenced firstmate instruction records the worker acknowledges by moving them into its handled/ subdirectory; written by fm-send, re-rung and escalated by the watcher, removed by teardown (bin/fm-task-inbox-lib.sh)
   <id>.meta          task metadata; each producer script's header owns its exact fields and mutation contract, with docs/configuration.md routing operator-facing backend and trace-context details
   <id>.herdr-presentation  quarantinable attempt and restart-binding journal for Herdr's optional visual projection; never task or endpoint authority; see docs/herdr-backend.md "Presentation spaces"
@@ -255,7 +256,7 @@ Keep `local-only` work in the main home.
 
 A secondmate is idle by default and acts only on work routed by the main firstmate.
 The main firstmate files secondmate-owned queued work into that mate's backlog through `bin/fm-backlog-handoff.sh`; the receiving mate claims only its own first eligible row with `bin/fm-pull.sh`, never with raw `tasks-axi start` or a cross-home path.
-Each home has a fixed local attention limit of four for validating, working, unknown, failed-but-uncleaned, and unknown launch-reservation workers; fresh `bin/fm-spawn.sh` is the universal backstop, while paused, captain-held, parked, and blocked work is reported without consuming a slot.
+Each home has a fixed local attention limit of four for validating, working, unknown, failed-but-uncleaned, and fresh launch-reservation workers as classified by `bin/fm-fleet-snapshot.sh`; fresh `bin/fm-spawn.sh` is the universal backstop, while paused, captain-held, parked, and blocked work is reported without consuming a slot.
 Scale by registering another primary-level domain mate or splitting a domain into non-overlapping scopes with separate homes and queues; a secondmate cannot seed or spawn another secondmate.
 It reconciles its own work under way after restart, then waits silently; an empty queue never authorizes a survey, audit, or self-directed improvement sweep.
 Do not reconstruct or supervise a secondmate's child tree from the main home.

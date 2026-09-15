@@ -62,6 +62,10 @@
 #   attention: {limit,count,remaining,valid,workers[],reservations[],reported[]} -
 #     fail-closed local worker inventory and the fixed four-worker accounting
 #     consumed by pull and fresh ordinary spawn transactions.
+#     A no-endpoint ship/scout launch reservation counts only when its per-task
+#     epoch record is less than 300 seconds old and not in the future.
+#     A marker with no backlog row represents a direct launch, while a held or
+#     blocked row prevents its marker from consuming a slot.
 #     Structured backlog holds and unresolved blockers take precedence over endpoint reconciliation:
 #     every held or blocked row is reported in a non-counting attention class,
 #     while only an unheld, unblocked row can consume a slot from its live state.
@@ -137,6 +141,10 @@ FM_SNAPSHOT_REGISTRY_LINES=${FM_SNAPSHOT_REGISTRY_LINES:-256}
 FM_SNAPSHOT_REGISTRY_BYTES=${FM_SNAPSHOT_REGISTRY_BYTES:-65536}
 FM_SNAPSHOT_REGISTRY_RECORDS=${FM_SNAPSHOT_REGISTRY_RECORDS:-40}
 FM_SNAPSHOT_REGISTRY_TIMEOUT=${FM_SNAPSHOT_REGISTRY_TIMEOUT:-2}
+# A pull reservation protects only the short gap between tasks-axi start and
+# endpoint publication; an old in-flight row without an endpoint is not live
+# work and must not consume an attention slot forever.
+ATTENTION_RESERVATION_WINDOW_SECS=300
 validate_positive_bound() {  # <name> <value>
   case "$2" in
     ''|*[!0-9]*|0)
@@ -766,13 +774,66 @@ EOF
   jq -s 'sort_by(.id)' < "$rows_file"
 }
 
-attention_json() {  # <backlog-json-file> <tasks-json-file> <inventory-valid>
+reservation_info_json() {  # <backlog-json-file> <tasks-json-file>
+  local records_file id marker value record candidate valid=1
+  records_file="$SNAPSHOT_TMPDIR/reservation-records"
+  snapshot_write "$records_file" ""
+  for marker in "$STATE"/*.launch-reservation; do
+    [ -e "$marker" ] || [ -L "$marker" ] || continue
+    id=$(basename "$marker" .launch-reservation)
+    if ! fm_task_id_creation_valid "$id"; then
+      valid=0
+      continue
+    fi
+    if [ -L "$marker" ] || { [ -e "$marker" ] && [ ! -f "$marker" ]; } ||
+       { [ -e "$marker" ] && [ ! -r "$marker" ]; }; then
+      valid=0
+      continue
+    fi
+    [ -e "$marker" ] || continue
+    value=$(cat -- "$marker" 2>/dev/null) || {
+      valid=0
+      continue
+    }
+    case "$value" in
+      ''|*[!0-9]*)
+        valid=0
+        continue
+        ;;
+    esac
+    candidate=$(jq -r --arg id "$id" --slurpfile tasks "$2" '
+      ($tasks[0] | map(.id)) as $task_ids
+      | ([.records[]?
+          | select(.structured == true and .id == $id)][0] // null) as $record
+      | if ($task_ids | index($id)) then false
+        elif $record == null then true
+        elif ($record.state == "in_flight" and $record.current_role == "worker"
+              and (($record.unresolved_blocker_ids // []) | length) == 0
+              and $record.hold_kind == null and $record.hold_reason == null) then true
+        else false end
+    ' "$1") || return 1
+    [ "$candidate" = true ] || continue
+    record=$(jq -n --arg id "$id" --argjson epoch "$value" \
+      '{id:$id,started_at_epoch:$epoch}') || return 1
+    snapshot_append_json "$records_file" "$record"
+  done
+  jq -n \
+    --slurpfile records "$records_file" \
+    --argjson valid "$(bool_json "$valid")" \
+    '{valid:$valid,records:$records}'
+}
+
+attention_json() {  # <backlog-json-file> <tasks-json-file> <inventory-valid> <reservation-info-file>
   jq -n \
     --slurpfile backlog "$1" \
     --slurpfile tasks "$2" \
-    --argjson inventory_valid "$3" '
+    --slurpfile reservation_info "$4" \
+    --argjson inventory_valid "$3" \
+    --argjson snapshot_epoch "$SNAPSHOT_EPOCH" \
+    --argjson reservation_window "$ATTENTION_RESERVATION_WINDOW_SECS" '
     ($backlog[0]) as $backlog
     | ($tasks[0]) as $tasks
+    | ($reservation_info[0]) as $reservation_info
     |
     def backlog_record($id):
       ([ $backlog.records[]?
@@ -805,13 +866,17 @@ attention_json() {  # <backlog-json-file> <tasks-json-file> <inventory-valid>
        | select(.kind == "ship" or .kind == "scout")
        | {id,kind,state:(.current_state.state // "unknown"),source:(.current_state.source // "none"),class:attention_class(.)}
        | .counts = (.class == "validating" or .class == "working" or .class == "unknown" or .class == "failed_uncleaned") ]) as $task_rows
-    | ([ $backlog.records[]?
-       | select(.structured == true and .state == "in_flight" and .current_role == "worker")
-       | select(.id as $id | ($tasks | map(.id) | index($id) | not))
-       | {id,kind:(.kind // null),state:"in_flight",source:"backlog",class:"unknown_reservation",counts:true} ]) as $reservations
+    | ([ $reservation_info.records[]?
+       | . as $reservation
+       | (backlog_record($reservation.id)) as $record
+       | select(($snapshot_epoch - $reservation.started_at_epoch) >= 0
+               and ($snapshot_epoch - $reservation.started_at_epoch) < $reservation_window)
+       | {id:$reservation.id,kind:($record.kind // null),state:"in_flight",source:"backlog",class:"unknown_reservation",counts:true,
+          reservation_at_epoch:$reservation.started_at_epoch} ]) as $reservations
     | ($task_rows + $reservations) as $all
     | ([ $all[] | select(.counts == true) ]) as $workers
-    | {limit:4,count:($workers | length),remaining:(4 - ($workers | length)),valid:$inventory_valid,
+    | {limit:4,count:($workers | length),remaining:(4 - ($workers | length)),
+       valid:($inventory_valid and $reservation_info.valid),
        workers:$workers,reservations:$reservations,
        reported:([ $all[] | select(.counts != true) ])}
   '
@@ -1701,6 +1766,10 @@ fi
 META_PATHS=("${VALID_META_PATHS[@]}")
 TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
 snapshot_write_json "$TASKS_JSON_FILE" "$TASKS_JSON"
+RESERVATION_INFO_FILE="$SNAPSHOT_TMPDIR/reservation-info"
+reservation_info_json "$BACKLOG_JSON_FILE" "$TASKS_JSON_FILE" \
+  > "$RESERVATION_INFO_FILE" \
+  || { echo "fm-fleet-snapshot: launch reservation summary failed" >&2; exit 1; }
 
 if [ "$OUTPUT_MODE" = secondmate-home-summary ]; then
   secondmate_home_summary_json "$BACKLOG_JSON_FILE" "$TASKS_JSON_FILE" \
@@ -1713,6 +1782,7 @@ ATTENTION_FILE="$SNAPSHOT_TMPDIR/attention"
 PULL_FILE="$SNAPSHOT_TMPDIR/pull"
 attention_json "$BACKLOG_JSON_FILE" "$TASKS_JSON_FILE" \
   "$(bool_json "$([ "$INVENTORY_VALID" = true ] && printf 1 || printf 0)")" \
+  "$RESERVATION_INFO_FILE" \
   > "$ATTENTION_FILE" \
   || { echo "fm-fleet-snapshot: local attention summary failed" >&2; exit 1; }
 pull_json "$BACKLOG_JSON_FILE" > "$PULL_FILE" \

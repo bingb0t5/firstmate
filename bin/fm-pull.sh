@@ -8,14 +8,16 @@
 # This command operates only on the active FM_HOME. `ready` is read-only and
 # reports every backlog row with its mechanical eligibility reason. `start`
 # holds the home's existing task-set lock while it recomputes attention, checks
-# priority order, and creates the tasks-axi In flight reservation. It releases
-# that lock only before invoking fm-spawn.sh, whose own fresh-spawn backstop
-# recomputes the same local limit while holding the same lock.
+# priority order, creates the tasks-axi In flight reservation, and records its
+# launch epoch before releasing the lock to invoke fm-spawn.sh. The spawn
+# backstop recomputes the same local limit while holding the same lock.
 #
 # A failed spawn with no published metadata intentionally leaves the In flight
 # row as an unknown reservation. Retrying the same id resumes that reservation;
-# another id cannot consume its slot. Recovery owns proving that an uncertain
-# reservation has no endpoint or unlanded work before reopening it.
+# another id cannot consume its slot while its state/<id>.launch-reservation
+# timestamp remains within fm-fleet-snapshot.sh's short launch window. Recovery
+# owns proving that an uncertain reservation has no endpoint or unlanded work
+# before reopening it.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,6 +44,20 @@ snapshot_local() {
     FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
     FM_CONFIG_OVERRIDE="$config" FM_PROJECTS_OVERRIDE="$projects" \
     "$SCRIPT_DIR/fm-fleet-snapshot.sh" --local-json
+}
+
+write_launch_reservation() {  # <task-id>
+  local id=$1 marker tmp
+  marker="$STATE/$id.launch-reservation"
+  tmp=$(umask 077; mktemp "$STATE/.$id.launch-reservation.XXXXXX") || {
+    echo "error: could not create launch reservation record for $id" >&2
+    return 1
+  }
+  if ! date +%s > "$tmp" || ! mv -f -- "$tmp" "$marker"; then
+    rm -f -- "$tmp"
+    echo "error: could not publish launch reservation record for $id" >&2
+    return 1
+  fi
 }
 
 task_set_lock=
@@ -148,6 +164,10 @@ start_command() {
     }
     (cd "$FM_HOME" && tasks-axi start "$id") || {
       echo "error: tasks-axi could not reserve $id; no worker was spawned" >&2
+      return 1
+    }
+    write_launch_reservation "$id" || {
+      echo "error: $id is In flight without a launch reservation record; no worker was spawned" >&2
       return 1
     }
   fi
