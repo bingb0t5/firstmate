@@ -62,6 +62,9 @@
 #   attention: {limit,count,remaining,valid,workers[],reservations[],reported[]} -
 #     fail-closed local worker inventory and the fixed four-worker accounting
 #     consumed by pull and fresh ordinary spawn transactions.
+#     Structured backlog holds and unresolved blockers take precedence over endpoint reconciliation:
+#     every held or blocked row is reported in a non-counting attention class,
+#     while only an unheld, unblocked row can consume a slot from its live state.
 #   pull: {eligible[],ineligible[],rows[]} - local backlog rows with mechanical
 #     eligibility reasons, ordered by priority, since date, and id.
 #   scout_reports[]: present data/<id>/report.md pointers.
