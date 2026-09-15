@@ -168,9 +168,9 @@
 # steer onto the durable inbox plane even when its body starts with "/" or "$";
 # without it, the existing shape-based routing is unchanged.
 #
-# An explicit FM_HOME is required, and it must name THIS process's own home: a
-# steer aimed at another home's tasks exits 4 before any record is written
-# (bin/fm-home-identity-lib.sh owns that contract).
+# An explicit FM_HOME is required, and a steer that the shared cross-home guard
+# detects as aimed at another home's tasks exits 4 before any record is written
+# (bin/fm-home-identity-lib.sh owns the boundary and its limitations).
 #
 # After a successful TYPED-plane submit fm-send pauses FM_SEND_SETTLE seconds
 # (default 1, 0 disables) before returning: submit confirmation only proves the

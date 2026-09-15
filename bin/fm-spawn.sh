@@ -116,7 +116,7 @@
 #   primary home may create a domain mate. That check reads $FM_HOME, so it is
 #   layered above the cross-home refusal owned by bin/fm-home-identity-lib.sh,
 #   which asks instead what home this PROCESS belongs to and exits 4 before any
-#   spawn when FM_HOME names a different one.
+#   spawn when its guarded signals establish that FM_HOME names a different one.
 #   With no harness arg, a crewmate/scout spawn resolves the CREW harness only when
 #   config/crew-dispatch.json is absent. When that file exists, crewmate/scout
 #   spawns require an explicit harness so firstmate cannot silently skip dispatch
@@ -262,10 +262,10 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
-# Fail closed before any fleet mutation: this home's process must never spawn into
-# ANOTHER home. The primary-only domain-mate check below asks what $FM_HOME is;
-# this asks what the RUNNING PROCESS is, which is the half a mispointed FM_HOME
-# defeats (see bin/fm-home-identity-lib.sh).
+# Fail closed before any fleet mutation when the shared guard detects this home's
+# process spawning into ANOTHER home. The primary-only domain-mate check below
+# asks what $FM_HOME is; this asks what the RUNNING PROCESS is, which is the half
+# a mispointed FM_HOME defeats (see bin/fm-home-identity-lib.sh).
 if fm_home_identity_remote_control_overrides "$FM_HOME"; then
   fm_refuse_cross_home "$FM_HOME" fm-spawn projects
 else

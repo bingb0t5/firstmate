@@ -43,8 +43,8 @@
 # command reports the empty cascade there rather than reaching for a registry.
 #
 # The cascade reaches the homes its own registry names, so it must run from the
-# home it is sweeping: status 4 refuses a cascade aimed at another home
-# (bin/fm-home-identity-lib.sh).
+# home it is sweeping: status 4 refuses a cascade the shared guard detects as
+# aimed at another home (bin/fm-home-identity-lib.sh).
 #
 # Exit status: 0 every home reported cleanly (or there were none); 3 at least
 # one home reported an exception and every home was still reported; 1 the
@@ -82,7 +82,8 @@ SUB_HOME_MARKER="${SUB_HOME_MARKER:-.fm-secondmate-home}"
 
 # The cascade reads one home's registry and then steers or curates the homes it
 # names, so it must run from the home it is sweeping. Refuse before any of that
-# when FM_HOME names another home (see bin/fm-home-identity-lib.sh).
+# when the shared guard detects that FM_HOME names another home
+# (see bin/fm-home-identity-lib.sh).
 fm_refuse_cross_home "$FM_HOME" fm-stow-cascade data state
 
 BOUND=${FM_STOW_CASCADE_TIMEOUT:-60}

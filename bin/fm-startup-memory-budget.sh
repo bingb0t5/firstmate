@@ -10,8 +10,9 @@
 # Bootstrap owns default materialization; this command never creates or repairs
 # configuration, so an absent, malformed, symlinked, hardlinked, or otherwise
 # unsafe value is a concrete error rather than an inferred default.
-# A /stow pass begins and ends here, so a sweep aimed at another home is refused
-# here with status 4; bin/fm-home-identity-lib.sh owns that contract.
+# A /stow pass begins and ends here, so a sweep the shared guard detects as
+# aimed at another home is refused here with status 4; bin/fm-home-identity-lib.sh
+# owns that contract and its limitations.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,10 +36,10 @@ case "${1:-}" in
 esac
 
 # This command is the mandatory first and last step of a /stow pass, so it is
-# where a memory sweep aimed at another home is stopped before it reads that
-# home's captain and learning records to rewrite them. A PRIMARY home reaching
-# its own mates is unaffected, which keeps bin/fm-stow-cascade.sh working
-# (see bin/fm-home-identity-lib.sh).
+# where the shared guard stops a memory sweep it detects as aimed at another home
+# before it reads that home's captain and learning records to rewrite them. A
+# PRIMARY home reaching its own mates is unaffected, which keeps
+# bin/fm-stow-cascade.sh working (see bin/fm-home-identity-lib.sh).
 fm_refuse_cross_home "$FM_HOME" fm-startup-memory-budget data config
 
 print_error() {
