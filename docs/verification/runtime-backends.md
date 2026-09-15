@@ -32,8 +32,10 @@ Because `bin/fm-spawn.sh` performs this check under the existing task-set lock b
 
 ## Browser lifecycle ownership
 
-The portable regression suite `tests/fm-browser-lifecycle.test.sh` proves that task-incarnation records reserve distinct home-scoped named sessions, refuse active or foreign PID records, delegate named-session shutdown to the existing `chrome-devtools-axi stop` interface, finalize named bridges after worker command failure or proven abrupt worker loss, return direct-command failure and explicit timeout results, and preserve a direct process when its recorded identity changes.
-The suite also exercises the same finalizer used by worker-exit cleanup and the shared process-group classifier used by teardown; teardown refuses browser-like processes that lack an exact owner record instead of signaling them from cwd or ancestry.
+The portable regression suite `tests/fm-browser-lifecycle.test.sh` proves task-incarnation ownership records, distinct sessions for its fixture task and home pairs, refusal of active or foreign PID records, delegation of named-session shutdown to the existing `chrome-devtools-axi stop` interface, named-bridge cleanup after worker command failure or proven abrupt worker loss, direct-command failure and explicit timeout results, and preservation of a direct process when its recorded identity changes.
+The suite also proves that signal interruption preserves an active child and bridge until exact child loss, and that a direct launch refuses before it holds the ownership lock through record publication.
+`tests/fm-teardown-endpoint-safety.test.sh` verifies that teardown requests endpoint shutdown before browser finalization, while `tests/fm-control-relaunch.test.sh` verifies that an agent-free relaunch retires the prior browser owner before publishing its replacement metadata.
+These suites exercise the finalizer used by worker-exit cleanup and the shared process-group classifier used by teardown; teardown refuses browser-like processes that lack an exact owner record instead of signaling them from cwd or ancestry.
 On 2026-09-14, `chrome-devtools-axi --version` reported 0.1.32, and a real named-session `open` against a `data:text/html` page returned the page title and snapshot before the lifecycle finalizer delegated `stop`; the ownership directory was then retired.
 The first attempt with a nonexistent `CHROME_DEVTOOLS_AXI_MCP_PATH` correctly exposed the installed-MCP-path limitation, so the successful reproduction used the tool's npx fallback and did not claim a globally installed MCP package.
 
