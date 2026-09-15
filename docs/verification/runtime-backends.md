@@ -225,10 +225,34 @@ ok - live composer-matrix guard verified 8 live surface(s)
 All six installed harnesses' real idle composers reached a proven `empty` (Claude auto-updated to 2.1.227 between the audit and this rerun, so the shipped classifier is proven against the newer release as well), including Pi through the tmux foreground-process identity probe, Grok through the titled-bottom-border tolerance, and OpenCode through the left-bar shape; Codex and OpenCode first parked on vendor update-available modals that the strict classifier correctly refused until the guard's single non-submitting Escape dismissed them.
 The strict blank-row posture held live (a blank shell row deferred injection), and a zellij pane changing for reasons unrelated to submission never confirmed a delivery, replacing the retired content-diff heuristic's false positive.
 Kimi was not installed on the verification machine; its bordered shape is pinned by the portable byte-capture regressions in `tests/fm-composer-lib.test.sh`, which also carry the other five adapters' capability profiles for every harness under both a UTF-8 locale and `LC_ALL=C`.
-That portable matrix also pins the styled native Codex 0.154.0 idle row and its recognised placeholder with either Braille bracketing decoration or up to three in-place letter-shimmer substitutions as `empty`.
-Four in-place substitutions, all-Braille Codex drafts shorter than, equal to, or longer than the 24-character placeholder, a Claude Braille draft, and Codex Braille plus typed content remain `pending`.
+That portable matrix also pins the styled native Codex 0.154.0 idle row as `empty` under its Braille decoration, including an unedited live capture of the full-width three-row starfield gpt-6-astra paints over its whole composer region (task fm-codex-composer-braille-r2), the bracketing shape, and up to three in-place letter-shimmer substitutions.
+Four in-place substitutions, all-Braille Codex drafts shorter than, equal to, or longer than the 24-character placeholder, a live-captured Braille-only draft typed into a real Codex composer, a Claude Braille draft, and Codex Braille plus typed content remain `pending`.
+Decoration around the placeholder is deliberately uncounted: the placeholder is drawn only while the composer is empty, so a genuine Braille draft removes it (verified live) and never reaches the bounded substitution rule.
+A second unedited capture of the same pane pins the region boundary: the starfield also paints over the blank row that ends a Codex composer, and the matrix requires Codex's own bright status footer below it to stay outside the composer rather than read as a wrapped draft.
+Five consecutive live frames off that pane pin the animation over time rather than at one instant, spanning 8 to 16 Braille glyphs surviving the ghost strip per frame, every one of them above the three-substitution bound and every one of them `empty`.
+Those frames also carry the rendered-versus-buffer contract as an executable inequality: the busiest idle frame leaves more bright Braille on screen than the captured genuine Braille-only draft does, and still reads `empty` while the draft reads `pending`, so visible ink is never the discriminator and the placeholder that proves an empty buffer is.
 This guard is the refresh command after an upgrade to any matrix-covered harness; rerun it and update the versions above rather than trusting this table across releases.
 Known staleness: on 2026-08-23 the steering-inbox doorbell run observed grok 1.0.5's idle composer classifying `unknown` (and sometimes pending-family), never `empty`, so the grok row above is stale for 1.0.5 and owes a refresh; steering is unaffected because the send path's composer check is advisory, but empty-requiring consumers (away-daemon injection, spawn readiness) should not trust the 1.0.0 grok result.
+
+Rerun on 2026-09-15 on tmux 3.6a, Linux x86_64, from this trusted checkout, during task fm-codex-composer-braille-r2:
+
+```text
+ok - claude (2.1.272 (Claude Code)): real idle composer classifies empty
+ok - codex (codex-cli 0.154.0): real idle composer classifies empty
+# harness absent, not verified here: opencode
+ok - pi (0.85.0): real idle composer classifies empty
+not ok - grok (grok 1.0.30 (04b7ffed98c6) [stable]): idle composer never classified empty (last verdict: pending-unproven)
+# harness absent, not verified here: kimi
+# harness absent, not verified here: muse
+ok - strict posture live: a blank shell row classifies unknown and injection defers
+# harness absent, not verified here: zellij (false-positive regression not exercised)
+not ok - live composer-matrix guard observed failures above
+```
+
+Claude, Codex, and Pi refresh their rows above at those versions; opencode, kimi, muse, and zellij were not installed on this machine and keep their prior results.
+The grok staleness above now extends through 1.0.30: its idle box still reads `unknown` or `pending-unproven`, and the cause has moved on from 1.0.5's.
+The content row itself reads `empty` (a bare `❯` after the side borders), and the box is rejected by the geometry check marking its titled bottom border ambiguous, which turns that `empty` into `unknown`.
+The same capture classifies identically under the pre-task and post-task classifier, so this is a grok-shape defect independent of the Codex Braille work and owes its own diagnosis and fixture.
 Cursor is deliberately outside this cursor-anchored empty-composer matrix because its terminal cursor is parked outside the composer; tmux's Cursor-specific, process-identity-gated cursorless fallback is covered by the [Cursor Agent CLI](#cursor-agent-cli) section's separate live evidence and drift guard.
 
 `zellij action dump-screen --pane-id <id> --ansi` was verified at zellij 0.44.0 to preserve ANSI styling (real Claude Code rendered inside a zellij pane dumped `ESC[m` `❯` U+00A0 for its idle composer row), which is the capability the zellij composer classifier reads.

@@ -250,8 +250,9 @@ Identity stays a lazy second read, consulted only when a separator pair could ch
 
 ANSI capture preserves de-emphasized placeholder style.
 `bin/fm-composer-lib.sh` is the fleet-wide owner that strips dim or faint runs and dark truecolor placeholders while retaining bright typed input.
-Its only bright-content exception admits Unicode Braille Patterns around the styled Codex `› Ask Codex to do anything` placeholder and at no more than three positions in place of its literal characters, once the dim-content and placeholder proofs both succeed.
-That bound preserves real Braille drafts as pending, while other harnesses and any non-Braille draft content also remain pending.
+Its only bright-content exception is the Braille starfield Codex paints across its idle composer region, whose dots land on arbitrary columns at varying luminance so a different handful survives the strip each frame.
+The styled `› Ask Codex to do anything` placeholder is what proves that row empty, because Codex draws that placeholder only while the composer holds nothing and replaces it the instant anything is typed, Braille included; decoration around the placeholder is therefore unbounded, while Braille standing in place of the placeholder's own literal characters stays capped at three so an all-Braille draft can never impersonate it.
+A still Codex composer is bounded by the blank row under its prompt glyph, and the starfield paints dots onto that row, so a decoration-only row still ends a Codex composer region and keeps Codex's own bright status footer outside it; every other harness, any non-Braille draft content, and any Codex row without that placeholder remain pending.
 If the ANSI capture ever fails, the plain fallback declares itself unstyled and the classifier degrades a glyph row carrying trailing text to `unknown` instead of misreading ghost suggestions as typed input, which safely defers injection and eventually raises the wedge alarm.
 
 A bare shell prompt is never an empty agent composer.

@@ -366,6 +366,58 @@ test_tasks_expose_evidenced_last_changed_at() {
   pass "tasks expose independent change timestamps while freshness stays snapshot-wide"
 }
 
+# The bounded unread-steering signal every human fleet view renders. A mate
+# holding instructions it never acknowledged must be distinguishable in
+# structured output from a healthy idle one, without that output ever carrying
+# a steer body.
+test_tasks_expose_bounded_unread_steering() {
+  local home fakebin out i
+  home=$(make_home unread-steering)
+  for i in waiting idle; do
+    fm_write_meta "$home/state/$i.meta" \
+      "window=firstmate:fm-$i" \
+      "project=alpha" \
+      "harness=codex" \
+      "kind=ship" \
+      "mode=ship"
+    mkdir -p "$home/state/$i.inbox/handled"
+  done
+  printf 'schema=fm-task-inbox.v1\nat=x\n--\nRESTRICTED STEER BODY\n' \
+    > "$home/state/waiting.inbox/001.msg"
+  printf 'schema=fm-task-inbox.v1\nat=x\n--\nsecond\n' \
+    > "$home/state/waiting.inbox/002.msg"
+  set_test_mtime "$home/state/waiting.inbox/001.msg" 202001010000
+  # Delivered and ladder-escalated, but never acknowledged: still unread.
+  printf '001.msg\t3\t1\n' > "$home/state/waiting.inbox/.ring-state"
+  : > "$home/state/waiting.inbox/.escalated"
+  # Steered and acknowledged: healthy.
+  printf 'schema=fm-task-inbox.v1\nat=x\n--\ntaken\n' \
+    > "$home/state/idle.inbox/handled/001.msg"
+
+  fakebin=$(make_fakebin "$home")
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    ((.tasks[] | select(.id == "waiting") | .steering) as $w
+      | $w.unread == 2 and $w.truncated == false and $w.source == "local-inbox"
+        and $w.oldest_unread_age_secs > 86400)
+    and ((.tasks[] | select(.id == "idle") | .steering) as $i
+      | $i.unread == 0 and $i.oldest_unread_age_secs == 0)
+  ' >/dev/null || fail "unread steering did not separate a waiting mate from a healthy idle one: $out"
+  assert_not_contains "$out" "RESTRICTED STEER BODY" \
+    "the fleet snapshot must publish unread counts and ages, never a steer body"
+
+  for i in $(seq 3 12); do
+    printf 'x\n' > "$home/state/waiting.inbox/$(printf '%03d' "$i").msg"
+  done
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_TASK_INBOX_UNREAD_MAX=4 "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    (.tasks[] | select(.id == "waiting") | .steering) as $w
+    | $w.unread == 4 and $w.truncated == true and $w.oldest_unread_age_secs > 86400
+  ' >/dev/null || fail "the unread signal was not bounded or lost its oldest age when capped: $out"
+
+  pass "tasks expose a bounded, body-free unread-steering signal that delivery alone never clears"
+}
+
 test_fixture_snapshot_json() {
   local home fakebin out ids
   home=$(make_home fixture)
@@ -1018,6 +1070,7 @@ test_large_secondmate_landed_projection_uses_file_transport
 test_signal_terminates_instead_of_emitting_partial_fleet
 test_secondmate_failure_diagnostic_is_specific
 test_empty_fleet_json
+test_tasks_expose_bounded_unread_steering
 test_tasks_expose_evidenced_last_changed_at
 test_fixture_snapshot_json
 test_main_inventory_orphan_and_unstructured_disclosure

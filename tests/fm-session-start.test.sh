@@ -1321,6 +1321,59 @@ EOF
   pass "tmux endpoint liveness is reported per task: alive for a live window, dead for a gone one"
 }
 
+# --- unread steering: an unreachable mate must not read as healthy idle ------
+
+test_unread_steering_signal() {
+  local rec root home fakebin out
+  rec=$(new_world unread-steering)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  make_fake_tmux "$fakebin" "fm-sess:live-window"
+
+  printf 'window=fm-sess:live-window\nkind=ship\n' > "$home/state/task-waiting.meta"
+  printf 'window=fm-sess:live-window\nkind=ship\n' > "$home/state/task-idle.meta"
+  mkdir -p "$home/state/task-waiting.inbox/handled" "$home/state/task-idle.inbox/handled"
+  printf 'schema=fm-task-inbox.v1\nat=x\n--\nRESTRICTED STEER BODY\n' \
+    > "$home/state/task-waiting.inbox/001.msg"
+  printf 'schema=fm-task-inbox.v1\nat=x\n--\nsecond instruction\n' \
+    > "$home/state/task-waiting.inbox/002.msg"
+  # The idle mate was steered and acknowledged it; that must read as healthy.
+  printf 'schema=fm-task-inbox.v1\nat=x\n--\nalready taken\n' \
+    > "$home/state/task-idle.inbox/handled/001.msg"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "steering: 2 unacknowledged instruction(s) waiting" \
+    "a mate holding unread steering is not distinguishable from a healthy idle one"
+  assert_contains "$out" "(state/task-waiting.inbox)" "the steering line does not name the task it belongs to"
+  case "$out" in
+    *"steering:"*"task-idle.inbox"*) fail "an acknowledged inbox must leave no steering line" ;;
+  esac
+  assert_not_contains "$out" "RESTRICTED STEER BODY" \
+    "the steering signal must publish counts and ages, never a steer body"
+
+  # Delivery is not acknowledgement: a rung and ladder-escalated record is still
+  # unread, which is exactly the silently-suppressed-doorbell case.
+  printf '001.msg\t3\t1\n' > "$home/state/task-waiting.inbox/.ring-state"
+  : > "$home/state/task-waiting.inbox/.escalated"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "steering: 2 unacknowledged instruction(s) waiting" \
+    "delivery bookkeeping must never make an unread instruction read as read"
+
+  # Bounded: a pathological inbox reports a capped count, not an unbounded one.
+  local i
+  for i in $(seq 3 12); do
+    printf 'x\n' > "$home/state/task-waiting.inbox/$(printf '%03d' "$i").msg"
+  done
+  out=$(FM_TASK_INBOX_UNREAD_MAX=4 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "steering: 4+ unacknowledged instruction(s) waiting" \
+    "the unread depth must be bounded and disclose that it was capped"
+
+  pass "session start: unread steering is surfaced per task, bounded, body-free, and never satisfied by delivery alone"
+}
+
 test_endpoint_liveness_herdr() {
   local rec root home fakebin out
   rec=$(new_world liveness-herdr)
@@ -2862,6 +2915,7 @@ test_status_tail_bounding
 test_status_tail_line_cap
 test_orphan_status_logs_are_printed
 test_endpoint_liveness_tmux
+test_unread_steering_signal
 test_endpoint_liveness_herdr
 test_composition_invokes_real_scripts
 test_branch_outcome_replay_and_lease_sweep

@@ -332,6 +332,75 @@ test_ladder_writes_ignore_vanished_inbox() {
   pass "inbox: ladder bookkeeping ignores a concurrently removed inbox"
 }
 
+# The bounded unread-steering signal supervision surfaces render. Its whole
+# reason for existing is that a swallowed doorbell leaves every other signal
+# reading normal, so it must count what the worker never ACKNOWLEDGED and must
+# never be satisfied by delivery bookkeeping.
+test_unread_summary_counts_unacknowledged_only() {
+  local state r1 r2 depth oldest truncated i
+  state="$TMP_ROOT/unread/state"; mkdir -p "$state"
+
+  IFS=$(printf '\t') read -r depth oldest truncated <<EOF
+$(inbox_lib "$state" fm_task_inbox_unread_summary "$state" t1)
+EOF
+  [ "$depth" = 0 ] && [ "$oldest" = 0 ] && [ "$truncated" = 0 ] \
+    || fail "an absent inbox should report 0 unread, got depth=$depth oldest=$oldest truncated=$truncated"
+
+  r1=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "first") || fail "write failed"
+  r2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "second") || fail "write failed"
+  age_path "$r1"
+  IFS=$(printf '\t') read -r depth oldest truncated <<EOF
+$(inbox_lib "$state" fm_task_inbox_unread_summary "$state" t1)
+EOF
+  [ "$depth" = 2 ] || fail "two unread records should report depth 2, got $depth"
+  [ "$oldest" -gt 86400 ] || fail "the oldest age should come from the oldest record, got $oldest"
+
+  # Delivery is not acknowledgement. A record that was rung, re-rung, and
+  # ladder-escalated is still unread until the worker moves it.
+  printf '001.msg\t3\t1\n' > "$state/t1.inbox/.ring-state"
+  : > "$state/t1.inbox/.escalated"
+  IFS=$(printf '\t') read -r depth oldest truncated <<EOF
+$(inbox_lib "$state" fm_task_inbox_unread_summary "$state" t1)
+EOF
+  [ "$depth" = 2 ] || fail "delivery bookkeeping must not reduce unread depth, got $depth"
+
+  # The worker's mv IS the acknowledgement, and only it clears the signal.
+  mkdir -p "$state/t1.inbox/handled"
+  mv "$r1" "$state/t1.inbox/handled/"
+  IFS=$(printf '\t') read -r depth oldest truncated <<EOF
+$(inbox_lib "$state" fm_task_inbox_unread_summary "$state" t1)
+EOF
+  [ "$depth" = 1 ] || fail "an acknowledged record should leave depth 1, got $depth"
+  [ "$oldest" -lt 86400 ] || fail "the oldest age should follow the remaining record, got $oldest"
+  mv "$r2" "$state/t1.inbox/handled/"
+  IFS=$(printf '\t') read -r depth oldest truncated <<EOF
+$(inbox_lib "$state" fm_task_inbox_unread_summary "$state" t1)
+EOF
+  [ "$depth" = 0 ] && [ "$oldest" = 0 ] \
+    || fail "a fully acknowledged inbox should report 0 unread, got depth=$depth oldest=$oldest"
+
+  # Bounded: a pathological inbox costs a capped scan and discloses the cap,
+  # and the oldest age survives truncation because sequence order is age order.
+  for i in $(seq 1 12); do
+    inbox_lib "$state" fm_task_inbox_write "$state" t2 "msg $i" >/dev/null || fail "write failed"
+  done
+  age_path "$state/t2.inbox/001.msg"
+  IFS=$(printf '\t') read -r depth oldest truncated <<EOF
+$(FM_TASK_INBOX_UNREAD_MAX=4 inbox_lib "$state" fm_task_inbox_unread_summary "$state" t2)
+EOF
+  [ "$depth" = 4 ] || fail "the capped count should stop at the cap, got $depth"
+  [ "$truncated" = 1 ] || fail "a capped count must disclose that it was truncated"
+  [ "$oldest" -gt 86400 ] \
+    || fail "a truncated count must still report the true oldest age, got $oldest"
+  IFS=$(printf '\t') read -r depth oldest truncated <<EOF
+$(inbox_lib "$state" fm_task_inbox_unread_summary "$state" t2)
+EOF
+  [ "$depth" = 12 ] && [ "$truncated" = 0 ] \
+    || fail "under the default cap all 12 should count untruncated, got depth=$depth truncated=$truncated"
+
+  pass "inbox: the unread signal counts unacknowledged records only, is bounded, and keeps the true oldest age"
+}
+
 test_ring_ladder_policy() {
   local state rec action
   state="$TMP_ROOT/ladder/state"; mkdir -p "$state"
@@ -565,6 +634,7 @@ test_write_is_durable_and_exact
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence
+test_unread_summary_counts_unacknowledged_only
 test_concurrent_writers_never_clobber
 test_write_retries_when_lost_create_race_releases_before_recheck
 test_lock_refuses_unavailable_age_evidence_without_recursive_steals

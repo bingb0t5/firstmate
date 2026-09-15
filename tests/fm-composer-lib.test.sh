@@ -269,6 +269,194 @@ test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending() {
   pass "matrix: Codex idle-placeholder letter-shimmer Braille (gpt-6-astra, gpt-5.6-luna) reads empty, and genuine typed drafts stay pending"
 }
 
+# Regression of fm-codex-composer-braille-r1 (PR #71) and -r2 (PR #72): the
+# real Codex 0.154.0 idle animation on gpt-6-astra is not a handful of glyphs
+# bracketing the placeholder, it is a full-width Braille "starfield" painted
+# across all THREE rows of the composer region, fading dots in and out through
+# a truecolor luminance ramp so a different handful survives the ghost strip
+# each frame. Both fixtures here are unedited live captures: the starfield one
+# came off the affected pane (60/60 consecutive one-second samples read
+# `pending` before this fix, suppressing its steering doorbell), and the draft
+# one is a real Braille-only message typed into an idle Codex composer - the
+# blind-captain input the bounded-substitution rule exists to protect.
+test_matrix_codex_astra_idle_starfield_is_empty_but_braille_draft_is_pending() {
+  local encoded capture draft draft_wrapped glyph_row wrap_row typed bright undecorated
+  local decoration_row='' taller footer_capture extracted decoration_rows=0
+  local braille_bytes=$'\342[\240-\243][\200-\277]'
+  encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-astra-idle-starfield.ansi-escaped")
+  printf -v capture '%b' "$encoded"
+  assert_screen "captured Codex gpt-6-astra idle starfield on Herdr" empty "$CAPS_STYLED" "$capture"
+  assert_screen "the same starfield capture on zellij" empty "$CAPS_STYLED_NOID" "$capture"
+
+  # Codex draws `Ask Codex to do anything` ONLY while the composer is empty and
+  # replaces it the instant anything is typed - verified live, including for a
+  # Braille-only draft. So the placeholder proves emptiness and the decoration
+  # around it needs no counting; this capture carries far more Braille glyphs
+  # than FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS, and raising that
+  # bound would not have classified it either.
+  glyph_row=$(printf '%s\n' "$capture" | grep -a '›' | head -1)
+  [ -n "$glyph_row" ] || fail "starfield fixture lost its Codex prompt row"
+  case "$glyph_row" in
+    *'Ask Codex to do anything'*) : ;;
+    *) fail "starfield fixture lost its literal idle placeholder" ;;
+  esac
+
+  # The rows above and below the prompt glyph carry the same decoration. They
+  # are what the cursorless bare-composer walk absorbs as a wrap region, so
+  # they must not read as a long typed draft.
+  while IFS= read -r wrap_row; do
+    case "$wrap_row" in *'›'*) continue ;; esac
+    if printf '%s' "$wrap_row" | LC_ALL=C grep -q "$braille_bytes"; then
+      decoration_rows=$((decoration_rows + 1))
+      decoration_row=$wrap_row
+    fi
+  done <<EOF
+$capture
+EOF
+  [ "$decoration_rows" -ge 2 ] \
+    || fail "starfield fixture must carry decoration rows around the prompt glyph, found $decoration_rows"
+
+  # The region is three rows here but the animation is reported at three OR
+  # four, so the rule must hold for any number of decoration rows rather than
+  # for this capture's height. Repeat a real captured decoration row to prove
+  # the depth is not load-bearing.
+  taller=$(printf '%s\n' "$capture" | awk -v d="$decoration_row" '{ print } $0 ~ /\xe2\x80\xba/ { print d }')
+  assert_screen "starfield capture with a fourth decoration row" empty "$CAPS_STYLED" "$taller"
+
+  # Drive the two proofs apart, so neither can go quietly vacuous.
+  # Losing the STYLING proof: the same placeholder bytes rendered bright are
+  # real typed input that happens to read like the placeholder.
+  bright=${capture//"${ESC}[2m"/"${ESC}[0m"}
+  [ "$bright" != "$capture" ] || fail "starfield fixture lost its dim placeholder styling"
+  assert_screen "starfield capture with the placeholder rendered bright" pending "$CAPS_STYLED" "$bright"
+
+  # Losing the CONTENT proof: decoration rows with no proven idle Codex prompt
+  # row above them are an unidentified region, never an injectable empty.
+  undecorated=$(printf '%s\n' "$capture" | grep -av '›')
+  assert_screen "starfield decoration rows with no Codex prompt row" unknown "$CAPS_STYLED" "$undecorated"
+
+  # Second unedited live capture of the same pane, taken when its bottom row was
+  # Codex's own bright `<model> · <cwd> · <title>` footer instead of a dim hint.
+  # A still Codex composer is bounded by the blank row under its prompt glyph;
+  # the starfield paints dots onto that row, so the bare-composer region used to
+  # run straight past it and read the footer as a wrapped draft. The footer must
+  # stay outside the composer, not merely be forgiven inside it.
+  encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-astra-idle-starfield-footer.ansi-escaped")
+  printf -v footer_capture '%b' "$encoded"
+  case "$footer_capture" in
+    *'gpt-6-astra high'*) : ;;
+    *) fail "footer fixture lost the Codex status footer it exists to bound" ;;
+  esac
+  assert_screen "captured Codex starfield above its own status footer" empty "$CAPS_STYLED" "$footer_capture"
+  extracted=$(fm_composer_extract_selected_content "$CAPS_STYLED" "$footer_capture") \
+    || fail "the starfield-plus-footer capture must still resolve a composer"
+  [ -z "$extracted" ] \
+    || fail "the Codex status footer must stay outside the composer, got '$extracted'"
+
+  # tmux anchors on the cursor instead of bounding a cursorless region, so a
+  # cursor parked on a decoration row reaches the bare composer's wrap walk
+  # rather than the selector above. That path needs its own proof that the
+  # decoration is not a wrapped draft.
+  glyph_row=$(printf '%s\n' "$capture" | grep -an '›' | head -1 | cut -d: -f1)
+  assert_screen "Codex starfield with the cursor on the prompt row" empty "$CAPS_TMUX" "$capture" "$((glyph_row - 1))" probe-absent
+  assert_screen "Codex starfield with the cursor on a decoration row" empty "$CAPS_TMUX" "$capture" "$glyph_row" probe-absent
+
+  # A genuine Braille-only draft, captured live from a real Codex composer and
+  # shaped exactly like the starfield (isolated dots separated by spaces), has
+  # no placeholder left to prove emptiness and must stay pending.
+  encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-astra-braille-draft.ansi-escaped")
+  printf -v draft '%b' "$encoded"
+  assert_screen "captured genuine Braille-only Codex draft" pending "$CAPS_STYLED" $'transcript\n'"$draft"
+  assert_screen "the same Braille draft on tmux" pending "$CAPS_TMUX" $'transcript\n'"$draft" 1 probe-absent
+  draft_wrapped=$'transcript\n'"${ESC}[1m›${ESC}[0m"$'\n⠋'
+  assert_screen "cursorless blank Codex row plus wrapped Braille draft stays pending" pending "$CAPS_STYLED" "$draft_wrapped"
+
+  # Real typed text under the live starfield must also stay pending: the
+  # decoration may not mask content sitting beside it.
+  typed=${capture/"Ask Codex to do anything"/"${ESC}[0mship the release now"}
+  [ "$typed" != "$capture" ] || fail "starfield fixture lost its literal placeholder run"
+  assert_screen "typed text replacing the starfield placeholder stays pending" pending "$CAPS_STYLED" "$typed"
+
+  pass "matrix: the captured Codex gpt-6-astra idle starfield reads empty across its whole composer region, and genuine Braille or typed drafts stay pending"
+}
+
+# The rendered screen is not the composer buffer. Codex's idle starfield puts a
+# different, unpredictable amount of BRIGHT ink on the rendered row every frame
+# while the buffer behind it stays empty, and the verdict has to follow the
+# buffer. These are five unedited consecutive live frames off the affected pane,
+# chosen to span the observed range of decoration that survives the ghost strip,
+# so the animation is proven over time rather than at one lucky instant
+# (fm-codex-composer-braille-r2).
+test_matrix_codex_astra_idle_animation_over_frames() {
+  local encoded blob frame line frames=0 ink min_ink=-1 max_ink=-1 draft draft_ink
+  encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-astra-idle-starfield-frames.ansi-escaped")
+  printf -v blob '%b' "$encoded"
+
+  frame=''
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$line" = '--FRAME--' ]; then
+      frames=$((frames + 1))
+      ink=$(codex_frame_surviving_ink "$frame")
+      assert_screen "live Codex starfield frame $frames" empty "$CAPS_STYLED" "$frame"
+      [ "$min_ink" -lt 0 ] || [ "$ink" -ge "$min_ink" ] || min_ink=$ink
+      [ "$min_ink" -ge 0 ] || min_ink=$ink
+      [ "$ink" -le "$max_ink" ] || max_ink=$ink
+      frame=''
+      continue
+    fi
+    frame=${frame:+$frame$'\n'}$line
+  done <<EOF
+$blob
+EOF
+  if [ -n "$frame" ]; then
+    frames=$((frames + 1))
+    ink=$(codex_frame_surviving_ink "$frame")
+    assert_screen "live Codex starfield frame $frames" empty "$CAPS_STYLED" "$frame"
+    [ "$min_ink" -ge 0 ] && [ "$ink" -ge "$min_ink" ] || min_ink=$ink
+    [ "$ink" -le "$max_ink" ] || max_ink=$ink
+  fi
+
+  [ "$frames" -eq 5 ] || fail "the live-animation fixture must carry 5 frames, found $frames"
+  # Every frame must actually be the hard case: bright decoration that survived
+  # the ghost strip, in quantities the bounded substitution rule can never
+  # explain. Without this the frames could all be quiet and prove nothing.
+  [ "$min_ink" -gt "$FM_COMPOSER_CODEX_IDLE_MAX_BRAILLE_SUBSTITUTIONS" ] \
+    || fail "every frame must carry more surviving decoration than the substitution bound, min was $min_ink"
+  [ "$max_ink" -gt "$min_ink" ] \
+    || fail "the frames must differ in surviving decoration, got min=$min_ink max=$max_ink"
+
+  # THE CONTRACT, stated as an inequality the rendered screen alone cannot
+  # satisfy: the busiest idle frame puts MORE bright Braille on screen than a
+  # real Braille-only draft does, and still reads empty, while the draft reads
+  # pending. Ink on the rendered row is not evidence; what the composer buffer
+  # holds is, and the placeholder is how that buffer state reaches the screen.
+  encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-astra-braille-draft.ansi-escaped")
+  printf -v draft '%b' "$encoded"
+  draft_ink=$(codex_frame_surviving_ink "$draft")
+  [ "$draft_ink" -gt 0 ] || fail "the captured Braille draft should carry visible Braille, got $draft_ink"
+  [ "$max_ink" -gt "$draft_ink" ] \
+    || fail "the busiest idle frame ($max_ink) must out-ink the genuine draft ($draft_ink) for this contract to mean anything"
+  assert_screen "genuine Braille draft carrying less ink than an idle frame" pending "$CAPS_STYLED" $'transcript\n'"$draft"
+
+  pass "matrix: every frame of the captured live Codex idle animation reads empty, across the full range of decoration that survives styling, while a lighter genuine draft stays pending"
+}
+
+# Bright Braille left on a screen after the ghost strip - the ink that used to
+# be read as typed input. Counted through the production strip so the test
+# measures what the classifier actually sees.
+codex_frame_surviving_ink() {  # <screen>
+  local raw kept total=0 n
+  local braille_bytes=$'\342[\240-\243][\200-\277]'
+  while IFS= read -r raw || [ -n "$raw" ]; do
+    kept=$(printf '%s\n' "$raw" | fm_composer_strip_ghost)
+    n=$(printf '%s' "$kept" | LC_ALL=C grep -o "$braille_bytes" | wc -l | tr -d ' ')
+    total=$((total + n))
+  done <<EOF
+$1
+EOF
+  printf '%s' "$total"
+}
+
 test_matrix_codex_all_braille_drafts_are_pending() {
   local braille='⠋' all_braille_23='' all_braille_24='' all_braille_25='' i=0
   local draft
@@ -703,6 +891,8 @@ test_matrix_claude_bare_nbsp_row
 test_matrix_codex_dim_hint_row
 test_matrix_codex_braille_animation_is_empty_but_typed_text_is_pending
 test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending
+test_matrix_codex_astra_idle_starfield_is_empty_but_braille_draft_is_pending
+test_matrix_codex_astra_idle_animation_over_frames
 test_matrix_codex_all_braille_drafts_are_pending
 test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant

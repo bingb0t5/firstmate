@@ -61,6 +61,7 @@
 # Tunables (env):
 #   FM_TASK_INBOX_GRACE_SECS   default 90; delivery-attempt grace and spacing
 #   FM_TASK_INBOX_RING_MAX     default 3; delivery attempts before escalation
+#   FM_TASK_INBOX_UNREAD_MAX   default 50; cap on the unread-depth count below
 
 _FM_TASK_INBOX_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Both dependencies are canonical lint roots in their own right. Keep them as
@@ -75,6 +76,7 @@ FM_TASK_INBOX_SCHEMA='fm-task-inbox.v1'
 FM_TASK_INBOX_GRACE_DEFAULT=90
 FM_TASK_INBOX_RING_MAX_DEFAULT=3
 FM_TASK_INBOX_LOCK_WAIT_DEFAULT=5
+FM_TASK_INBOX_UNREAD_MAX_DEFAULT=50
 
 fm_task_inbox_grace_secs() {
   local g=${FM_TASK_INBOX_GRACE_SECS:-$FM_TASK_INBOX_GRACE_DEFAULT}
@@ -85,6 +87,12 @@ fm_task_inbox_grace_secs() {
 fm_task_inbox_ring_max() {
   local m=${FM_TASK_INBOX_RING_MAX:-$FM_TASK_INBOX_RING_MAX_DEFAULT}
   case "$m" in ''|*[!0-9]*) m=$FM_TASK_INBOX_RING_MAX_DEFAULT ;; esac
+  printf '%s' "$m"
+}
+
+fm_task_inbox_unread_max() {
+  local m=${FM_TASK_INBOX_UNREAD_MAX:-$FM_TASK_INBOX_UNREAD_MAX_DEFAULT}
+  case "$m" in ''|*[!0-9]*|0) m=$FM_TASK_INBOX_UNREAD_MAX_DEFAULT ;; esac
   printf '%s' "$m"
 }
 
@@ -288,6 +296,55 @@ fm_task_inbox_oldest_unhandled() {  # <state-dir> <task-id>
   done
   [ -n "$best" ] || return 1
   printf '%s' "$best"
+}
+
+# fm_task_inbox_unread_summary: the bounded unread-steering signal one
+# supervision surface needs to tell a mate that is holding instructions it has
+# never taken apart from a mate that is simply idle. Prints exactly
+# "<depth>\t<oldest_age_secs>\t<truncated>":
+#   depth            unhandled records present right now, counted no further
+#                    than FM_TASK_INBOX_UNREAD_MAX
+#   oldest_age_secs  age of the oldest unhandled record, 0 when depth is 0
+#   truncated        1 when the cap stopped the count, else 0
+#
+# UNREAD MEANS UNACKNOWLEDGED, NEVER UNDELIVERED. A record that has been rung,
+# re-rung, or ladder-escalated is still unread until the worker moves it into
+# handled/, because only that move is evidence the worker took it. The delivery
+# bookkeeping (.ring-state, .escalated) is deliberately not consulted: reading
+# it here would let a doorbell that was sent but silently swallowed present as
+# read.
+#
+# Records are allocated in never-reused ascending sequence, zero-padded to three
+# digits, so through 999 records per task lifetime the glob's sorted order is
+# age order: the cap can only truncate NEWER records, which is why the maximum
+# age over the counted prefix is still the true oldest age when the count was
+# truncated. Past 999 the padding stops sorting numerically, and a truncated
+# count could then under-report the oldest age; that needs one task to hold a
+# thousand records AND more than the cap unacknowledged, and it would understate
+# rather than hide the backlog, so the bound is kept rather than traded for an
+# unbounded scan.
+#
+# PRIVACY: this reads directory entries and mtimes only. It never opens a
+# record, so no steer text can reach a digest through it, and callers must keep
+# it that way by publishing this count and age rather than any body.
+fm_task_inbox_unread_summary() {  # <state-dir> <task-id>
+  local dir max depth=0 truncated=0 oldest=0 f age
+  dir=$(fm_task_inbox_dir "$1" "$2")
+  max=$(fm_task_inbox_unread_max)
+  for f in "$dir"/*.msg; do
+    [ -e "$f" ] || continue
+    fm_task_inbox_seq_of "${f##*/}" >/dev/null || continue
+    if [ "$depth" -ge "$max" ]; then
+      truncated=1
+      break
+    fi
+    depth=$((depth + 1))
+    age=$(fm_path_age "$f")
+    case "$age" in ''|*[!0-9]*) age=0 ;; esac
+    [ "$age" -le "$oldest" ] || oldest=$age
+  done
+  [ "$depth" -gt 0 ] || oldest=0
+  printf '%s\t%s\t%s' "$depth" "$oldest" "$truncated"
 }
 
 # The re-ring ladder decision for one task. Prints exactly one of:
