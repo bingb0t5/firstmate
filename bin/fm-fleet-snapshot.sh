@@ -63,7 +63,7 @@
 #     fail-closed local worker inventory and the fixed four-worker accounting
 #     consumed by pull and fresh ordinary spawn transactions.
 #     A backlog-only worker reservation counts only when its per-task launch
-#     reservation record is no older than FM_ATTENTION_RESERVATION_WINDOW_SECS.
+#     reservation record is less than 300 seconds old.
 #     Structured backlog holds and unresolved blockers take precedence over endpoint reconciliation:
 #     every held or blocked row is reported in a non-counting attention class,
 #     while only an unheld, unblocked row can consume a slot from its live state.
@@ -142,7 +142,7 @@ FM_SNAPSHOT_REGISTRY_TIMEOUT=${FM_SNAPSHOT_REGISTRY_TIMEOUT:-2}
 # A pull reservation protects only the short gap between tasks-axi start and
 # endpoint publication; an old in-flight row without an endpoint is not live
 # work and must not consume an attention slot forever.
-FM_ATTENTION_RESERVATION_WINDOW_SECS=${FM_ATTENTION_RESERVATION_WINDOW_SECS:-300}
+ATTENTION_RESERVATION_WINDOW_SECS=300
 validate_positive_bound() {  # <name> <value>
   case "$2" in
     ''|*[!0-9]*|0)
@@ -173,7 +173,6 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_LINES "$FM_SNAPSHOT_REGISTRY_LINES"
 validate_positive_bound FM_SNAPSHOT_REGISTRY_BYTES "$FM_SNAPSHOT_REGISTRY_BYTES"
 validate_positive_bound FM_SNAPSHOT_REGISTRY_RECORDS "$FM_SNAPSHOT_REGISTRY_RECORDS"
 validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIMEOUT"
-validate_positive_bound FM_ATTENTION_RESERVATION_WINDOW_SECS "$FM_ATTENTION_RESERVATION_WINDOW_SECS"
 
 # shellcheck source=bin/fm-backend.sh
 # shellcheck disable=SC1091
@@ -824,7 +823,7 @@ attention_json() {  # <backlog-json-file> <tasks-json-file> <inventory-valid> <r
     --slurpfile reservation_info "$4" \
     --argjson inventory_valid "$3" \
     --argjson snapshot_epoch "$SNAPSHOT_EPOCH" \
-    --argjson reservation_window "$FM_ATTENTION_RESERVATION_WINDOW_SECS" '
+    --argjson reservation_window "$ATTENTION_RESERVATION_WINDOW_SECS" '
     ($backlog[0]) as $backlog
     | ($tasks[0]) as $tasks
     | ($reservation_info[0]) as $reservation_info

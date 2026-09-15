@@ -276,20 +276,13 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 
 write_launch_reservation() {  # <task-id>
-  local id=$1 marker tmp now
-  now=${FM_LAUNCH_RESERVATION_NOW_EPOCH:-$(date +%s)}
-  case "$now" in
-    ''|*[!0-9]*)
-      echo "error: launch reservation timestamp is not an epoch integer" >&2
-      return 1
-      ;;
-  esac
+  local id=$1 marker tmp
   marker="$STATE/$id.launch-reservation"
   tmp=$(umask 077; mktemp "$STATE/.$id.launch-reservation.XXXXXX") || {
     echo "error: could not create launch reservation record for $id" >&2
     return 1
   }
-  if ! printf '%s\n' "$now" > "$tmp" || ! mv -f -- "$tmp" "$marker"; then
+  if ! date +%s > "$tmp" || ! mv -f -- "$tmp" "$marker"; then
     rm -f -- "$tmp"
     echo "error: could not publish launch reservation record for $id" >&2
     return 1

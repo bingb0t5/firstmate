@@ -216,8 +216,7 @@ test_fresh_and_stale_launch_reservations() {
 EOF
   printf '1701\n' > "$home/state/fresh-reservation.launch-reservation"
   printf '1700\n' > "$home/state/stale-reservation.launch-reservation"
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    FM_SNAPSHOT_NOW_EPOCH=2000 FM_ATTENTION_RESERVATION_WINDOW_SECS=300 \
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SNAPSHOT_NOW_EPOCH=2000 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
   printf '%s' "$out" | jq -e '
     .attention.valid == true
@@ -241,8 +240,7 @@ test_held_and_blocked_launch_reservations_do_not_count() {
   done
   (cd "$home" && tasks-axi block blocked-reservation --by blocker >/dev/null)
   (cd "$home" && tasks-axi hold held-reservation --reason "waiting externally" --kind external >/dev/null)
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    FM_SNAPSHOT_NOW_EPOCH=2000 FM_ATTENTION_RESERVATION_WINDOW_SECS=300 \
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SNAPSHOT_NOW_EPOCH=2000 \
     "$ROOT/bin/fm-fleet-snapshot.sh" --local-json)
   printf '%s' "$out" | jq -e '
     .attention.valid == true
