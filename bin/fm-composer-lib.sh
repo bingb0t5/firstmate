@@ -1103,7 +1103,7 @@ _fm_composer_wrap_region_ok() {  # <plain-screen> <glyph-row> <cursor-row>
 # prove it real and unknown otherwise (the same styled=0 degradation as the
 # glyph row itself).
 _fm_composer_classify_bare_wrap() {  # <screen> <styled> <glyph-row> <cursor-row>
-  local screen=$1 styled=$2 g=$3 cy=$4 row raw content glyph='' text_seen=0
+  local screen=$1 styled=$2 g=$3 cy=$4 row raw content stripped glyph='' text_seen=0
   local codex_idle=0
   row=$g
   while [ "$row" -le "$cy" ]; do
@@ -1114,13 +1114,15 @@ _fm_composer_classify_bare_wrap() {  # <screen> <styled> <glyph-row> <cursor-row
         content=${content#*"$glyph"}
       fi
       fm_composer_normalize_trim_var content
-      # An EMPTY Codex prompt row proves the composer holds no input, so the
+      # A proven-empty Codex prompt row proves the composer holds no input, so the
       # idle starfield Codex paints on the rows around it cannot be wrapped
       # input - there is nothing to wrap. Without this those decoration rows
       # read as a long typed draft and suppress the steering doorbell
-      # (fm-codex-composer-braille-r2). The glyph row's own verdict already
-      # carries the placeholder proof above, so this costs no extra work.
-      [ "$glyph" = '›' ] && [ -z "$content" ] && codex_idle=1
+      # (fm-codex-composer-braille-r2).
+      if [ "$styled" = 1 ]; then
+        stripped=$(printf '%s\n' "$raw" | fm_composer_strip_ghost)
+        _fm_composer_is_codex_braille_placeholder "$raw" "$stripped" && codex_idle=1
+      fi
     elif [ "$codex_idle" = 1 ] && _fm_composer_codex_idle_decoration_row "$content"; then
       content=''
     fi
@@ -1185,8 +1187,9 @@ _fm_composer_leftbar_floor_row() {  # <trimmed-row>
   [ -z "${blocks//▀/}" ]
 }
 
-_fm_composer_select_cursorless() {
-  local plain=$1 generic=-1 next boundary raw trimmed glyph='' codex_bare=0
+_fm_composer_select_cursorless() {  # <plain-screen> [raw-screen] [styled]
+  local plain=$1 screen=${2:-$1} styled=${3:-0}
+  local generic=-1 next boundary raw trimmed stripped glyph='' codex_bare=0
   FM_COMPOSER_SELECTED_KIND=
   FM_COMPOSER_SELECTED_FIRST=-1
   FM_COMPOSER_SELECTED_LAST=-1
@@ -1236,9 +1239,10 @@ _fm_composer_select_cursorless() {
     # composer, so for a Codex prompt row a decoration-only row still ends the
     # region - otherwise the extension runs past it into Codex's bright footer.
     codex_bare=0
-    raw=$(_fm_composer_screen_row "$FM_COMPOSER_SELECTED_FIRST" "$plain")
-    if fm_composer_leading_agent_glyph_var glyph "$raw" && [ "$glyph" = '›' ]; then
-      codex_bare=1
+    raw=$(_fm_composer_screen_row "$FM_COMPOSER_SELECTED_FIRST" "$screen")
+    if [ "$styled" = 1 ]; then
+      stripped=$(printf '%s\n' "$raw" | fm_composer_strip_ghost)
+      _fm_composer_is_codex_braille_placeholder "$raw" "$stripped" && codex_bare=1
     fi
     next=$((FM_COMPOSER_SELECTED_LAST + 1))
     while :; do
@@ -1289,7 +1293,7 @@ $caps
 EOF
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
   _fm_composer_scan_screen "$plain" '' 1
-  _fm_composer_select_cursorless "$plain" || return 1
+  _fm_composer_select_cursorless "$plain" "$screen" "$styled" || return 1
   row=$FM_COMPOSER_SELECTED_FIRST
   while [ "$row" -le "$FM_COMPOSER_SELECTED_LAST" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
@@ -1429,7 +1433,7 @@ EOF
   # No cursor: the bottom-most shape wins, with the pi-separator staleness
   # rules layered on (a live pi composer pair below the generic candidate
   # proves that candidate stale).
-  if ! _fm_composer_select_cursorless "$plain"; then
+  if ! _fm_composer_select_cursorless "$plain" "$screen" "$styled"; then
     printf 'unknown'
     return 0
   fi

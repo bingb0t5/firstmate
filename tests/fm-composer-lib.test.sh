@@ -280,7 +280,7 @@ test_matrix_codex_letter_shimmer_braille_is_empty_but_typed_text_is_pending() {
 # one is a real Braille-only message typed into an idle Codex composer - the
 # blind-captain input the bounded-substitution rule exists to protect.
 test_matrix_codex_astra_idle_starfield_is_empty_but_braille_draft_is_pending() {
-  local encoded capture draft glyph_row wrap_row typed bright undecorated
+  local encoded capture draft draft_wrapped glyph_row wrap_row typed bright undecorated
   local decoration_row='' taller footer_capture extracted decoration_rows=0
   local braille_bytes=$'\342[\240-\243][\200-\277]'
   encoded=$(<"$ROOT/tests/fixtures/fm-composer/codex-0.154.0-astra-idle-starfield.ansi-escaped")
@@ -368,6 +368,8 @@ EOF
   printf -v draft '%b' "$encoded"
   assert_screen "captured genuine Braille-only Codex draft" pending "$CAPS_STYLED" $'transcript\n'"$draft"
   assert_screen "the same Braille draft on tmux" pending "$CAPS_TMUX" $'transcript\n'"$draft" 1 probe-absent
+  draft_wrapped=$'transcript\n'"${ESC}[1m›${ESC}[0m"$'\n⠋'
+  assert_screen "cursorless blank Codex row plus wrapped Braille draft stays pending" pending "$CAPS_STYLED" "$draft_wrapped"
 
   # Real typed text under the live starfield must also stay pending: the
   # decoration may not mask content sitting beside it.
