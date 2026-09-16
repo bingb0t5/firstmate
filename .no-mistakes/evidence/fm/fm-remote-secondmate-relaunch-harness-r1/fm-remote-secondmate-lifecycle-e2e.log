@@ -1,0 +1,43 @@
+ok - overlapping remote home provisioning serializes through publication and rollback
+ok - remote seed rollback preserves serialized competing routes
+ok - unknown readiness preserves its route and brief for reconciliation
+ok - remote seeding checks, repairs, and re-checks readiness, then stops on a remaining gap
+ok - remote seeding proceeds once the repair closes every gap
+ok - remote seeding provisions a supplied origin without touching the primary project tree
+ok - remote provisioning re-validates a supplied origin at the receiving host
+ok - seeding carries bitbucket, self-hosted, and scp-like origins through to the remote clone
+ok - remote seed registers the route and provisions the whole home and project clone on that host
+ok - remote inheritance rejects incomplete and superseded payload generations
+ok - mixed local and remote routes validate without migration
+ok - remote spawn launches on the remote-local backend and records a host-qualified route
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ok - a matching-profile relaunch of an alive remote endpoint stays an idempotent no-op
+ok - an alive remote endpoint refuses a different harness/model/effort by naming every field, not as malformed metadata
+ok - a successful backend kill return cannot falsely confirm a live remote agent stopped
+WARNING: watcher still down (same stale episode; last beat: 27s ago, grace 300s) - full banner already printed this episode.
+ok - exiting the live remote agent then relaunching moves it onto a new harness/model/effort
+WARNING: watcher still down (same stale episode; last beat: 41s ago, grace 300s) - full banner already printed this episode.
+ok - legacy and mismatched remote endpoints fail closed before backend access
+ok - non-herdr remote endpoints are refused without changing either route
+ok - remote spawn serializes inheritance through launch publication
+ok - marked send and routed reply complete through the existing parent correlation owner
+PR_CHECK_MIGRATION: watcher ownership is ambiguous; review state/.watch.lock before rearming polls
+ok - partial remote inheritance retains reread intent through bootstrap convergence
+ok - config push and bootstrap serialize remote inheritance convergence
+WARNING: watcher still down (same stale episode; last beat: 45s ago, grace 300s) - full banner already printed this episode.
+ok - remote inherited config retains and retries a failed live reread nudge
+ok - fleet snapshot projects mixed local and remote structured state
+ok - remote update imports and fast-forwards the persistent home on its configured host
+PR_CHECK_MIGRATION: watcher ownership is ambiguous; review state/.watch.lock before rearming polls
+ok - startup repairs remote readiness before probing without relaunching
+PR_CHECK_MIGRATION: watcher ownership is ambiguous; review state/.watch.lock before rearming polls
+ok - startup reports alive legacy backends without changing their routes
+ok - unreachable remote state remains unknown with no local respawn or failover
+ok - remote retirement refuses child work, then removes only its own endpoint while a shared-session sibling survives
+ALL TESTS PASSED
