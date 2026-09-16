@@ -195,7 +195,11 @@ A worker that deliberately selects another named session must use the wrapper, w
 The bridge remains the owner of its Chrome and MCP children, and Firstmate proves the task, incarnation, session reservation, bridge PID liveness, and bridge command identity before delegating cleanup to `chrome-devtools-axi stop`.
 A session name is never ownership authority on its own, because that store is shared machine-wide while reservations are only visible inside one home, so the bridge must also prove from its own process environment that it belongs to this home's state directory and this task.
 That proof matches on home and task and deliberately not on incarnation, so a bridge left behind by an earlier incarnation of the same task is still cleaned up.
-A foreign answer, a missing binding, or an unreadable environment all preserve the browser, so the worst case is a leaked bridge rather than another home's browser closed underneath it.
+A foreign answer, a missing binding, or an unreadable environment all preserve the browser.
+Firstmate re-proves bridge ownership immediately before it delegates a stop.
+The CLI can stop only by session name, not by process identity.
+If a proved bridge exits and that name is reused inside the remaining narrow interval, the delegated stop can still close an unproved replacement bridge.
+A full identity-bound stop is deferred until the tool supports stopping by process identity.
 Reading another process's environment is Linux-only, so on any other host that proof is unavailable and every finalization preserves instead of cleaning up.
 `fm-control.sh exit`, `fm-spawn.sh --relaunch` after its agent-free endpoint proof, the watcher after exact worker-exit proof or a dead/missing pre-worker endpoint, and `fm-teardown.sh` after requesting endpoint closure all use the same finalizer, so success, failure, timeout, relaunch, teardown, and worker exit converge on one lifecycle contract rather than a host-wide reaper.
 Harness Stop and SessionEnd hooks continue to report the harness's own turn state, but they do not close browsers while a worker may still be using them; the Firstmate worker shell finalizes after normal completion, failure, timeout, or a signal it can observe.

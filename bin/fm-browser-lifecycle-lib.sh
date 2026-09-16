@@ -903,7 +903,7 @@ EOF
 # would silently fall back to trusting the session name alone.
 fm_browser_stop_axi_record() {  # <record> <state>; bridge stop is the only Chrome cleanup
   local record=$1 state=${2:-} session pid_file pid_state cli task owned
-  local bridge_pid bridge_identity current_pid current_identity
+  local bridge_pid bridge_identity bridge_command current_pid current_identity current_command
   [ -f "$record" ] && [ ! -L "$record" ] || return 0
   [ -n "$state" ] || {
     fm_browser_lifecycle_error "browser cleanup was asked to stop a session without its owning home"
@@ -934,21 +934,30 @@ fm_browser_stop_axi_record() {  # <record> <state>; bridge stop is the only Chro
       return 1
       ;;
     alive-bridge)
-      bridge_pid=$(fm_browser_axi_pid_value "$session" 2>/dev/null || true)
-      bridge_identity=$(fm_browser_process_identity "$bridge_pid" 2>/dev/null || true)
-      current_pid=$(fm_browser_axi_pid_value "$session" 2>/dev/null || true)
-      current_identity=$(fm_browser_process_identity "$current_pid" 2>/dev/null || true)
-      [ -n "$bridge_pid" ] && [ "$bridge_pid" = "$current_pid" ] \
-        && [ -n "$bridge_identity" ] && [ "$bridge_identity" = "$current_identity" ] \
-        && [ "$(fm_browser_process_command "$current_pid" 2>/dev/null || true)" = "$(fm_browser_process_command "$bridge_pid" 2>/dev/null || true)" ] || {
-        fm_browser_lifecycle_error "browser session $session changed while proving its bridge ownership; preserving it"
+      cli=$(command -v chrome-devtools-axi 2>/dev/null || true)
+      [ -n "$cli" ] || {
+        fm_browser_lifecycle_error "chrome-devtools-axi is unavailable to stop owned session $session"
         return 1
       }
+      bridge_pid=$(fm_browser_axi_pid_value "$session" 2>/dev/null || true)
+      bridge_identity=$(fm_browser_process_identity "$bridge_pid" 2>/dev/null || true)
+      bridge_command=$(fm_browser_process_command "$bridge_pid" 2>/dev/null || true)
+      [ -n "$bridge_pid" ] && [ -n "$bridge_identity" ] && [ -n "$bridge_command" ] || {
+        fm_browser_lifecycle_error "browser session $session could not prove its bridge identity; preserving it"
+        return 1
+      }
+      case "${bridge_command,,}" in
+        *chrome-devtools-axi-bridge*) ;;
+        *)
+          fm_browser_lifecycle_error "browser session $session changed before proving ownership; preserving it"
+          return 1
+          ;;
+      esac
       # The session name alone is not ownership: it lives in a namespace shared
       # by every home on this machine, and a stale PID file plus PID reuse can
       # reach a different home's bridge with the name fully intact. Require the
       # bridge's own environment to name this home and task before any stop.
-      fm_browser_bridge_owned_by "$current_pid" "$state" "$task"
+      fm_browser_bridge_owned_by "$bridge_pid" "$state" "$task"
       owned=$?
       case "$owned" in
         0) ;;
@@ -961,11 +970,28 @@ fm_browser_stop_axi_record() {  # <record> <state>; bridge stop is the only Chro
           return 1
           ;;
       esac
-      cli=$(command -v chrome-devtools-axi 2>/dev/null || true)
-      [ -n "$cli" ] || {
-        fm_browser_lifecycle_error "chrome-devtools-axi is unavailable to stop owned session $session"
+      current_pid=$(fm_browser_axi_pid_value "$session" 2>/dev/null || true)
+      current_identity=$(fm_browser_process_identity "$current_pid" 2>/dev/null || true)
+      current_command=$(fm_browser_process_command "$current_pid" 2>/dev/null || true)
+      [ "$bridge_pid" = "$current_pid" ] \
+        && [ "$bridge_identity" = "$current_identity" ] \
+        && [ "$bridge_command" = "$current_command" ] || {
+        fm_browser_lifecycle_error "browser session $session changed before stop; preserving it"
         return 1
       }
+      fm_browser_bridge_owned_by "$current_pid" "$state" "$task"
+      owned=$?
+      case "$owned" in
+        0) ;;
+        1)
+          fm_browser_lifecycle_error "browser session $session is not owned by this home/task before stop; preserving it"
+          return 1
+          ;;
+        *)
+          fm_browser_lifecycle_error "browser session $session could not re-prove it belongs to this home/task; preserving it"
+          return 1
+          ;;
+      esac
       CHROME_DEVTOOLS_AXI_SESSION=$session "$cli" stop >/dev/null 2>&1 || {
         fm_browser_lifecycle_error "chrome-devtools-axi could not stop owned session $session"
         return 1
