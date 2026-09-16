@@ -140,7 +140,8 @@ The portable-serial shards and Herdr are wired for the nightly schedule and manu
 When enabled, their Lalo-dev jobs require `self-hosted-lalo-dev` Environment approval; coverage, invariants, and timing aggregation remain off the pull-request path.
 Docs-only and Markdown-only pull requests are ignored by the CI workflow.
 Stock macOS Bash snapshot compatibility runs only on manual workflow dispatches.
-Newer CI runs for the same event and PR or branch cancel superseded runs to avoid redundant matrix work.
+Newer CI runs for the same event and non-main ref cancel superseded runs to avoid redundant matrix work.
+On main, new pushes preserve the running job's required-check record, though GitHub Actions retains at most one queued run per concurrency group.
 Use `bin/fm-test-run.sh --list-lanes` for exact lane names and `--help` for `--jobs` rules and required gate-skip flags when reproducing a lane locally.
 Discover tests by listing `tests/*.test.sh`: each is a self-contained bash script named `<subject>.test.sh`, and its header comment describes what it covers, so pass one to `bin/fm-test-run.sh` to focus on a subject with canonical timing output.
 A fixture may shorten a production timeout to keep a failure path prompt, but never below what the real work inside that window costs on a loaded machine: a fork, an exec, a lock acquisition, a beacon publication, or a first-poll check.
