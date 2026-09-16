@@ -1,0 +1,17 @@
+SCENARIO: mate steering primary through its own bin
+exit=4
+error: fm-send refuses a cross-home operation: this process runs from the 'mate-a' secondmate home (/tmp/fm-home-identity-live.4nCoT4/mate) but FM_HOME selects the 'primary' home (/tmp/fm-home-identity-live.4nCoT4/primary).
+error: a home may only operate on itself; another home - the primary home above all - is read-only from here. Set FM_HOME to this home, or run the operation from the owning home's own session. [signal: code-root]
+protected_inbox_exists=no
+
+SCENARIO: mate spawning through a missing state subpath under primary
+exit=4
+error: fm-spawn refuses a cross-home operation: FM_STATE_OVERRIDE selects /tmp/fm-home-identity-live.4nCoT4/primary/scratch/missing-state inside the protected 'primary' home (/tmp/fm-home-identity-live.4nCoT4/primary) state surface instead of the selected 'mate-a' home (/tmp/fm-home-identity-live.4nCoT4/mate).
+error: a home may only operate on itself; another home - the primary home above all - is read-only from here. Set FM_HOME to this home, or run the operation from the owning home's own session. [signal: surface-override]
+protected_subpath_exists=no
+
+SCENARIO: primary uses unrelated missing state override
+exit=1
+/tmp/fm-home-identity-live.4nCoT4/primary/bin/fm-spawn.sh: line 1768: cd: /tmp/fm-home-identity-live.4nCoT4/project: No such file or directory
+cross_home_refusal=no
+unrelated_state_created=yes

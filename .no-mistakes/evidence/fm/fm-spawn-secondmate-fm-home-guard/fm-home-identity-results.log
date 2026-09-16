@@ -1,0 +1,20 @@
+FM_TEST_BEGIN 2026-09-16T04:19:01Z tests/fm-home-identity.test.sh family=secondmate expected_gate_skip=none
+ok - stow memory accounting refuses another home and keeps valid routing
+ok - an inherited identity bypass cannot disable the boundary
+ok - surface overrides cannot escape the selected home
+ok - remote control accepts only its authenticated endpoint layout
+ok - fm-send refuses another home and keeps valid routing
+ok - fm-spawn refuses another home and preserves the domain-mate boundary
+ok - fm-stow-cascade refuses another home and keeps the primary sweep
+ok - the secondmate session binding refuses its bound primary home
+ok - an unreadable home identity refuses instead of collapsing to primary
+ok - identity markers accept the registry id charset
+ok - only a registry-corroborated marker establishes a home identity
+ok - an own-home exception requires the canonical registered path
+ok - a marker identity of primary remains distinct from marker absence
+ok - startup-memory-budget help renders its full contract
+FM_TEST_END 2026-09-16T04:19:15Z tests/fm-home-identity.test.sh exit=0 duration_ms=13768 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=13826
+FM_TEST_SUMMARY_FAMILY family=secondmate count=1 duration_ms=13768 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-home-identity.test.sh duration_ms=13768
+fm-test-run: wrote timing artifact: /home/rich/.no-mistakes/evidence/01M2M5WNS1YA07KND9XEC7VH61/fm-home-identity-results.json
