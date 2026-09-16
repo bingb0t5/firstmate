@@ -196,6 +196,15 @@ The move IS the acknowledgement: without it firstmate rings again and eventually
 EOF
 INBOX_SECTION=${INBOX_SECTION%$'\n'}
 
+IFS= read -r -d '' BROWSER_LIFECYCLE_SECTION <<'EOF' || true
+# Browser lifecycle
+Use `chrome-devtools-axi` normally; it inherits your task-scoped session.
+For another named browser session, use `$FM_BROWSER_LIFECYCLE axi --session <name> -- <chrome-devtools-axi arguments>`.
+For a direct Playwright or Puppeteer launch, use `$FM_BROWSER_LIFECYCLE launch -- <command>`.
+Do not set a custom `CHROME_DEVTOOLS_AXI_SESSION`, invoke a raw custom named session, or launch Playwright or Puppeteer directly outside these wrapper commands.
+EOF
+BROWSER_LIFECYCLE_SECTION=${BROWSER_LIFECYCLE_SECTION%$'\n'}
+
 if [ "$KIND" = secondmate ]; then
 SECONDMATE_PROJECTS=""
 idx=1
@@ -254,6 +263,8 @@ A message with NO marker is the captain typing directly into your pane: treat it
 A request arriving through the instruction inbox below follows the same marker and reply rules.
 
 $INBOX_SECTION
+
+$BROWSER_LIFECYCLE_SECTION
 
 # Escalation to main firstmate
 Handle routine work yourself.
@@ -358,6 +369,8 @@ The report is the only thing that survives, so anything worth keeping must be in
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+
+$BROWSER_LIFECYCLE_SECTION
 
 $INBOX_SECTION
 
@@ -485,6 +498,8 @@ $RULE1
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+
+$BROWSER_LIFECYCLE_SECTION
 
 $INBOX_SECTION
 

@@ -30,6 +30,19 @@ tests/fm-secondmate-safety.test.sh
 Observed result: each suite passed, including refusal before backlog, endpoint, or metadata mutation at four counted workers, local-only snapshots without remote reads, prioritized handoff, and nested-secondmate refusal.
 Because `bin/fm-spawn.sh` performs this check under the existing task-set lock before backend resolution and launch, the guard applies unchanged to Claude, Codex, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, Muse, tmux, Herdr, Zellij, Orca, and cmux.
 
+## Browser lifecycle ownership
+
+The portable regression suite `tests/fm-browser-lifecycle.test.sh` proves task-incarnation ownership records, distinct sessions for its fixture task and home pairs, refusal of active or foreign PID records, delegation of named-session shutdown to the existing `chrome-devtools-axi stop` interface, named-bridge cleanup after worker command failure or proven abrupt worker loss, direct-command failure and explicit timeout results, and preservation of a direct process when its recorded identity changes.
+The suite also proves that signal interruption preserves an active child and bridge until exact child loss, and that a direct launch refuses before it holds the ownership lock through record publication.
+Its ownership-proof cases hold one session name constant and vary only what the bridge claims about itself, so they stay valid even if two homes ever derive the same name: an earlier incarnation of the same task in the same home is cleaned up, while a bridge belonging to another task, a second home holding that exact session name, and an unreadable process environment are each preserved with their ownership records intact.
+`tests/fm-teardown-endpoint-safety.test.sh` verifies that teardown requests endpoint shutdown before browser finalization, while `tests/fm-control-relaunch.test.sh` verifies that an agent-free relaunch retires the prior browser owner before publishing its replacement metadata.
+These suites exercise the finalizer used by worker-exit cleanup and the shared process-group classifier used by teardown; teardown refuses browser-like processes that lack an exact owner record instead of signaling them from cwd or ancestry.
+On 2026-09-14, `chrome-devtools-axi --version` reported 0.1.32, and a real named-session `open` against a `data:text/html` page returned the page title and snapshot before the lifecycle finalizer delegated `stop`; the ownership directory was then retired.
+On 2026-09-16, with `chrome-devtools-axi` 0.1.32 on Linux 6.8.0, a real session reserved as `fm-d42bd43754f3c51e13cc43a8-live-proof-r1-4fa70f3ec6385022` (58 characters, inside the tool's 64-character limit) opened a `data:text/html` page and its bridge reported `alive-bridge` with one Chrome child.
+Reading that live bridge's own environment confirmed it had inherited the launching worker's `FM_BROWSER_STATE` and `FM_BROWSER_TASK_ID`, and the ownership check returned owned for the reserving home and task, foreign for a different home and for a different task, and unprovable when the process environment was made unreadable.
+A second home holding that exact same session name was then refused with `browser session ... is not owned by this home/task; preserving it` and the live bridge survived, after which the owning home's finalization stopped the real bridge and its Chrome child and retired the ownership record.
+The first attempt with a nonexistent `CHROME_DEVTOOLS_AXI_MCP_PATH` correctly exposed the installed-MCP-path limitation, so the successful reproduction used the tool's npx fallback and did not claim a globally installed MCP package.
+
 ## tmux
 
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.

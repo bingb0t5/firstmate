@@ -31,7 +31,10 @@
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
 #              Already-stopped is success (idempotent), including an
-#              authoritatively missing endpoint.
+#              authoritatively missing endpoint. Once that postcondition is
+#              proven, the exact task-incarnation browser owner is finalized by
+#              bin/fm-browser-lifecycle-lib.sh; an unproven browser cleanup is
+#              reported rather than guessed.
 #   relaunch   Transactionally replace the running agent with a new one in the
 #              same worktree, adopting the recorded endpoint when it still
 #              exists or recreating it when authoritatively missing, on the
@@ -129,6 +132,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-browser-lifecycle-lib.sh
+. "$SCRIPT_DIR/fm-browser-lifecycle-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
@@ -440,6 +445,14 @@ retire_busy_incarnation() {
   if [ -f "$STATE/$ID.busy-gen" ]; then
     "$SCRIPT_DIR/fm-busy-event.sh" retire "$STATE" "$ID" --current-gen >/dev/null 2>&1 || true
   fi
+}
+
+finalize_browser_incarnation() {  # <reason>
+  local reason=$1 generation
+  generation=$(fm_meta_get "$META" spawn_gen)
+  [ -n "$generation" ] || return 0
+  fm_browser_owner_finalize "$STATE" "$ID" "$generation" "$reason" || \
+    die "the agent for task $ID stopped, but its owned browser resources could not be retired; rerun the lifecycle action after the browser bridge is available"
 }
 
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
@@ -828,6 +841,7 @@ do_relaunch() {
 
   journal_write stopping "${CHECKPOINT_LINES[@]}" "$note_line"
   exit_result=$(do_exit)
+  finalize_browser_incarnation control-relaunch
   journal_write exited "${CHECKPOINT_LINES[@]}" "$note_line" "exit_result=$exit_result"
 
   # The launch owner (fm-spawn --relaunch) clears the previous incarnation's
@@ -882,6 +896,7 @@ case "$VERB" in
     ;;
   exit)
     result=$(do_exit)
+    finalize_browser_incarnation control-exit
     echo "$result $ID harness=$HARNESS backend=$BACKEND endpoint=$T worktree=$WT"
     ;;
   relaunch)

@@ -185,6 +185,32 @@ cmux is experimental, GUI-first, macOS-only, and can be selected explicitly or b
 cmux's container shape is one workspace per task with one surface, no per-home container split; workspace titles are scoped by the active home label plus a short hash of the resolved `FM_ROOT` path, and `--secondmate` spawns are refused, mirroring Orca.
 Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectable as a runtime backend.
 
+## Browser sessions follow task lifecycles
+
+`bin/fm-browser-lifecycle-lib.sh` is the single owner of browser resource records, and `bin/fm-browser-lifecycle.sh` is the worker-facing wrapper for named `chrome-devtools-axi` sessions and directly launched Playwright or Puppeteer commands.
+`fm-spawn.sh` reserves a named session derived from the resolved state home and task identity, and exports it to the worker, so ordinary `chrome-devtools-axi` calls use that bridge without changing the browser tool's public lifecycle.
+The home part of that name is a truncated SHA-256 of the resolved state directory, which keeps distinct homes apart inside the one `chrome-devtools-axi` session store they all share, and naming refuses outright rather than falling back to a weaker digest.
+A relaunch finalizes the prior incarnation's browser ownership before reserving the replacement worker's session.
+A worker that deliberately selects another named session must use the wrapper, which registers that exact session before invoking the existing `chrome-devtools-axi` CLI.
+The bridge remains the owner of its Chrome and MCP children, and Firstmate proves the task, incarnation, session reservation, bridge PID liveness, and bridge command identity before delegating cleanup to `chrome-devtools-axi stop`.
+A session name is never ownership authority on its own, because that store is shared machine-wide while reservations are only visible inside one home, so the bridge must also prove from its own process environment that it belongs to this home's state directory and this task.
+That proof matches on home and task and deliberately not on incarnation, so a bridge left behind by an earlier incarnation of the same task is still cleaned up.
+A foreign answer, a missing binding, or an unreadable environment all preserve the browser.
+Firstmate re-proves bridge ownership immediately before it delegates a stop.
+The CLI can stop only by session name, not by process identity.
+If a proved bridge exits and that name is reused inside the remaining narrow interval, the delegated stop can still close an unproved replacement bridge.
+A full identity-bound stop is deferred until the tool supports stopping by process identity.
+Reading another process's environment is Linux-only, so on any other host that proof is unavailable and every finalization preserves instead of cleaning up.
+`fm-control.sh exit`, `fm-spawn.sh --relaunch` after its agent-free endpoint proof, the watcher after exact worker-exit proof or a dead/missing pre-worker endpoint, and `fm-teardown.sh` after requesting endpoint closure all use the same finalizer, so success, failure, timeout, relaunch, teardown, and worker exit converge on one lifecycle contract rather than a host-wide reaper.
+Harness Stop and SessionEnd hooks continue to report the harness's own turn state, but they do not close browsers while a worker may still be using them; the Firstmate worker shell finalizes after normal completion, failure, timeout, or a signal it can observe.
+It records the exact identities of its supervisor and launched worker child, so the watcher can also finalize after abrupt loss only when both exact identities are gone; a live or unreadable identity preserves the browser, while the existing endpoint classifier remains the fallback for records created before the worker starts.
+A browser-like process found by teardown's generic cwd fallback is preserved; an exact wrapper-created process group is retired earlier by the lifecycle finalizer, and the fallback never signals one from parentlessness, ancestry, cwd, or age.
+Direct Playwright or Puppeteer launches are owned only through the wrapper's `setsid` process group and recorded leader identity.
+The wrapper locks and rechecks the task incarnation before it starts that group and holds the lock through record publication; a publication failure stops the group only while that exact identity still proves ownership, otherwise preserving it for inspection.
+Detached children that leave the proven group remain untouched for inspection.
+`CHROME_DEVTOOLS_AXI_BROWSER_URL` and auto-connect sessions may attach to a captain- or operator-owned browser, so finalization stops only the exact Firstmate bridge and never the attached browser.
+The implementation mechanics and the version-scoped real-tool evidence live in [`bin/fm-browser-lifecycle.sh`](../bin/fm-browser-lifecycle.sh) and [`docs/verification/runtime-backends.md#browser-lifecycle-ownership`](verification/runtime-backends.md#browser-lifecycle-ownership).
+
 ## Worktrees, not branches in your checkout
 
 Crewmates never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) pools clean worktrees for tmux, herdr, zellij, and cmux tasks, while Orca creates its own worktrees for `backend=orca`.
