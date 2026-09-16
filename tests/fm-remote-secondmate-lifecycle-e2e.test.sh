@@ -811,6 +811,8 @@ pass "a successful backend kill return cannot falsely confirm a live remote agen
 # agent, confirm the endpoint reads dead, then the identical relaunch that was
 # just refused succeeds and lands the new profile - proving the captain's
 # harness/model move is achievable without weakening the anti-duplicate guard.
+assert_present "$REMOTE_HOME/state/parent-route/ios.browser/owner" \
+  "the live remote endpoint did not hold browser lifecycle ownership before exit"
 exit_out=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh exit ios) \
   || fail "the named recovery command to stop the live remote agent failed"$'\n'"$exit_out"
 [ "$exit_out" = stopped ] || fail "stopping the live remote agent did not report 'stopped'"$'\n'"$exit_out"
@@ -819,6 +821,8 @@ case "$post_exit_state" in
   dead|missing) ;;
   *) fail "the remote endpoint did not read dead or missing after the named recovery command (got '$post_exit_state')" ;;
 esac
+assert_absent "$REMOTE_HOME/state/parent-route/ios.browser" \
+  "a confirmed remote exit left browser lifecycle ownership behind"
 tabs_before_recovery_relaunch=$(grep -c '^tab create' "$HERDR_LOG" || true)
 recovery_out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate \
   --harness claude --model claude-opus-4-8 --effort high) \
@@ -847,6 +851,38 @@ remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null \
   || fail "could not relaunch ios back onto the fixture's baseline codex profile"
 assert_grep 'harness=codex' "$REMOTE_HOME/state/parent-route/ios.meta" \
   "restoring the baseline profile did not bring ios back onto codex"
+
+# A confirmed process stop is still not a completed exit if its matching
+# browser ownership cannot be retired. Inject an unknown record into the
+# fixture's persisted ownership contract and ensure the command reports that
+# postcondition failure rather than a false successful stop. The fixture has
+# no live browser resources, so removing this injected test record and its
+# now-stale ownership directory restores the ordinary launch precondition.
+remote_browser_owner="$REMOTE_HOME/state/parent-route/ios.browser"
+assert_present "$remote_browser_owner/owner" \
+  "the restored remote endpoint did not recreate browser lifecycle ownership"
+touch "$remote_browser_owner/unrecognized"
+set +e
+failed_finalize_out=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh exit ios 2>&1)
+failed_finalize_rc=$?
+set -e
+[ "$failed_finalize_rc" -ne 0 ] \
+  || fail "a remote exit reported success after browser lifecycle finalization failed"$'\n'"$failed_finalize_out"
+assert_contains "$failed_finalize_out" 'agent stopped but its browser lifecycle ownership could not be retired' \
+  "a remote exit did not explain its unretired browser lifecycle ownership"
+[ "$(printf '%s\n' "$failed_finalize_out" | grep -Fx 'stopped' || true)" != stopped ] \
+  || fail "a remote exit reported stopped after browser lifecycle finalization failed"
+post_failed_finalize_state=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios 2>&1)
+case "$post_failed_finalize_state" in
+  dead|missing) ;;
+  *) fail "the finalization-failure fixture did not stop the remote agent (got '$post_failed_finalize_state')" ;;
+esac
+assert_present "$remote_browser_owner" \
+  "a failed browser lifecycle finalization discarded its ownership evidence"
+rm -rf -- "$remote_browser_owner"
+remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null \
+  || fail "could not relaunch ios after removing the injected lifecycle-failure fixture"
+pass "a remote exit refuses to report stopped when browser lifecycle finalization fails"
 
 remote_route_meta="$REMOTE_HOME/state/parent-route/ios.meta"
 cp "$remote_route_meta" "$TMP_ROOT/remote-ios-before-default-session.meta"

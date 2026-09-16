@@ -56,6 +56,8 @@ REMOTE_HERDR_SESSION=fm-remote
 
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-browser-lifecycle-lib.sh
+. "$SCRIPT_DIR/fm-browser-lifecycle-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-task-inbox-lib.sh
@@ -298,7 +300,11 @@ cmd_exit() {
         || die "could not stop the live remote secondmate $id agent"
       current=$(fm_backend_agent_state "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null || printf 'unreadable\n')
       case "$current" in
-        dead|missing) printf 'stopped\n' ;;
+        dead|missing)
+          fm_browser_finalize_meta "$CONTROL_STATE" "$REMOTE_ENDPOINT_META" "$id" remote-exit \
+            || die "remote secondmate $id agent stopped but its browser lifecycle ownership could not be retired; subsequent launch may be refused by stale ownership"
+          printf 'stopped\n'
+          ;;
         alive) die "remote secondmate $id agent is still alive; exit could not be confirmed. Retry the exit or investigate the remote backend" ;;
         *) die "remote secondmate $id exit is unconfirmed: endpoint state is $current" ;;
       esac
