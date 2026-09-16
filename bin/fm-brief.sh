@@ -205,6 +205,19 @@ Do not set a custom `CHROME_DEVTOOLS_AXI_SESSION`, invoke a raw custom named ses
 EOF
 BROWSER_LIFECYCLE_SECTION=${BROWSER_LIFECYCLE_SECTION%$'\n'}
 
+# UI review is a before-PR gate, like no-mistakes: it checks the built UI
+# against this brief's acceptance criteria and the design canon before GitHub
+# CI ever sees the change. Applies only when a change touches user-visible UI;
+# a non-UI change needs no action here.
+IFS= read -r -d '' UI_WORK_SECTION <<'EOF' || true
+# UI work
+If this change touches user-visible UI: before pushing, run this repo's local `ui-review` skill against this brief's acceptance criteria and the design canon, and fix until it is clean.
+Then add a `## UI review (local)` section to the PR body recording the verdict and screenshot links.
+A UI PR without that section is not done.
+Non-UI changes need no action here.
+EOF
+UI_WORK_SECTION=${UI_WORK_SECTION%$'\n'}
+
 if [ "$KIND" = secondmate ]; then
 SECONDMATE_PROJECTS=""
 idx=1
@@ -502,6 +515,8 @@ $RULE1
 $BROWSER_LIFECYCLE_SECTION
 
 $INBOX_SECTION
+
+$UI_WORK_SECTION
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.
