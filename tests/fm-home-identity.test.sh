@@ -256,6 +256,22 @@ test_surface_override_routing() {
     assert_signal "fm-spawn $surface into another home" surface-override
   done
 
+  run_surface_override "$MATE" "$MATE" FM_STATE_OVERRIDE "$PRIMARY" \
+    fm-spawn.sh protected-home "$TMP/project" --mode no-mistakes --yolo off
+  assert_refused 'fm-spawn state override naming another home'
+  assert_signal 'fm-spawn state override naming another home' surface-override
+  [ ! -e "$PRIMARY/protected-home.meta" ] \
+    || fail 'fm-spawn wrote directly into another home through a state override'
+
+  local protected_existing_state="$PRIMARY/scratch"
+  mkdir -p "$protected_existing_state"
+  run_surface_override "$MATE" "$MATE" FM_STATE_OVERRIDE "$protected_existing_state" \
+    fm-spawn.sh protected-existing-state "$TMP/project" --mode no-mistakes --yolo off
+  assert_refused 'fm-spawn existing state path under another home'
+  assert_signal 'fm-spawn existing state path under another home' surface-override
+  [ ! -e "$protected_existing_state/protected-existing-state.meta" ] \
+    || fail 'fm-spawn wrote through an existing state path under another home'
+
   local missing_state="$TMP/unrelated-missing-state"
   run_surface_override "$PRIMARY" "$PRIMARY" FM_STATE_OVERRIDE "$missing_state" \
     fm-spawn.sh missing-state "$TMP/project" --mode no-mistakes --yolo off
@@ -263,7 +279,13 @@ test_surface_override_routing() {
   [ -d "$missing_state" ] \
     || fail 'fm-spawn did not create an unrelated missing state override'
 
-  local protected_missing_state="$PRIMARY/state/missing-state"
+  local unrelated_existing_state="$TMP/unrelated-existing-state"
+  mkdir -p "$unrelated_existing_state"
+  run_surface_override "$PRIMARY" "$PRIMARY" FM_STATE_OVERRIDE "$unrelated_existing_state" \
+    fm-spawn.sh existing-state "$TMP/project" --mode no-mistakes --yolo off
+  assert_not_cross_home 'fm-spawn unrelated existing state override'
+
+  local protected_missing_state="$protected_existing_state/missing-state"
   run_surface_override "$MATE" "$MATE" FM_STATE_OVERRIDE "$protected_missing_state" \
     fm-spawn.sh protected-missing-state "$TMP/project" --mode no-mistakes --yolo off
   assert_refused 'fm-spawn missing state path under another home'

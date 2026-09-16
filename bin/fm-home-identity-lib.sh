@@ -277,8 +277,8 @@ fm_home_identity_set_protected_home() {
   fi
 }
 
-fm_home_identity_surface_is_protected_elsewhere() {
-  local target_abs=${1-} override_abs=${2-} surface=${3-} parent_abs='' bound_primary_abs='' registry probe
+fm_home_identity_override_is_protected_elsewhere() {
+  local target_abs=${1-} override_abs=${2-} parent_abs='' bound_primary_abs='' registry probe
   if fm_home_identity_origin_id >/dev/null; then
     parent_abs=$(fm_home_identity_canonical "$FM_SECONDMATE_PARENT_HOME") || return 1
   fi
@@ -289,36 +289,19 @@ fm_home_identity_surface_is_protected_elsewhere() {
     parent_abs=$bound_primary_abs
   fi
   registry="${parent_abs:-$target_abs}/data/secondmates.md"
-  case "$override_abs" in
-    "$parent_abs/$surface"|"$parent_abs/$surface/"*)
-      if [ -n "$parent_abs" ] && [ "$target_abs" != "$parent_abs" ]; then
-        fm_home_identity_set_protected_home "$parent_abs"
-        return 0
-      fi
-      ;;
-  esac
-  case "$override_abs" in
-    "$bound_primary_abs/$surface"|"$bound_primary_abs/$surface/"*)
-      if [ -n "$bound_primary_abs" ] && [ "$target_abs" != "$bound_primary_abs" ]; then
-        fm_home_identity_set_protected_home "$bound_primary_abs"
-        return 0
-      fi
-      ;;
-  esac
   probe=$override_abs
-  while [ "$probe" != / ]; do
-    case "$override_abs" in
-      "$probe/$surface"|"$probe/$surface/"*)
-        if [ "$probe" != "$target_abs" ]; then
-          if { [ -n "$parent_abs" ] \
-            && fm_home_identity_corroborated_id "$probe" "$parent_abs" >/dev/null; } \
-            || fm_home_identity_registered_remote_home "$probe" "$registry"; then
-            fm_home_identity_set_protected_home "$probe"
-            return 0
-          fi
-        fi
-        ;;
-    esac
+  while :; do
+    if [ "$probe" != "$target_abs" ]; then
+      if { [ -n "$parent_abs" ] && [ "$probe" = "$parent_abs" ]; } \
+        || { [ -n "$bound_primary_abs" ] && [ "$probe" = "$bound_primary_abs" ]; } \
+        || { [ -n "$parent_abs" ] \
+          && fm_home_identity_corroborated_id "$probe" "$parent_abs" >/dev/null; } \
+        || fm_home_identity_registered_remote_home "$probe" "$registry"; then
+        fm_home_identity_set_protected_home "$probe"
+        return 0
+      fi
+    fi
+    [ "$probe" = / ] && break
     probe=$(dirname -- "$probe")
   done
   return 1
@@ -344,7 +327,7 @@ fm_home_identity_surface_override() {
   override_abs=$(fm_home_identity_canonical "$override") \
     || override_abs=$(fm_home_identity_existing_prefix "$override") \
     || return 1
-  if fm_home_identity_surface_is_protected_elsewhere "$target_abs" "$override_abs" "$surface"; then
+  if fm_home_identity_override_is_protected_elsewhere "$target_abs" "$override_abs"; then
     if fm_home_identity_read "$target_abs"; then
       target_id=$FM_HOME_IDENTITY_VALUE
     else
