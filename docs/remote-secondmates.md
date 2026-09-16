@@ -170,7 +170,7 @@ To change a live remote secondmate's profile, first explicitly stop only its age
 bin/fm-on.sh <id> fm-remote-secondmate-control.sh exit <id>
 ```
 
-This preserves the remote secondmate home, worktrees, and backlog, and succeeds only after the host confirms that the agent is dead or missing.
+When this stops a live agent, it preserves the remote secondmate home, worktrees, and backlog, and succeeds only after the host confirms that the agent is dead or missing and retires that endpoint's browser lifecycle ownership.
 It is also safe when the agent is already stopped, while ambiguous or unattributed endpoint state refuses.
 Then rerun the original `bin/fm-spawn.sh <id> --secondmate` command with the intended pin or explicit profile.
 The stop is never automatic inside launch, and the local-only `fm-control.sh` control plane continues to refuse remote lifecycle verbs.
@@ -254,7 +254,7 @@ No generic remote delete or write surface exists: remote writes are confined to 
 ## Verification
 
 The portable tests use the real entrypoint protocol, real git repositories, a deterministic SSH boundary, a stateful host-local Herdr CLI fixture, and a controlled account fixture for the readiness gate.
-The lifecycle test covers seeding a registered project that this machine has never cloned, asserts that the local project tree is unchanged afterwards, carries Bitbucket, self-hosted, and scp-like origins through to the remote clone, and proves matching-profile no-op, mismatched-profile refusal, and the explicit stop-then-relaunch recovery:
+The lifecycle test covers seeding a registered project that this machine has never cloned, asserts that the local project tree is unchanged afterwards, carries Bitbucket, self-hosted, and scp-like origins through to the remote clone, and proves matching-profile no-op, mismatched-profile refusal, browser-ownership finalization on a confirmed stop, and the explicit stop-then-relaunch recovery:
 
 ```sh
 bin/fm-test-run.sh tests/fm-on.test.sh
