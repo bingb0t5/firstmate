@@ -1,0 +1,11 @@
+LIVE PR RECORDING - UI-classified PR with local review section
+PR_CHECK_MIGRATION: quarantined polls remain unarmed; review state/.pr-check-migration.log before rearming
+armed: state/task-ui-compliant.check.sh
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+UI-review warning count:
+0
+Recorded metadata:
+pr=https://github.com/bingb0t5/llalo/pull/342
+pr_head=8ef386c9b3e0ce91b1aa8a3b053ddaac35470d58
+Merge poll:
+armed

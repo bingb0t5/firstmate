@@ -1,0 +1,8 @@
+LIVE PR RECORDING - non-UI PR without local review section
+armed: state/task-non-ui.check.sh
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+Recorded metadata:
+pr=https://github.com/vercel/next.js/pull/98723
+pr_head=f11c77813203729ad6d92b15acb71b32db022bbe
+Merge poll:
+armed

@@ -1,0 +1,1 @@
+armed: state/task-ui.check.sh

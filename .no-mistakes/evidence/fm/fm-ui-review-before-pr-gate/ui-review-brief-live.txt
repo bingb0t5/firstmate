@@ -1,0 +1,13 @@
+LIVE BRIEF GENERATION - observable generated interface
+ship: UI contract excerpt
+# UI work
+If this change touches user-visible UI: before pushing, run this repo's local `ui-review` skill against this brief's acceptance criteria and the design canon, and fix until it is clean.
+Then add a `## UI review (local)` section to the PR body recording the verdict and screenshot links.
+A UI PR without that section is not done.
+Non-UI changes need no action here.
+
+# Project memory
+scout: UI contract heading count
+0
+secondmate: UI contract heading count
+0

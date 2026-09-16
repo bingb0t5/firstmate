@@ -1,0 +1,15 @@
+LIVE PR RECORDING - UI PR without local review section
+armed: state/task-ui.check.sh
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WARNING: PR https://github.com/vercel/next.js/pull/98718 touches UI paths but its body has no '## UI review (local)' section - the UI-review-before-PR gate was not recorded; do not relay this as ready until that gap is resolved
+Recorded metadata:
+pr=https://github.com/vercel/next.js/pull/98718
+pr_head=41c4ca5bd97dd92c3c7d266173e7ac413b9c0c53
+Merge poll:
+armed

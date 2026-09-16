@@ -1,0 +1,2 @@
+PR_CHECK_MIGRATION: quarantined polls remain unarmed; review state/.pr-check-migration.log before rearming
+armed: state/task-ui-compliant.check.sh

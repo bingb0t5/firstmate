@@ -1,0 +1,1 @@
+armed: state/task-non-ui.check.sh
