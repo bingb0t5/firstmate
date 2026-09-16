@@ -131,7 +131,7 @@ fm_home_identity_canonical() {
 }
 
 fm_home_identity_existing_prefix() {
-  local path=${1-} prefix suffix= component parent
+  local path=${1-} prefix suffix='' component parent
   [ -n "$path" ] || return 1
   while :; do
     if prefix=$(fm_home_identity_canonical "$path"); then
