@@ -1,4 +1,3 @@
-FM_TEST_BEGIN 2026-09-16T03:05:11Z tests/fm-remote-secondmate-lifecycle-e2e.test.sh family=secondmate expected_gate_skip=none
 ok - overlapping remote home provisioning serializes through publication and rollback
 ok - remote seed rollback preserves serialized competing routes
 ok - unknown readiness preserves its route and brief for reconciliation
@@ -21,10 +20,10 @@ ok - remote spawn launches on the remote-local backend and records a host-qualif
 ok - a matching-profile relaunch of an alive remote endpoint stays an idempotent no-op
 ok - an alive remote endpoint refuses a different harness/model/effort by naming every field, not as malformed metadata
 ok - a successful backend kill return cannot falsely confirm a live remote agent stopped
-WARNING: watcher still down (same stale episode; last beat: 28s ago, grace 300s) - full banner already printed this episode.
+WARNING: watcher still down (same stale episode; last beat: 27s ago, grace 300s) - full banner already printed this episode.
 ok - exiting the live remote agent then relaunching moves it onto a new harness/model/effort
-WARNING: watcher still down (same stale episode; last beat: 43s ago, grace 300s) - full banner already printed this episode.
-WARNING: watcher still down (same stale episode; last beat: 57s ago, grace 300s) - full banner already printed this episode.
+WARNING: watcher still down (same stale episode; last beat: 41s ago, grace 300s) - full banner already printed this episode.
+WARNING: watcher still down (same stale episode; last beat: 55s ago, grace 300s) - full banner already printed this episode.
 ok - a remote exit refuses to report stopped when browser lifecycle finalization fails
 ok - legacy and mismatched remote endpoints fail closed before backend access
 ok - non-herdr remote endpoints are refused without changing either route
@@ -33,7 +32,7 @@ ok - marked send and routed reply complete through the existing parent correlati
 PR_CHECK_MIGRATION: watcher ownership is ambiguous; review state/.watch.lock before rearming polls
 ok - partial remote inheritance retains reread intent through bootstrap convergence
 ok - config push and bootstrap serialize remote inheritance convergence
-WARNING: watcher still down (same stale episode; last beat: 48s ago, grace 300s) - full banner already printed this episode.
+WARNING: watcher still down (same stale episode; last beat: 49s ago, grace 300s) - full banner already printed this episode.
 ok - remote inherited config retains and retries a failed live reread nudge
 ok - fleet snapshot projects mixed local and remote structured state
 ok - remote update imports and fast-forwards the persistent home on its configured host
@@ -44,7 +43,3 @@ ok - startup reports alive legacy backends without changing their routes
 ok - unreachable remote state remains unknown with no local respawn or failover
 ok - remote retirement refuses child work, then removes only its own endpoint while a shared-session sibling survives
 ALL TESTS PASSED
-FM_TEST_END 2026-09-16T03:09:54Z tests/fm-remote-secondmate-lifecycle-e2e.test.sh exit=0 duration_ms=282567 gate_skip=false
-FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=282618
-FM_TEST_SUMMARY_FAMILY family=secondmate count=1 duration_ms=282567 failed=0
-FM_TEST_SLOWEST rank=1 script=tests/fm-remote-secondmate-lifecycle-e2e.test.sh duration_ms=282567
