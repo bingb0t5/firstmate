@@ -1,0 +1,2 @@
+stdin=not-a-tty
+/dev/null
