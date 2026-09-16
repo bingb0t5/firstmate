@@ -212,6 +212,37 @@ assert_absent "$STATE/worker-exit.browser" "worker exit retires named browser ow
 wait "$worker_pid" 2>/dev/null || true
 kill -0 "$worker_pid" 2>/dev/null && fail "worker exit left its owned bridge running"
 
+# The launched agent runs backgrounded inside a non-interactive shell, which
+# has no job control and so redirects its stdin from /dev/null unless the
+# worker hands its child the pane's own controlling terminal back. A command
+# CLI (Codex, Pi) that requires a real terminal on stdin depends on this.
+TTY_PROBE_SCRIPT="$TMP_ROOT/tty-probe.sh"
+cat > "$TTY_PROBE_SCRIPT" <<SH
+#!/usr/bin/env bash
+set -u
+. "$ROOT/bin/fm-browser-lifecycle-lib.sh"
+fm_browser_worker_run "$STATE" tty-probe w-tty -- \\
+  bash -c '[ -t 0 ] && echo tty || echo no-tty' > "\$TTY_RESULT_FILE"
+SH
+chmod +x "$TTY_PROBE_SCRIPT"
+
+TTY_RESULT_FILE="$TMP_ROOT/tty-result.txt"
+export TTY_RESULT_FILE
+: > "$TTY_RESULT_FILE"
+# `script` allocates a real pty for the whole session, so /dev/tty is openable
+# exactly as it is for a worker launched inside a real terminal pane.
+script -qec "bash '$TTY_PROBE_SCRIPT'" /dev/null >/dev/null 2>&1
+[ "$(cat "$TTY_RESULT_FILE")" = tty ] \
+  || fail "worker did not restore the pane's controlling terminal to its launched agent"
+
+: > "$TTY_RESULT_FILE"
+# `setsid` detaches from any controlling terminal, mirroring a spawn context
+# with no pane tty (for example a non-interactive backend); the worker must
+# still fall back to its previous behavior rather than fail the launch.
+setsid bash "$TTY_PROBE_SCRIPT" < /dev/null > /dev/null 2>&1
+[ "$(cat "$TTY_RESULT_FILE")" = no-tty ] \
+  || fail "worker without a controlling terminal did not fall back cleanly"
+
 fm_browser_owner_arm "$STATE" abrupt-exit w2 >/dev/null
 abrupt_session=$(fm_browser_session_for_task "$STATE" abrupt-exit)
 make_bridge "$abrupt_session" "$STATE" abrupt-exit

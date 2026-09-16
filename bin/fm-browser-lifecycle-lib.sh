@@ -1116,8 +1116,16 @@ fm_browser_worker_run() {  # <state> <task-id> <generation> -- <command...>
     fm_browser_owner_finalize "$state" "$task" "$generation" worker-exit
   }
   trap 'fm_browser_worker_run_cleanup >/dev/null 2>&1 || true' EXIT HUP INT TERM
-  "$@" &
-  child=$!
+  # A backgrounded job in this non-interactive shell has no job control, so bash
+  # redirects its stdin from /dev/null unless we hand it the pane's tty back.
+  if { exec 3</dev/tty; } 2>/dev/null; then
+    "$@" 0<&3 &
+    child=$!
+    exec 3<&-
+  else
+    "$@" &
+    child=$!
+  fi
   if fm_browser_owner_register_worker "$state" "$task" "$generation" "${BASHPID:-$$}" "$child"; then
     registered=1
     child_identity=$(fm_browser_record_field "$(fm_browser_owner_dir "$state" "$task")/owner" worker_child_identity 2>/dev/null || true)
