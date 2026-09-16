@@ -41,6 +41,9 @@
 # to launch a ship task whose explicit --mode disagrees, so an adjusted brief and the
 # recorded task metadata cannot drift apart.
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
+# Every ship brief also includes a UI-work contract that applies only to
+# user-visible UI: before pushing, run the target repository's local ui-review
+# skill, fix its findings, and record its verdict and screenshot links in the PR body.
 # --mode is refused on scout and secondmate scaffolds: a scout's deliverable is a
 # report rather than a merge, and a charter is not a delivery contract.
 # There is no --yolo flag here. The worker never owns merge decisions, so yolo is

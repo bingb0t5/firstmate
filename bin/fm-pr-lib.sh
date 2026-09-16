@@ -214,7 +214,7 @@ fm_pr_head_valid() {
 }
 
 # Pragmatic, non-exhaustive UI-path classifier for the before-PR UI-review
-# gate (AGENTS.md's "UI work" brief contract): a changed-file path is treated
+# gate (the ship brief's "UI work" contract): a changed-file path is treated
 # as user-visible UI when it has a frontend markup/stylesheet extension or
 # sits under a conventional UI directory. False negatives just mean a UI PR
 # gets no warning; false positives just mean a non-UI PR gets a spurious one -

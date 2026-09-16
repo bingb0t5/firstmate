@@ -5,6 +5,8 @@
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
 # including a merge request on a self-hosted GitLab instance.
+# For GitHub PRs, warns without refusing when pragmatic UI paths are changed but
+# the body lacks the `## UI review (local)` section required by a ship brief.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -82,7 +84,7 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   fi
 fi
 
-# Loud, non-blocking UI-review-gate check (AGENTS.md's "UI work" brief
+# Loud, non-blocking UI-review-gate check (the ship brief's "UI work"
 # contract): when this PR's changed files touch a UI path but its body lacks
 # the required "## UI review (local)" section, warn so firstmate never relays
 # it as ready without seeing the gap. Advisory only - never refuses, never

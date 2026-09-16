@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Behavior tests for fm-pr-check.sh's UI-review-before-PR gate warning
-# (AGENTS.md's "UI work" brief contract): loud, non-blocking stderr warning
+# (the ship brief's "UI work" contract): loud, non-blocking stderr warning
 # when a PR's changed files touch a UI path but its body lacks the required
 # "## UI review (local)" section. Never refuses, never affects pr=/pr_head=
 # recording or merge-poll arming.
