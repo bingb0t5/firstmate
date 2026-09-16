@@ -23,6 +23,7 @@ SSH_COUNT="$TMP_ROOT/ssh.count"
 DOCTOR_LOG="$TMP_ROOT/doctor.log"
 HERDR_STATE="$TMP_ROOT/remote-herdr.state"
 HERDR_LOG="$TMP_ROOT/remote-herdr.log"
+HERDR_IGNORE_CLOSE="$TMP_ROOT/remote-herdr-ignore-close"
 TMUX_LOG="$TMP_ROOT/remote-tmux.log"
 TMUX_STATE="$TMP_ROOT/remote-tmux.state"
 CLAIMS="$TMP_ROOT/claims"
@@ -94,7 +95,7 @@ exit 0
 SH
 chmod +x "$REMOTE_ROOT/bin/tmux"
 install_remote_herdr_fixture "$REMOTE_ROOT" "$HERDR_STATE" "$HERDR_LOG" \
-  "$TMP_ROOT/herdr-send-fail" "$TMP_ROOT/herdr.sock"
+  "$TMP_ROOT/herdr-send-fail" "$TMP_ROOT/herdr.sock" "$HERDR_IGNORE_CLOSE"
 git -C "$REMOTE_ROOT" init -q -b main
 git -C "$REMOTE_ROOT" config user.email test@example.com
 git -C "$REMOTE_ROOT" config user.name Test
@@ -732,6 +733,156 @@ publish_healthy_watcher_identity "$PARENT/state" "$PARENT" "$ROOT/bin/fm-watch.s
 [ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh observe ios)" = idle ] \
   || fail "remote endpoint delivery observation did not execute on its own host"
 pass "remote spawn launches on the remote-local backend and records a host-qualified route"
+
+# A relaunch onto the SAME profile an alive remote endpoint already carries
+# must stay the existing idempotent no-op: no new pane, no metadata churn.
+# The remote endpoint's own recorded harness comes from config/secondmate-harness
+# (set to codex earlier in this fixture), not config/crew-harness.
+assert_grep 'harness=codex' "$REMOTE_HOME/state/parent-route/ios.meta" \
+  "remote endpoint did not record its launch harness before the profile-change checks"
+assert_grep 'model=default' "$REMOTE_HOME/state/parent-route/ios.meta" \
+  "remote endpoint did not record its default model before the profile-change checks"
+tabs_before_same_profile=$(grep -c '^tab create' "$HERDR_LOG" || true)
+same_profile_out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate) \
+  || fail "a relaunch matching the live remote endpoint's own profile was refused"$'\n'"$same_profile_out"
+tabs_after_same_profile=$(grep -c '^tab create' "$HERDR_LOG" || true)
+[ "$tabs_before_same_profile" -eq "$tabs_after_same_profile" ] \
+  || fail "a matching-profile relaunch created a new remote pane instead of reusing the alive endpoint"
+pass "a matching-profile relaunch of an alive remote endpoint stays an idempotent no-op"
+
+# The confirmed defect: relaunching an ALIVE remote endpoint onto a DIFFERENT
+# harness/model/effort used to have cmd_launch's anti-duplicate guard silently
+# echo back the OLD (now-contradicting) route as if the request had been
+# honored, which fm-spawn.sh then rejected as "malformed route metadata" -
+# hiding that nothing was relaunched and that the profile never changed. The
+# fix must refuse honestly, name every mismatched field, and never claim
+# "malformed" for this well-formed-but-contradicting case.
+cp "$PARENT/state/ios.meta" "$TMP_ROOT/parent-ios-before-profile-change.meta"
+cp "$REMOTE_HOME/state/parent-route/ios.meta" "$TMP_ROOT/remote-ios-before-profile-change.meta"
+tabs_before_mismatch=$(grep -c '^tab create' "$HERDR_LOG" || true)
+set +e
+mismatch_out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate \
+  --harness claude --model claude-opus-4-8 --effort high 2>&1)
+mismatch_rc=$?
+set -e
+[ "$mismatch_rc" -ne 0 ] || fail "a harness/model/effort change onto a live remote endpoint was silently accepted without exiting it first"$'\n'"$mismatch_out"
+printf '%s' "$mismatch_out" > "$TMP_ROOT/mismatch.out"
+assert_no_grep 'malformed route metadata' "$TMP_ROOT/mismatch.out" \
+  "a live-but-different-profile refusal was still misreported as malformed route metadata"
+assert_contains "$mismatch_out" 'already alive on harness=codex model=default effort=default' \
+  "the refusal did not name the profile the endpoint is actually alive on"
+assert_contains "$mismatch_out" 'requested harness=claude model=claude-opus-4-8 effort=high' \
+  "the refusal did not name the requested profile that was refused"
+assert_contains "$mismatch_out" 'fm-remote-secondmate-control.sh exit ios' \
+  "the refusal did not name the exact command that stops the live agent first"
+tabs_after_mismatch=$(grep -c '^tab create' "$HERDR_LOG" || true)
+[ "$tabs_before_mismatch" -eq "$tabs_after_mismatch" ] \
+  || fail "a refused profile change still duplicated the remote agent's pane"
+cmp -s "$TMP_ROOT/parent-ios-before-profile-change.meta" "$PARENT/state/ios.meta" \
+  || fail "a refused profile change rewrote the parent's endpoint metadata"
+cmp -s "$TMP_ROOT/remote-ios-before-profile-change.meta" "$REMOTE_HOME/state/parent-route/ios.meta" \
+  || fail "a refused profile change rewrote the remote endpoint's own metadata"
+[ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = alive ] \
+  || fail "a refused profile change left the live remote agent looking stopped"
+pass "an alive remote endpoint refuses a different harness/model/effort by naming every field, not as malformed metadata"
+
+# A backend kill's exit status is not proof that the pane closed: model the
+# Herdr lock/readiness path that returns success without attempting the close.
+# The recovery command must fail visibly while the endpoint is still alive,
+# rather than falsely reporting it stopped and leading the following relaunch
+# to be refused as a duplicate.
+touch "$HERDR_IGNORE_CLOSE"
+set +e
+failed_exit_out=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh exit ios 2>&1)
+failed_exit_rc=$?
+set -e
+rm -f -- "$HERDR_IGNORE_CLOSE"
+[ "$failed_exit_rc" -ne 0 ] \
+  || fail "an unconfirmed hard kill of a still-live remote endpoint reported success"$'\n'"$failed_exit_out"
+assert_contains "$failed_exit_out" 'agent is still alive; exit could not be confirmed' \
+  "an unconfirmed hard kill did not explain that the remote agent remains alive"
+assert_not_contains "$failed_exit_out" 'stopped' \
+  "an unconfirmed hard kill falsely reported the remote agent stopped"
+[ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = alive ] \
+  || fail "an unconfirmed hard kill did not preserve the live endpoint for recovery"
+pass "a successful backend kill return cannot falsely confirm a live remote agent stopped"
+
+# The named recovery command must actually work end to end: exit the live
+# agent, confirm the endpoint reads dead, then the identical relaunch that was
+# just refused succeeds and lands the new profile - proving the captain's
+# harness/model move is achievable without weakening the anti-duplicate guard.
+assert_present "$REMOTE_HOME/state/parent-route/ios.browser/owner" \
+  "the live remote endpoint did not hold browser lifecycle ownership before exit"
+exit_out=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh exit ios) \
+  || fail "the named recovery command to stop the live remote agent failed"$'\n'"$exit_out"
+[ "$exit_out" = stopped ] || fail "stopping the live remote agent did not report 'stopped'"$'\n'"$exit_out"
+post_exit_state=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios 2>&1)
+case "$post_exit_state" in
+  dead|missing) ;;
+  *) fail "the remote endpoint did not read dead or missing after the named recovery command (got '$post_exit_state')" ;;
+esac
+assert_absent "$REMOTE_HOME/state/parent-route/ios.browser" \
+  "a confirmed remote exit left browser lifecycle ownership behind"
+tabs_before_recovery_relaunch=$(grep -c '^tab create' "$HERDR_LOG" || true)
+recovery_out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate \
+  --harness claude --model claude-opus-4-8 --effort high) \
+  || fail "the relaunch after the named recovery command still failed"$'\n'"$recovery_out"
+tabs_after_recovery_relaunch=$(grep -c '^tab create' "$HERDR_LOG" || true)
+[ "$tabs_after_recovery_relaunch" -eq "$((tabs_before_recovery_relaunch + 1))" ] \
+  || fail "the recovery relaunch did not create exactly one new remote pane"
+assert_grep 'harness=claude' "$PARENT/state/ios.meta" \
+  "parent metadata did not record the moved harness after recovery"
+assert_grep 'harness=claude' "$REMOTE_HOME/state/parent-route/ios.meta" \
+  "remote metadata did not record the moved harness after recovery"
+assert_grep 'model=claude-opus-4-8' "$REMOTE_HOME/state/parent-route/ios.meta" \
+  "remote metadata did not record the moved model after recovery"
+assert_grep 'effort=high' "$REMOTE_HOME/state/parent-route/ios.meta" \
+  "remote metadata did not record the moved effort after recovery"
+[ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = alive ] \
+  || fail "the endpoint did not come back alive after the recovery relaunch"
+pass "exiting the live remote agent then relaunching moves it onto a new harness/model/effort"
+
+# Restore ios to the config-resolved codex/default/default profile the rest of
+# this file assumes, so the harness/model/effort move proven above leaves no
+# state behind for later sections to trip over.
+remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh exit ios >/dev/null \
+  || fail "could not stop the moved-harness agent to restore the fixture's baseline profile"
+remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null \
+  || fail "could not relaunch ios back onto the fixture's baseline codex profile"
+assert_grep 'harness=codex' "$REMOTE_HOME/state/parent-route/ios.meta" \
+  "restoring the baseline profile did not bring ios back onto codex"
+
+# A confirmed process stop is still not a completed exit if its matching
+# browser ownership cannot be retired. Inject an unknown record into the
+# fixture's persisted ownership contract and ensure the command reports that
+# postcondition failure rather than a false successful stop. The fixture has
+# no live browser resources, so removing this injected test record and its
+# now-stale ownership directory restores the ordinary launch precondition.
+remote_browser_owner="$REMOTE_HOME/state/parent-route/ios.browser"
+assert_present "$remote_browser_owner/owner" \
+  "the restored remote endpoint did not recreate browser lifecycle ownership"
+touch "$remote_browser_owner/unrecognized"
+set +e
+failed_finalize_out=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh exit ios 2>&1)
+failed_finalize_rc=$?
+set -e
+[ "$failed_finalize_rc" -ne 0 ] \
+  || fail "a remote exit reported success after browser lifecycle finalization failed"$'\n'"$failed_finalize_out"
+assert_contains "$failed_finalize_out" 'agent stopped but its browser lifecycle ownership could not be retired' \
+  "a remote exit did not explain its unretired browser lifecycle ownership"
+[ "$(printf '%s\n' "$failed_finalize_out" | grep -Fx 'stopped' || true)" != stopped ] \
+  || fail "a remote exit reported stopped after browser lifecycle finalization failed"
+post_failed_finalize_state=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios 2>&1)
+case "$post_failed_finalize_state" in
+  dead|missing) ;;
+  *) fail "the finalization-failure fixture did not stop the remote agent (got '$post_failed_finalize_state')" ;;
+esac
+assert_present "$remote_browser_owner" \
+  "a failed browser lifecycle finalization discarded its ownership evidence"
+rm -rf -- "$remote_browser_owner"
+remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate >/dev/null \
+  || fail "could not relaunch ios after removing the injected lifecycle-failure fixture"
+pass "a remote exit refuses to report stopped when browser lifecycle finalization fails"
 
 remote_route_meta="$REMOTE_HOME/state/parent-route/ios.meta"
 cp "$remote_route_meta" "$TMP_ROOT/remote-ios-before-default-session.meta"

@@ -658,13 +658,20 @@ spawn_remote_secondmate() {
     echo "error: remote launch returned backend '${remote_backend:-missing}', expected herdr; preserving the remote route for reconciliation" >&2
     return 1
   fi
-  [ -n "$remote_target" ] && [ "$remote_harness" = "$harness" ] || {
+  if [ -z "$remote_target" ]; then
     fm_lock_release "$remote_lock" || true
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
-    echo "error: remote launch returned malformed route metadata; preserving the remote route for reconciliation" >&2
+    echo "error: remote launch returned no target; preserving the remote route for reconciliation" >&2
     return 1
-  }
+  fi
+  if [ "$remote_harness" != "$harness" ]; then
+    fm_lock_release "$remote_lock" || true
+    fm_lock_release "$registry_lock" || true
+    fm_lock_release "$SPAWN_TASK_LOCK" || true
+    echo "error: remote launch returned harness '${remote_harness:-missing}', expected '$harness'; preserving the remote route for reconciliation" >&2
+    return 1
+  fi
   if [ "$remote_herdr_session" != fm-remote ] || [ "${remote_target%%:*}" != "$remote_herdr_session" ]; then
     fm_lock_release "$remote_lock" || true
     fm_lock_release "$registry_lock" || true

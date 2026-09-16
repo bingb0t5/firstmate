@@ -9,9 +9,21 @@
 #   fm-remote-secondmate-control.sh key <id> <key>
 #   fm-remote-secondmate-control.sh capture <id> [lines]
 #   fm-remote-secondmate-control.sh observe <id>
+#   fm-remote-secondmate-control.sh exit <id>
 #   fm-remote-secondmate-control.sh sync <id>
 #   fm-remote-secondmate-control.sh update <id>
 #   fm-remote-secondmate-control.sh retire <id> [--force]
+#
+# `exit` stops the endpoint's live agent (a hard kill of its pane, same
+# primitive `launch` already uses to clear a confirmed-dead endpoint) while
+# leaving the secondmate's home, worktrees, and backlog untouched, so a
+# following `launch` for a different harness/model/effort is no longer
+# refused as a duplicate. There is no remote equivalent of fm-control.sh's
+# graceful in-agent exit command (that plane refuses a remotely placed
+# secondmate by name: it can only submit lifecycle text into a LOCAL pane),
+# so this is the one supported way to make a live remote endpoint stop
+# reporting an alive agent on purpose (state then reads dead or missing,
+# depending on whether the backend still tracks the emptied pane).
 #
 # Remote placement ends here, but the second-mate agent always runs on the
 # Herdr backend in the dedicated fm-remote session, so launch refuses any other
@@ -44,13 +56,15 @@ REMOTE_HERDR_SESSION=fm-remote
 
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-browser-lifecycle-lib.sh
+. "$SCRIPT_DIR/fm-browser-lifecycle-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-task-inbox-lib.sh
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 validate_id() { case "$1" in ''|*[!A-Za-z0-9._-]*) die "invalid secondmate id: $1" ;; esac; }
 
 validate_home() { # <id> [allow-absent]
@@ -137,6 +151,7 @@ cmd_route() {
 cmd_launch() {
   local id=$1 harness=$2 model=$3 effort=$4 selected_backend=$5 traceparent=${6:-}
   local current meta out herdr_session
+  local current_harness current_model current_effort requested_model requested_effort
 
   validate_id "$id"
   validate_home "$id"
@@ -156,8 +171,26 @@ cmd_launch() {
     current=$(fm_backend_agent_state "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null || printf 'unreadable\n')
     case "$current" in
       alive)
-        print_route "$id"
-        return 0
+        # An alive endpoint is an idempotent no-op ONLY when the request
+        # matches what it already carries; a request that asks for a
+        # DIFFERENT harness/model/effort must never silently return this
+        # (now-contradicting) route as if it had been honored, because the
+        # caller then records an intent the endpoint never received. Compare
+        # against the endpoint's own recorded meta (never the wish that
+        # created it), the same rule print_route follows.
+        current_harness=$(fm_meta_get "$REMOTE_ENDPOINT_META" harness)
+        current_model=$(fm_meta_get "$REMOTE_ENDPOINT_META" model)
+        current_effort=$(fm_meta_get "$REMOTE_ENDPOINT_META" effort)
+        requested_model=$model
+        [ "$requested_model" != - ] || requested_model=default
+        requested_effort=$effort
+        [ "$requested_effort" != - ] || requested_effort=default
+        if [ "$current_harness" = "$harness" ] && [ "$current_model" = "$requested_model" ] \
+          && [ "$current_effort" = "$requested_effort" ]; then
+          print_route "$id"
+          return 0
+        fi
+        die "remote secondmate $id is already alive on harness=$current_harness model=$current_model effort=$current_effort; requested harness=$harness model=$requested_model effort=$requested_effort. To change it, first run: bin/fm-on.sh $id fm-remote-secondmate-control.sh exit $id; then re-run this same launch, which will then start the new profile"
         ;;
       dead)
         fm_backend_kill "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null \
@@ -255,6 +288,34 @@ cmd_observe() {
   printf '\n'
 }
 
+cmd_exit() {
+  local id=$1 current
+  validate_id "$id"
+  validate_home "$id"
+  remote_endpoint_require "$id"
+  current=$(fm_backend_agent_state "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null || printf 'unreadable\n')
+  case "$current" in
+    alive)
+      fm_backend_kill "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" \
+        || die "could not stop the live remote secondmate $id agent"
+      current=$(fm_backend_agent_state "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null || printf 'unreadable\n')
+      case "$current" in
+        dead|missing)
+          fm_browser_finalize_meta "$CONTROL_STATE" "$REMOTE_ENDPOINT_META" "$id" remote-exit \
+            || die "remote secondmate $id agent stopped but its browser lifecycle ownership could not be retired; subsequent launch may be refused by stale ownership"
+          printf 'stopped\n'
+          ;;
+        alive) die "remote secondmate $id agent is still alive; exit could not be confirmed. Retry the exit or investigate the remote backend" ;;
+        *) die "remote secondmate $id exit is unconfirmed: endpoint state is $current" ;;
+      esac
+      ;;
+    dead|missing)
+      printf 'already-stopped\n'
+      ;;
+    *) die "remote endpoint state is $current; refusing to stop an unattributed endpoint" ;;
+  esac
+}
+
 cmd_sync() {
   local id=$1 target dirty head current
   validate_id "$id"
@@ -331,6 +392,7 @@ case "${1:-}" in
   key) shift; [ "$#" -eq 2 ] || usage; cmd_key "$@" ;;
   capture) shift; [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage; cmd_capture "$@" ;;
   observe) shift; [ "$#" -eq 1 ] || usage; cmd_observe "$@" ;;
+  exit) shift; [ "$#" -eq 1 ] || usage; cmd_exit "$1" ;;
   sync) shift; [ "$#" -eq 1 ] || usage; cmd_sync "$@" ;;
   update) shift; [ "$#" -eq 1 ] || usage; cmd_update "$@" ;;
   retire) shift; [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage; cmd_retire "$@" ;;
