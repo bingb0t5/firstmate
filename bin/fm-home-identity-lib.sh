@@ -119,6 +119,35 @@ fm_home_identity_canonical() {
   CDPATH='' cd -P -- "$dir" 2>/dev/null && pwd -P
 }
 
+fm_home_identity_existing_prefix() {
+  local path=${1-} prefix suffix= component parent
+  [ -n "$path" ] || return 1
+  while :; do
+    if prefix=$(fm_home_identity_canonical "$path"); then
+      if [ -n "$suffix" ]; then
+        printf '%s/%s\n' "$prefix" "$suffix"
+      else
+        printf '%s\n' "$prefix"
+      fi
+      return 0
+    fi
+    case "$path" in
+      /) return 1 ;;
+      */*)
+        component=${path##*/}
+        parent=${path%/*}
+        [ -n "$parent" ] || parent=/
+        ;;
+      *)
+        component=$path
+        parent=.
+        ;;
+    esac
+    suffix=${component}${suffix:+/$suffix}
+    path=$parent
+  done
+}
+
 # fm_home_identity_id_valid <id>: the same id charset data/secondmates.md accepts
 # (bin/fm-secondmate-registry-lib.sh).
 fm_home_identity_id_valid() {
@@ -312,11 +341,9 @@ fm_home_identity_surface_override() {
     FM_HOME_IDENTITY_REASON="the selected home ($target) cannot establish its $surface surface while $override_name selects $override"
     return 0
   }
-  override_abs=$(fm_home_identity_canonical "$override") || {
-    FM_HOME_IDENTITY_SIGNAL='surface-override'
-    FM_HOME_IDENTITY_REASON="$override_name selects an unreadable $surface directory ($override)"
-    return 0
-  }
+  override_abs=$(fm_home_identity_canonical "$override") \
+    || override_abs=$(fm_home_identity_existing_prefix "$override") \
+    || return 1
   if fm_home_identity_surface_is_protected_elsewhere "$target_abs" "$override_abs" "$surface"; then
     if fm_home_identity_read "$target_abs"; then
       target_id=$FM_HOME_IDENTITY_VALUE

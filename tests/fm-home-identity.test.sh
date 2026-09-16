@@ -256,6 +256,21 @@ test_surface_override_routing() {
     assert_signal "fm-spawn $surface into another home" surface-override
   done
 
+  local missing_state="$TMP/unrelated-missing-state"
+  run_surface_override "$PRIMARY" "$PRIMARY" FM_STATE_OVERRIDE "$missing_state" \
+    fm-spawn.sh missing-state "$TMP/project" --mode no-mistakes --yolo off
+  assert_not_cross_home 'fm-spawn unrelated missing state override'
+  [ -d "$missing_state" ] \
+    || fail 'fm-spawn did not create an unrelated missing state override'
+
+  local protected_missing_state="$PRIMARY/state/missing-state"
+  run_surface_override "$MATE" "$MATE" FM_STATE_OVERRIDE "$protected_missing_state" \
+    fm-spawn.sh protected-missing-state "$TMP/project" --mode no-mistakes --yolo off
+  assert_refused 'fm-spawn missing state path under another home'
+  assert_signal 'fm-spawn missing state path under another home' surface-override
+  [ ! -e "$protected_missing_state" ] \
+    || fail 'fm-spawn created a missing state path under another home'
+
   pass 'surface overrides cannot escape the selected home'
 }
 
