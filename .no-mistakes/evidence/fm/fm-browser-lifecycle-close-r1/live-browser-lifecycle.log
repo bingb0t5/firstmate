@@ -1,0 +1,24 @@
+derived_session=fm-1ed7375e310f7a922de6f3f2-live-task-87863e2eb2cc3c2d
+page:
+  title: Firstmate browser lifecycle
+  url: "data:text/html,<main style=\"font-family:system-ui\"><h1>Firstmate browser lifecycle</h1><p>Real bridge ownership validation</p></main>"
+  refs: 4
+snapshot:
+uid=g1:1_0 RootWebArea url="data:text/html,<main style="font-family:system-ui"><h1>Firstmate browser lifecycle</h1><p>Real bridge ownership validation</p></main>"
+  uid=g1:1_1 main
+    uid=g1:1_2 heading "Firstmate browser lifecycle" level="1"
+    uid=g1:1_3 StaticText "Real bridge ownership validation"
+help[1]:
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+screenshot: /home/rich/.no-mistakes/evidence/01M2KY50B7PWS448F9CDC2399F/live-browser-lifecycle.png
+bridge_pid=251014
+owning_bridge_env=proved
+FM_BROWSER_TASK_ID=live-task
+FM_BROWSER_STATE=/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M2KY50B7PWS448F9CDC2399F/.live-browser-lifecycle.OdrAvJ/state-a
+browser lifecycle: browser session fm-1ed7375e310f7a922de6f3f2-live-task-87863e2eb2cc3c2d is not owned by this home/task; preserving it
+browser lifecycle: browser cleanup for task live-task could not prove every owned resource stopped (reason=cross-home-attempt)
+cross_home_result=refused_bridge_survived
+owner_cleanup_result=bridge_stopped_owner_retired
+worker_case=worker-complete bridge_stopped_owner_retired
+worker_case=worker-failure bridge_stopped_owner_retired
+abrupt_worker_case=bridge_stopped_after_exact_death
