@@ -16,10 +16,10 @@ on:
 permissions:
   contents: read
 
-# Superseded runs for one event and ref should not keep burning CI minutes.
+# Cancel superseded non-main runs, while retaining main's required checks.
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   lint:
