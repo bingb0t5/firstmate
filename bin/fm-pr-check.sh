@@ -5,6 +5,8 @@
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
 # including a merge request on a self-hosted GitLab instance.
+# For GitHub PRs, warns without refusing when pragmatic UI paths are changed but
+# the body lacks the `## UI review (local)` section required by a ship brief.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -79,6 +81,32 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   if REMOTE_HEAD=$(cd "$WT" && gh pr view "$URL" --json headRefOid -q .headRefOid 2>/dev/null) \
     && fm_pr_head_valid "$REMOTE_HEAD"; then
     PR_HEAD=$REMOTE_HEAD
+  fi
+fi
+
+# Loud, non-blocking UI-review-gate check (the ship brief's "UI work"
+# contract): when this PR's changed files touch a UI path but its body lacks
+# the required "## UI review (local)" section, warn so firstmate never relays
+# it as ready without seeing the gap. Advisory only - never refuses, never
+# affects pr=/pr_head= recording or merge-poll arming below. GitHub-only for
+# now (glab's field output has no JSON path here without adding a jq
+# dependency, the same pragmatic tradeoff the pr_head derivation above makes).
+if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
+  PR_FILES=$(cd "$WT" && gh pr view "$URL" --json files -q '.files[].path' 2>/dev/null || true)
+  UI_TOUCHED=0
+  while IFS= read -r ui_file; do
+    [ -n "$ui_file" ] || continue
+    if fm_pr_path_is_ui "$ui_file"; then
+      UI_TOUCHED=1
+      break
+    fi
+  done <<< "$PR_FILES"
+  if [ "$UI_TOUCHED" = 1 ]; then
+    PR_BODY=$(cd "$WT" && gh pr view "$URL" --json body -q .body 2>/dev/null || true)
+    case "$PR_BODY" in
+      *'## UI review (local)'*) ;;
+      *) echo "WARNING: PR $URL touches UI paths but its body has no '## UI review (local)' section - the UI-review-before-PR gate was not recorded; do not relay this as ready until that gap is resolved" >&2 ;;
+    esac
   fi
 fi
 

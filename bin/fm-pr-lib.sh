@@ -213,6 +213,22 @@ fm_pr_head_valid() {
   [[ "$head" =~ ^[0-9a-f]{40}$|^[0-9a-f]{64}$ ]]
 }
 
+# Pragmatic, non-exhaustive UI-path classifier for the before-PR UI-review
+# gate (the ship brief's "UI work" contract): a changed-file path is treated
+# as user-visible UI when it has a frontend markup/stylesheet extension or
+# sits under a conventional UI directory. False negatives just mean a UI PR
+# gets no warning; false positives just mean a non-UI PR gets a spurious one -
+# either way this is advisory only, never a merge block.
+fm_pr_path_is_ui() {
+  case "$1" in
+    *.tsx|*.jsx|*.vue|*.svelte|*.css|*.scss|*.sass|*.less|*.html|*.htm) return 0 ;;
+  esac
+  case "/$1/" in
+    */ui/*|*/components/*|*/pages/*|*/views/*|*/frontend/*|*/client/*|*/styles/*|*/public/*) return 0 ;;
+  esac
+  return 1
+}
+
 fm_pr_file_mode() {
   if [ "$(uname)" = Darwin ]; then
     stat -f %Lp "$1" 2>/dev/null

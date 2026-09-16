@@ -41,6 +41,9 @@
 # to launch a ship task whose explicit --mode disagrees, so an adjusted brief and the
 # recorded task metadata cannot drift apart.
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
+# Every ship brief also includes a UI-work contract that applies only to
+# user-visible UI: before pushing, run the target repository's local ui-review
+# skill, fix its findings, and record its verdict and screenshot links in the PR body.
 # --mode is refused on scout and secondmate scaffolds: a scout's deliverable is a
 # report rather than a merge, and a charter is not a delivery contract.
 # There is no --yolo flag here. The worker never owns merge decisions, so yolo is
@@ -204,6 +207,19 @@ For a direct Playwright or Puppeteer launch, use `$FM_BROWSER_LIFECYCLE launch -
 Do not set a custom `CHROME_DEVTOOLS_AXI_SESSION`, invoke a raw custom named session, or launch Playwright or Puppeteer directly outside these wrapper commands.
 EOF
 BROWSER_LIFECYCLE_SECTION=${BROWSER_LIFECYCLE_SECTION%$'\n'}
+
+# UI review is a before-PR gate, like no-mistakes: it checks the built UI
+# against this brief's acceptance criteria and the design canon before GitHub
+# CI ever sees the change. Applies only when a change touches user-visible UI;
+# a non-UI change needs no action here.
+IFS= read -r -d '' UI_WORK_SECTION <<'EOF' || true
+# UI work
+If this change touches user-visible UI: before pushing, run this repo's local `ui-review` skill against this brief's acceptance criteria and the design canon, and fix until it is clean.
+Then add a `## UI review (local)` section to the PR body recording the verdict and screenshot links.
+A UI PR without that section is not done.
+Non-UI changes need no action here.
+EOF
+UI_WORK_SECTION=${UI_WORK_SECTION%$'\n'}
 
 if [ "$KIND" = secondmate ]; then
 SECONDMATE_PROJECTS=""
@@ -502,6 +518,8 @@ $RULE1
 $BROWSER_LIFECYCLE_SECTION
 
 $INBOX_SECTION
+
+$UI_WORK_SECTION
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.

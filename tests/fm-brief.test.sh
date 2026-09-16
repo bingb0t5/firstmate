@@ -215,6 +215,11 @@ test_ship_modes_generate_clean_briefs() {
     assert_grep "echo \"{state} [at=\$(date +%s)]: {one short line}\"" "$brief" \
       "$id: status protocol omitted its meaningful-event epoch"
     assert_no_grep "EOF" "$brief" "$id: brief leaked a heredoc EOF marker (unterminated heredoc)"
+    assert_grep "# UI work" "$brief" "$id: brief missing the UI work contract block"
+    assert_grep "## UI review (local)" "$brief" \
+      "$id: brief did not require the local UI review PR-body section"
+    assert_grep "run this repo's local \`ui-review\` skill" "$brief" \
+      "$id: brief did not instruct the worker to run the local ui-review skill"
   done
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
 }
@@ -764,6 +769,9 @@ test_browser_lifecycle_contract_is_emitted() {
     assert_grep '$FM_BROWSER_LIFECYCLE launch -- <command>' "$brief" \
       "browser lifecycle contract omitted direct-launch wrapper"
   done
+  assert_grep "# UI work" "$ship" "ship brief missing the UI work contract block"
+  assert_no_grep "# UI work" "$scout" "scout brief unexpectedly carries the ship-only UI work contract block"
+  assert_no_grep "# UI work" "$charter" "secondmate charter unexpectedly carries the ship-only UI work contract block"
   pass "fm-brief.sh: browser lifecycle wrapper contract is emitted for workers"
 }
 
