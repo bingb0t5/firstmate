@@ -10,6 +10,18 @@
 # The chrome-devtools-axi bridge remains the owner of its Chrome/MCP children.
 # Firstmate proves the session record and bridge PID identity, then delegates
 # shutdown to `chrome-devtools-axi stop`; it never signals a Chrome PID.
+#
+# A session NAME is never ownership authority. Every firstmate home on a machine
+# shares one chrome-devtools-axi session store, while reservation scans are
+# home-local, so a name alone cannot tell this home's bridge from another's, and
+# a stale PID file plus PID reuse reaches a foreign bridge with the name intact.
+# Before any stop, the bridge must prove from its OWN process environment
+# (FM_BROWSER_STATE and FM_BROWSER_TASK_ID, inherited from the launching worker)
+# that it belongs to this home's state directory and this task. Anything else -
+# a foreign answer, a missing variable, or an unreadable environment - preserves
+# the browser. The worst case is therefore a leaked bridge, never a wrong close.
+# That proof reads /proc/<pid>/environ and is Linux-only; on a host without it
+# every finalize preserves instead of cleaning up.
 # Direct Playwright/Puppeteer commands are owned only when this wrapper creates
 # their own process group and records the leader identity before waiting.
 
@@ -55,20 +67,63 @@ fm_browser_validate_generation() {  # <spawn-generation>
   fm_browser_validate_atom "$1" && [ "${#1}" -le 128 ]
 }
 
+# Truncated SHA-256 of stdin. Session naming separates homes that share one
+# machine-global session store, so this fails closed when no SHA-256 tool is
+# present rather than falling back to a weaker digest - the same disposition as
+# fm_custom_check_sha256 in bin/fm-check-lib.sh.
+fm_browser_sha256_hex() {  # <hex-width>; hashes stdin
+  local width=${1:-} hash
+  case "$width" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$width" -ge 1 ] && [ "$width" -le 64 ] || return 1
+  if command -v shasum >/dev/null 2>&1; then
+    hash=$(shasum -a 256 2>/dev/null | awk '{print $1}')
+  elif command -v sha256sum >/dev/null 2>&1; then
+    hash=$(sha256sum 2>/dev/null | awk '{print $1}')
+  else
+    return 1
+  fi
+  case "$hash" in ''|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#hash}" -eq 64 ] || return 1
+  printf '%s' "${hash:0:$width}"
+}
+
+# Every firstmate home on a machine shares one chrome-devtools-axi session
+# store (the tool keys it on homedir()), while ownership scans are home-local,
+# so the home field is what keeps two homes' sessions apart. 96 bits of
+# SHA-256 over the resolved state path replaces an earlier 32-bit cksum, which
+# was linear, trivially invertible, and collided on this fleet's real path
+# shapes. bin/fm-backend-hometag-lib.sh solves the adjacent zellij and cmux
+# namespace problem, but it keys on FM_ROOT plus a secondmate marker and so
+# does not separate two homes that share one tracked code root; a browser
+# namespace must key on the resolved state directory instead, which is also
+# the exact value a bridge carries in FM_BROWSER_STATE for
+# fm_browser_bridge_owned_by. The two derivations stay distinct on purpose.
+#
+# A name is still only a name: it is never ownership authority on its own.
+# fm_browser_stop_axi_record proves ownership from the bridge's own process
+# environment before any stop, so a collision here can cost a leak or a
+# refused reservation, never another home's live browser.
 fm_browser_state_namespace() {  # <state>
   local state=$1 resolved
   [ -d "$state" ] && [ ! -L "$state" ] || return 1
   resolved=$(cd "$state" && pwd -P) || return 1
-  printf '%s' "$resolved" | cksum | awk '{print $1}'
+  printf '%s' "$resolved" | fm_browser_sha256_hex 24
 }
 
+# fm-<24 hex home>-<<=14 char readable task slug>-<16 hex task/logical digest>
+# is at most 59 characters, inside chrome-devtools-axi's 64-character session
+# limit. The trailing digest covers task id and logical session together, so
+# two task ids sharing a prefix no longer share a session. The slug is
+# cosmetic, kept so operators can still read `ls ~/.chrome-devtools-axi/sessions`.
+# Changing this derivation is safe for sessions already reserved: cleanup reads
+# the session name from the ownership record rather than re-deriving it.
 fm_browser_session_for_task() {  # <state> <task-id> [logical-session]
-  local state=$1 task=$2 logical=${3:-default} namespace checksum prefix
+  local state=$1 task=$2 logical=${3:-default} namespace digest slug
   fm_browser_validate_task_id "$task" && fm_browser_validate_session "$logical" || return 1
   namespace=$(fm_browser_state_namespace "$state") || return 1
-  checksum=$(printf '%s\0%s' "$task" "$logical" | cksum | awk '{print $1}')
-  prefix=${task:0:32}
-  printf 'fm-%s-%s-%s\n' "$namespace" "$prefix" "$checksum"
+  digest=$(printf '%s\0%s' "$task" "$logical" | fm_browser_sha256_hex 16) || return 1
+  slug=${task:0:14}
+  printf 'fm-%s-%s-%s\n' "$namespace" "$slug" "$digest"
 }
 
 fm_browser_owner_dir() {  # <state> <task-id>
@@ -111,6 +166,64 @@ fm_browser_process_identity_matches() {  # <pid> <identity>
   local current
   current=$(fm_browser_process_identity "$1") || return 1
   [ "$current" = "$2" ]
+}
+
+# Reads one variable from a process's own immutable environment. A bridge
+# inherits FM_BROWSER_STATE and FM_BROWSER_TASK_ID from the worker that
+# launched it (exported by bin/fm-spawn.sh; chrome-devtools-axi spawns its
+# bridge with the caller's environment), which is the only evidence tying a
+# running bridge to a home and task that a colliding session name cannot forge.
+#
+# Returns 2 rather than 1 when the environment cannot be read at all, so
+# "unprovable" stays distinguishable from "present and different". Reading is
+# Linux-only: /proc/<pid>/environ has no macOS equivalent readable by a peer
+# process, so on a non-Linux host every answer is 2 and callers preserve.
+fm_browser_process_env_value() {  # <pid> <name>; 0 found, 1 absent, 2 unreadable
+  local pid=${1:-} name=${2:-} proc_root environ entry value fd rc=1
+  case "$pid" in ''|*[!0-9]*|0) return 2 ;; esac
+  case "$name" in ''|*[!A-Za-z0-9_]*) return 2 ;; esac
+  proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}
+  environ="$proc_root/$pid/environ"
+  [ ! -L "$environ" ] || return 2
+  { exec {fd}<"$environ"; } 2>/dev/null || return 2
+  entry=
+  while IFS= read -r -d '' entry <&"$fd" || [ -n "$entry" ]; do
+    case "$entry" in
+      "$name"=*)
+        value=${entry#"$name"=}
+        rc=0
+        break
+        ;;
+    esac
+    entry=
+  done
+  exec {fd}<&-
+  [ "$rc" -eq 0 ] || return "$rc"
+  printf '%s' "$value"
+}
+
+# Positive ownership proof for a live bridge, read from the bridge itself.
+# Matching is on (state, task) and deliberately NOT on spawn generation, so a
+# bridge left behind by an earlier incarnation of this same task in this same
+# home is still cleaned up.
+#
+# This is an accidental-misrouting guard, not process provenance: a worker that
+# unset its lifecycle environment degrades to "unprovable", which preserves.
+# Every non-zero answer must preserve, so the worst case stays a leaked bridge
+# and never another home's closed browser.
+fm_browser_bridge_owned_by() {  # <pid> <state> <task-id>; 0 ours, 1 foreign, 2 unprovable
+  local pid=${1:-} state=${2:-} task=${3:-} resolved bridge_state bridge_task rc
+  [ -n "$task" ] || return 2
+  [ -d "$state" ] && [ ! -L "$state" ] || return 2
+  resolved=$(cd "$state" && pwd -P) || return 2
+  bridge_state=$(fm_browser_process_env_value "$pid" FM_BROWSER_STATE)
+  rc=$?
+  [ "$rc" -eq 0 ] || return 2
+  bridge_task=$(fm_browser_process_env_value "$pid" FM_BROWSER_TASK_ID)
+  rc=$?
+  [ "$rc" -eq 0 ] || return 2
+  [ "$bridge_state" = "$resolved" ] && [ "$bridge_task" = "$task" ] || return 1
+  return 0
 }
 
 fm_browser_process_command() {  # <pid>
@@ -785,14 +898,24 @@ EOF
   return "$rc"
 }
 
-fm_browser_stop_axi_record() {  # <record>; bridge stop is the only Chrome cleanup
-  local record=$1 session pid_file state cli bridge_pid bridge_identity current_pid current_identity
+# <state> is the owning home's state directory, required so the bridge can be
+# checked against it; it is not optional, because a caller that omitted it
+# would silently fall back to trusting the session name alone.
+fm_browser_stop_axi_record() {  # <record> <state>; bridge stop is the only Chrome cleanup
+  local record=$1 state=${2:-} session pid_file pid_state cli task owned
+  local bridge_pid bridge_identity current_pid current_identity
   [ -f "$record" ] && [ ! -L "$record" ] || return 0
+  [ -n "$state" ] || {
+    fm_browser_lifecycle_error "browser cleanup was asked to stop a session without its owning home"
+    return 1
+  }
   session=$(fm_browser_record_field "$record" session 2>/dev/null || true)
   fm_browser_validate_session "$session" || return 1
+  task=$(fm_browser_record_field "$record" task_id 2>/dev/null || true)
+  fm_browser_validate_task_id "$task" || return 1
   pid_file=$(fm_browser_axi_pid_file "$session") || return 1
-  state=$(fm_browser_axi_pid_state "$session")
-  case "$state" in
+  pid_state=$(fm_browser_axi_pid_state "$session")
+  case "$pid_state" in
     absent)
       return 0
       ;;
@@ -821,6 +944,23 @@ fm_browser_stop_axi_record() {  # <record>; bridge stop is the only Chrome clean
         fm_browser_lifecycle_error "browser session $session changed while proving its bridge ownership; preserving it"
         return 1
       }
+      # The session name alone is not ownership: it lives in a namespace shared
+      # by every home on this machine, and a stale PID file plus PID reuse can
+      # reach a different home's bridge with the name fully intact. Require the
+      # bridge's own environment to name this home and task before any stop.
+      fm_browser_bridge_owned_by "$current_pid" "$state" "$task"
+      owned=$?
+      case "$owned" in
+        0) ;;
+        1)
+          fm_browser_lifecycle_error "browser session $session is not owned by this home/task; preserving it"
+          return 1
+          ;;
+        *)
+          fm_browser_lifecycle_error "browser session $session could not prove it belongs to this home/task; preserving it"
+          return 1
+          ;;
+      esac
       cli=$(command -v chrome-devtools-axi 2>/dev/null || true)
       [ -n "$cli" ] || {
         fm_browser_lifecycle_error "chrome-devtools-axi is unavailable to stop owned session $session"
@@ -899,7 +1039,7 @@ fm_browser_owner_finalize() {  # <state> <task-id> <generation> <reason>
   fi
   for entry in "$dir"/axi.*; do
     [ -e "$entry" ] || continue
-    fm_browser_stop_axi_record "$entry" || rc=1
+    fm_browser_stop_axi_record "$entry" "$state" || rc=1
   done
   for entry in "$dir"/process.*; do
     [ -e "$entry" ] || continue
@@ -933,11 +1073,12 @@ fm_browser_finalize_meta() {  # <state> <meta> <task-id> <reason>
 }
 
 fm_browser_worker_run() {  # <state> <task-id> <generation> -- <command...>
-  local state=$1 task=$2 generation=$3 rc cleaned=0 child= child_identity= registered=0 worker_state
+  local state=$1 task=$2 generation=$3 rc cleaned=0 child='' child_identity='' registered=0 worker_state
   shift 3
   [ "${1:-}" = -- ] || return 2
   shift
   [ "$#" -gt 0 ] || return 2
+  # shellcheck disable=SC2329 # Registered by this worker's EXIT and signal traps.
   fm_browser_worker_run_cleanup() {
     [ "$cleaned" = 1 ] && return 0
     if [ "$registered" = 1 ]; then

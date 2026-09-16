@@ -282,7 +282,7 @@ test_recorded_process_identity_cleanup_is_exact() {
 }
 
 test_browser_cleanup_follows_endpoint_close() {
-  local dir id=browser-order generation=browser-generation browser_home session bridge bridge_pid tmux_line browser_line
+  local dir id=browser-order generation=browser-generation browser_home session bridge bridge_pid tmux_line browser_line browser_state
   dir=$(make_case browser-order)
   browser_home="$dir/browser-home"
   generation=browser-generation
@@ -310,7 +310,11 @@ kill "$pid" 2>/dev/null || true
 rm -f "$pid_file"
 SH
   chmod +x "$bridge" "$dir/fakebin/chrome-devtools-axi"
-  "$bridge" &
+  # A real bridge inherits the launching worker's FM_BROWSER_* bindings, which
+  # is what the finalizer proves ownership from before it stops anything.
+  browser_state=$(cd "$dir/home/state" && pwd -P)
+  FM_BROWSER_STATE="$browser_state" FM_BROWSER_TASK_ID="$id" \
+    FM_BROWSER_SPAWN_GEN="$generation" "$bridge" &
   bridge_pid=$!
   printf '{"pid":%s,"port":9230}\n' "$bridge_pid" > "$browser_home/.chrome-devtools-axi/sessions/$session/bridge.pid"
 

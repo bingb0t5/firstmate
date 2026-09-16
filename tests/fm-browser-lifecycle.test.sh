@@ -31,18 +31,25 @@ cleanup_processes() {
 }
 trap 'cleanup_processes' EXIT INT TERM
 
-make_bridge() {  # <session>
-  local session=$1 bridge_dir bridge
+# A real bridge is spawned by chrome-devtools-axi with the launching worker's
+# environment, so it carries that worker's FM_BROWSER_* bindings. The fixture
+# reproduces exactly that inheritance, because it is the evidence the finalizer
+# proves ownership from. <owner-state> and <owner-task> are what the bridge
+# itself claims, which the cases below vary independently of its session name.
+make_bridge() {  # <session> <owner-state> <owner-task> [spawn-gen]
+  local session=$1 owner_state=$2 owner_task=$3 gen=${4:-s1} bridge_dir bridge resolved
   bridge_dir="$HOME/.chrome-devtools-axi/sessions/$session"
   bridge="$TMP_ROOT/fakebin/chrome-devtools-axi-bridge-$session"
   mkdir -p "$bridge_dir"
+  resolved=$(cd "$owner_state" && pwd -P)
   cat > "$bridge" <<'SH'
 #!/usr/bin/env bash
 trap 'exit 0' TERM INT
 while :; do sleep 1; done
 SH
   chmod +x "$bridge"
-  "$bridge" &
+  FM_BROWSER_STATE="$resolved" FM_BROWSER_TASK_ID="$owner_task" \
+    FM_BROWSER_SPAWN_GEN="$gen" "$bridge" &
   local pid=$!
   BRIDGE_PIDS+=("$pid")
   printf '{"pid":%s,"port":9230}\n' "$pid" > "$bridge_dir/bridge.pid"
@@ -94,7 +101,7 @@ if fm_browser_owner_arm "$STATE" task-a s2 >/dev/null 2>&1; then
 fi
 
 held_session=$(fm_browser_session_for_task "$STATE" task-a held)
-make_bridge "$held_session"
+make_bridge "$held_session" "$STATE" task-a
 held_pid=$BRIDGE_PID_RESULT
 if fm_browser_owner_register_axi "$STATE" task-a s1 "$held_session" >/dev/null 2>&1; then
   fail "register-axi adopted an already active bridge"
@@ -106,7 +113,7 @@ wait "$held_pid" 2>/dev/null || true
 custom_session=$(fm_browser_session_for_task "$STATE" task-a custom)
 fm_browser_owner_register_axi "$STATE" task-a s1 "$custom_session"
 custom_pid_file="$HOME/.chrome-devtools-axi/sessions/$custom_session/bridge.pid"
-make_bridge "$custom_session"
+make_bridge "$custom_session" "$STATE" task-a
 custom_pid=$BRIDGE_PID_RESULT
 export FM_BROWSER_LOG="$TMP_ROOT/browser-stop.log"
 fm_browser_owner_finalize "$STATE" task-a s1 named-session
@@ -123,7 +130,7 @@ second_home_session=$(fm_browser_session_for_task "$second_state" shared-task)
 [ "$first_home_session" != "$second_home_session" ] || fail "different homes received the same browser session"
 fm_browser_owner_arm "$STATE" shared-task h1 >/dev/null
 fm_browser_owner_arm "$second_state" shared-task h1 >/dev/null
-make_bridge "$first_home_session"
+make_bridge "$first_home_session" "$STATE" shared-task
 first_home_pid=$BRIDGE_PID_RESULT
 fm_browser_owner_finalize "$second_state" shared-task h1 worker-exit
 kill -0 "$first_home_pid" 2>/dev/null || fail "cross-home cleanup stopped an active bridge"
@@ -131,9 +138,70 @@ fm_browser_owner_finalize "$STATE" shared-task h1 worker-exit
 wait "$first_home_pid" 2>/dev/null || true
 kill -0 "$first_home_pid" 2>/dev/null && fail "owning home did not stop its bridge"
 
+# Ownership is proved from the bridge's own process environment, never from its
+# session name. Each case below holds the name constant and varies only what the
+# bridge claims about itself, so the guarantee survives a name collision.
+
+# Same home, same task, an OLDER incarnation: a relaunch orphan is still ours.
+fm_browser_owner_arm "$STATE" relaunch-orphan g2 >/dev/null
+relaunch_session=$(fm_browser_session_for_task "$STATE" relaunch-orphan)
+make_bridge "$relaunch_session" "$STATE" relaunch-orphan g1
+relaunch_pid=$BRIDGE_PID_RESULT
+fm_browser_owner_finalize "$STATE" relaunch-orphan g2 worker-exit \
+  || fail "a bridge left by an earlier incarnation of this task was not cleaned up"
+wait "$relaunch_pid" 2>/dev/null || true
+kill -0 "$relaunch_pid" 2>/dev/null && fail "relaunch orphan cleanup left its bridge running"
+
+# Same home, a DIFFERENT task: not ours, so it is preserved.
+fm_browser_owner_arm "$STATE" other-owner o1 >/dev/null
+other_session=$(fm_browser_session_for_task "$STATE" other-owner)
+make_bridge "$other_session" "$STATE" someone-else
+other_pid=$BRIDGE_PID_RESULT
+if fm_browser_owner_finalize "$STATE" other-owner o1 worker-exit >/dev/null 2>&1; then
+  fail "cleanup stopped a bridge that proved it belongs to another task"
+fi
+kill -0 "$other_pid" 2>/dev/null || fail "a bridge owned by another task was stopped"
+assert_present "$STATE/other-owner.browser/axi.$other_session" \
+  "an unproven session preserves its ownership record as evidence"
+kill "$other_pid" 2>/dev/null || true
+wait "$other_pid" 2>/dev/null || true
+
+# A DIFFERENT home holding the exact same session name - the end state a
+# namespace collision produces - cannot finalize this home's live bridge.
+colliding_state="$TMP_ROOT/colliding-state"
+mkdir -p "$colliding_state"
+fm_browser_owner_arm "$STATE" collide-task c1 >/dev/null
+collide_session=$(fm_browser_session_for_task "$STATE" collide-task)
+make_bridge "$collide_session" "$STATE" collide-task
+collide_pid=$BRIDGE_PID_RESULT
+fm_browser_owner_arm "$colliding_state" collide-task c1 >/dev/null
+rm -f -- "$colliding_state/collide-task.browser"/axi.*
+printf '%s\n' "version=1" "kind=axi" "task_id=collide-task" "spawn_gen=c1" \
+  "session=$collide_session" > "$colliding_state/collide-task.browser/axi.$collide_session"
+if fm_browser_owner_finalize "$colliding_state" collide-task c1 worker-exit >/dev/null 2>&1; then
+  fail "a colliding session name let another home finalize this home's bridge"
+fi
+kill -0 "$collide_pid" 2>/dev/null || fail "a colliding session name closed another home's live bridge"
+
+# An unreadable process environment is unprovable, not permission: it preserves.
+# FM_PROC_ROOT_OVERRIDE models a host without readable peer environments, which
+# is every non-Linux host.
+if FM_PROC_ROOT_OVERRIDE="$TMP_ROOT/absent-proc" \
+  fm_browser_owner_finalize "$STATE" collide-task c1 worker-exit >/dev/null 2>&1; then
+  fail "cleanup stopped a bridge whose ownership could not be proved"
+fi
+kill -0 "$collide_pid" 2>/dev/null || fail "unprovable ownership stopped a live bridge"
+
+# With the proof readable again, the owning home still cleans up its own bridge.
+fm_browser_owner_finalize "$STATE" collide-task c1 worker-exit \
+  || fail "the owning home could not clean up its own bridge"
+wait "$collide_pid" 2>/dev/null || true
+kill -0 "$collide_pid" 2>/dev/null && fail "the owning home did not stop its own bridge"
+assert_absent "$STATE/collide-task.browser" "proven cleanup retires the ownership record"
+
 fm_browser_owner_arm "$STATE" worker-exit w1 >/dev/null
 worker_session=$(fm_browser_session_for_task "$STATE" worker-exit)
-make_bridge "$worker_session"
+make_bridge "$worker_session" "$STATE" worker-exit
 worker_pid=$BRIDGE_PID_RESULT
 set +e
 fm_browser_worker_run "$STATE" worker-exit w1 -- bash -c 'exit 7'
@@ -146,7 +214,7 @@ kill -0 "$worker_pid" 2>/dev/null && fail "worker exit left its owned bridge run
 
 fm_browser_owner_arm "$STATE" abrupt-exit w2 >/dev/null
 abrupt_session=$(fm_browser_session_for_task "$STATE" abrupt-exit)
-make_bridge "$abrupt_session"
+make_bridge "$abrupt_session" "$STATE" abrupt-exit
 abrupt_bridge_pid=$BRIDGE_PID_RESULT
 fm_browser_worker_run "$STATE" abrupt-exit w2 -- bash -c 'exec sleep 30' &
 abrupt_supervisor=$!
@@ -178,7 +246,7 @@ kill -0 "$abrupt_bridge_pid" 2>/dev/null && fail "proven abrupt worker loss left
 
 fm_browser_owner_arm "$STATE" signal-exit w3 >/dev/null
 signal_session=$(fm_browser_session_for_task "$STATE" signal-exit)
-make_bridge "$signal_session"
+make_bridge "$signal_session" "$STATE" signal-exit
 signal_bridge_pid=$BRIDGE_PID_RESULT
 fm_browser_worker_run "$STATE" signal-exit w3 -- bash -c 'exec sleep 30' &
 signal_supervisor=$!
@@ -243,6 +311,7 @@ LOCKED_DIRECT_PID_FILE="$TMP_ROOT/locked-direct-child.pid"
 export LOCKED_DIRECT_PID_FILE
 fm_browser_lock_take "$STATE" task-a || fail "could not stage the direct-launch ownership lock"
 set +e
+# shellcheck disable=SC2016 # The nested command expands its own environment.
 FM_BROWSER_STATE="$STATE" FM_BROWSER_TASK_ID=task-a FM_BROWSER_SPAWN_GEN=s5 \
   $BROWSER launch -- bash -c 'echo $$ > "$LOCKED_DIRECT_PID_FILE"; exec sleep 30' >/dev/null 2>&1
 launch_rc=$?

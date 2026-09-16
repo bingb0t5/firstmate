@@ -754,10 +754,13 @@ test_browser_lifecycle_contract_is_emitted() {
     || fail "secondmate browser-lifecycle charter scaffold exited non-zero"
   charter="$home/data/browser-secondmate/brief.md"
   for brief in "$ship" "$scout" "$charter"; do
+    # shellcheck disable=SC2016 # These are literal brief strings, not expansions.
     assert_grep 'Use `chrome-devtools-axi` normally; it inherits your task-scoped session.' "$brief" \
       "browser lifecycle contract omitted ordinary task-scoped session use"
+    # shellcheck disable=SC2016 # These are literal brief strings, not expansions.
     assert_grep '$FM_BROWSER_LIFECYCLE axi --session <name> -- <chrome-devtools-axi arguments>' "$brief" \
       "browser lifecycle contract omitted named-session wrapper"
+    # shellcheck disable=SC2016 # These are literal brief strings, not expansions.
     assert_grep '$FM_BROWSER_LIFECYCLE launch -- <command>' "$brief" \
       "browser lifecycle contract omitted direct-launch wrapper"
   done
