@@ -87,7 +87,7 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
   A legacy `fm-<id>` window label, an explicit `session:window` endpoint, and a record whose `endpoint_task_id` names another task are all refused.
 - A remotely placed secondmate is refused by name.
   Its agent runs on another host, so none of the postconditions this plane verifies could be read for it here; local endpoint validation would refuse the record regardless, because `window=remote:<id>` can never match a local backend's required shape.
-  Drive that lifecycle on its own host and reconcile it through the secondmate recovery path.
+  The remote profile-change procedure is owned by [`docs/remote-secondmates.md`](remote-secondmates.md#normal-operation).
 - An unverified harness is refused rather than guessed at.
 - An implicit relaunch from a prefixed raw-command basename is refused before the agent or durable state is touched because its original launch command cannot be reconstructed.
 - An adapter that is not verified for this task's kind is refused **before** the running agent is stopped, not after.

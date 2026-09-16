@@ -294,14 +294,6 @@ cmd_exit() {
   current=$(fm_backend_agent_state "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null || printf 'unreadable\n')
   case "$current" in
     alive)
-      # A hard kill of the pane, not a graceful in-agent exit: there is no
-      # remote text-submit lifecycle primitive to send a harness's own exit
-      # command into a live pane (fm-remote-secondmate-control.sh key only
-      # forwards named special keys, never arbitrary submitted text), and
-      # cmd_send's steering inbox is explicitly the wrong plane for lifecycle
-      # control. This is the same fm_backend_kill primitive `launch` already
-      # uses on a confirmed-dead endpoint; it removes only the pane, leaving
-      # the secondmate's home, worktrees, and backlog untouched.
       fm_backend_kill "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" \
         || die "could not stop the live remote secondmate $id agent"
       current=$(fm_backend_agent_state "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null || printf 'unreadable\n')
