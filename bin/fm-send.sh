@@ -168,6 +168,10 @@
 # steer onto the durable inbox plane even when its body starts with "/" or "$";
 # without it, the existing shape-based routing is unchanged.
 #
+# An explicit FM_HOME is required, and a steer that the shared cross-home guard
+# detects as aimed at another home's tasks exits 4 before any record is written
+# (bin/fm-home-identity-lib.sh owns the boundary and its limitations).
+#
 # After a successful TYPED-plane submit fm-send pauses FM_SEND_SETTLE seconds
 # (default 1, 0 disables) before returning: submit confirmation only proves the
 # text was accepted, but the harness needs a beat to spin up the turn before its
@@ -183,6 +187,8 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
+# shellcheck source=bin/fm-home-identity-lib.sh
+. "$SCRIPT_DIR/fm-home-identity-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never steer
 # a crewmate (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -197,6 +203,11 @@ if [ ! -d "$FM_HOME" ]; then
   echo "error: FM_HOME '$FM_HOME' is not a directory; fm-send cannot resolve this home's state" >&2
   exit 1
 fi
+# An explicit FM_HOME is required above precisely so a steer cannot resolve
+# against the wrong home by accident - but "explicit" is not "this home's".
+# Refuse the cross-home case before any steering record is written
+# (see bin/fm-home-identity-lib.sh).
+fm_refuse_cross_home "$FM_HOME" fm-send state
 if [ ! -d "$STATE" ]; then
   echo "error: state dir '$STATE' is missing; fm-send cannot resolve targets for FM_HOME '$FM_HOME'" >&2
   exit 1

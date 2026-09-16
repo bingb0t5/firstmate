@@ -83,6 +83,8 @@ Every `/stow` invocation performs this complete pass, even when the session cont
    The helper's stable estimate is the documented conservative local approximation, not provider-exact accounting.
    If it rejects the setting or a memory file, do not infer a default or silently continue.
    Report that concrete exception and do not call the session reset-safe.
+   The same command refuses when the cross-home guard detects that `FM_HOME` names another home, so a refusal there means the pass is aimed at the wrong home and is never something to work around (`bin/fm-home-identity-lib.sh` owns that boundary).
+   A primary home curating a mate it owns through the cascade below is unaffected.
 2. Read every current memory file completely: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`.
    Treat an absent local file as absent, not as an invitation to manufacture content.
    In a primary home, all three are curation inputs under their existing ownership rules.

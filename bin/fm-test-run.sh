@@ -177,6 +177,7 @@ family_for_basename() {
     fm-remote-doctor.test.sh|fm-remote-job.test.sh|fm-remote-job-orphan-reap.test.sh|\
     fm-remote-reply.test.sh|fm-remote-secondmate-lifecycle-e2e.test.sh|\
     fm-remote-secondmate-trace-context.test.sh|\
+    fm-home-identity.test.sh|\
     fm-secondmate-harness.test.sh|fm-secondmate-lifecycle-e2e.test.sh|\
     fm-secondmate-liveness.test.sh|fm-secondmate-safety.test.sh|fm-secondmate-sync.test.sh|\
     fm-startup-memory-budget.test.sh|fm-stow-cascade.test.sh|\
@@ -983,6 +984,13 @@ families_for_changed_path() {
     bin/fm-session-start.sh|bin/fm-bootstrap.sh|bin/fm-fleet-sync.sh|\
     bin/fm-sessionstart-nudge.sh|bin/fm-startup-network.sh|bin/fm-tangle*|bin/fm-update.sh|\
     bin/fm-gate-refuse*|bin/fm-lock*|bin/fm-quota-axi-lib.sh)
+      printf '%s\n' session-bootstrap
+      ;;
+    bin/fm-home-identity-lib.sh)
+      # The cross-home refusal is sourced by fm-spawn, fm-send, and both stow
+      # memory surfaces, so a change to it reaches all three families.
+      printf '%s\n' secondmate
+      printf '%s\n' backend-dispatch
       printf '%s\n' session-bootstrap
       ;;
     bin/fm-sessionstart-run.sh|.claude/settings.json|.codex/hooks.json|\

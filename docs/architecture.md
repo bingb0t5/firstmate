@@ -236,6 +236,19 @@ Independently, `fm-spawn.sh`, `fm-send.sh`, `fm-control.sh`, and `fm-teardown.sh
 A normal primary checkout or crewmate worktree has neither signal and remains unaffected.
 The helper's header owns the exact signal detection, relocated-home limitation, test-harness bypass, and relationship to no-mistakes' HEAD-continuity guard.
 
+## Cross-home authority boundary
+
+`FM_HOME` selects which home's `data/`, `state/`, `config/`, and `projects/` a command operates on, so a secondmate process whose `FM_HOME` named a different home could operate on that home with full authority.
+That has actually happened twice: a secondmate spawned a worker into the primary home, and a secondmate's memory sweep read and rewrote the primary home's captain and learning records.
+`fm-spawn.sh`'s primary-only domain-mate check could not stop the first, because it inspects `$FM_HOME` - the value that was already wrong - rather than the running process.
+`fm-spawn.sh`, `fm-send.sh`, `fm-startup-memory-budget.sh`, and `fm-stow-cascade.sh` therefore source `bin/fm-home-identity-lib.sh` and exit with status 4 before any spawn, steer, or memory accounting when its guarded signals establish that the selected home belongs to another process.
+The refusal is one-way: a primary home keeps reaching the secondmate homes it owns, which is what the `/stow` cascade, backlog handoff, and `--secondmate` spawns depend on, while ordinary secondmate execution is refused before entering the primary home's records.
+The helper's header owns the identity marker's safety rules, what corroborates a home's identity so a marker left behind in a re-leased worktree establishes nothing, the two independent signals and what each one covers, and the protected-home ancestor check for directory overrides.
+This is an option-B accidental-misrouting guard rather than process provenance: a mate can unset or alter the inherited launch binding, so the code-root signal is then the only protection.
+When an agent invokes the primary home's bin directory by absolute path, its launch binding provides primary-only containment: it rejects that primary home but cannot classify a non-primary selection as its own or a sibling's.
+Remote secondmate sessions likewise have no authoritative own-home provenance: their launch binding identifies only the primary home, so this boundary does not prevent a remote session from selecting a same-host sibling home.
+An identity marker alone is non-authoritative and establishes no invoking identity unless the local parent registry corroborates that exact code-root path.
+
 ## Two task shapes
 
 Ship tasks change projects and ship by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks leave standalone investigation reports at `data/<id>/report.md` and never push.

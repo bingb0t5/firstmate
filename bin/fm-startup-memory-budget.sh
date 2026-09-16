@@ -10,6 +10,9 @@
 # Bootstrap owns default materialization; this command never creates or repairs
 # configuration, so an absent, malformed, symlinked, hardlinked, or otherwise
 # unsafe value is a concrete error rather than an inferred default.
+# A /stow pass begins and ends here, so a sweep the shared guard detects as
+# aimed at another home is refused here with status 4; bin/fm-home-identity-lib.sh
+# owns that contract and its limitations.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,10 +23,24 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-startup-memory-budget-lib.sh
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
+# shellcheck source=bin/fm-home-identity-lib.sh
+. "$SCRIPT_DIR/fm-home-identity-lib.sh"
 
 usage() {
-  sed -n '2,11{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,15{s/^# \{0,1\}//;p;}' "$0"
 }
+
+# Help stays readable from anywhere; everything else is this home's own business.
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
+# This command is the mandatory first and last step of a /stow pass, so it is
+# where the shared guard stops a memory sweep it detects as aimed at another home
+# before it reads that home's captain and learning records to rewrite them. A
+# PRIMARY home reaching its own mates is unaffected, which keeps
+# bin/fm-stow-cascade.sh working (see bin/fm-home-identity-lib.sh).
+fm_refuse_cross_home "$FM_HOME" fm-startup-memory-budget data config
 
 print_error() {
   printf 'startup-memory-budget: %s\n' "$1" >&2
@@ -83,9 +100,6 @@ case "${1:-}" in
   report)
     [ "$#" -eq 1 ] || { usage >&2; exit 2; }
     report
-    ;;
-  -h|--help)
-    usage
     ;;
   *)
     usage >&2
