@@ -73,6 +73,17 @@
 # establishes an invoking identity unless the local parent registry corroborates
 # that exact code-root path.
 #
+# DIRECTORY OVERRIDES
+#
+# FM_STATE_OVERRIDE, FM_DATA_OVERRIDE, FM_CONFIG_OVERRIDE, and
+# FM_PROJECTS_OVERRIDE receive the same protection. An unrelated alternate
+# directory remains valid, whether it already exists or is a missing leaf that
+# the command may create. The guard canonicalizes the override's deepest existing
+# prefix and refuses only when the target itself, or any existing ancestor on the
+# path to it, is a registry-corroborated protected home. That rejects a protected
+# home named directly and both existing and not-yet-created subpaths beneath it,
+# without converting every explicit missing directory into a refusal.
+#
 # DIRECTION. The refusal is deliberately one-way. A PRIMARY home legitimately
 # reaches into the secondmate homes it owns - bin/fm-stow-cascade.sh runs each
 # mate's own memory accounting under that mate's FM_HOME, bin/fm-backlog-handoff.sh
