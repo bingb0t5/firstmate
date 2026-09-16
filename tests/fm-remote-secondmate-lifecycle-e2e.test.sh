@@ -23,6 +23,7 @@ SSH_COUNT="$TMP_ROOT/ssh.count"
 DOCTOR_LOG="$TMP_ROOT/doctor.log"
 HERDR_STATE="$TMP_ROOT/remote-herdr.state"
 HERDR_LOG="$TMP_ROOT/remote-herdr.log"
+HERDR_IGNORE_CLOSE="$TMP_ROOT/remote-herdr-ignore-close"
 TMUX_LOG="$TMP_ROOT/remote-tmux.log"
 TMUX_STATE="$TMP_ROOT/remote-tmux.state"
 CLAIMS="$TMP_ROOT/claims"
@@ -94,7 +95,7 @@ exit 0
 SH
 chmod +x "$REMOTE_ROOT/bin/tmux"
 install_remote_herdr_fixture "$REMOTE_ROOT" "$HERDR_STATE" "$HERDR_LOG" \
-  "$TMP_ROOT/herdr-send-fail" "$TMP_ROOT/herdr.sock"
+  "$TMP_ROOT/herdr-send-fail" "$TMP_ROOT/herdr.sock" "$HERDR_IGNORE_CLOSE"
 git -C "$REMOTE_ROOT" init -q -b main
 git -C "$REMOTE_ROOT" config user.email test@example.com
 git -C "$REMOTE_ROOT" config user.name Test
@@ -784,6 +785,27 @@ cmp -s "$TMP_ROOT/remote-ios-before-profile-change.meta" "$REMOTE_HOME/state/par
 [ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = alive ] \
   || fail "a refused profile change left the live remote agent looking stopped"
 pass "an alive remote endpoint refuses a different harness/model/effort by naming every field, not as malformed metadata"
+
+# A backend kill's exit status is not proof that the pane closed: model the
+# Herdr lock/readiness path that returns success without attempting the close.
+# The recovery command must fail visibly while the endpoint is still alive,
+# rather than falsely reporting it stopped and leading the following relaunch
+# to be refused as a duplicate.
+touch "$HERDR_IGNORE_CLOSE"
+set +e
+failed_exit_out=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh exit ios 2>&1)
+failed_exit_rc=$?
+set -e
+rm -f -- "$HERDR_IGNORE_CLOSE"
+[ "$failed_exit_rc" -ne 0 ] \
+  || fail "an unconfirmed hard kill of a still-live remote endpoint reported success"$'\n'"$failed_exit_out"
+assert_contains "$failed_exit_out" 'agent is still alive; exit could not be confirmed' \
+  "an unconfirmed hard kill did not explain that the remote agent remains alive"
+assert_not_contains "$failed_exit_out" 'stopped' \
+  "an unconfirmed hard kill falsely reported the remote agent stopped"
+[ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = alive ] \
+  || fail "an unconfirmed hard kill did not preserve the live endpoint for recovery"
+pass "a successful backend kill return cannot falsely confirm a live remote agent stopped"
 
 # The named recovery command must actually work end to end: exit the live
 # agent, confirm the endpoint reads dead, then the identical relaunch that was

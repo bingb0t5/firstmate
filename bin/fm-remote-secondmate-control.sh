@@ -304,7 +304,12 @@ cmd_exit() {
       # the secondmate's home, worktrees, and backlog untouched.
       fm_backend_kill "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" \
         || die "could not stop the live remote secondmate $id agent"
-      printf 'stopped\n'
+      current=$(fm_backend_agent_state "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" 2>/dev/null || printf 'unreadable\n')
+      case "$current" in
+        dead|missing) printf 'stopped\n' ;;
+        alive) die "remote secondmate $id agent is still alive; exit could not be confirmed. Retry the exit or investigate the remote backend" ;;
+        *) die "remote secondmate $id exit is unconfirmed: endpoint state is $current" ;;
+      esac
       ;;
     dead|missing)
       printf 'already-stopped\n'

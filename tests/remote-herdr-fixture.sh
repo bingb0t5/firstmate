@@ -20,14 +20,14 @@
 # Usage:
 #   . "$(dirname "${BASH_SOURCE[0]}")/remote-herdr-fixture.sh"
 #   install_remote_herdr_fixture <remote-root> <state-file> <log-file> \
-#     <send-fail-flag> <socket-path>
+#     <send-fail-flag> <socket-path> [ignore-close-flag]
 #
 # Every invocation is appended verbatim to <log-file>, so a test reads back what
 # the remote pane received. Creating <send-fail-flag> makes every pane write
 # fail, which is how a test simulates an endpoint that cannot be reached.
 
-install_remote_herdr_fixture() { # <remote-root> <state> <log> <send-fail> <socket>
-  local remote_root=$1 state=$2 log=$3 send_fail=$4 socket=$5 script="$1/bin/herdr"
+install_remote_herdr_fixture() { # <remote-root> <state> <log> <send-fail> <socket> [ignore-close]
+  local remote_root=$1 state=$2 log=$3 send_fail=$4 socket=$5 ignore_close=${6:-} script="$1/bin/herdr"
   mkdir -p "$remote_root/bin"
   cat > "$script" <<SH
 #!/usr/bin/env bash
@@ -36,6 +36,7 @@ STATE='$state'
 LOG='$log'
 SEND_FAIL='$send_fail'
 SOCKET='$socket'
+IGNORE_CLOSE='$ignore_close'
 SH
   cat >> "$script" <<'SH'
 printf '%s\n' "$*" >> "$LOG"
@@ -86,10 +87,13 @@ case "${1:-} ${2:-}" in
     fi
     ;;
   "pane close")
-    jq_state --arg p "${3:-}" \
-      '.tabs |= [.[]|select(.pane_id != $p)]
-       | .typed |= with_entries(select(.key != $p))
-       | .working |= with_entries(select(.key != $p))' | save ;;
+    if [ ! -f "$IGNORE_CLOSE" ]; then
+      jq_state --arg p "${3:-}" \
+        '.tabs |= [.[]|select(.pane_id != $p)]
+         | .typed |= with_entries(select(.key != $p))
+         | .working |= with_entries(select(.key != $p))' | save
+    fi
+    ;;
   "pane send-text")
     [ ! -f "$SEND_FAIL" ] || exit 1
     jq_state --arg p "${3:-}" '.typed[$p] = true' | save ;;
