@@ -19,6 +19,15 @@ pass 'broad pattern target is refused'
 
 sleep 30 &
 victim=$!
+if "$GUARD" --pid "$victim" --group 1 >/dev/null 2>"$ERR"; then
+  kill -KILL "$victim" 2>/dev/null || true
+  fail 'ambiguous process/group target must be refused'
+fi
+grep -F 'process and group targets are mutually exclusive' "$ERR" >/dev/null ||
+  fail 'ambiguous target refusal must explain the conflicting target modes'
+kill -0 "$victim" 2>/dev/null || fail 'ambiguous target refusal must preserve the live process'
+pass 'ambiguous target is refused without signaling the process'
+
 if ! "$GUARD" --signal TERM --pid "$victim"; then
   kill -KILL "$victim" 2>/dev/null || true
   fail 'explicit recorded PID must be terminable'
@@ -27,11 +36,6 @@ if wait "$victim"; then
   fail 'terminated process unexpectedly exited successfully'
 fi
 pass 'explicit recorded PID is terminable'
-
-if "$GUARD" --pid "$victim" --group 1 >/dev/null 2>"$ERR"; then
-  fail 'ambiguous process/group target must be refused'
-fi
-pass 'ambiguous target is refused'
 
 # Keep the repository audit executable: a future broad kill in bin/ must fail
 # this focused suite instead of relying on a reviewer to notice it.

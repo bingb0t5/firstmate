@@ -43,13 +43,13 @@ while [ "$#" -gt 0 ]; do
       ;;
     --pid)
       [ "$#" -gt 1 ] || error '--pid requires a value'
-      [ -z "$pid" ] || error 'process and group targets are mutually exclusive'
+      [ -z "$pid" ] && [ -z "$group" ] || error 'process and group targets are mutually exclusive'
       pid=$2
       shift 2
       ;;
     --group)
       [ "$#" -gt 1 ] || error '--group requires a value'
-      [ -z "$group" ] || error 'process and group targets are mutually exclusive'
+      [ -z "$pid" ] && [ -z "$group" ] || error 'process and group targets are mutually exclusive'
       group=$2
       shift 2
       ;;
