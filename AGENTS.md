@@ -436,6 +436,7 @@ When Relay-linked work reaches a milestone or terminal state, load `fmx-respond`
 A secondmate's idle endpoint is healthy, and parent supervision relies on its routed status rather than treating a quiet pane as stale.
 Waiting on a healthy supervision cycle is silent; empty polls, elapsed time, and no-change updates are not captain-facing progress.
 Never broadly kill watchers, especially never `pkill -f bin/fm-watch.sh`, because that can kill sibling firstmate homes.
+For any process termination on a shared host, use `bin/fm-process-kill.sh` with the exact PID or PGID recorded by the owning invocation; it deliberately refuses name, pattern, and bare targets. Audit existing `bin/` termination sites before changing them: direct `kill` calls are safe only when their PID or process group came from that invocation, and must not be replaced with a broad match.
 A forced repair must use the home-scoped owner path emitted by supervision instructions.
 
 Guard warnings do not replace the contract.
