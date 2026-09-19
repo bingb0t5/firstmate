@@ -233,6 +233,7 @@ test_direct_policy_contract() {
   for wrapper in time nice ionice nohup env sudo command exec; do
     assert_policy "direct-broad-pkill-wrapper-$wrapper" $'deny\tbroad-process-kill' "$wrapper pkill -f 'tsx server.ts'"
   done
+  assert_policy direct-unresolved-time-option-broad-pkill $'deny\tbroad-process-kill' "/usr/bin/time -o /tmp/timing pkill -f 'tsx server.ts'"
   assert_policy direct-loop-broad-kill-pgrep $'deny\tbroad-watcher-kill' 'until false; do kill $(pgrep -f fm-watch); done'
   assert_policy direct-loop-no-kill-allowed allow 'for f in 1; do echo fm-watch; done'
   assert_policy direct-unsupported-broad-data allow "if true; then printf '%s\\n' pkill; fi"

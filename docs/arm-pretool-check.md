@@ -116,6 +116,7 @@ Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, s
 Every actually executed `pkill` or `killall` command is denied as name- or pattern-based process termination.
 Path-qualified `pkill` and literal `time`, `nice`, `ionice`, `nohup`, `env`, `sudo`, `command`, and `exec` command prefixes are unwrapped before that decision.
 No other command indirection is classified as a broad-kill prefix.
+An unrecognized option on one of those prefixes that precedes `pkill` or `killall` is denied conservatively.
 
 `kill "$(pgrep -f '/bin/fm-watch.sh')"` is also denied because the executed `kill` consumes an executed watcher-wide `pgrep` substitution.
 A standalone read-only `pgrep` is allowed.
@@ -137,6 +138,7 @@ Every semantic deny includes one stable code in square brackets before its prose
 | `watcher-redirection` | A protected execution uses shell redirection. |
 | `watcher-bundled` | The outer command list is not the blessed setup-plus-final tree. |
 | `watcher-nested` | A wrapper, group, substitution, nested shell, `eval`, or constructed dynamic payload executes the protected command. |
+| `broad-process-kill` | An actual or conservatively unresolved broad process kill. |
 | `broad-watcher-kill` | An actual broad process kill targets the watcher. |
 | `unclassifiable-protected-command` | Malformed or unsupported syntax contains a protected command and cannot be safely classified. |
 | `watcher-direct` | A direct `bin/fm-watch.sh` execution; the watcher must be reached through `bin/fm-watch-arm.sh` or `bin/fm-watch-checkpoint.sh`. |

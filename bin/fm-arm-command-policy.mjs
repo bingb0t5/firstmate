@@ -494,7 +494,7 @@ const WRAPPER_OPTIONS = {
   nice: { noArgument: new Set(), takesArgument: new Set(["n"]) },
   nohup: { noArgument: new Set(), takesArgument: new Set() },
   sudo: { noArgument: new Set(["A", "B", "b", "E", "e", "H", "i", "K", "k", "l", "N", "n", "P", "S", "s", "v", "V"]), takesArgument: new Set(["C", "D", "g", "h", "p", "r", "R", "t", "T", "u", "U"]) },
-  time: { noArgument: new Set(["p"]), takesArgument: new Set() },
+  time: { noArgument: new Set(["a", "l", "p", "q", "v"]), takesArgument: new Set(["f", "o"]) },
   timeout: { noArgument: new Set(["f", "p", "v"]), takesArgument: new Set(["k", "s"]) },
 };
 
@@ -506,7 +506,7 @@ const WRAPPER_LONG_OPTIONS = {
   nice: { noArgument: new Set(["help", "version"]), takesArgument: new Set(["adjustment"]) },
   nohup: { noArgument: new Set(["help", "version"]), takesArgument: new Set() },
   sudo: { noArgument: new Set(["askpass", "background", "bell", "edit", "help", "login", "non-interactive", "preserve-env", "preserve-groups", "remove-timestamp", "reset-timestamp", "set-home", "shell", "stdin", "validate", "version"]), takesArgument: new Set(["chdir", "chroot", "close-from", "command-timeout", "group", "host", "other-user", "prompt", "role", "type", "user"]) },
-  time: { noArgument: new Set(["portability"]), takesArgument: new Set() },
+  time: { noArgument: new Set(["append", "portability", "quiet", "verbose", "help", "version"]), takesArgument: new Set(["format", "output"]) },
   timeout: { noArgument: new Set(["foreground", "preserve-status", "verbose", "help", "version"]), takesArgument: new Set(["kill-after", "signal"]) },
 };
 
@@ -557,6 +557,14 @@ function consumeWrapperOptions(name, words, index) {
     if (!consumedArgument) next += 1;
   }
   return { index: next, unresolved: false, embeddedPayloads };
+}
+
+function unresolvedWrapperMentionsBroadProcessKill(position) {
+  if (!position.unresolvedWrapperOption) return false;
+  return position.words.slice(position.index + 1).some((word) => {
+    const name = basename(word.value);
+    return name === "pkill" || name === "killall";
+  });
 }
 
 export function commandPosition(tokens) {
@@ -844,7 +852,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (hasUnclassifiableProtectedExpansion(position.command, context.root)) unclassifiableProtected = true;
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
-    if (commandName === "pkill" || commandName === "killall") broadProcessKill = true;
+    if (commandName === "pkill" || commandName === "killall" || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
     if (isWatcherPgrep(position, nodeContext)) pgrepWatcher = true;
