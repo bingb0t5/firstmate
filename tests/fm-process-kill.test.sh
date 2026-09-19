@@ -39,14 +39,16 @@ done
 kill -0 "$victim" 2>/dev/null || fail 'all-zero PID refusal must preserve the live process'
 pass 'all-zero PID spellings are refused without signaling the process'
 
-if "$GUARD" --signal 0 --pid "$victim" >/dev/null 2>"$ERR"; then
-  kill -KILL "$victim" 2>/dev/null || true
-  fail 'zero signal must be refused'
-fi
-grep -F 'signal must not be zero' "$ERR" >/dev/null ||
-  fail 'zero signal refusal must explain the non-terminating mode'
+for signal in 0 00 000; do
+  if "$GUARD" --signal "$signal" --pid "$victim" >/dev/null 2>"$ERR"; then
+    kill -KILL "$victim" 2>/dev/null || true
+    fail "zero signal spelling '$signal' must be refused"
+  fi
+  grep -F 'signal must not be zero' "$ERR" >/dev/null ||
+    fail "zero signal spelling '$signal' must explain the non-terminating mode"
+done
 kill -0 "$victim" 2>/dev/null || fail 'zero signal refusal must preserve the live process'
-pass 'zero signal is refused without signaling the process'
+pass 'zero signal spellings are refused without signaling the process'
 
 if ! "$GUARD" --signal TERM --pid "$victim"; then
   kill -KILL "$victim" 2>/dev/null || true

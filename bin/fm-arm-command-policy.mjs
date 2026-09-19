@@ -53,12 +53,22 @@ function rawMentionsBroadKill(command) {
   return /fm-watch/.test(normalized) && /\b(?:pkill|kill)\b/.test(normalized);
 }
 
+function isBroadProcessKillWord(word) {
+  if (!word || word.type !== "word") return false;
+  const name = basename(word.value);
+  return name === "pkill" || name === "killall";
+}
+
 function tokensMentionBroadProcessKill(tokens) {
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
-    if (token.type !== "word" || (token.value !== "pkill" && token.value !== "killall")) continue;
-    const previous = tokens[index - 1];
-    if (!previous || previous.type === "op" || (previous.type === "word" && ["then", "do", "else", "elif"].includes(previous.value))) return true;
+    if (isBroadProcessKillWord(token)) {
+      const previous = tokens[index - 1];
+      if (!previous || previous.type === "op" || (previous.type === "word" && ["then", "do", "else", "elif"].includes(previous.value))) return true;
+    }
+    if (token.type !== "word" || !["if", "then", "else", "elif", "do", "while", "until"].includes(token.value)) continue;
+    const position = commandPosition(tokens.slice(index + 1));
+    if (isBroadProcessKillWord(position.command) || unresolvedWrapperMentionsBroadProcessKill(position)) return true;
   }
   return false;
 }
@@ -852,7 +862,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (hasUnclassifiableProtectedExpansion(position.command, context.root)) unclassifiableProtected = true;
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
-    if (commandName === "pkill" || commandName === "killall" || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
+    if (isBroadProcessKillWord(position.command) || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
     if (isWatcherPgrep(position, nodeContext)) pgrepWatcher = true;

@@ -142,6 +142,8 @@ matrix_case A33 allow 'command -v cd'
 matrix_case A34 allow 'command -V cd'
 matrix_case A35 allow 'command -pv cd'
 matrix_case A36 allow 'command -vp cd'
+matrix_case A37 allow 'nice cd projects/foo'
+matrix_case A38 allow 'ionice cd projects/foo'
 
 MATRIX_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-cd-policy-matrix.XXXXXX")
 FM_TEST_CLEANUP_DIRS+=("$MATRIX_TMP")
