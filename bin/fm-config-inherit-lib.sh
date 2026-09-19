@@ -514,6 +514,13 @@ propagate_inheritable_config() {
         fi
       fi
     fi
+    if { [ -e "$src" ] || [ -L "$src" ]; } && { [ ! -f "$src" ] || [ -L "$src" ]; }; then
+      reason="unsafe primary source"
+      warn_inheritable_config_error "$item" "$src" "$reason"
+      record_inheritable_config_result "$item" error "$reason"
+      rc=1
+      continue
+    fi
     if [ -f "$src" ]; then
       if ! fm_config_inherit_secure_item "$item" "$src"; then
         reason="failed to secure private mode"

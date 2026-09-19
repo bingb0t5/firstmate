@@ -1750,6 +1750,14 @@ test_config_push_propagates_devplans_without_reread_content() {
     "byte-identical DevPlans config did not report private-mode repair"
   [ "$(fm_inherit_file_mode "$w/sm/config/devplans.env")" = 600 ] \
     || fail "byte-identical DevPlans config was not normalized to owner-only mode"
+  rm -f "$w/home/config/devplans.env"
+  mkdir "$w/home/config/devplans.env"
+  out=$(run_config_push "$w" "$log" 2>"$err"); status=$?
+  expect_code 1 "$status" "malformed DevPlans source should fail without removing the destination"
+  assert_contains "$out" "devplans.env: error - unsafe primary source" \
+    "malformed DevPlans source did not report its propagation error"
+  [ "$(cat "$w/sm/config/devplans.env")" = $'LALO_PLANS_BASE_URL=https://devplans.example\nLALO_PLANS_UPLOAD_KEY=devplans-upload-key-fixture' ] \
+    || fail "malformed DevPlans source removed or changed the secondmate credentials"
   pass "B12a config-push propagates DevPlans config without serializing credentials into reread state"
 }
 
