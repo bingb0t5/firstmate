@@ -53,8 +53,14 @@ function rawMentionsBroadKill(command) {
   return /fm-watch/.test(normalized) && /\b(?:pkill|kill)\b/.test(normalized);
 }
 
-function rawMentionsBroadProcessKill(command) {
-  return /\b(?:pkill|killall)\b/.test(normalizeLineContinuations(command));
+function tokensMentionBroadProcessKill(tokens) {
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token.type !== "word" || (token.value !== "pkill" && token.value !== "killall")) continue;
+    const previous = tokens[index - 1];
+    if (!previous || previous.type === "op" || (previous.type === "word" && ["then", "do", "else", "elif"].includes(previous.value))) return true;
+  }
+  return false;
 }
 
 function normalizeLineContinuations(source) {
@@ -733,11 +739,11 @@ function isWatcherPgrep(position, context) {
 
 function analyzeProgram(command, context, depth = 0) {
   if (depth > 12) {
-    return { error: "recursion limit", protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: rawMentionsBroadProcessKill(command), pgrepWatcher: false, watcherPids: new Set() };
+    return { error: "recursion limit", protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: false, pgrepWatcher: false, watcherPids: new Set() };
   }
   const lexed = new Lexer(command).tokenize();
   if (lexed.error) {
-    return { error: lexed.error, protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: rawMentionsBroadProcessKill(command), pgrepWatcher: false, watcherPids: new Set() };
+    return { error: lexed.error, protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: false, pgrepWatcher: false, watcherPids: new Set() };
   }
   const program = splitProgram(lexed.tokens);
   const nodeInfos = [];
@@ -860,7 +866,7 @@ function analyzeProgram(command, context, depth = 0) {
   const protectedFound = directProtected || nestedProtected || unclassifiableProtected;
   if (unclassifiableProtected) unsupported = true;
   const broadKillFound = broadKill || (unsupported && rawMentionsBroadKill(command));
-  const broadProcessKillFound = broadProcessKill || (unsupported && rawMentionsBroadProcessKill(command));
+  const broadProcessKillFound = broadProcessKill || (unsupported && program.nodes.some((tokens) => tokensMentionBroadProcessKill(tokens)));
   if (unsupported && (protectedFound || rawMentionsProtected(command) || broadKillFound || broadProcessKillFound)) {
     return { error: "unsupported compound grammar", protectedFound: true, broadKill: broadKillFound, broadProcessKill: broadProcessKillFound, pgrepWatcher, watcherPids: activeContext.watcherPids, program, nodeInfos };
   }

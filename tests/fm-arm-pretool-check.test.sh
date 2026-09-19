@@ -220,7 +220,7 @@ assert_policy() {
 }
 
 test_direct_policy_contract() {
-  local heredoc_data heredoc_watcher
+  local heredoc_data heredoc_watcher heredoc_broad_data
   assert_policy direct-data-pkill allow "echo 'pkill -f fm-watch'"
   assert_policy direct-broad-pkill $'deny\tbroad-process-kill' "pkill -f '/bin/fm-watch.sh'"
   assert_policy direct-loop-broad-pkill $'deny\tbroad-process-kill' 'while true; do pkill -f fm-watch; done'
@@ -229,6 +229,9 @@ test_direct_policy_contract() {
   assert_policy direct-killall $'deny\tbroad-process-kill' 'killall node'
   assert_policy direct-loop-broad-kill-pgrep $'deny\tbroad-watcher-kill' 'until false; do kill $(pgrep -f fm-watch); done'
   assert_policy direct-loop-no-kill-allowed allow 'for f in 1; do echo fm-watch; done'
+  assert_policy direct-unsupported-broad-data allow "if true; then printf '%s\\n' pkill; fi"
+  assert_policy direct-unsupported-broad-kill $'deny\tbroad-process-kill' "if true; then pkill -f 'tsx server.ts'; fi"
+  assert_policy direct-broad-comment allow $'# killall node\necho ok'
   assert_policy direct-pipeline $'deny\twatcher-pipeline' 'bin/fm-watch-arm.sh | cat'
   assert_policy direct-leading-redirection $'deny\twatcher-redirection' '>/tmp/out bin/fm-watch-arm.sh'
   assert_policy direct-unclassifiable $'deny\tunclassifiable-protected-command' "bin/fm-watch-arm.sh 'unterminated"
@@ -243,8 +246,10 @@ test_direct_policy_contract() {
   assert_policy direct-watch-safe-shape $'deny\twatcher-direct' 'cd /tmp; bin/fm-watch.sh'
   heredoc_data=$'cat <<\'EOF\'\nbin/fm-watch-arm.sh &\nEOF'
   heredoc_watcher=$'bin/fm-watch-arm.sh <<\'EOF\'\ndata only\nEOF'
+  heredoc_broad_data=$'cat <<\'EOF\'\npkill -f tsx\nkillall node\nEOF'
   assert_policy direct-heredoc-data allow "$heredoc_data"
   assert_policy direct-heredoc-watcher $'deny\twatcher-redirection' "$heredoc_watcher"
+  assert_policy direct-heredoc-broad-data allow "$heredoc_broad_data"
 }
 
 # --- CLI parsing -------------------------------------------------------------
