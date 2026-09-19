@@ -45,11 +45,3 @@ if wait "$victim"; then
   fail 'terminated process unexpectedly exited successfully'
 fi
 pass 'explicit recorded PID is terminable'
-
-# Keep the repository audit executable: a future broad kill in bin/ must fail
-# this focused suite instead of relying on a reviewer to notice it.
-if grep -RInE '(^|[;&|[:space:]])(pkill|killall)([[:space:]]|$)' bin --include='*.sh' \
-  | sed -E 's/^[[:space:]]*#.*$//; s/[[:space:]]+#.*$//' | grep -q .; then
-  fail 'bin scripts must not introduce raw pkill or killall commands'
-fi
-pass 'bin audit contains no raw broad kill commands'

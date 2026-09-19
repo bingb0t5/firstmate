@@ -13,6 +13,7 @@ set -u
 
 CHECK="$ROOT/bin/fm-arm-pretool-check.sh"
 POLICY="$ROOT/bin/fm-arm-command-policy.mjs"
+export FM_HOME="$ROOT"
 
 # --- full cross-harness acceptance matrix ----------------------------------
 
@@ -122,6 +123,10 @@ matrix_case D55 deny 'while true; do pkill -f fm-watch; done'
 matrix_case D56 deny 'for x in 1; do pkill -f fm-watch; done'
 matrix_case D57 deny 'case x in x) pkill -f fm-watch ;; esac'
 matrix_case D58 deny 'until false; do kill $(pgrep -f fm-watch); done'
+matrix_case D59 deny "pkill -f 'tsx server.ts'"
+matrix_case D60 deny "pkill -u rich -f 'tsx server.ts'"
+matrix_case D61 deny 'pkill node'
+matrix_case D62 deny 'killall node'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -183,7 +188,7 @@ run_matrix_entry() {
   fi
 
   [ "$rc" -eq 2 ] || fail "$id via $entry must deny, got exit $rc"
-  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.systemMessage | test("\\[(watcher-(background|pipeline|redirection|bundled|nested|direct)|broad-watcher-kill|unclassifiable-protected-command)\\]"))' "$err_file" >/dev/null 2>&1 \
+  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.systemMessage | test("\\[(watcher-(background|pipeline|redirection|bundled|nested|direct)|broad-(process|watcher)-kill|unclassifiable-protected-command)\\]"))' "$err_file" >/dev/null 2>&1 \
     || fail "$id via $entry deny must carry a stable reason code on stderr: $(cat "$err_file")"
   if [ "$entry" = claude ]; then
     [ ! -s "$out_file" ] || fail "$id via claude deny must leave stdout empty: $(cat "$out_file")"
@@ -217,8 +222,11 @@ assert_policy() {
 test_direct_policy_contract() {
   local heredoc_data heredoc_watcher
   assert_policy direct-data-pkill allow "echo 'pkill -f fm-watch'"
-  assert_policy direct-broad-pkill $'deny\tbroad-watcher-kill' "pkill -f '/bin/fm-watch.sh'"
-  assert_policy direct-loop-broad-pkill $'deny\tbroad-watcher-kill' 'while true; do pkill -f fm-watch; done'
+  assert_policy direct-broad-pkill $'deny\tbroad-process-kill' "pkill -f '/bin/fm-watch.sh'"
+  assert_policy direct-loop-broad-pkill $'deny\tbroad-process-kill' 'while true; do pkill -f fm-watch; done'
+  assert_policy direct-broad-pkill-no-watcher $'deny\tbroad-process-kill' "pkill -f 'tsx server.ts'"
+  assert_policy direct-bare-pkill $'deny\tbroad-process-kill' 'pkill node'
+  assert_policy direct-killall $'deny\tbroad-process-kill' 'killall node'
   assert_policy direct-loop-broad-kill-pgrep $'deny\tbroad-watcher-kill' 'until false; do kill $(pgrep -f fm-watch); done'
   assert_policy direct-loop-no-kill-allowed allow 'for f in 1; do echo fm-watch; done'
   assert_policy direct-pipeline $'deny\twatcher-pipeline' 'bin/fm-watch-arm.sh | cat'
@@ -315,6 +323,9 @@ test_prefilter_is_strict_superset() {
   "$CHECK" --command "pkill -f '/bin/fm-watch.sh'" >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] || fail "prefilter must delegate a broad watcher kill, not fast-allow it, got exit $rc"
+  "$CHECK" --command "pkill -f 'tsx server.ts'" >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "prefilter must delegate a broad process kill, not fast-allow it, got exit $rc"
   # Obfuscated protected paths lose the literal fm-watch bytes (a line
   # continuation or a quote splits them), yet the classifier reconstructs them.
   # The prefilter normalizes those bytes first, so both must still delegate and
