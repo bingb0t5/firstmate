@@ -149,6 +149,9 @@ case "$COMMAND" in
     commit_generation
     if [ -f "$DEST" ] && cmp -s "$TMP" "$DEST"; then
       [ "$REL" != data/captain-shared.md ] || chmod 444 "$DEST"
+      case "$REL" in
+        config/*) fm_config_inherit_secure_item "$BASE" "$DEST" || die "cannot secure inherited material" ;;
+      esac
       printf 'unchanged: %s\n' "$REL"
       exit 0
     fi
@@ -157,6 +160,9 @@ case "$COMMAND" in
     mv -f -- "$TMP" "$DEST" || die "cannot publish inherited material"
     TMP=
     [ "$REL" != data/captain-shared.md ] || chmod 444 "$DEST"
+    case "$REL" in
+      config/*) fm_config_inherit_secure_item "$BASE" "$DEST" || die "cannot secure inherited material" ;;
+    esac
     printf 'pushed: %s\n' "$REL"
     ;;
   absent)

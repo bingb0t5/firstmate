@@ -72,6 +72,9 @@ while IFS= read -r rel; do
   if [ -e "$source" ] || [ -L "$source" ]; then
     [ -f "$source" ] && [ ! -L "$source" ] || die "inherited source is unsafe: $source"
     [ "$(file_link_count "$source")" = 1 ] || die "inherited source is hardlinked: $source"
+    case "$rel" in
+      config/*) fm_config_inherit_secure_item "${rel#config/}" "$source" || die "cannot secure inherited source: $source" ;;
+    esac
     if [ "$rel" = data/captain-shared.md ]; then
       shared_captain_header_valid "$source" || die "shared captain preferences have no valid primary-authoritative header"
     fi
