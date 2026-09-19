@@ -111,10 +111,11 @@ No other wrapper is approved.
 
 Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, subshell groups, substitutions, redirections, pipelines, asynchronous lists, `disown`, unrelated list nodes, and unsupported compound syntax are not blessed.
 
-## Broad watcher kills
+## Broad process kills
 
-An actually executed `pkill` command is denied when its parsed pattern arguments target `fm-watch`.
-Path-qualified `pkill`, `command pkill`, and `sudo pkill` are recognized.
+Every actually executed `pkill` or `killall` command is denied as name- or pattern-based process termination.
+Path-qualified `pkill` and literal `time`, `nice`, `ionice`, `nohup`, `env`, `sudo`, `command`, and `exec` command prefixes are unwrapped before that decision.
+No other command indirection is classified as a broad-kill prefix.
 
 `kill "$(pgrep -f '/bin/fm-watch.sh')"` is also denied because the executed `kill` consumes an executed watcher-wide `pgrep` substitution.
 A standalone read-only `pgrep` is allowed.

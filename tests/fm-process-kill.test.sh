@@ -21,12 +21,23 @@ sleep 30 &
 victim=$!
 if "$GUARD" --pid "$victim" --group 1 >/dev/null 2>"$ERR"; then
   kill -KILL "$victim" 2>/dev/null || true
-  fail 'ambiguous process/group target must be refused'
+  fail 'process-group target must be refused'
 fi
-grep -F 'process and group targets are mutually exclusive' "$ERR" >/dev/null ||
-  fail 'ambiguous target refusal must explain the conflicting target modes'
-kill -0 "$victim" 2>/dev/null || fail 'ambiguous target refusal must preserve the live process'
-pass 'ambiguous target is refused without signaling the process'
+grep -F 'process-group targets are refused' "$ERR" >/dev/null ||
+  fail 'process-group refusal must explain the exact-target requirement'
+kill -0 "$victim" 2>/dev/null || fail 'process-group refusal must preserve the live process'
+pass 'process-group target is refused without signaling the process'
+
+for target in 0 00 000; do
+  if "$GUARD" --pid "$target" >/dev/null 2>"$ERR"; then
+    kill -KILL "$victim" 2>/dev/null || true
+    fail "all-zero PID spelling '$target' must be refused"
+  fi
+  grep -F 'PID must be a positive non-zero integer' "$ERR" >/dev/null ||
+    fail "all-zero PID spelling '$target' must explain the refusal"
+done
+kill -0 "$victim" 2>/dev/null || fail 'all-zero PID refusal must preserve the live process'
+pass 'all-zero PID spellings are refused without signaling the process'
 
 if "$GUARD" --signal 0 --pid "$victim" >/dev/null 2>"$ERR"; then
   kill -KILL "$victim" 2>/dev/null || true

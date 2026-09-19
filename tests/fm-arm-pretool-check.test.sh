@@ -127,6 +127,9 @@ matrix_case D59 deny "pkill -f 'tsx server.ts'"
 matrix_case D60 deny "pkill -u rich -f 'tsx server.ts'"
 matrix_case D61 deny 'pkill node'
 matrix_case D62 deny 'killall node'
+matrix_case D63 deny "time pkill -f 'tsx server.ts'"
+matrix_case D64 deny "nice pkill -f 'tsx server.ts'"
+matrix_case D65 deny "ionice pkill -f 'tsx server.ts'"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -227,6 +230,9 @@ test_direct_policy_contract() {
   assert_policy direct-broad-pkill-no-watcher $'deny\tbroad-process-kill' "pkill -f 'tsx server.ts'"
   assert_policy direct-bare-pkill $'deny\tbroad-process-kill' 'pkill node'
   assert_policy direct-killall $'deny\tbroad-process-kill' 'killall node'
+  for wrapper in time nice ionice nohup env sudo command exec; do
+    assert_policy "direct-broad-pkill-wrapper-$wrapper" $'deny\tbroad-process-kill' "$wrapper pkill -f 'tsx server.ts'"
+  done
   assert_policy direct-loop-broad-kill-pgrep $'deny\tbroad-watcher-kill' 'until false; do kill $(pgrep -f fm-watch); done'
   assert_policy direct-loop-no-kill-allowed allow 'for f in 1; do echo fm-watch; done'
   assert_policy direct-unsupported-broad-data allow "if true; then printf '%s\\n' pkill; fi"

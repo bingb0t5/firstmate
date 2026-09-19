@@ -23,7 +23,7 @@ const REASONS = {
   "watcher-redirection": "a protected watcher command must not use shell redirection",
   "watcher-bundled": "a protected watcher command must be the sole final command after approved setup nodes",
   "watcher-nested": "a protected watcher command must not run through a wrapper, substitution, or compound command",
-  "broad-process-kill": "name- or pattern-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID",
+  "broad-process-kill": "name- or pattern-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID",
   "broad-watcher-kill": "a broad process kill targeting the firstmate watcher is forbidden",
   "unclassifiable-protected-command": "unsupported or malformed shell syntax contains a protected watcher command",
   "watcher-direct": "bin/fm-watch.sh must not be run directly; arm the watcher with bin/fm-watch-arm.sh or run bin/fm-watch-checkpoint.sh instead",
@@ -490,8 +490,11 @@ const WRAPPER_OPTIONS = {
   command: { noArgument: new Set(["p", "v", "V"]), takesArgument: new Set() },
   env: { noArgument: new Set(["0", "i", "P", "v"]), takesArgument: new Set(["a", "C", "S", "u"]) },
   exec: { noArgument: new Set(["c", "l"]), takesArgument: new Set(["a"]) },
+  ionice: { noArgument: new Set(["t"]), takesArgument: new Set(["c", "n", "p", "P"]) },
+  nice: { noArgument: new Set(), takesArgument: new Set(["n"]) },
   nohup: { noArgument: new Set(), takesArgument: new Set() },
   sudo: { noArgument: new Set(["A", "B", "b", "E", "e", "H", "i", "K", "k", "l", "N", "n", "P", "S", "s", "v", "V"]), takesArgument: new Set(["C", "D", "g", "h", "p", "r", "R", "t", "T", "u", "U"]) },
+  time: { noArgument: new Set(["p"]), takesArgument: new Set() },
   timeout: { noArgument: new Set(["f", "p", "v"]), takesArgument: new Set(["k", "s"]) },
 };
 
@@ -499,8 +502,11 @@ const WRAPPER_LONG_OPTIONS = {
   command: { noArgument: new Set(["help", "version"]), takesArgument: new Set() },
   env: { noArgument: new Set(["ignore-environment", "null", "help", "version"]), takesArgument: new Set(["argv0", "block-signal", "chdir", "default-signal", "ignore-signal", "split-string", "unset"]) },
   exec: { noArgument: new Set(), takesArgument: new Set() },
+  ionice: { noArgument: new Set(["ignore", "help", "version"]), takesArgument: new Set(["class", "classdata", "pid", "pgid"]) },
+  nice: { noArgument: new Set(["help", "version"]), takesArgument: new Set(["adjustment"]) },
   nohup: { noArgument: new Set(["help", "version"]), takesArgument: new Set() },
   sudo: { noArgument: new Set(["askpass", "background", "bell", "edit", "help", "login", "non-interactive", "preserve-env", "preserve-groups", "remove-timestamp", "reset-timestamp", "set-home", "shell", "stdin", "validate", "version"]), takesArgument: new Set(["chdir", "chroot", "close-from", "command-timeout", "group", "host", "other-user", "prompt", "role", "type", "user"]) },
+  time: { noArgument: new Set(["portability"]), takesArgument: new Set() },
   timeout: { noArgument: new Set(["foreground", "preserve-status", "verbose", "help", "version"]), takesArgument: new Set(["kill-after", "signal"]) },
 };
 
@@ -564,7 +570,7 @@ export function commandPosition(tokens) {
   let command = words[index];
   while (command) {
     const name = basename(command.value);
-    if (name === "exec" || name === "command" || name === "sudo" || name === "nohup") {
+    if (["command", "exec", "ionice", "nice", "nohup", "sudo", "time"].includes(name)) {
       wrappers.push(name);
       const options = consumeWrapperOptions(name, words, index + 1);
       unresolvedWrapperOption ||= options.unresolved;
@@ -764,7 +770,7 @@ function analyzeProgram(command, context, depth = 0) {
     const position = commandPosition(tokens);
     const nodeContext = contextWithAssignments(activeContext, position.words);
     const firstName = basename(position.words[0]?.value || "");
-    if (["if", "then", "else", "elif", "fi", "for", "while", "until", "case", "esac", "do", "done", "function", "time", "coproc"].includes(firstName)) {
+    if (["if", "then", "else", "elif", "fi", "for", "while", "until", "case", "esac", "do", "done", "function", "coproc"].includes(firstName)) {
       unsupported = true;
     }
 
