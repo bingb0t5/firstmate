@@ -67,6 +67,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$signal" in
+  0) error 'signal must not be zero' ;;
   ''|*[!A-Za-z0-9_-]*) error 'signal must be a signal name or number' ;;
 esac
 

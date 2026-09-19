@@ -28,6 +28,15 @@ grep -F 'process and group targets are mutually exclusive' "$ERR" >/dev/null ||
 kill -0 "$victim" 2>/dev/null || fail 'ambiguous target refusal must preserve the live process'
 pass 'ambiguous target is refused without signaling the process'
 
+if "$GUARD" --signal 0 --pid "$victim" >/dev/null 2>"$ERR"; then
+  kill -KILL "$victim" 2>/dev/null || true
+  fail 'zero signal must be refused'
+fi
+grep -F 'signal must not be zero' "$ERR" >/dev/null ||
+  fail 'zero signal refusal must explain the non-terminating mode'
+kill -0 "$victim" 2>/dev/null || fail 'zero signal refusal must preserve the live process'
+pass 'zero signal is refused without signaling the process'
+
 if ! "$GUARD" --signal TERM --pid "$victim"; then
   kill -KILL "$victim" 2>/dev/null || true
   fail 'explicit recorded PID must be terminable'
