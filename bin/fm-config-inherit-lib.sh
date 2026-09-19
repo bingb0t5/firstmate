@@ -129,8 +129,21 @@ fm_inherit_sha256() {
   fi
 }
 
+fm_config_inherit_item_requires_private_mode() {
+  [ "$1" = devplans.env ]
+}
+
+fm_config_inherit_secure_item() {
+  local item=$1 path=$2
+  fm_config_inherit_item_requires_private_mode "$item" || return 0
+  [ -f "$path" ] && [ ! -L "$path" ] || return 1
+  [ "$(fm_inherit_file_mode "$path")" = 600 ] && return 0
+  chmod 600 "$path" 2>/dev/null || return 1
+  [ "$(fm_inherit_file_mode "$path")" = 600 ]
+}
+
 copy_inheritable_file() {
-  local src=$1 dest=$2 dest_parent tmp
+  local src=$1 dest=$2 item=$3 dest_parent tmp
   if [ -e "$dest" ] && [ ! -f "$dest" ] && [ ! -L "$dest" ]; then
     return 1
   fi
@@ -139,6 +152,10 @@ copy_inheritable_file() {
   mkdir -p "$dest_parent" 2>/dev/null || return 1
   tmp=$(mktemp "$dest_parent/.fm-inherit.XXXXXX" 2>/dev/null) || return 1
   if ! cp "$src" "$tmp" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  if ! fm_config_inherit_secure_item "$item" "$tmp"; then
     rm -f "$tmp" 2>/dev/null || true
     return 1
   fi
@@ -442,7 +459,7 @@ propagate_secondmate_inheritance() {
 }
 
 propagate_inheritable_config() {
-  local src_config=$1 dest_config=$2 item src dest reason rc
+  local src_config=$1 dest_config=$2 item src dest reason rc mode_repaired
   [ -n "$src_config" ] || return 1
   [ -n "$dest_config" ] || return 1
   rc=0
@@ -498,6 +515,13 @@ propagate_inheritable_config() {
       fi
     fi
     if [ -f "$src" ]; then
+      if ! fm_config_inherit_secure_item "$item" "$src"; then
+        reason="failed to secure private mode"
+        warn_inheritable_config_error "$item" "$src" "$reason"
+        record_inheritable_config_result "$item" error "$reason"
+        rc=1
+        continue
+      fi
       if ! destination_allows_inherited_item "$dest_config" "$item"; then
         reason=$(inheritable_config_skip_reason)
         warn_inheritable_config_skip "$item" "$dest_config" "$reason"
@@ -505,7 +529,7 @@ propagate_inheritable_config() {
         continue
       fi
       if [ -L "$dest" ] || [ ! -f "$dest" ] || ! cmp -s "$src" "$dest"; then
-        if copy_inheritable_file "$src" "$dest"; then
+        if copy_inheritable_file "$src" "$dest" "$item"; then
           record_inheritable_config_result "$item" pushed ""
         else
           reason="failed to copy"
@@ -514,7 +538,21 @@ propagate_inheritable_config() {
           rc=1
         fi
       else
-        record_inheritable_config_result "$item" unchanged ""
+        mode_repaired=0
+        if fm_config_inherit_item_requires_private_mode "$item" \
+          && [ "$(fm_inherit_file_mode "$dest")" != 600 ]; then
+          mode_repaired=1
+        fi
+        if ! fm_config_inherit_secure_item "$item" "$dest"; then
+          reason="failed to secure private mode"
+          warn_inheritable_config_error "$item" "$dest" "$reason"
+          record_inheritable_config_result "$item" error "$reason"
+          rc=1
+        elif [ "$mode_repaired" = 1 ]; then
+          record_inheritable_config_result "$item" pushed "normalized private mode"
+        else
+          record_inheritable_config_result "$item" unchanged ""
+        fi
       fi
     elif [ -e "$dest" ] || [ -L "$dest" ]; then
       if ! destination_allows_inherited_item "$dest_config" "$item"; then

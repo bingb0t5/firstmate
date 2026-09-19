@@ -1717,7 +1717,7 @@ test_config_push_propagates_devplans_without_reread_content() {
   printf 'codex\n' > "$w/home/config/crew-harness"
   printf 'old\n' > "$w/sm/config/crew-harness"
   printf 'LALO_PLANS_BASE_URL=https://devplans.example\nLALO_PLANS_UPLOAD_KEY=%s\n' "$key" > "$w/home/config/devplans.env"
-  chmod 600 "$w/home/config/devplans.env"
+  chmod 644 "$w/home/config/devplans.env"
   record_live_watcher_fixture "$w/home"
   log="$w/config-push-devplans-secret.tmux.log"
   err="$w/config-push-devplans-secret.err"
@@ -1729,6 +1729,10 @@ test_config_push_propagates_devplans_without_reread_content() {
     "DevPlans config push did not report copied credentials"
   cmp -s "$w/home/config/devplans.env" "$w/sm/config/devplans.env" \
     || fail "DevPlans credentials did not reach the secondmate config"
+  [ "$(fm_inherit_file_mode "$w/home/config/devplans.env")" = 600 ] \
+    || fail "DevPlans source config was not normalized to owner-only mode"
+  [ "$(fm_inherit_file_mode "$w/sm/config/devplans.env")" = 600 ] \
+    || fail "DevPlans secondmate config was not normalized to owner-only mode"
   instruction=$(reread_instruction_path "$w/sm") \
     || fail "non-secret config change did not publish a reread instruction"
   assert_not_contains "$(cat "$instruction")" "config/devplans.env" \
@@ -1739,7 +1743,34 @@ test_config_push_propagates_devplans_without_reread_content() {
     "routed reread pointer exposed the DevPlans upload key"
   assert_not_contains "$out" "$key" "config push output exposed the DevPlans upload key"
   assert_not_contains "$(cat "$err")" "$key" "config push diagnostics exposed the DevPlans upload key"
+  chmod 644 "$w/sm/config/devplans.env"
+  out=$(run_config_push "$w" "$log" 2>"$err"); status=$?
+  expect_code 0 "$status" "byte-identical DevPlans config mode repair should succeed"
+  assert_contains "$out" "devplans.env: pushed - normalized private mode" \
+    "byte-identical DevPlans config did not report private-mode repair"
+  [ "$(fm_inherit_file_mode "$w/sm/config/devplans.env")" = 600 ] \
+    || fail "byte-identical DevPlans config was not normalized to owner-only mode"
   pass "B12a config-push propagates DevPlans config without serializing credentials into reread state"
+}
+
+test_remote_devplans_config_normalizes_private_mode() {
+  local w remote payload bytes hash out
+  w=$(new_world remote-devplans-private-mode)
+  remote="$w/remote"
+  payload="$w/devplans.env"
+  mkdir -p "$remote/config"
+  printf 'LALO_PLANS_BASE_URL=https://devplans.example\nLALO_PLANS_UPLOAD_KEY=remote-fixture\n' > "$payload"
+  bytes=$(LC_ALL=C wc -c < "$payload" | tr -d ' ')
+  hash=$(fm_inherit_sha256 "$payload") || fail "could not hash remote DevPlans fixture"
+  cp "$payload" "$remote/config/devplans.env"
+  chmod 644 "$remote/config/devplans.env"
+
+  out=$(FM_HOME="$remote" "$ROOT/bin/fm-remote-inherit.sh" put config/devplans.env "$bytes" "$hash" 1 < "$payload")
+  assert_contains "$out" "unchanged: config/devplans.env" \
+    "remote byte-identical DevPlans config did not converge"
+  [ "$(fm_inherit_file_mode "$remote/config/devplans.env")" = 600 ] \
+    || fail "remote byte-identical DevPlans config was not normalized to owner-only mode"
+  pass "B12aa remote inheritance normalizes byte-identical DevPlans config to owner-only mode"
 }
 
 test_config_push_reports_skips_dirty_and_invalid_home() {
@@ -2763,6 +2794,7 @@ test_bootstrap_sweep_surfaces_config_propagation_failure
 test_bootstrap_rereads_after_partial_propagation
 test_config_push_propagates_reports_without_ff_or_nudge
 test_config_push_propagates_devplans_without_reread_content
+test_remote_devplans_config_normalizes_private_mode
 test_config_push_reports_skips_dirty_and_invalid_home
 test_config_push_exits_nonzero_on_copy_error
 test_config_push_rereads_after_partial_propagation

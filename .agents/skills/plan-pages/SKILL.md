@@ -18,9 +18,11 @@ For a command that needs DevPlans credentials, load the private config into that
 
 ```sh
 (
+  config="${FM_HOME:?}/config/devplans.env"
+  [ -f "$config" ] && [ ! -L "$config" ] && chmod 600 "$config" || exit 1
   set -a
   # shellcheck source=/dev/null
-  . "${FM_HOME:?}/config/devplans.env"
+  . "$config"
   set +a
   exec plans-axi publish <content.json|page.html>
 )
