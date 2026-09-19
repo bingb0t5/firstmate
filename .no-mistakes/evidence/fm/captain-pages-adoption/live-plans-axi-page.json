@@ -1,0 +1,62 @@
+{
+  "kind": "report",
+  "title": "DevPlans live validation",
+  "slug": "devplans-live-validation",
+  "version": 1,
+  "subtitle": "The question, how I answered it, what I found, and what I would do.",
+  "card": {
+    "stage": "Report"
+  },
+  "sections": [
+    {
+      "heading": "The question",
+      "intro": "Stated precisely, because a vague question gets a vague answer.",
+      "blocks": [
+        "Replace this paragraph. Delete any section that would be empty."
+      ]
+    },
+    {
+      "heading": "How I looked",
+      "intro": "So you can judge whether to believe the findings.",
+      "blocks": [
+        "Replace this paragraph. Delete any section that would be empty."
+      ]
+    },
+    {
+      "heading": "Findings",
+      "intro": "What is true, separated from what I think about it.",
+      "blocks": [
+        "Replace this paragraph. Delete any section that would be empty."
+      ]
+    },
+    {
+      "heading": "Recommendation",
+      "intro": "One. With the argument against it.",
+      "blocks": [
+        "Replace this paragraph. Delete any section that would be empty."
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "example",
+      "question": "Replace this with a real decision, or delete the decisions array.",
+      "label": "The example decision",
+      "recommend": "the first one",
+      "why": "Say why you are asking rather than deciding it yourself.",
+      "options": [
+        {
+          "label": "The first option",
+          "detail": "What it costs."
+        },
+        {
+          "label": "The second option",
+          "detail": "What it costs."
+        }
+      ]
+    }
+  ],
+  "open": [
+    "Anything you know you do not know. Delete this if there is nothing."
+  ]
+}

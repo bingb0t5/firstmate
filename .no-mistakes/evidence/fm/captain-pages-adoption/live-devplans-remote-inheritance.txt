@@ -1,0 +1,3 @@
+Live isolated fm-remote-inherit receiver validation
+first-result=unchanged: config/devplans.env mode=600
+idempotent-result=unchanged: config/devplans.env mode=600 output-secret=redacted

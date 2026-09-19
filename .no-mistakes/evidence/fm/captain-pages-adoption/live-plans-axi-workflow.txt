@@ -1,0 +1,8 @@
+Live plans-axi local page workflow
+new-output=/tmp/fm-plans-cli-live.ixKKMW/report.json
+
+Fill the sections, then:
+  plans-axi publish /tmp/fm-plans-cli-live.ixKKMW/report.json
+Delete any section, the decisions or the open list if it would be empty.
+ok  shell 1.1  report  1 decision(s)  8 annotatable  95KB
+build-output=/tmp/fm-plans-cli-live.ixKKMW/report.html  95KB html-bytes=97307

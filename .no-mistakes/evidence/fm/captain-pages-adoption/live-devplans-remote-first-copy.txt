@@ -1,0 +1,2 @@
+Live isolated fm-remote-inherit first-copy validation
+result=pushed: config/devplans.env destination-bytes=0 mode=600 output-secret=redacted

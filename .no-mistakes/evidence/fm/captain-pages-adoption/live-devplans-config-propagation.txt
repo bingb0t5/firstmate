@@ -1,0 +1,10 @@
+Live isolated fm-config-push validation
+initial-exit=0
+  devplans.env: pushed
+destination-bytes=0 source-mode=600 destination-mode=600 output-secret=redacted
+mode-repair-exit=0
+  devplans.env: pushed - normalized private mode
+destination-mode-after-repair=600
+malformed-primary-exit=1
+  devplans.env: error - unsafe primary source
+destination-retained=0
