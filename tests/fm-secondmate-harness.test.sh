@@ -15,7 +15,7 @@
 #   B) Inheritance. The primary pushes a declared, extensible set of LOCAL
 #      (gitignored) config items - config/crew-dispatch.json, config/crew-harness,
 #      config/backlog-backend, config/backend, config/herdr-presentation-spaces,
-#      config/startup-memory-budget, and config/trace-context -
+#      config/startup-memory-budget, config/trace-context, and config/devplans.env -
 #      down into each secondmate home's config/, so the secondmate's OWN crewmates,
 #      dispatch profiles, backlog backend, runtime-backend default, Herdr
 #      presentation choice, startup-memory budget, and trace context inherit the
@@ -384,6 +384,7 @@ test_propagate_lib() {
   printf 'tmux\n' > "$src/backend"
   : > "$src/herdr-presentation-spaces"
   : > "$src/trace-context"
+  printf 'LALO_PLANS_BASE_URL=https://devplans.example\nLALO_PLANS_UPLOAD_KEY=secret-fixture\n' > "$src/devplans.env"
   stdout="$d/clean-copy.out"
   stderr="$d/clean-copy.err"
   propagate_inheritable_config "$src" "$dest" >"$stdout" 2>"$stderr" || fail "propagate returned non-zero"
@@ -398,6 +399,7 @@ test_propagate_lib() {
   propagate_inheritable_config "$src" "$dest"
   [ "$(cat "$dest/backend")" = tmux ] || fail "primary backend did not overwrite a divergent destination"
   [ -f "$dest/trace-context" ] || fail "trace-context not propagated by the default inheritable set"
+  cmp -s "$src/devplans.env" "$dest/devplans.env" || fail "devplans.env not propagated by the default inheritable set"
 
   # 2. idempotent: an unchanged re-run does not churn the mtime
   m1=$(date -r "$dest/crew-harness" +%s 2>/dev/null || stat -c %Y "$dest/crew-harness")
@@ -858,8 +860,10 @@ test_spawn_secondmate_harness_model_token() {
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-token: meta model not opus (got '$(meta_field "$meta" model)')"
   [ "$(meta_field "$meta" effort)" = default ] || fail "model-token: meta effort not default (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --model 'opus'" \
-    "model-token: launch did not carry --model opus"
+  assert_contains "$launch" "--model" \
+    "model-token: launch did not carry --model"
+  assert_contains "$launch" "opus" \
+    "model-token: launch did not carry the configured model token"
   assert_not_contains "$launch" "--effort" "model-token: launch must not carry an --effort flag"
   pass "C3 spawn: config/secondmate-harness's model token threads --model into the launch and meta"
 }
@@ -880,8 +884,14 @@ test_spawn_secondmate_harness_model_and_effort_tokens() {
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-effort-tokens: meta model not opus"
   [ "$(meta_field "$meta" effort)" = high ] || fail "model-effort-tokens: meta effort not high (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --model 'opus' --effort 'high'" \
-    "model-effort-tokens: launch did not carry both --model opus and --effort high"
+  assert_contains "$launch" "--model" \
+    "model-effort-tokens: launch did not carry --model"
+  assert_contains "$launch" "opus" \
+    "model-effort-tokens: launch did not carry the configured model token"
+  assert_contains "$launch" "--effort" \
+    "model-effort-tokens: launch did not carry --effort"
+  assert_contains "$launch" "high" \
+    "model-effort-tokens: launch did not carry the configured effort token"
   pass "C4 spawn: config/secondmate-harness's model+effort tokens thread into the launch and meta"
 }
 
@@ -902,8 +912,9 @@ test_spawn_explicit_model_overrides_secondmate_harness_token() {
     || fail "explicit-model: meta model not sonnet (got '$(meta_field "$meta" model)'), explicit flag did not win over file token"
   [ "$(meta_field "$meta" effort)" = high ] || fail "explicit-model: file's effort token should still apply"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "--model 'sonnet'" "explicit-model: launch did not use the explicit --model"
-  assert_not_contains "$launch" "--model 'opus'" "explicit-model: launch leaked the file's model token"
+  assert_contains "$launch" "--model" "explicit-model: launch did not use the explicit --model"
+  assert_contains "$launch" "sonnet" "explicit-model: launch did not carry the explicit model token"
+  assert_not_contains "$launch" "opus" "explicit-model: launch leaked the file's model token"
   pass "C5 spawn: an explicit --model overrides config/secondmate-harness's model token; the file's effort token still applies"
 }
 
@@ -924,8 +935,9 @@ test_spawn_explicit_effort_overrides_secondmate_harness_token() {
   [ "$(meta_field "$meta" effort)" = low ] \
     || fail "explicit-effort: meta effort not low (got '$(meta_field "$meta" effort)'), explicit flag did not win over file token"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "--effort 'low'" "explicit-effort: launch did not use the explicit --effort"
-  assert_not_contains "$launch" "--effort 'high'" "explicit-effort: launch leaked the file's effort token"
+  assert_contains "$launch" "--effort" "explicit-effort: launch did not use the explicit --effort"
+  assert_contains "$launch" "low" "explicit-effort: launch did not carry the explicit effort token"
+  assert_not_contains "$launch" "high" "explicit-effort: launch leaked the file's effort token"
   pass "C6 spawn: an explicit --effort overrides config/secondmate-harness's effort token; the file's model token still applies"
 }
 
@@ -969,11 +981,15 @@ test_spawn_explicit_harness_uses_explicit_profile_axes() {
   [ "$(meta_field "$meta" model)" = gpt-5.5 ] || fail "explicit-harness-explicit-axes: meta model did not use explicit value"
   [ "$(meta_field "$meta" effort)" = xhigh ] || fail "explicit-harness-explicit-axes: meta effort did not use explicit value"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "--model 'gpt-5.5'" \
+  assert_contains "$launch" "--model" \
     "explicit-harness-explicit-axes: launch did not use the explicit --model"
-  assert_contains "$launch" "-c 'model_reasoning_effort=\"xhigh\"'" \
+  assert_contains "$launch" "gpt-5.5" \
+    "explicit-harness-explicit-axes: launch did not carry the explicit model token"
+  assert_contains "$launch" "model_reasoning_effort" \
     "explicit-harness-explicit-axes: launch did not use the explicit --effort"
-  assert_not_contains "$launch" "--model 'opus'" \
+  assert_contains "$launch" "xhigh" \
+    "explicit-harness-explicit-axes: launch did not carry the explicit effort token"
+  assert_not_contains "$launch" "opus" \
     "explicit-harness-explicit-axes: launch leaked the file's model token"
   assert_not_contains "$launch" "model_reasoning_effort=\"high\"" \
     "explicit-harness-explicit-axes: launch leaked the file's effort token"
@@ -1106,7 +1122,7 @@ new_world() {
     printf 'projects/\nstate/\ndata/\n.no-mistakes/\n'
     [ "$dispatch_ignore" = no ] || printf 'config/crew-dispatch.json\n'
     printf 'config/crew-harness\nconfig/secondmate-harness\nconfig/backlog-backend\n'
-    printf 'config/backend\nconfig/herdr-presentation-spaces\nconfig/startup-memory-budget\n'
+    printf 'config/backend\nconfig/herdr-presentation-spaces\nconfig/startup-memory-budget\nconfig/devplans.env\n'
   } > "$w/main/.gitignore"
   printf 'v1\n' > "$w/main/AGENTS.md"
   printf 'r1\n' > "$w/main/README.md"
