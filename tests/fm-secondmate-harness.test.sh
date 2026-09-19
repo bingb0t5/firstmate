@@ -28,10 +28,11 @@
 #      config push).
 #      config/secondmate-harness is deliberately NOT inherited (secondmates do
 #      not spawn secondmates). After a successful push that changes allowlisted
-#      config under an already-running home, a literal-content reread instruction
-#      is written to the secondmate home and only its pointer is sent via the
-#      routed secondmate path (exact destination bytes, no summaries); unchanged
-#      config sends nothing unless a previous send failure is pending.
+#      non-secret config under an already-running home, a literal-content reread
+#      instruction is written to the secondmate home and only its pointer is sent
+#      via the routed secondmate path (exact destination bytes, no summaries).
+#      Secret-bearing devplans.env is copied without a literal-content artifact.
+#      Unchanged config sends nothing unless a previous send failure is pending.
 
 #   C) Model/effort pin. config/secondmate-harness may carry optional model and
 #      effort tokens after the harness ("<harness> [<model>] [<effort>]"), read by
@@ -1706,6 +1707,41 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
   pass "B12 config-push propagates via shared live discovery, reports items, rereads on change only, and does not fast-forward"
 }
 
+test_config_push_propagates_devplans_without_reread_content() {
+  local w head log out err status instruction key
+  w=$(new_world config-push-devplans-secret)
+  head=$(git -C "$w/main" rev-parse HEAD)
+  add_sm_worktree "$w" sm "$head"
+  mkdir -p "$w/sm/config"
+  key='devplans-upload-key-fixture'
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  printf 'old\n' > "$w/sm/config/crew-harness"
+  printf 'LALO_PLANS_BASE_URL=https://devplans.example\nLALO_PLANS_UPLOAD_KEY=%s\n' "$key" > "$w/home/config/devplans.env"
+  chmod 600 "$w/home/config/devplans.env"
+  record_live_watcher_fixture "$w/home"
+  log="$w/config-push-devplans-secret.tmux.log"
+  err="$w/config-push-devplans-secret.err"
+
+  out=$(run_config_push "$w" "$log" 2>"$err"); status=$?
+
+  expect_code 0 "$status" "DevPlans config push should succeed"
+  assert_contains "$out" "devplans.env: pushed" \
+    "DevPlans config push did not report copied credentials"
+  cmp -s "$w/home/config/devplans.env" "$w/sm/config/devplans.env" \
+    || fail "DevPlans credentials did not reach the secondmate config"
+  instruction=$(reread_instruction_path "$w/sm") \
+    || fail "non-secret config change did not publish a reread instruction"
+  assert_not_contains "$(cat "$instruction")" "config/devplans.env" \
+    "reread instruction exposed the DevPlans config path"
+  assert_not_contains "$(cat "$instruction")" "$key" \
+    "reread instruction exposed the DevPlans upload key"
+  assert_not_contains "$(inbox_stream "$w/home/state" sm)" "$key" \
+    "routed reread pointer exposed the DevPlans upload key"
+  assert_not_contains "$out" "$key" "config push output exposed the DevPlans upload key"
+  assert_not_contains "$(cat "$err")" "$key" "config push diagnostics exposed the DevPlans upload key"
+  pass "B12a config-push propagates DevPlans config without serializing credentials into reread state"
+}
+
 test_config_push_reports_skips_dirty_and_invalid_home() {
   local w head out err status stale_real dirty_real bad_home err_text tmp
   w=$(new_world config-push-warnings)
@@ -2726,6 +2762,7 @@ test_presentation_inheritance_default_on_and_opt_out
 test_bootstrap_sweep_surfaces_config_propagation_failure
 test_bootstrap_rereads_after_partial_propagation
 test_config_push_propagates_reports_without_ff_or_nudge
+test_config_push_propagates_devplans_without_reread_content
 test_config_push_reports_skips_dirty_and_invalid_home
 test_config_push_exits_nonzero_on_copy_error
 test_config_push_rereads_after_partial_propagation

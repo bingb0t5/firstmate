@@ -12,6 +12,19 @@ Use a DevPlans page instead of a chat artifact whenever the captain will read th
 
 The installed `plans-axi` package ships the authoritative page contract and skill at `$(npm root -g)/plans-axi/skills/plan-pages/SKILL.md`.
 Do not recreate, fork, or hand-write that contract, HTML, or server index.
+The Cursor Core Repos installer command is `npm install -g https://github.com/bingb0t5/lalo-plan-pages`.
+
+For a command that needs DevPlans credentials, load the private config into that command's subprocess only:
+
+```sh
+(
+  set -a
+  # shellcheck source=/dev/null
+  . "${FM_HOME:?}/config/devplans.env"
+  set +a
+  exec plans-axi publish <content.json|page.html>
+)
+```
 
 Use the existing CLI:
 

@@ -33,7 +33,9 @@
 # primary; an item the primary does not set is mirrored as absence downstream.
 # After successful config/* changes under an already-running secondmate, callers
 # invoke fm_config_send_reread_nudge so the live agent re-reads exact post-write
-# bytes (spawn/respawn already re-reads at launch and needs no redundant nudge).
+# bytes for non-secret configuration (spawn/respawn already re-reads at launch
+# and needs no redundant nudge). Secret-bearing configuration is copied without
+# a literal-content reread artifact and is read from its private file when used.
 #
 # Extensible by design: FM_INHERITABLE_CONFIG is the single declared list of
 # config-dir-relative items the primary propagates. Add an item there and every
@@ -551,25 +553,30 @@ FM_CONFIG_INHERIT_LOCK_REL="state/.fm-inherited-config.lock"
 # an enforcement claim, and never a parsed summary of file contents.
 FM_CONFIG_REREAD_FRAMING='These inherited config files changed. Re-read and apply their exact contents at every future intake. They are defaults/rules and do not remove your judgment to choose differently when warranted.'
 
+# The non-secret inherited config files safe to inline into a durable reread
+# instruction. Propagation is separately owned by FM_INHERITABLE_CONFIG, so
+# secret-bearing items such as devplans.env never enter state or retry artifacts.
+FM_CONFIG_REREAD_INLINE_CONFIG="crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context"
+
 # fm_config_reread_is_allowlisted_item <item>
-# True only for the declared inheritable config allowlist (bare item name as
-# recorded in FM_CONFIG_INHERIT_REPORT). data/captain-shared.md is never
-# allowlisted here and must never be inlined into a reread instruction.
+# True only for the declared non-secret config inline allowlist (bare item name
+# as recorded in FM_CONFIG_INHERIT_REPORT). data/captain-shared.md and
+# secret-bearing inheritable files are never inlined into a reread instruction.
 fm_config_reread_is_allowlisted_item() {
   local item=$1 candidate
-  for candidate in $FM_INHERITABLE_CONFIG; do
+  for candidate in $FM_CONFIG_REREAD_INLINE_CONFIG; do
     [ "$candidate" = "$item" ] && return 0
   done
   return 1
 }
 
 # fm_config_reread_changed_items <report>
-# Print bare allowlisted config item names whose report status is "pushed",
-# in FM_INHERITABLE_CONFIG order (deterministic path order). Empty when none.
+# Print bare non-secret inline config item names whose report status is "pushed",
+# in FM_CONFIG_REREAD_INLINE_CONFIG order (deterministic path order). Empty when none.
 fm_config_reread_changed_items() {
   local report=$1 item status
   [ -n "$report" ] && [ -f "$report" ] || return 0
-  for item in $FM_INHERITABLE_CONFIG; do
+  for item in $FM_CONFIG_REREAD_INLINE_CONFIG; do
     status=$(awk -F '\t' -v item="$item" '$1 == item { print $2; exit }' "$report" 2>/dev/null) || status=""
     [ "$status" = pushed ] || continue
     printf '%s\n' "$item"
