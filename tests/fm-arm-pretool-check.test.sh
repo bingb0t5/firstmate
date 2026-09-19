@@ -130,6 +130,9 @@ matrix_case D62 deny 'killall node'
 matrix_case D63 deny "time pkill -f 'tsx server.ts'"
 matrix_case D64 deny "nice pkill -f 'tsx server.ts'"
 matrix_case D65 deny "ionice pkill -f 'tsx server.ts'"
+matrix_case D66 deny "kill \"\$(pgrep -f 'tsx server.ts')\""
+matrix_case D67 deny 'kill "`pgrep -f '\''tsx server.ts'\''`"'
+matrix_case D68 deny "pgrep -f 'tsx server.ts' | xargs kill"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -241,6 +244,9 @@ test_direct_policy_contract() {
   assert_policy direct-unsupported-qualified-broad-kill $'deny\tbroad-process-kill' "if true; then /usr/bin/pkill -f 'tsx server.ts'; fi"
   assert_policy direct-unsupported-wrapped-broad-kill $'deny\tbroad-process-kill' "if true; then time pkill -f 'tsx server.ts'; fi"
   assert_policy direct-case-broad-kill $'deny\tbroad-process-kill' "case x in x) pkill -f 'tsx server.ts' ;; esac"
+  assert_policy direct-pgrep-substitution-kill $'deny\tbroad-process-kill' "kill \"\$(pgrep -f 'tsx server.ts')\""
+  assert_policy direct-pgrep-backtick-kill $'deny\tbroad-process-kill' 'kill "`pgrep -f '\''tsx server.ts'\''`"'
+  assert_policy direct-pgrep-xargs-kill $'deny\tbroad-process-kill' "pgrep -f 'tsx server.ts' | xargs kill"
   assert_policy direct-broad-comment allow $'# killall node\necho ok'
   assert_policy direct-pipeline $'deny\twatcher-pipeline' 'bin/fm-watch-arm.sh | cat'
   assert_policy direct-leading-redirection $'deny\twatcher-redirection' '>/tmp/out bin/fm-watch-arm.sh'
