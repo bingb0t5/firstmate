@@ -53,6 +53,11 @@ function rawMentionsBroadKill(command) {
   return /fm-watch/.test(normalized) && /\b(?:pkill|kill)\b/.test(normalized);
 }
 
+function rawCaseMentionsBroadProcessKill(command) {
+  const normalized = normalizeLineContinuations(command);
+  return /\bcase\b/.test(normalized) && /(?:^|[^A-Za-z0-9_])(?:(?:[^\s;|&()]+\/)?(?:pkill|killall))\b/.test(normalized);
+}
+
 function isBroadProcessKillWord(word) {
   if (!word || word.type !== "word") return false;
   const name = basename(word.value);
@@ -767,7 +772,7 @@ function analyzeProgram(command, context, depth = 0) {
   }
   const lexed = new Lexer(command).tokenize();
   if (lexed.error) {
-    return { error: lexed.error, protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: false, pgrepWatcher: false, watcherPids: new Set() };
+    return { error: lexed.error, protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: rawCaseMentionsBroadProcessKill(command), pgrepWatcher: false, watcherPids: new Set() };
   }
   const program = splitProgram(lexed.tokens);
   const nodeInfos = [];

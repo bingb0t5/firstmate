@@ -240,6 +240,7 @@ test_direct_policy_contract() {
   assert_policy direct-unsupported-broad-kill $'deny\tbroad-process-kill' "if true; then pkill -f 'tsx server.ts'; fi"
   assert_policy direct-unsupported-qualified-broad-kill $'deny\tbroad-process-kill' "if true; then /usr/bin/pkill -f 'tsx server.ts'; fi"
   assert_policy direct-unsupported-wrapped-broad-kill $'deny\tbroad-process-kill' "if true; then time pkill -f 'tsx server.ts'; fi"
+  assert_policy direct-case-broad-kill $'deny\tbroad-process-kill' "case x in x) pkill -f 'tsx server.ts' ;; esac"
   assert_policy direct-broad-comment allow $'# killall node\necho ok'
   assert_policy direct-pipeline $'deny\twatcher-pipeline' 'bin/fm-watch-arm.sh | cat'
   assert_policy direct-leading-redirection $'deny\twatcher-redirection' '>/tmp/out bin/fm-watch-arm.sh'
