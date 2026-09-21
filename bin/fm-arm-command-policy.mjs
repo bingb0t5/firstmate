@@ -797,14 +797,54 @@ function isNameSelector(position) {
   return false;
 }
 
+function xargsChildCommand(position) {
+  if (!position.command || basename(position.command.value) !== "xargs") return null;
+  const words = position.words.slice(position.index + 1);
+  const longNoArgument = new Set(["interactive", "no-run-if-empty", "null", "open-tty", "verbose", "exit", "help", "version", "show-limits"]);
+  const longArgument = new Set(["arg-file", "delimiter", "eof", "max-args", "max-chars", "max-lines", "max-procs", "process-slot-var"]);
+  const longOptionalArgument = new Set(["replace"]);
+  const shortNoArgument = new Set(["0", "o", "p", "r", "t", "x"]);
+  const shortArgument = new Set(["a", "d", "E", "I", "L", "n", "P", "s"]);
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index];
+    const value = word.value;
+    if (value === "--") return words[index + 1] || null;
+    if (!value.startsWith("-") || value === "-") return word;
+    if (value.startsWith("--")) {
+      const [name, attached] = value.slice(2).split("=", 2);
+      if (name === "help" || name === "version" || name === "show-limits") return null;
+      if (longNoArgument.has(name)) continue;
+      if (longOptionalArgument.has(name)) continue;
+      if (!longArgument.has(name)) return null;
+      if (attached !== undefined) continue;
+      if (index + 1 >= words.length) return null;
+      index += 1;
+      continue;
+    }
+    const options = value.slice(1);
+    for (let optionIndex = 0; optionIndex < options.length; optionIndex += 1) {
+      const option = options[optionIndex];
+      if (shortNoArgument.has(option)) continue;
+      if (["e", "i", "l"].includes(option)) {
+        if (optionIndex + 1 < options.length) break;
+        continue;
+      }
+      if (!shortArgument.has(option)) return null;
+      if (optionIndex + 1 < options.length) break;
+      if (index + 1 >= words.length) return null;
+      index += 1;
+      break;
+    }
+  }
+  return null;
+}
+
 function xargsInvokesKill(position) {
-  if (!position.command || basename(position.command.value) !== "xargs") return false;
-  return position.words.slice(position.index + 1).some((word) => basename(word.value) === "kill");
+  return isKillWord(xargsChildCommand(position));
 }
 
 function xargsInvokesBroadProcessKill(position) {
-  if (!position.command || basename(position.command.value) !== "xargs") return false;
-  return position.words.slice(position.index + 1).some((word) => isBroadProcessKillWord(word));
+  return isBroadProcessKillWord(xargsChildCommand(position));
 }
 
 function isPipeline(separator) {

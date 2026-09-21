@@ -120,7 +120,7 @@ An unrecognized option on one of those prefixes that precedes `pkill` or `killal
 
 `kill "$(pgrep -f '/bin/fm-watch.sh')"` is also denied because the executed `kill` consumes an executed watcher-wide `pgrep` substitution.
 Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep`, or `lsof -c` output is denied when it feeds `kill` through command substitution, backticks, a propagated shell variable, or a pipeline into `xargs kill`.
-`xargs pkill` and `xargs killall` are denied directly.
+`xargs pkill` and `xargs killall` are denied directly after resolving xargs options to its actual child command; data arguments are allowed.
 Standalone read-only `pgrep`, `pidof`, `ps`, and `lsof` calls are allowed.
 Quoted text such as `echo 'pkill -f fm-watch'` is data and is allowed.
 
