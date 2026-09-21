@@ -544,7 +544,6 @@ const WRAPPER_LONG_OPTIONS = {
 };
 
 const ALL_WRAPPERS = new Set(["command", "env", "exec", "gtimeout", "ionice", "nice", "nohup", "sudo", "time", "timeout"]);
-const BROAD_PROCESS_KILL_WRAPPERS = new Set(["command", "env", "exec", "gtimeout", "ionice", "nice", "nohup", "sudo", "time", "timeout"]);
 
 function consumeWrapperOptions(name, words, index) {
   const optionOwner = name === "gtimeout" ? "timeout" : name;
@@ -803,6 +802,11 @@ function isNameSelector(position) {
   return false;
 }
 
+function isPsPidAwk(position, pipedPs) {
+  if (!pipedPs || !position.command || basename(position.command.value) !== "awk") return false;
+  return position.words.slice(position.index + 1).some((word) => /\bprint\s+\$2\b/.test(word.value));
+}
+
 function dynamicProcessKillCommand(position) {
   const command = position.command;
   if (!command || command.literal) return false;
@@ -857,7 +861,7 @@ function xargsChildIndex(position) {
 function xargsChildPosition(position) {
   const index = xargsChildIndex(position);
   if (index === null) return null;
-  return commandPosition(position.words.slice(position.index + 1 + index), BROAD_PROCESS_KILL_WRAPPERS);
+  return commandPosition(position.words.slice(position.index + 1 + index), ALL_WRAPPERS);
 }
 
 function xargsInvokesKill(position) {
@@ -992,7 +996,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (isBroadProcessKillWord(position.command) || dynamicProcessKillCommand(position) || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
-    nodeNameSelector ||= isNameSelector(position) || (pipedPs && ["grep", "rg"].includes(commandName));
+    nodeNameSelector ||= isNameSelector(position) || (pipedPs && ["grep", "rg"].includes(commandName)) || isPsPidAwk(position, pipedPs);
     if (commandName === "kill" && (nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables)))) broadProcessKill = true;
     if (wordReferencesAny(position.command, nodeContext.broadKillCommandVariables)) broadProcessKill = true;
     if (pipedNameSelector && xargsInvokesKill(position)) broadProcessKill = true;

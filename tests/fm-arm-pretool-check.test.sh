@@ -152,6 +152,7 @@ matrix_case D84 deny "printf '%s\\n' x | xargs timeout 5 pkill -f 'tsx server.ts
 matrix_case D85 deny "printf 'tsx server.ts\\n' | xargs sh -c 'pkill -f \"\$0\"'"
 matrix_case D86 deny "p=p; \"\${p}\"kill -f 'tsx server.ts'"
 matrix_case D87 deny "sh -c 'pkill -f \"\$0\"'"
+matrix_case D88 deny "ps aux | awk '{print \$2}' | xargs kill"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -172,6 +173,7 @@ matrix_case E16 allow '~/firstmate/bin/fm-watch-checkpoint.sh --seconds 180'
 matrix_case E17 allow 'for f in 1; do echo fm-watch; done'
 matrix_case E18 allow "printf '%s\\n' data | xargs echo pkill"
 matrix_case E19 allow 'p=p; "${p}"kill 4242'
+matrix_case E20 allow "ps aux | awk '{print \$2}'"
 
 MATRIX_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-arm-policy-matrix.XXXXXX")
 FM_TEST_CLEANUP_DIRS+=("$MATRIX_TMP")
@@ -293,6 +295,8 @@ test_direct_policy_contract() {
   assert_policy direct-dynamic-suffix-broad-kill $'deny\tbroad-process-kill' "p=p; \"\${p}\"kill -f 'tsx server.ts'"
   assert_policy direct-dynamic-suffix-exact-pid allow 'p=p; "${p}"kill 4242'
   assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
+  assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"
+  assert_policy direct-ps-awk-read-only allow "ps aux | awk '{print \$2}'"
   assert_policy direct-broad-comment allow $'# killall node\necho ok'
   assert_policy direct-pipeline $'deny\twatcher-pipeline' 'bin/fm-watch-arm.sh | cat'
   assert_policy direct-leading-redirection $'deny\twatcher-redirection' '>/tmp/out bin/fm-watch-arm.sh'
