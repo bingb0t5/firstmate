@@ -203,7 +203,11 @@ emit() {
   key=${2:-finding:$text}
   if [ -z "$FINDINGS" ]; then
     FINDINGS=$text
-    FINDING_KEYS=$key
+    if [ -z "$FINDING_KEYS" ]; then
+      FINDING_KEYS=$key
+    else
+      FINDING_KEYS="$FINDING_KEYS;$key"
+    fi
   else
     FINDINGS="$FINDINGS; $text"
     FINDING_KEYS="$FINDING_KEYS;$key"
@@ -251,6 +255,10 @@ probe_bound() {
 # First dotted number in the text, so "herdr 0.8.2" and "v1.46.0" both work.
 parse_version() {
   printf '%s' "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | head -n 1
+}
+
+parse_target_version() {
+  printf '%s' "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | tail -n 1
 }
 
 # version_newer <a> <b>: true when version a is numerically newer than b.
@@ -489,7 +497,7 @@ EOF
         emit "$name check failed: announce_pattern is not a usable extended regular expression"
       elif [ -n "$matched" ]; then
         matched=$(printf '%s\n' "$matched" | head -n 1)
-        emit_update "$name|$(parse_version "$matched")" "$name update available: $matched"
+        emit_update "announce:$name|$(parse_target_version "$matched")" "$name update available: $matched"
       fi
     fi
   fi
@@ -503,7 +511,7 @@ EOF
 
   if [ -n "$best_version" ] && [ "$best_path" != "$resolved_path" ] \
     && version_newer "$best_version" "$resolved_version"; then
-    emit_update "$name|$best_version" "$name update not in effect: PATH resolves $resolved_version at $resolved_path but $best_version is installed at $best_path"
+    emit_update "path:$name|$best_version" "$name update not in effect: PATH resolves $resolved_version at $resolved_path but $best_version is installed at $best_path"
   fi
 
   if [ -n "$unreadable" ]; then
@@ -564,6 +572,27 @@ git_remote_probe() {
   return "$status"
 }
 
+retain_reported_git_updates() {
+  local name=$1 remaining=$RECORD_REPORTED key
+  while [ -n "$remaining" ]; do
+    key=${remaining%%;*}
+    if [ "$key" = "$remaining" ]; then
+      remaining=
+    else
+      remaining=${remaining#*;}
+    fi
+    case "$key" in
+      "update:git:$name|"*)
+        if [ -z "$FINDING_KEYS" ]; then
+          FINDING_KEYS=$key
+        else
+          FINDING_KEYS="$FINDING_KEYS;$key"
+        fi
+        ;;
+    esac
+  done
+}
+
 # Read-only throughout: nothing here writes to the watched repository. This is the
 # one tool kind that issues several probes in a row, two of them over the network,
 # and each of them goes through git_probe, which owns both the bound and the
@@ -603,6 +632,7 @@ git_findings() {
     if [ "$status" -eq "$GIT_PROBE_NOT_ISSUED" ]; then
       git_probe_answered "$status" "$name" "$remote" "which branch it uses by default" || return 0
     elif [ "$status" -ne 0 ]; then
+      retain_reported_git_updates "$name"
       return 0
     fi
     symref=$GIT_REMOTE_OUTPUT
@@ -621,6 +651,7 @@ git_findings() {
   elif [ "$status" -ne 0 ]; then
     # A transport or transient remote-answer failure is unknown, not an
     # actionable update failure. The next scheduled sweep will retry it.
+    retain_reported_git_updates "$name"
     return 0
   fi
   remote_sha=$(printf '%s\n' "$GIT_REMOTE_OUTPUT" | awk 'NR == 1 { print $1 }')
@@ -666,12 +697,12 @@ git_findings() {
       ''|*[!0-9]*|0) count= ;;
     esac
     if [ -n "$count" ]; then
-      emit_update "$name|$remote_sha" "$name update available: $local_label is $(commit_phrase "$count") behind $remote/$branch"
+      emit_update "git:$name|$remote_sha" "$name update available: $local_label is $(commit_phrase "$count") behind $remote/$branch"
       return 0
     fi
   fi
 
-  emit_update "$name|$remote_sha" "$name update available: $remote/$branch is at $short which this copy does not have"
+  emit_update "git:$name|$remote_sha" "$name update available: $remote/$branch is at $short which this copy does not have"
   return 0
 }
 

@@ -271,6 +271,34 @@ SH
   pass "an announcement carried by another command is read from that command"
 }
 
+test_announced_target_change_is_reported_again() {
+  local home dir out report target
+  home=$(make_home announce-target)
+  dir="$TMP_ROOT/announce-target/bin"
+  target="$TMP_ROOT/announce-target/target"
+  mkdir -p "$dir"
+  printf '1.47.0\n' > "$target"
+  cat > "$dir/no-mistakes-fixture" <<SH
+#!/usr/bin/env bash
+printf 'no-mistakes version v1.46.0\n'
+printf 'A new version of no-mistakes is available: v1.46.0 -> v%s\n' "\$(cat '$target')" >&2
+SH
+  chmod 0755 "$dir/no-mistakes-fixture"
+  write_config "$home" '{"tools":[{"name":"no-mistakes","command":"no-mistakes-fixture","announce_pattern":"A new version of no-mistakes is available: [^ ]+ -> [^ ]+"}]}'
+  out="$home/out.txt"
+
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" '-> v1.47.0' "the first announced target was not reported"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  [ ! -s "$out" ] || fail "the same announced target was reported twice: $(cat "$out")"
+
+  printf '1.48.0\n' > "$target"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" '-> v1.48.0' "a changed announced target was suppressed by the installed version"
+  pass "an announced target version is reported again when it changes"
+}
+
 test_unusable_announce_pattern_is_reported_not_read_as_silence() {
   local home dir out status
   # A pattern the search cannot use answers exactly like a tool with nothing to
@@ -546,6 +574,36 @@ SH
   report=$(cat "$out")
   [ -z "$report" ] || fail "exhausted remote transport timeout was reported: $report"
   pass "an exhausted remote transport timeout stays silent"
+}
+
+test_unknown_remote_keeps_the_pending_update_deduplicated() {
+  local home work dir out real_git
+  home=$(make_home git-unknown-dedup)
+  work=$(git_fixture git-unknown-dedup-repo)
+  git -C "$work" reset -q --hard HEAD~2
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" 'firstmate update available' "the initial pending update was not reported"
+
+  dir="$TMP_ROOT/git-unknown-dedup/bin"
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*refs/heads/main'; then
+  exit 128
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/git"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  [ ! -s "$out" ] || fail "an unknown remote result was not silent: $(cat "$out")"
+
+  run_check "$home" "$PATH" "$out"
+  [ ! -s "$out" ] || fail "a recovered remote repeated its existing pending update: $(cat "$out")"
+  pass "an unknown remote result retains the existing pending update identity"
 }
 
 test_missing_branch_on_a_readable_remote_is_still_reported() {
@@ -1064,6 +1122,7 @@ test_unreadable_version_is_a_failure_not_a_pass
 test_missing_command_is_reported
 test_announced_update_is_reported_from_the_tool_itself
 test_announcement_is_read_from_a_second_command
+test_announced_target_change_is_reported_again
 test_unusable_announce_pattern_is_reported_not_read_as_silence
 test_one_broken_pattern_does_not_blind_the_rest_of_the_sweep
 test_an_unchecked_announcement_source_is_not_read_as_current
@@ -1077,6 +1136,7 @@ test_unusable_git_source_is_reported
 test_unreadable_remote_is_silent_until_it_answers
 test_remote_probe_retries_transient_failure
 test_exhausted_remote_transport_timeout_is_silent
+test_unknown_remote_keeps_the_pending_update_deduplicated
 test_missing_branch_on_a_readable_remote_is_still_reported
 test_git_probes_stop_when_the_sweep_budget_is_gone
 test_a_git_probe_that_does_not_answer_is_not_an_update
