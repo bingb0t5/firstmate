@@ -148,6 +148,7 @@ matrix_case D80 deny "ps aux | rg '[n]ode' | awk '{print \$2}' | xargs kill"
 matrix_case D81 deny "printf '%s\\n' x | xargs env pkill -f 'tsx server.ts'"
 matrix_case D82 deny "pgrep node | xargs env kill"
 matrix_case D83 deny "killer=pkill; \"\$killer\" -f 'tsx server.ts'"
+matrix_case D84 deny "printf '%s\\n' x | xargs timeout 5 pkill -f 'tsx server.ts'"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -283,6 +284,7 @@ test_direct_policy_contract() {
   assert_policy direct-pgrep-xargs-env-kill $'deny\tbroad-process-kill' 'pgrep node | xargs env kill'
   assert_policy direct-literal-dynamic-broad-kill $'deny\tbroad-process-kill' "killer=pkill; \"\$killer\" -f 'tsx server.ts'"
   assert_policy direct-literal-dynamic-safe-command allow 'runner=echo; "$runner" pkill'
+  assert_policy direct-xargs-timeout-broad-pkill $'deny\tbroad-process-kill' "printf '%s\\n' x | xargs timeout 5 pkill -f 'tsx server.ts'"
   assert_policy direct-broad-comment allow $'# killall node\necho ok'
   assert_policy direct-pipeline $'deny\twatcher-pipeline' 'bin/fm-watch-arm.sh | cat'
   assert_policy direct-leading-redirection $'deny\twatcher-redirection' '>/tmp/out bin/fm-watch-arm.sh'

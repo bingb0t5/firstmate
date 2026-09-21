@@ -544,7 +544,7 @@ const WRAPPER_LONG_OPTIONS = {
 };
 
 const ALL_WRAPPERS = new Set(["command", "env", "exec", "gtimeout", "ionice", "nice", "nohup", "sudo", "time", "timeout"]);
-const BROAD_PROCESS_KILL_WRAPPERS = new Set(["command", "env", "exec", "ionice", "nice", "nohup", "sudo", "time"]);
+const BROAD_PROCESS_KILL_WRAPPERS = new Set(["command", "env", "exec", "gtimeout", "ionice", "nice", "nohup", "sudo", "time", "timeout"]);
 
 function consumeWrapperOptions(name, words, index) {
   const optionOwner = name === "gtimeout" ? "timeout" : name;
