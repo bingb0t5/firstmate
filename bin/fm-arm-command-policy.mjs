@@ -811,9 +811,7 @@ function dynamicProcessKillCommand(position) {
   const command = position.command;
   if (!command || command.literal) return false;
   const name = basename(command.value);
-  if (name.endsWith("pkill") || name.endsWith("killall")) return true;
-  if (!name.endsWith("kill")) return false;
-  return position.words.slice(position.index + 1).some((word) => !/^\d+$/.test(word.value));
+  return name.endsWith("pkill") || name.endsWith("killall") || name.endsWith("kill");
 }
 
 function xargsChildIndex(position) {
