@@ -299,6 +299,24 @@ SH
   pass "an announced target version is reported again when it changes"
 }
 
+test_targetless_announcement_is_rejected() {
+  local home dir out
+  home=$(make_home announce-targetless)
+  dir="$TMP_ROOT/announce-targetless/bin"
+  mkdir -p "$dir"
+  cat > "$dir/no-mistakes-fixture" <<'SH'
+#!/usr/bin/env bash
+printf 'no-mistakes version v1.46.0\n'
+printf 'New release available\n' >&2
+SH
+  chmod 0755 "$dir/no-mistakes-fixture"
+  write_config "$home" '{"tools":[{"name":"no-mistakes","command":"no-mistakes-fixture","announce_pattern":"New release available"}]}'
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" "no-mistakes check failed: update announcement has no dotted target version" "a targetless announcement was accepted without an identity"
+  pass "a targetless announcement is rejected"
+}
+
 test_unusable_announce_pattern_is_reported_not_read_as_silence() {
   local home dir out status
   # A pattern the search cannot use answers exactly like a tool with nothing to
@@ -508,10 +526,8 @@ test_unusable_git_source_is_reported() {
   pass "an unusable git source is reported as a check failure"
 }
 
-test_unreadable_remote_is_silent_until_it_answers() {
+test_unreadable_remote_is_reported_after_retry() {
   local home work out report
-  # A remote that cannot be reached at all is transiently unknown. It must not
-  # wake firstmate with a false failure or update diagnosis.
   home=$(make_home git-unreadable)
   work=$(git_fixture git-unreadable-repo)
   rm -rf "$TMP_ROOT/git-unreadable-repo.git"
@@ -519,8 +535,8 @@ test_unreadable_remote_is_silent_until_it_answers() {
   out="$home/out.txt"
   run_check "$home" "$PATH" "$out"
   report=$(cat "$out")
-  [ -z "$report" ] || fail "a remote transport failure was reported instead of treated as unknown: $report"
-  pass "a remote transport failure stays silent until a later sweep can answer"
+  assert_contains "$report" "firstmate check failed: origin could not be reached or read from $work" "a retry-exhausted remote failure was hidden"
+  pass "a retry-exhausted remote failure is reported"
 }
 
 test_remote_probe_retries_transient_failure() {
@@ -593,12 +609,12 @@ test_unknown_remote_keeps_the_pending_update_deduplicated() {
   cat > "$dir/git" <<SH
 #!/usr/bin/env bash
 if printf '%s\\n' "\$*" | grep -q 'ls-remote.*refs/heads/main'; then
-  exit 128
+  sleep 30
 fi
 exec '$real_git' "\$@"
 SH
   chmod 0755 "$dir/git"
-  run_check "$home" "$(fixture_path "$dir")" "$out"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=1
   [ ! -s "$out" ] || fail "an unknown remote result was not silent: $(cat "$out")"
 
   run_check "$home" "$PATH" "$out"
@@ -1123,6 +1139,7 @@ test_missing_command_is_reported
 test_announced_update_is_reported_from_the_tool_itself
 test_announcement_is_read_from_a_second_command
 test_announced_target_change_is_reported_again
+test_targetless_announcement_is_rejected
 test_unusable_announce_pattern_is_reported_not_read_as_silence
 test_one_broken_pattern_does_not_blind_the_rest_of_the_sweep
 test_an_unchecked_announcement_source_is_not_read_as_current
@@ -1133,7 +1150,7 @@ test_default_branch_is_detected_when_branch_is_omitted
 test_default_branch_is_asked_of_the_remote_when_the_clone_has_no_record
 test_current_and_ahead_repositories_are_silent
 test_unusable_git_source_is_reported
-test_unreadable_remote_is_silent_until_it_answers
+test_unreadable_remote_is_reported_after_retry
 test_remote_probe_retries_transient_failure
 test_exhausted_remote_transport_timeout_is_silent
 test_unknown_remote_keeps_the_pending_update_deduplicated

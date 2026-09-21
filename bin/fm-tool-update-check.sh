@@ -421,7 +421,7 @@ probe_output() {
 
 command_findings() {
   local name=$1 command_name=$2 args_joined=$3 announce=$4 announce_args=$5
-  local hit out version matched announce_out status
+  local hit out version matched announce_out status target_version
   local resolved_path='' resolved_version='' resolved_out=''
   local best_path='' best_version='' unreadable='' hits=''
 
@@ -497,7 +497,12 @@ EOF
         emit "$name check failed: announce_pattern is not a usable extended regular expression"
       elif [ -n "$matched" ]; then
         matched=$(printf '%s\n' "$matched" | head -n 1)
-        emit_update "announce:$name|$(parse_target_version "$matched")" "$name update available: $matched"
+        target_version=$(parse_target_version "$matched")
+        if [ -z "$target_version" ]; then
+          emit "$name check failed: update announcement has no dotted target version"
+        else
+          emit_update "announce:$name|$target_version" "$name update available: $matched"
+        fi
       fi
     fi
   fi
@@ -631,8 +636,11 @@ git_findings() {
     status=$?
     if [ "$status" -eq "$GIT_PROBE_NOT_ISSUED" ]; then
       git_probe_answered "$status" "$name" "$remote" "which branch it uses by default" || return 0
-    elif [ "$status" -ne 0 ]; then
+    elif [ "$status" -eq 124 ]; then
       retain_reported_git_updates "$name"
+      return 0
+    elif [ "$status" -ne 0 ]; then
+      emit "$name check failed: $remote could not be reached or read from $repo"
       return 0
     fi
     symref=$GIT_REMOTE_OUTPUT
@@ -648,10 +656,11 @@ git_findings() {
   status=$?
   if [ "$status" -eq "$GIT_PROBE_NOT_ISSUED" ]; then
     git_probe_answered "$status" "$name" "$remote" "where $branch points" || return 0
-  elif [ "$status" -ne 0 ]; then
-    # A transport or transient remote-answer failure is unknown, not an
-    # actionable update failure. The next scheduled sweep will retry it.
+  elif [ "$status" -eq 124 ]; then
     retain_reported_git_updates "$name"
+    return 0
+  elif [ "$status" -ne 0 ]; then
+    emit "$name check failed: $remote could not be reached or read from $repo"
     return 0
   fi
   remote_sha=$(printf '%s\n' "$GIT_REMOTE_OUTPUT" | awk 'NR == 1 { print $1 }')
