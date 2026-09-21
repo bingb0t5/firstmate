@@ -723,7 +723,7 @@ function sourcedScript(position) {
 function evalPayload(position) {
   if (!position.command || basename(position.command.value) !== "eval") return null;
   const payloads = position.words.slice(position.index + 1);
-  if (payloads.length === 0 || payloads.some((payload) => !payload.literal || payload.subs.length > 0)) return null;
+  if (payloads.length === 0) return null;
   return payloads.map((payload) => payload.value).join(" ");
 }
 
@@ -803,6 +803,15 @@ function isNameSelector(position) {
   return false;
 }
 
+function dynamicProcessKillCommand(position) {
+  const command = position.command;
+  if (!command || command.literal) return false;
+  const name = basename(command.value);
+  if (name.endsWith("pkill") || name.endsWith("killall")) return true;
+  if (!name.endsWith("kill")) return false;
+  return position.words.slice(position.index + 1).some((word) => !/^\d+$/.test(word.value));
+}
+
 function xargsChildIndex(position) {
   if (!position.command || basename(position.command.value) !== "xargs") return null;
   const words = position.words.slice(position.index + 1);
@@ -855,8 +864,14 @@ function xargsInvokesKill(position) {
   return isKillWord(xargsChildPosition(position)?.command);
 }
 
-function xargsInvokesBroadProcessKill(position) {
-  return isBroadProcessKillWord(xargsChildPosition(position)?.command);
+function xargsInvokesBroadProcessKill(position, context, depth) {
+  const child = xargsChildPosition(position);
+  if (!child) return false;
+  if (isBroadProcessKillWord(child?.command)) return true;
+  const shell = shellInvocation(child);
+  if (shell?.kind !== "command" || !shell.payload) return false;
+  const nested = analyzeProgram(shell.payload.value, context, depth + 1);
+  return nested.broadProcessKill || nested.broadKill;
 }
 
 function isPipeline(separator) {
@@ -948,9 +963,7 @@ function analyzeProgram(command, context, depth = 0) {
       nodeNestedProtected ||= Boolean(protectedIdentity(script.value, context.root)) || wordReferencesAny(script, nodeContext.protectedVariables);
       unclassifiableProtected ||= hasUnclassifiableProtectedExpansion(script, context.root);
     }
-    if (shellPayload && (!shellPayload.literal || shellPayload.subs.length > 0)) {
-      if (wordReferencesAny(shellPayload, nodeContext.protectedVariables)) nodeNestedProtected = true;
-    } else if (shellPayload) {
+    if (shellPayload) {
       const nested = analyzeProgram(shellPayload.value, nodeContext, depth + 1);
       nodeNestedProtected ||= nested.protectedFound;
       broadKill ||= nested.broadKill;
@@ -958,6 +971,7 @@ function analyzeProgram(command, context, depth = 0) {
       nodePgrepWatcher ||= nested.pgrepWatcher;
       nodeNameSelector ||= nested.nameSelector;
       if (nested.error && rawMentionsProtected(shellPayload.value)) unsupported = true;
+      if ((!shellPayload.literal || shellPayload.subs.length > 0) && wordReferencesAny(shellPayload, nodeContext.protectedVariables)) nodeNestedProtected = true;
     }
     for (const payload of [literalEvalPayload, ...heredocPayloads, ...hereStringPayloads]) {
       if (payload === null) continue;
@@ -975,14 +989,14 @@ function analyzeProgram(command, context, depth = 0) {
     if (hasUnclassifiableProtectedExpansion(position.command, context.root)) unclassifiableProtected = true;
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
-    if (isBroadProcessKillWord(position.command) || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
+    if (isBroadProcessKillWord(position.command) || dynamicProcessKillCommand(position) || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
     nodeNameSelector ||= isNameSelector(position) || (pipedPs && ["grep", "rg"].includes(commandName));
     if (commandName === "kill" && (nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables)))) broadProcessKill = true;
     if (wordReferencesAny(position.command, nodeContext.broadKillCommandVariables)) broadProcessKill = true;
     if (pipedNameSelector && xargsInvokesKill(position)) broadProcessKill = true;
-    if (xargsInvokesBroadProcessKill(position)) broadProcessKill = true;
+    if (xargsInvokesBroadProcessKill(position, nodeContext, depth)) broadProcessKill = true;
     if (isWatcherPgrep(position, nodeContext)) pgrepWatcher = true;
     if (hasDynamicExecutionPayload(position, nodeContext) || wordReferencesAny(position.command, nodeContext.protectedVariables)) nodeNestedProtected = true;
     for (const word of position.words) {

@@ -139,15 +139,10 @@ fi
 #
 # The fast path may allow ONLY when BOTH hold: (a) the stripped/normalized text
 # lacks the fm-watch, pkill, killall, pgrep, pidof, ps, or lsof substring, AND (b) the raw
-# command carries no
-# quoting-decoder marker - a $ immediately followed by a single quote (ANSI-C
-# $'...') or a double quote (bash locale $"..."), both of which the classifier
-# decodes and can therefore reconstruct fm-watch from bytes this cheap byte
-# strip cannot. This marker set is COUPLED to the classifier's decoder set in
-# bin/fm-arm-command-policy.mjs: adding any new quote/expansion form the
-# classifier decodes REQUIRES extending this marker set in the same change, or
-# the prefilter stops being a strict superset. Otherwise the command always
-# delegates to the classifier - the single owner of every decision. Any deeper
+# command carries no dollar expansion marker. The classifier can reconstruct
+# an executable name from a dollar expansion while this cheap byte strip cannot,
+# so every dollar-bearing command delegates to the single policy owner.
+# Otherwise the command always delegates to the classifier. Any deeper
 # decode-required obfuscation stays the classifier's and the post-arm liveness
 # guards' responsibility.
 PREFILTER=$CMD
@@ -157,7 +152,7 @@ PREFILTER=${PREFILTER//\'/}
 PREFILTER=${PREFILTER//$'\n'/}
 PREFILTER=${PREFILTER//$'\r'/}
 case "$CMD" in
-  *"\$'"*|*'$"'*) ;;
+  *'$'*) ;;
   *)
     case "$PREFILTER" in
       *fm-watch*|*pkill*|*killall*|*pgrep*|*pidof*|*ps*|*lsof*) ;;

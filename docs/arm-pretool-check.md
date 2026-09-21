@@ -36,11 +36,11 @@ The wrapper fast-allows a command without invoking the Node policy owner only wh
 The fast path may allow only when both of these hold:
 
 1. The stripped text lacks the `fm-watch`, `pkill`, `killall`, `pgrep`, `pidof`, `ps`, and `lsof` substrings, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
-2. The raw command carries no quoting-decoder marker: a `$` immediately followed by a single quote (ANSI-C `$'...'`) or a double quote (bash locale `$"..."`).
+2. The raw command carries no dollar expansion marker.
 
-Any protected substring match or quoting-decoder marker delegates to the classifier.
+Any protected substring match or dollar expansion marker delegates to the classifier.
 Normalizing first keeps this a strict superset: a protected watcher path obfuscated as `fm-watc\<newline>h-arm.sh` or `fm-"watch"-arm.sh` still delegates, and stripping only those non-alphanumeric bytes can never destroy an existing `fm-watch` run.
-The quoting-decoder marker closes the case the byte strip cannot: `bin/fm-$'\x77'atch-arm.sh` and `bin/fm-$"watch"-arm.sh` both resolve to `bin/fm-watch-arm.sh` only after the classifier decodes the encoded character, so a cheap byte strip would otherwise lose the `fm-watch` bytes and fast-allow them.
+The dollar marker closes cases the byte strip cannot: `bin/fm-$'\x77'atch-arm.sh`, `bin/fm-$"watch"-arm.sh`, and `"${prefix}"kill` can all resolve only after the classifier processes the expansion, so a cheap byte strip would otherwise fast-allow them.
 This marker set is coupled to the classifier's decoder set in `bin/fm-arm-command-policy.mjs`: adding any new quote or expansion form the classifier decodes requires extending this marker set in the same change, or the prefilter stops being a strict superset.
 The prefilter owns no semantic exception: it can only ever fast-allow a command that is definitely not a protected watcher or broad-process command, so it never flips a classification and the classifier remains the single owner of every decision.
 
@@ -120,8 +120,11 @@ An unrecognized option on one of those prefixes that precedes `pkill` or `killal
 
 `kill "$(pgrep -f '/bin/fm-watch.sh')"` is also denied because the executed `kill` consumes an executed watcher-wide `pgrep` substitution.
 Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep` or `rg`, or `lsof -c` output is denied when it feeds `kill` through command substitution, backticks, a propagated shell variable, or a pipeline into `xargs kill`.
-`xargs pkill` and `xargs killall` are denied directly after resolving xargs options and existing wrappers, including `timeout` and `gtimeout`, to the actual child command; data arguments are allowed.
+`xargs pkill` and `xargs killall` are denied directly after resolving xargs options and existing wrappers, including `timeout` and `gtimeout`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments are allowed.
 Literal shell variables that name `pkill` or `killall` are also denied when executed as commands.
+Visible dynamic command names that end in `pkill` or `killall`, or end in `kill` with a nonnumeric target, are denied conservatively.
+The classifier does not resolve arbitrary generated command names or opaque dynamic shell payloads that expose no `kill`, `pkill`, or `killall` token.
+That bounded containment gap is not a supported process-management interface; rewrite such work as `bin/fm-process-kill.sh` with an explicit recorded PID or PGID.
 Standalone read-only `pgrep`, `pidof`, `ps`, and `lsof` calls are allowed.
 Quoted text such as `echo 'pkill -f fm-watch'` is data and is allowed.
 
