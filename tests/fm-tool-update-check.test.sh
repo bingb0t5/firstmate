@@ -480,12 +480,10 @@ test_unusable_git_source_is_reported() {
   pass "an unusable git source is reported as a check failure"
 }
 
-test_unreadable_remote_is_not_reported_as_a_missing_branch() {
+test_unreadable_remote_is_silent_until_it_answers() {
   local home work out report
-  # A remote that cannot be reached at all and a branch that was deleted are
-  # different problems with different repairs. Reporting the first as the second
-  # wakes firstmate with a diagnosis that is simply wrong, so the report must
-  # name only what the probe established.
+  # A remote that cannot be reached at all is transiently unknown. It must not
+  # wake firstmate with a false failure or update diagnosis.
   home=$(make_home git-unreadable)
   work=$(git_fixture git-unreadable-repo)
   rm -rf "$TMP_ROOT/git-unreadable-repo.git"
@@ -493,10 +491,61 @@ test_unreadable_remote_is_not_reported_as_a_missing_branch() {
   out="$home/out.txt"
   run_check "$home" "$PATH" "$out"
   report=$(cat "$out")
-  assert_contains "$report" "firstmate check failed" "a remote that could not be read was not reported"
-  assert_contains "$report" "origin could not be reached or read" "the report does not name the condition the probe actually found"
-  assert_not_contains "$report" "has no branch" "a remote that could not be read was reported as a deleted branch"
-  pass "a remote that cannot be read is reported as unreadable, not as a missing branch"
+  [ -z "$report" ] || fail "a remote transport failure was reported instead of treated as unknown: $report"
+  pass "a remote transport failure stays silent until a later sweep can answer"
+}
+
+test_remote_probe_retries_transient_failure() {
+  local home work dir out report log real_git
+  home=$(make_home git-retry)
+  work=$(git_fixture git-retry-repo)
+  git -C "$work" reset -q --hard HEAD~2
+  dir="$TMP_ROOT/git-retry/bin"
+  log="$TMP_ROOT/git-retry/probes.log"
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*refs/heads/main'; then
+  count=\$(wc -l < '$log' 2>/dev/null || printf 0)
+  printf '%s\\n' remote >> '$log'
+  if [ "\$count" = 0 ]; then
+    exit 128
+  fi
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/git"
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "firstmate update available: local main is 2 commits behind origin/main" "a transient remote failure was not retried to a successful comparison"
+  [ "$(wc -l < "$log" | tr -d ' ')" = 2 ] || fail "the remote probe was not retried exactly once"
+  pass "a transient remote probe failure retries and then reports the successful comparison"
+}
+
+test_exhausted_remote_transport_timeout_is_silent() {
+  local home work dir out report real_git
+  home=$(make_home git-timeout)
+  work=$(git_fixture git-timeout-repo)
+  dir="$TMP_ROOT/git-timeout/bin"
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*refs/heads/main'; then
+  sleep 30
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/git"
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=1
+  report=$(cat "$out")
+  [ -z "$report" ] || fail "exhausted remote transport timeout was reported: $report"
+  pass "an exhausted remote transport timeout stays silent"
 }
 
 test_missing_branch_on_a_readable_remote_is_still_reported() {
@@ -645,7 +694,7 @@ test_malformed_registry_is_reported_not_ignored() {
 }
 
 test_findings_are_reported_once_until_they_change() {
-  local home stale fresh out path
+  local home stale fresh fresh2 out path
   home=$(make_home no-nag)
   stale="$TMP_ROOT/no-nag/old/bin"
   fresh="$TMP_ROOT/no-nag/new/bin"
@@ -659,6 +708,13 @@ test_findings_are_reported_once_until_they_change() {
   assert_contains "$(cat "$out")" "not in effect" "the first sweep did not report the pending update"
   run_check "$home" "$path" "$out"
   [ ! -s "$out" ] || fail "the same pending update was reported twice: $(cat "$out")"
+
+  # The rendered report can change while the pending update identity stays the
+  # same, such as when the installed copy is reached through another path.
+  fresh2="$TMP_ROOT/no-nag/another-new/bin"
+  make_copy "$fresh2" "$TOOL" 'herdr 0.8.2'
+  run_check "$home" "$(fixture_path "$stale:$fresh2")" "$out"
+  [ ! -s "$out" ] || fail "the same pending update was re-reported after its rendered path changed: $(cat "$out")"
 
   # A changed finding is news again.
   make_copy "$fresh" "$TOOL" 'herdr 0.9.0'
@@ -736,7 +792,7 @@ test_probes_are_skipped_between_intervals() {
   FM_HOME="$home" PATH="$(fixture_path "$dir")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=900 FM_TOOL_UPDATE_NOW="$now" \
     "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "first cadence run exit"
-  assert_grep 'fm-tool-updates-v1' "$home/state/.tool-updates" "the first run did not record its sweep"
+  assert_grep 'fm-tool-updates-v2' "$home/state/.tool-updates" "the first run did not record its sweep"
 
   # A finding appears, but the interval has not elapsed, so no probe runs.
   make_copy "$dir" "$TOOL" 'no version here'
@@ -1018,7 +1074,9 @@ test_default_branch_is_detected_when_branch_is_omitted
 test_default_branch_is_asked_of_the_remote_when_the_clone_has_no_record
 test_current_and_ahead_repositories_are_silent
 test_unusable_git_source_is_reported
-test_unreadable_remote_is_not_reported_as_a_missing_branch
+test_unreadable_remote_is_silent_until_it_answers
+test_remote_probe_retries_transient_failure
+test_exhausted_remote_transport_timeout_is_silent
 test_missing_branch_on_a_readable_remote_is_still_reported
 test_git_probes_stop_when_the_sweep_budget_is_gone
 test_a_git_probe_that_does_not_answer_is_not_an_update
