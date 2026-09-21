@@ -120,7 +120,7 @@ An unrecognized option on one of those prefixes that precedes `pkill` or `killal
 
 `kill "$(pgrep -f '/bin/fm-watch.sh')"` is also denied because the executed `kill` consumes an executed watcher-wide `pgrep` substitution.
 Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep`, `rg`, or `awk '{print $2}'`, or `lsof -c` output is denied when it feeds `kill` through command substitution, backticks, a propagated shell variable, or a pipeline into `xargs kill`.
-`xargs pkill` and `xargs killall` are denied directly after resolving xargs options and existing wrappers, including `timeout` and `gtimeout`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments are allowed.
+`xargs pkill` and `xargs killall` are denied directly after resolving xargs options and existing wrappers, including `timeout`, `gtimeout`, `env -S`, and `env --split-string`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments are allowed.
 Literal shell variables that name `pkill` or `killall` are also denied when executed as commands.
 Visible dynamic command names that end in `pkill`, `killall`, or `kill` are denied conservatively because their process-selection semantics are unreadable.
 The classifier does not resolve arbitrary generated command names or opaque dynamic shell payloads that expose no `kill`, `pkill`, or `killall` token.

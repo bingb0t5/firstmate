@@ -862,14 +862,22 @@ function xargsChildPosition(position) {
   return commandPosition(position.words.slice(position.index + 1 + index), ALL_WRAPPERS);
 }
 
-function xargsInvokesKill(position) {
-  return isKillWord(xargsChildPosition(position)?.command);
+function xargsChildPayloadAnalyses(child, context, depth) {
+  return child.wrapperPayloads.map((payload) => analyzeProgram(payload, context, depth + 1));
+}
+
+function xargsInvokesKill(position, context, depth) {
+  const child = xargsChildPosition(position);
+  if (!child) return false;
+  if (isKillWord(child.command)) return true;
+  return xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.nodeInfos?.some((info) => isKillWord(info.position.command)));
 }
 
 function xargsInvokesBroadProcessKill(position, context, depth) {
   const child = xargsChildPosition(position);
   if (!child) return false;
   if (isBroadProcessKillWord(child?.command)) return true;
+  if (xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.broadProcessKill || analysis.broadKill)) return true;
   const shell = shellInvocation(child);
   if (shell?.kind !== "command" || !shell.payload) return false;
   const nested = analyzeProgram(shell.payload.value, context, depth + 1);
@@ -997,7 +1005,7 @@ function analyzeProgram(command, context, depth = 0) {
     nodeNameSelector ||= isNameSelector(position) || (pipedPs && ["grep", "rg"].includes(commandName)) || isPsPidAwk(position, pipedPs);
     if (commandName === "kill" && (nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables)))) broadProcessKill = true;
     if (wordReferencesAny(position.command, nodeContext.broadKillCommandVariables)) broadProcessKill = true;
-    if (pipedNameSelector && xargsInvokesKill(position)) broadProcessKill = true;
+    if (pipedNameSelector && xargsInvokesKill(position, nodeContext, depth)) broadProcessKill = true;
     if (xargsInvokesBroadProcessKill(position, nodeContext, depth)) broadProcessKill = true;
     if (isWatcherPgrep(position, nodeContext)) pgrepWatcher = true;
     if (hasDynamicExecutionPayload(position, nodeContext) || wordReferencesAny(position.command, nodeContext.protectedVariables)) nodeNestedProtected = true;
