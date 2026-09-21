@@ -55,7 +55,7 @@ function rawMentionsBroadKill(command) {
 
 function rawCaseMentionsBroadProcessKill(command) {
   const normalized = normalizeLineContinuations(command);
-  const nameSelector = /\b(?:pgrep|pidof)\b/.test(normalized) || /\bps\b[^\n;|&()]*\s(?:-C\S*|--(?:C|comm)(?:=|\s|$))/.test(normalized);
+  const nameSelector = /\b(?:pgrep|pidof)\b/.test(normalized) || /\bps\b[^\n;|&()]*\s(?:-C\S*|--(?:C|comm)(?:=|\s|$))/.test(normalized) || /\bps\b[^\n;|&()]*\|\s*(?:[^\s;|&()]+\/)?grep\b/.test(normalized) || /\blsof\b[^\n;|&()]*\s-c\S*/.test(normalized);
   return /\bcase\b/.test(normalized) && (/(?:^|[^A-Za-z0-9_])(?:(?:[^\s;|&()]+\/)?(?:pkill|killall))\b/.test(normalized) || (nameSelector && /\bkill\b/.test(normalized)));
 }
 
@@ -791,8 +791,10 @@ function isNameSelector(position) {
   if (!position.command) return false;
   const commandName = basename(position.command.value);
   if (["pgrep", "pidof"].includes(commandName)) return true;
-  if (commandName !== "ps") return false;
-  return position.words.slice(position.index + 1).some((word) => /^(?:-C\S*|--(?:C|comm)(?:=|$))/.test(word.value));
+  const args = position.words.slice(position.index + 1);
+  if (commandName === "ps") return args.some((word) => /^(?:-C\S*|--(?:C|comm)(?:=|$))/.test(word.value));
+  if (commandName === "lsof") return args.some((word) => /^-c\S*/.test(word.value));
+  return false;
 }
 
 function xargsInvokesKill(position) {
@@ -825,6 +827,7 @@ function analyzeProgram(command, context, depth = 0) {
   let pgrepWatcher = false;
   let nameSelector = false;
   let pipedNameSelector = false;
+  let pipedPs = false;
   let unsupported = false;
   let activeContext = {
     ...context,
@@ -922,7 +925,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (isBroadProcessKillWord(position.command) || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
-    nodeNameSelector ||= isNameSelector(position);
+    nodeNameSelector ||= isNameSelector(position) || (pipedPs && commandName === "grep");
     if (commandName === "kill" && (nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables)))) broadProcessKill = true;
     if (pipedNameSelector && xargsInvokesKill(position)) broadProcessKill = true;
     if (xargsInvokesBroadProcessKill(position)) broadProcessKill = true;
@@ -939,6 +942,7 @@ function analyzeProgram(command, context, depth = 0) {
     nestedProtected ||= nodeNestedProtected;
     activeContext = nodeContext;
     pipedNameSelector = isPipeline(program.separators[nodeIndex]) && (pipedNameSelector || nodeNameSelector);
+    pipedPs = isPipeline(program.separators[nodeIndex]) && (pipedPs || commandName === "ps");
     if (position.unresolvedWrapperOption) unsupported = true;
     nodeInfos.push({
       tokens,

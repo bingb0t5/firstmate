@@ -140,6 +140,8 @@ matrix_case D72 deny "kill \"\$(pidof node)\""
 matrix_case D73 deny "printf '%s\\n' 'tsx server.ts' | xargs pkill -f"
 matrix_case D74 deny "kill \"\$(ps -C node -o pid=)\""
 matrix_case D75 deny "case x in x) kill \"\$(ps -C node -o pid=)\" ;; esac"
+matrix_case D76 deny "kill \"\$(ps aux | grep '[n]ode' | awk '{print \$2}')\""
+matrix_case D77 deny "kill \"\$(lsof -t -c node)\""
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -261,6 +263,10 @@ test_direct_policy_contract() {
   assert_policy direct-xargs-broad-pkill $'deny\tbroad-process-kill' "printf '%s\\n' 'tsx server.ts' | xargs pkill -f"
   assert_policy direct-ps-name-selector-kill $'deny\tbroad-process-kill' "kill \"\$(ps -C node -o pid=)\""
   assert_policy direct-case-ps-name-selector-kill $'deny\tbroad-process-kill' "case x in x) kill \"\$(ps -C node -o pid=)\" ;; esac"
+  assert_policy direct-ps-grep-name-selector-kill $'deny\tbroad-process-kill' "kill \"\$(ps aux | grep '[n]ode' | awk '{print \$2}')\""
+  assert_policy direct-lsof-name-selector-kill $'deny\tbroad-process-kill' "kill \"\$(lsof -t -c node)\""
+  assert_policy direct-ps-grep-read-only allow "ps aux | grep '[n]ode' | awk '{print \$2}'"
+  assert_policy direct-lsof-pid-read-only allow 'lsof -t -p 4242'
   assert_policy direct-broad-comment allow $'# killall node\necho ok'
   assert_policy direct-pipeline $'deny\twatcher-pipeline' 'bin/fm-watch-arm.sh | cat'
   assert_policy direct-leading-redirection $'deny\twatcher-redirection' '>/tmp/out bin/fm-watch-arm.sh'
