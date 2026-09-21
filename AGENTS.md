@@ -436,7 +436,7 @@ When Relay-linked work reaches a milestone or terminal state, load `fmx-respond`
 A secondmate's idle endpoint is healthy, and parent supervision relies on its routed status rather than treating a quiet pane as stale.
 Waiting on a healthy supervision cycle is silent; empty polls, elapsed time, and no-change updates are not captain-facing progress.
 PreToolUse rejects every `pkill` and `killall` command across supported harnesses, including watcher commands, because pattern or name matching can kill sibling firstmate homes.
-For any process termination on a shared host, use `bin/fm-process-kill.sh` with the exact PID recorded by the owning invocation; it deliberately refuses name, pattern, process-group, and bare targets.
+For any process termination on a shared host, use `bin/fm-process-kill.sh` with the exact PID or PGID recorded by the owning invocation; it deliberately refuses name, pattern, and bare targets.
 2026-09-19 audit: `bin/fm-arm-command-policy.mjs` enforces the boundary, `bin/fm-process-kill.sh` and `bin/fm-watch-arm.sh` mention pattern kills only in safety documentation, and no `bin/` executable performs name- or pattern-based termination.
 A forced repair must use the home-scoped owner path emitted by supervision instructions.
 

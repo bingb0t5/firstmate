@@ -21,12 +21,12 @@ sleep 30 &
 victim=$!
 if "$GUARD" --pid "$victim" --group 1 >/dev/null 2>"$ERR"; then
   kill -KILL "$victim" 2>/dev/null || true
-  fail 'process-group target must be refused'
+  fail 'ambiguous process/group target must be refused'
 fi
-grep -F 'process-group targets are refused' "$ERR" >/dev/null ||
-  fail 'process-group refusal must explain the exact-target requirement'
-kill -0 "$victim" 2>/dev/null || fail 'process-group refusal must preserve the live process'
-pass 'process-group target is refused without signaling the process'
+grep -F 'process and group targets are mutually exclusive' "$ERR" >/dev/null ||
+  fail 'ambiguous target refusal must explain the conflicting target modes'
+kill -0 "$victim" 2>/dev/null || fail 'ambiguous target refusal must preserve the live process'
+pass 'ambiguous target is refused without signaling the process'
 
 for target in 0 00 000; do
   if "$GUARD" --pid "$target" >/dev/null 2>"$ERR"; then
@@ -49,6 +49,17 @@ for signal in 0 00 000; do
 done
 kill -0 "$victim" 2>/dev/null || fail 'zero signal refusal must preserve the live process'
 pass 'zero signal spellings are refused without signaling the process'
+
+setsid sleep 30 &
+group_victim=$!
+if ! "$GUARD" --signal TERM --group "$group_victim"; then
+  kill -KILL "$group_victim" 2>/dev/null || true
+  fail 'explicit recorded PGID must be terminable'
+fi
+if wait "$group_victim"; then
+  fail 'terminated process group unexpectedly exited successfully'
+fi
+pass 'explicit recorded PGID is terminable'
 
 if ! "$GUARD" --signal TERM --pid "$victim"; then
   kill -KILL "$victim" 2>/dev/null || true
