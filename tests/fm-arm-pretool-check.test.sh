@@ -158,6 +158,8 @@ matrix_case D90 deny "printf 'x\\n' | xargs env -S 'pkill -f \"tsx server.ts\"'"
 matrix_case D91 deny "printf 'x\\n' | xargs env --split-string='pkill -f \"tsx server.ts\"'"
 matrix_case D92 deny "pgrep node | xargs env -S 'kill'"
 matrix_case D93 deny "pgrep node | xargs -n1 sh -c 'kill \"\$0\"'"
+matrix_case D94 deny "pgrep node | xargs -n1 sh -c 'if true; then kill \"\$0\"; fi'"
+matrix_case D95 deny "pgrep node | xargs -n1 sh -c '(kill \"\$0\")'"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -181,6 +183,7 @@ matrix_case E20 allow "ps aux | awk '{print \$2}'"
 matrix_case E21 allow 'kill 4242'
 matrix_case E22 allow "printf 'x\\n' | xargs env -S 'echo pkill'"
 matrix_case E23 allow "pgrep node | xargs -n1 sh -c 'echo \"\$0\"'"
+matrix_case E24 allow "pgrep node | xargs -n1 sh -c 'if true; then echo \"\$0\"; fi'"
 
 MATRIX_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-arm-policy-matrix.XXXXXX")
 FM_TEST_CLEANUP_DIRS+=("$MATRIX_TMP")
@@ -311,6 +314,9 @@ test_direct_policy_contract() {
   assert_policy direct-xargs-env-split-data allow "printf 'x\\n' | xargs env -S 'echo pkill'"
   assert_policy direct-pgrep-xargs-shell-kill $'deny\tbroad-process-kill' "pgrep node | xargs -n1 sh -c 'kill \"\$0\"'"
   assert_policy direct-pgrep-xargs-shell-data allow "pgrep node | xargs -n1 sh -c 'echo \"\$0\"'"
+  assert_policy direct-pgrep-xargs-nested-shell-kill $'deny\tbroad-process-kill' "pgrep node | xargs -n1 sh -c 'if true; then kill \"\$0\"; fi'"
+  assert_policy direct-pgrep-xargs-shell-group-kill $'deny\tbroad-process-kill' "pgrep node | xargs -n1 sh -c '(kill \"\$0\")'"
+  assert_policy direct-pgrep-xargs-nested-shell-data allow "pgrep node | xargs -n1 sh -c 'if true; then echo \"\$0\"; fi'"
   assert_policy direct-broad-comment allow $'# killall node\necho ok'
   assert_policy direct-pipeline $'deny\twatcher-pipeline' 'bin/fm-watch-arm.sh | cat'
   assert_policy direct-leading-redirection $'deny\twatcher-redirection' '>/tmp/out bin/fm-watch-arm.sh'

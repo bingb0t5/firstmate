@@ -876,8 +876,8 @@ function xargsInvokesKill(position, context, depth) {
   const child = xargsChildPosition(position);
   if (!child) return false;
   if (isKillWord(child.command)) return true;
-  if (xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.nodeInfos?.some((info) => isKillWord(info.position.command)))) return true;
-  return xargsChildShellAnalysis(child, context, depth)?.nodeInfos?.some((info) => isKillWord(info.position.command)) || false;
+  if (xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.literalKill)) return true;
+  return xargsChildShellAnalysis(child, context, depth)?.literalKill || false;
 }
 
 function xargsInvokesBroadProcessKill(position, context, depth) {
@@ -896,17 +896,18 @@ function isPipeline(separator) {
 
 function analyzeProgram(command, context, depth = 0) {
   if (depth > 12) {
-    return { error: "recursion limit", protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: false, pgrepWatcher: false, nameSelector: false, watcherPids: new Set() };
+    return { error: "recursion limit", protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: false, literalKill: false, pgrepWatcher: false, nameSelector: false, watcherPids: new Set() };
   }
   const lexed = new Lexer(command).tokenize();
   if (lexed.error) {
-    return { error: lexed.error, protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: rawCaseMentionsBroadProcessKill(command), pgrepWatcher: false, nameSelector: false, watcherPids: new Set() };
+    return { error: lexed.error, protectedFound: rawMentionsProtected(command), broadKill: rawMentionsBroadKill(command), broadProcessKill: rawCaseMentionsBroadProcessKill(command), literalKill: false, pgrepWatcher: false, nameSelector: false, watcherPids: new Set() };
   }
   const program = splitProgram(lexed.tokens);
   const nodeInfos = [];
   let nestedProtected = false;
   let broadKill = false;
   let broadProcessKill = false;
+  let literalKill = false;
   let pgrepWatcher = false;
   let nameSelector = false;
   let pipedNameSelector = false;
@@ -939,6 +940,7 @@ function analyzeProgram(command, context, depth = 0) {
       nodeNestedProtected ||= nested.protectedFound;
       broadKill ||= nested.broadKill;
       broadProcessKill ||= nested.broadProcessKill;
+      literalKill ||= nested.literalKill;
       nodePgrepWatcher ||= nested.pgrepWatcher;
       nodeNameSelector ||= nested.nameSelector;
       if (nested.error && rawMentionsProtected(payload)) unsupported = true;
@@ -949,6 +951,7 @@ function analyzeProgram(command, context, depth = 0) {
         nodeNestedProtected ||= nested.protectedFound;
         broadKill ||= nested.broadKill;
         broadProcessKill ||= nested.broadProcessKill;
+        literalKill ||= nested.literalKill;
         nodePgrepWatcher ||= nested.pgrepWatcher;
         nodeNameSelector ||= nested.nameSelector;
         if (nested.error && rawMentionsProtected(token.content)) unsupported = true;
@@ -960,6 +963,7 @@ function analyzeProgram(command, context, depth = 0) {
           nodeNestedProtected ||= nested.protectedFound;
           broadKill ||= nested.broadKill;
           broadProcessKill ||= nested.broadProcessKill;
+          literalKill ||= nested.literalKill;
           nodePgrepWatcher ||= nested.pgrepWatcher;
           nodeNameSelector ||= nested.nameSelector;
           if (nested.error && rawMentionsProtected(substitution.content)) unsupported = true;
@@ -984,6 +988,7 @@ function analyzeProgram(command, context, depth = 0) {
       nodeNestedProtected ||= nested.protectedFound;
       broadKill ||= nested.broadKill;
       broadProcessKill ||= nested.broadProcessKill;
+      literalKill ||= nested.literalKill;
       nodePgrepWatcher ||= nested.pgrepWatcher;
       nodeNameSelector ||= nested.nameSelector;
       if (nested.error && rawMentionsProtected(shellPayload.value)) unsupported = true;
@@ -995,6 +1000,7 @@ function analyzeProgram(command, context, depth = 0) {
       nodeNestedProtected ||= nested.protectedFound;
       broadKill ||= nested.broadKill;
       broadProcessKill ||= nested.broadProcessKill;
+      literalKill ||= nested.literalKill;
       nodePgrepWatcher ||= nested.pgrepWatcher;
       nodeNameSelector ||= nested.nameSelector;
       if (nested.error && rawMentionsProtected(payload)) unsupported = true;
@@ -1006,6 +1012,7 @@ function analyzeProgram(command, context, depth = 0) {
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
     if (isBroadProcessKillWord(position.command) || dynamicProcessKillCommand(position) || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
+    if (isKillWord(position.command)) literalKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
     nodeNameSelector ||= isNameSelector(position) || (pipedPs && ["grep", "rg"].includes(commandName)) || isPsPidAwk(position, pipedPs);
@@ -1043,10 +1050,11 @@ function analyzeProgram(command, context, depth = 0) {
   if (unclassifiableProtected) unsupported = true;
   const broadKillFound = broadKill || (unsupported && rawMentionsBroadKill(command));
   const broadProcessKillFound = broadProcessKill || (unsupported && (program.nodes.some((tokens) => tokensMentionBroadProcessKill(tokens)) || (nameSelector && program.nodes.some((tokens) => tokensMentionKill(tokens)))));
+  const literalKillFound = literalKill || (unsupported && program.nodes.some((tokens) => tokensMentionKill(tokens)));
   if (unsupported && (protectedFound || rawMentionsProtected(command) || broadKillFound || broadProcessKillFound)) {
-    return { error: "unsupported compound grammar", protectedFound: true, broadKill: broadKillFound, broadProcessKill: broadProcessKillFound, pgrepWatcher, nameSelector, watcherPids: activeContext.watcherPids, program, nodeInfos };
+    return { error: "unsupported compound grammar", protectedFound: true, broadKill: broadKillFound, broadProcessKill: broadProcessKillFound, literalKill: literalKillFound, pgrepWatcher, nameSelector, watcherPids: activeContext.watcherPids, program, nodeInfos };
   }
-  return { error: "", protectedFound, directProtected, nestedProtected, broadKill: broadKillFound, broadProcessKill: broadProcessKillFound, pgrepWatcher, nameSelector, watcherPids: activeContext.watcherPids, program, nodeInfos };
+  return { error: "", protectedFound, directProtected, nestedProtected, broadKill: broadKillFound, broadProcessKill: broadProcessKillFound, literalKill: literalKillFound, pgrepWatcher, nameSelector, watcherPids: activeContext.watcherPids, program, nodeInfos };
 }
 
 function xModePathAllowed(value, home) {
