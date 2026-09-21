@@ -32,10 +32,10 @@ The wrapper discovers the code root from its own location.
 The active firstmate home is `${FM_HOME:-<code-root>}`.
 It passes both roots and the exact command string to the Node policy owner.
 
-The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain `fm-watch`, `pkill`, `killall`, or `pgrep` bytes even after the classifier's decoders run.
+The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain `fm-watch`, `pkill`, `killall`, `pgrep`, `pidof`, or `ps` bytes even after the classifier's decoders run.
 The fast path may allow only when both of these hold:
 
-1. The stripped text lacks the `fm-watch`, `pkill`, `killall`, and `pgrep` substrings, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
+1. The stripped text lacks the `fm-watch`, `pkill`, `killall`, `pgrep`, `pidof`, and `ps` substrings, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
 2. The raw command carries no quoting-decoder marker: a `$` immediately followed by a single quote (ANSI-C `$'...'`) or a double quote (bash locale `$"..."`).
 
 Any protected substring match or quoting-decoder marker delegates to the classifier.
@@ -119,11 +119,12 @@ No other command indirection is classified as a broad-kill prefix.
 An unrecognized option on one of those prefixes that precedes `pkill` or `killall` is denied conservatively.
 
 `kill "$(pgrep -f '/bin/fm-watch.sh')"` is also denied because the executed `kill` consumes an executed watcher-wide `pgrep` substitution.
-Name-selected `pgrep` or `pidof` output is denied when it feeds `kill` through command substitution, backticks, a propagated shell variable, or a pipeline into `xargs kill`.
-Standalone read-only `pgrep` and `pidof` calls are allowed.
+Name-selected `pgrep`, `pidof`, or `ps -C` output is denied when it feeds `kill` through command substitution, backticks, a propagated shell variable, or a pipeline into `xargs kill`.
+`xargs pkill` and `xargs killall` are denied directly.
+Standalone read-only `pgrep`, `pidof`, and `ps` calls are allowed.
 Quoted text such as `echo 'pkill -f fm-watch'` is data and is allowed.
 
-Unsupported compound grammar - a loop, `case`, `if`, or other construct the classifier does not model - is failed closed for a broad-kill command position or a name-selected `pgrep` or `pidof` target consumed by `kill`, the same way it is for protected executions.
+Unsupported compound grammar - a loop, `case`, `if`, or other construct the classifier does not model - is failed closed for a broad-kill command position or a name-selected `pgrep`, `pidof`, or `ps -C` target consumed by `kill`, the same way it is for protected executions.
 The classifier recognizes literal and path-qualified `pkill` or `killall` commands, including the allowlisted prefixes, but the operator must rewrite an ambiguous compound form as one plain command the guard can read.
 This backstop mirrors the protected-execution fail-closed rule and covers forms like `while true; do pkill -f fm-watch; done`, `for x in 1; do pkill -f fm-watch; done`, `case x in x) pkill -f tsx ;; esac`, and `if true; then /usr/bin/pkill -f tsx; fi`.
 Data mentions such as `echo 'pkill -f fm-watch'` and a loop that only names the watcher without a kill verb such as `for f in 1; do echo fm-watch; done` remain allowed.

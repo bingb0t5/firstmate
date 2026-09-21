@@ -55,7 +55,8 @@ function rawMentionsBroadKill(command) {
 
 function rawCaseMentionsBroadProcessKill(command) {
   const normalized = normalizeLineContinuations(command);
-  return /\bcase\b/.test(normalized) && (/(?:^|[^A-Za-z0-9_])(?:(?:[^\s;|&()]+\/)?(?:pkill|killall))\b/.test(normalized) || (/\b(?:pgrep|pidof)\b/.test(normalized) && /\bkill\b/.test(normalized)));
+  const nameSelector = /\b(?:pgrep|pidof)\b/.test(normalized) || /\bps\b[^\n;|&()]*\s(?:-C\S*|--(?:C|comm)(?:=|\s|$))/.test(normalized);
+  return /\bcase\b/.test(normalized) && (/(?:^|[^A-Za-z0-9_])(?:(?:[^\s;|&()]+\/)?(?:pkill|killall))\b/.test(normalized) || (nameSelector && /\bkill\b/.test(normalized)));
 }
 
 function isBroadProcessKillWord(word) {
@@ -788,12 +789,20 @@ function isWatcherPgrep(position, context) {
 
 function isNameSelector(position) {
   if (!position.command) return false;
-  return ["pgrep", "pidof"].includes(basename(position.command.value));
+  const commandName = basename(position.command.value);
+  if (["pgrep", "pidof"].includes(commandName)) return true;
+  if (commandName !== "ps") return false;
+  return position.words.slice(position.index + 1).some((word) => /^(?:-C\S*|--(?:C|comm)(?:=|$))/.test(word.value));
 }
 
 function xargsInvokesKill(position) {
   if (!position.command || basename(position.command.value) !== "xargs") return false;
   return position.words.slice(position.index + 1).some((word) => basename(word.value) === "kill");
+}
+
+function xargsInvokesBroadProcessKill(position) {
+  if (!position.command || basename(position.command.value) !== "xargs") return false;
+  return position.words.slice(position.index + 1).some((word) => isBroadProcessKillWord(word));
 }
 
 function isPipeline(separator) {
@@ -916,6 +925,7 @@ function analyzeProgram(command, context, depth = 0) {
     nodeNameSelector ||= isNameSelector(position);
     if (commandName === "kill" && (nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables)))) broadProcessKill = true;
     if (pipedNameSelector && xargsInvokesKill(position)) broadProcessKill = true;
+    if (xargsInvokesBroadProcessKill(position)) broadProcessKill = true;
     if (isWatcherPgrep(position, nodeContext)) pgrepWatcher = true;
     if (hasDynamicExecutionPayload(position, nodeContext) || wordReferencesAny(position.command, nodeContext.protectedVariables)) nodeNestedProtected = true;
     for (const word of position.words) {
