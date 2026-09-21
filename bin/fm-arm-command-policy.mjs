@@ -866,11 +866,18 @@ function xargsChildPayloadAnalyses(child, context, depth) {
   return child.wrapperPayloads.map((payload) => analyzeProgram(payload, context, depth + 1));
 }
 
+function xargsChildShellAnalysis(child, context, depth) {
+  const shell = shellInvocation(child);
+  if (shell?.kind !== "command" || !shell.payload) return null;
+  return analyzeProgram(shell.payload.value, context, depth + 1);
+}
+
 function xargsInvokesKill(position, context, depth) {
   const child = xargsChildPosition(position);
   if (!child) return false;
   if (isKillWord(child.command)) return true;
-  return xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.nodeInfos?.some((info) => isKillWord(info.position.command)));
+  if (xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.nodeInfos?.some((info) => isKillWord(info.position.command)))) return true;
+  return xargsChildShellAnalysis(child, context, depth)?.nodeInfos?.some((info) => isKillWord(info.position.command)) || false;
 }
 
 function xargsInvokesBroadProcessKill(position, context, depth) {
@@ -878,9 +885,8 @@ function xargsInvokesBroadProcessKill(position, context, depth) {
   if (!child) return false;
   if (isBroadProcessKillWord(child?.command)) return true;
   if (xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.broadProcessKill || analysis.broadKill)) return true;
-  const shell = shellInvocation(child);
-  if (shell?.kind !== "command" || !shell.payload) return false;
-  const nested = analyzeProgram(shell.payload.value, context, depth + 1);
+  const nested = xargsChildShellAnalysis(child, context, depth);
+  if (!nested) return false;
   return nested.broadProcessKill || nested.broadKill;
 }
 
