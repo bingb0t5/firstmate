@@ -123,7 +123,7 @@ Pattern-derived `pgrep -f` output is denied when it feeds `kill` through command
 A standalone read-only `pgrep` is allowed.
 Quoted text such as `echo 'pkill -f fm-watch'` is data and is allowed.
 
-Unsupported compound grammar - a loop, `case`, `if`, or other construct the classifier does not model - is failed closed for a broad-kill command position the same way it is for protected executions.
+Unsupported compound grammar - a loop, `case`, `if`, or other construct the classifier does not model - is failed closed for a broad-kill command position or a pattern-derived `pgrep` target consumed by `kill`, the same way it is for protected executions.
 The classifier recognizes literal and path-qualified `pkill` or `killall` commands, including the allowlisted prefixes, but the operator must rewrite an ambiguous compound form as one plain command the guard can read.
 This backstop mirrors the protected-execution fail-closed rule and covers forms like `while true; do pkill -f fm-watch; done`, `for x in 1; do pkill -f fm-watch; done`, `case x in x) pkill -f tsx ;; esac`, and `if true; then /usr/bin/pkill -f tsx; fi`.
 Data mentions such as `echo 'pkill -f fm-watch'` and a loop that only names the watcher without a kill verb such as `for f in 1; do echo fm-watch; done` remain allowed.

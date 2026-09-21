@@ -64,6 +64,10 @@ function isBroadProcessKillWord(word) {
   return name === "pkill" || name === "killall";
 }
 
+function isKillWord(word) {
+  return Boolean(word && word.type === "word" && basename(word.value) === "kill");
+}
+
 function tokensMentionBroadProcessKill(tokens) {
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -74,6 +78,19 @@ function tokensMentionBroadProcessKill(tokens) {
     if (token.type !== "word" || !["if", "then", "else", "elif", "do", "while", "until"].includes(token.value)) continue;
     const position = commandPosition(tokens.slice(index + 1));
     if (isBroadProcessKillWord(position.command) || unresolvedWrapperMentionsBroadProcessKill(position)) return true;
+  }
+  return false;
+}
+
+function tokensMentionKill(tokens) {
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (isKillWord(token)) {
+      const previous = tokens[index - 1];
+      if (!previous || previous.type === "op" || (previous.type === "word" && ["then", "do", "else", "elif"].includes(previous.value))) return true;
+    }
+    if (token.type !== "word" || !["if", "then", "else", "elif", "do", "while", "until"].includes(token.value)) continue;
+    if (isKillWord(commandPosition(tokens.slice(index + 1)).command)) return true;
   }
   return false;
 }
@@ -927,7 +944,7 @@ function analyzeProgram(command, context, depth = 0) {
   const protectedFound = directProtected || nestedProtected || unclassifiableProtected;
   if (unclassifiableProtected) unsupported = true;
   const broadKillFound = broadKill || (unsupported && rawMentionsBroadKill(command));
-  const broadProcessKillFound = broadProcessKill || (unsupported && program.nodes.some((tokens) => tokensMentionBroadProcessKill(tokens)));
+  const broadProcessKillFound = broadProcessKill || (unsupported && (program.nodes.some((tokens) => tokensMentionBroadProcessKill(tokens)) || (patternPgrep && program.nodes.some((tokens) => tokensMentionKill(tokens)))));
   if (unsupported && (protectedFound || rawMentionsProtected(command) || broadKillFound || broadProcessKillFound)) {
     return { error: "unsupported compound grammar", protectedFound: true, broadKill: broadKillFound, broadProcessKill: broadProcessKillFound, pgrepWatcher, patternPgrep, watcherPids: activeContext.watcherPids, program, nodeInfos };
   }
