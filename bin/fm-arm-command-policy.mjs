@@ -543,6 +543,9 @@ const WRAPPER_LONG_OPTIONS = {
   timeout: { noArgument: new Set(["foreground", "preserve-status", "verbose", "help", "version"]), takesArgument: new Set(["kill-after", "signal"]) },
 };
 
+const ALL_WRAPPERS = new Set(["command", "env", "exec", "gtimeout", "ionice", "nice", "nohup", "sudo", "time", "timeout"]);
+const BROAD_PROCESS_KILL_WRAPPERS = new Set(["command", "env", "exec", "ionice", "nice", "nohup", "sudo", "time"]);
+
 function consumeWrapperOptions(name, words, index) {
   const optionOwner = name === "gtimeout" ? "timeout" : name;
   const short = WRAPPER_OPTIONS[optionOwner];
@@ -600,7 +603,7 @@ function unresolvedWrapperMentionsBroadProcessKill(position) {
   });
 }
 
-export function commandPosition(tokens) {
+export function commandPosition(tokens, allowedWrappers = ALL_WRAPPERS) {
   const words = wordsInNode(tokens);
   let index = 0;
   while (index < words.length && isAssignment(words[index].value)) index += 1;
@@ -611,7 +614,7 @@ export function commandPosition(tokens) {
   let command = words[index];
   while (command) {
     const name = basename(command.value);
-    if (["command", "exec", "ionice", "nice", "nohup", "sudo", "time"].includes(name)) {
+    if (allowedWrappers.has(name) && ["command", "exec", "ionice", "nice", "nohup", "sudo", "time"].includes(name)) {
       wrappers.push(name);
       const options = consumeWrapperOptions(name, words, index + 1);
       unresolvedWrapperOption ||= options.unresolved;
@@ -620,7 +623,7 @@ export function commandPosition(tokens) {
       command = words[index];
       continue;
     }
-    if (name === "env") {
+    if (allowedWrappers.has(name) && name === "env") {
       wrappers.push(name);
       const options = consumeWrapperOptions(name, words, index + 1);
       unresolvedWrapperOption ||= options.unresolved;
@@ -630,7 +633,7 @@ export function commandPosition(tokens) {
       command = words[index];
       continue;
     }
-    if (name === "timeout" || name === "gtimeout") {
+    if (allowedWrappers.has(name) && (name === "timeout" || name === "gtimeout")) {
       wrappers.push(name);
       const options = consumeWrapperOptions(name, words, index + 1);
       unresolvedWrapperOption ||= options.unresolved;
@@ -758,6 +761,7 @@ function contextWithAssignments(context, words) {
   const watcherPatterns = new Set(context.watcherPatterns || []);
   const watcherPids = new Set(context.watcherPids || []);
   const nameSelectorVariables = new Set(context.nameSelectorVariables || []);
+  const broadKillCommandVariables = new Set(context.broadKillCommandVariables || []);
   for (const word of words) {
     const name = assignmentName(word);
     if (!name) continue;
@@ -770,8 +774,10 @@ function contextWithAssignments(context, words) {
     else watcherPids.delete(name);
     if (wordReferencesAny(word, nameSelectorVariables)) nameSelectorVariables.add(name);
     else nameSelectorVariables.delete(name);
+    if (!word.unquotedExpansion && word.subs.length === 0 && ["pkill", "killall"].includes(basename(value))) broadKillCommandVariables.add(name);
+    else broadKillCommandVariables.delete(name);
   }
-  return { ...context, protectedVariables, watcherPatterns, watcherPids, nameSelectorVariables };
+  return { ...context, protectedVariables, watcherPatterns, watcherPids, nameSelectorVariables, broadKillCommandVariables };
 }
 
 function nodeHasRedirection(tokens) {
@@ -797,7 +803,7 @@ function isNameSelector(position) {
   return false;
 }
 
-function xargsChildCommand(position) {
+function xargsChildIndex(position) {
   if (!position.command || basename(position.command.value) !== "xargs") return null;
   const words = position.words.slice(position.index + 1);
   const longNoArgument = new Set(["interactive", "no-run-if-empty", "null", "open-tty", "verbose", "exit", "help", "version", "show-limits"]);
@@ -808,8 +814,8 @@ function xargsChildCommand(position) {
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index];
     const value = word.value;
-    if (value === "--") return words[index + 1] || null;
-    if (!value.startsWith("-") || value === "-") return word;
+    if (value === "--") return index + 1 < words.length ? index + 1 : null;
+    if (!value.startsWith("-") || value === "-") return index;
     if (value.startsWith("--")) {
       const [name, attached] = value.slice(2).split("=", 2);
       if (name === "help" || name === "version" || name === "show-limits") return null;
@@ -839,12 +845,18 @@ function xargsChildCommand(position) {
   return null;
 }
 
+function xargsChildPosition(position) {
+  const index = xargsChildIndex(position);
+  if (index === null) return null;
+  return commandPosition(position.words.slice(position.index + 1 + index), BROAD_PROCESS_KILL_WRAPPERS);
+}
+
 function xargsInvokesKill(position) {
-  return isKillWord(xargsChildCommand(position));
+  return isKillWord(xargsChildPosition(position)?.command);
 }
 
 function xargsInvokesBroadProcessKill(position) {
-  return isBroadProcessKillWord(xargsChildCommand(position));
+  return isBroadProcessKillWord(xargsChildPosition(position)?.command);
 }
 
 function isPipeline(separator) {
@@ -875,6 +887,7 @@ function analyzeProgram(command, context, depth = 0) {
     watcherPatterns: new Set(context.watcherPatterns || []),
     watcherPids: new Set(context.watcherPids || []),
     nameSelectorVariables: new Set(context.nameSelectorVariables || []),
+    broadKillCommandVariables: new Set(context.broadKillCommandVariables || []),
   };
   let unclassifiableProtected = false;
 
@@ -967,6 +980,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
     nodeNameSelector ||= isNameSelector(position) || (pipedPs && ["grep", "rg"].includes(commandName));
     if (commandName === "kill" && (nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables)))) broadProcessKill = true;
+    if (wordReferencesAny(position.command, nodeContext.broadKillCommandVariables)) broadProcessKill = true;
     if (pipedNameSelector && xargsInvokesKill(position)) broadProcessKill = true;
     if (xargsInvokesBroadProcessKill(position)) broadProcessKill = true;
     if (isWatcherPgrep(position, nodeContext)) pgrepWatcher = true;
