@@ -55,7 +55,7 @@ function rawMentionsBroadKill(command) {
 
 function rawCaseMentionsBroadProcessKill(command) {
   const normalized = normalizeLineContinuations(command);
-  const nameSelector = /\b(?:pgrep|pidof)\b/.test(normalized) || /\bps\b[^\n;|&()]*\s(?:-C\S*|--(?:C|comm)(?:=|\s|$))/.test(normalized) || /\bps\b[^\n;|&()]*\|\s*(?:[^\s;|&()]+\/)?grep\b/.test(normalized) || /\blsof\b[^\n;|&()]*\s-c\S*/.test(normalized);
+  const nameSelector = /\b(?:pgrep|pidof)\b/.test(normalized) || /\bps\b[^\n;|&()]*\s(?:-C\S*|--(?:C|comm)(?:=|\s|$))/.test(normalized) || /\bps\b[^\n;|&()]*\|\s*(?:[^\s;|&()]+\/)?(?:grep|rg)\b/.test(normalized) || /\blsof\b[^\n;|&()]*\s-c\S*/.test(normalized);
   return /\bcase\b/.test(normalized) && (/(?:^|[^A-Za-z0-9_])(?:(?:[^\s;|&()]+\/)?(?:pkill|killall))\b/.test(normalized) || (nameSelector && /\bkill\b/.test(normalized)));
 }
 
@@ -965,7 +965,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (isBroadProcessKillWord(position.command) || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
-    nodeNameSelector ||= isNameSelector(position) || (pipedPs && commandName === "grep");
+    nodeNameSelector ||= isNameSelector(position) || (pipedPs && ["grep", "rg"].includes(commandName));
     if (commandName === "kill" && (nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables)))) broadProcessKill = true;
     if (pipedNameSelector && xargsInvokesKill(position)) broadProcessKill = true;
     if (xargsInvokesBroadProcessKill(position)) broadProcessKill = true;
