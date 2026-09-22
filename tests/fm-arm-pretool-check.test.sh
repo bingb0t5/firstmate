@@ -184,6 +184,7 @@ matrix_case D116 deny 'skill -KILL -u rich'
 matrix_case D117 deny 'fuser -k /tmp'
 matrix_case D118 deny "sudo FOO=bar pkill -f 'tsx server.ts'"
 matrix_case D119 deny "printf '%s\\n' /tmp | xargs fuser -k"
+matrix_case D120 deny "tool=pkill; printf '%s\\n' 'tsx server.ts' | xargs \"\$tool\" -f"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -355,6 +356,7 @@ test_direct_policy_contract() {
   assert_policy direct-fuser-kill $'deny\tbroad-process-kill' 'fuser -k /tmp'
   assert_policy direct-sudo-environment-broad-pkill $'deny\tbroad-process-kill' "sudo FOO=bar pkill -f 'tsx server.ts'"
   assert_policy direct-xargs-fuser-kill $'deny\tbroad-process-kill' "printf '%s\\n' /tmp | xargs fuser -k"
+  assert_policy direct-dynamic-xargs-child $'deny\tbroad-process-kill' "tool=pkill; printf '%s\\n' 'tsx server.ts' | xargs \"\$tool\" -f"
   assert_policy direct-fuser-read-only allow 'fuser /tmp'
   assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
   assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"

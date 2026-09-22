@@ -954,7 +954,7 @@ function xargsInvokesKill(position, context, depth) {
 function xargsInvokesBroadProcessKill(position, context, depth) {
   const child = xargsChildPosition(position);
   if (!child) return false;
-  if (isBroadProcessKillWord(child?.command) || fuserInvokesKill(child) || directKillUnsafeTarget(child)) return true;
+  if (isBroadProcessKillWord(child?.command) || fuserInvokesKill(child) || dynamicExecutableCommand(child, context.root) || directKillUnsafeTarget(child)) return true;
   if (xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.broadProcessKill || analysis.broadKill)) return true;
   const nested = xargsChildShellAnalysis(child, context, depth);
   if (!nested) return false;
