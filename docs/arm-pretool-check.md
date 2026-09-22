@@ -114,7 +114,7 @@ Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, s
 ## Broad process kills
 
 Every actually executed `pkill` or `killall` command is denied as name- or pattern-based process termination.
-Literal direct `kill` broadcast targets - `0`, `-1`, and every negative process-group target - are denied.
+Literal direct `kill` broadcast targets - every numeric zero spelling, `-1`, and every negative process-group target - are denied.
 Literal positive PID targets remain allowed, and an exact PGID must be passed explicitly to `bin/fm-process-kill.sh --group`.
 A direct `kill` target must be a readable literal, so variable-based termination belongs to `bin/fm-process-kill.sh`.
 Path-qualified `pkill` and literal `time`, `nice`, `ionice`, `nohup`, `env`, `sudo`, `command`, and `exec` command prefixes are unwrapped before that decision.
