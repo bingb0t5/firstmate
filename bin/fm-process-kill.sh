@@ -67,12 +67,22 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$signal" in
-  ''|*[!A-Za-z0-9_-]*) error 'signal must be a signal name or number' ;;
+  ''|*[!A-Za-z0-9_+-]*) error 'signal must be a signal name or number' ;;
 esac
 
 case "$signal" in
   *[!0]*) ;;
   *) error 'signal must not be zero' ;;
+esac
+
+case "$signal" in
+  [+-]*)
+    case "${signal#?}" in
+      ''|*[!0-9]*) ;;
+      *[1-9]*) ;;
+      *) error 'signal must not be zero' ;;
+    esac
+    ;;
 esac
 
 if [ -n "$pid" ]; then

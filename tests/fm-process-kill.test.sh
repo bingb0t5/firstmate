@@ -39,7 +39,7 @@ done
 kill -0 "$victim" 2>/dev/null || fail 'all-zero PID refusal must preserve the live process'
 pass 'all-zero PID spellings are refused without signaling the process'
 
-for signal in 0 00 000; do
+for signal in 0 00 000 +0 +00 -0 -000; do
   if "$GUARD" --signal "$signal" --pid "$victim" >/dev/null 2>"$ERR"; then
     kill -KILL "$victim" 2>/dev/null || true
     fail "zero signal spelling '$signal' must be refused"

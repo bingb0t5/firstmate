@@ -173,6 +173,10 @@ matrix_case D105 deny 'kill -TERM -- +0'
 matrix_case D106 deny 'builtin kill -TERM -- -1'
 matrix_case D107 deny "\$(printf pkill) -f 'tsx server.ts'"
 matrix_case D108 deny 'builtin -- kill -TERM -- -1'
+matrix_case D109 deny "builtin command pkill -f 'tsx server.ts'"
+matrix_case D110 deny "builtin eval 'kill -TERM -- -1'"
+matrix_case D111 deny 'xargs kill <<< "$(pgrep node)"'
+matrix_case D112 deny "p=pk; \"\${p}ill\" -f 'tsx server.ts'"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -185,9 +189,9 @@ matrix_case E08 deny "bash -lc 'bin/fm-watch-checkpoint.sh --seconds 180'"
 matrix_case E09 deny '(bin/fm-watch-checkpoint.sh --seconds 180)'
 matrix_case E10 deny "eval 'bin/fm-watch-arm.sh &'"
 matrix_case E11 deny "exec bash -lc 'bin/fm-watch-arm.sh &'"
-matrix_case E12 allow 'bash -lc "$WATCHER_COMMAND" # fm-watch-arm.sh'
+matrix_case E12 deny 'bash -lc "$WATCHER_COMMAND" # fm-watch-arm.sh'
 matrix_case E13 allow "printf '%s\\n' 'argument has ; and fm-watch-arm.sh and &&'"
-matrix_case E14 allow '$FM_HOME/bin/fm-teardown.sh &'
+matrix_case E14 deny '$FM_HOME/bin/fm-teardown.sh &'
 matrix_case E15 allow '$FM_HOME/bin/fm-watch-arm.sh'
 matrix_case E16 allow '~/firstmate/bin/fm-watch-checkpoint.sh --seconds 180'
 matrix_case E17 allow 'for f in 1; do echo fm-watch; done'
@@ -312,7 +316,7 @@ test_direct_policy_contract() {
   assert_policy direct-xargs-env-broad-pkill $'deny\tbroad-process-kill' "printf '%s\\n' x | xargs env pkill -f 'tsx server.ts'"
   assert_policy direct-pgrep-xargs-env-kill $'deny\tbroad-process-kill' 'pgrep node | xargs env kill'
   assert_policy direct-literal-dynamic-broad-kill $'deny\tbroad-process-kill' "killer=pkill; \"\$killer\" -f 'tsx server.ts'"
-  assert_policy direct-literal-dynamic-safe-command allow 'runner=echo; "$runner" pkill'
+  assert_policy direct-literal-dynamic-safe-command $'deny\tbroad-process-kill' 'runner=echo; "$runner" pkill'
   assert_policy direct-xargs-timeout-broad-pkill $'deny\tbroad-process-kill' "printf '%s\\n' x | xargs timeout 5 pkill -f 'tsx server.ts'"
   assert_policy direct-xargs-shell-broad-pkill $'deny\tbroad-process-kill' "printf 'tsx server.ts\\n' | xargs sh -c 'pkill -f \"\$0\"'"
   assert_policy direct-dynamic-suffix-broad-kill $'deny\tbroad-process-kill' "p=p; \"\${p}\"kill -f 'tsx server.ts'"
@@ -332,6 +336,10 @@ test_direct_policy_contract() {
   assert_policy direct-builtin-broadcast $'deny\tbroad-process-kill' 'builtin kill -TERM -- -1'
   assert_policy direct-unreadable-dynamic-broad-kill $'deny\tbroad-process-kill' "\$(printf pkill) -f 'tsx server.ts'"
   assert_policy direct-builtin-terminated-broadcast $'deny\tbroad-process-kill' 'builtin -- kill -TERM -- -1'
+  assert_policy direct-builtin-command-broad-kill $'deny\tbroad-process-kill' "builtin command pkill -f 'tsx server.ts'"
+  assert_policy direct-builtin-eval-broadcast $'deny\tbroad-process-kill' "builtin eval 'kill -TERM -- -1'"
+  assert_policy direct-xargs-substitution-selector-kill $'deny\tbroad-process-kill' 'xargs kill <<< "$(pgrep node)"'
+  assert_policy direct-dynamic-prefix-broad-kill $'deny\tbroad-process-kill' "p=pk; \"\${p}ill\" -f 'tsx server.ts'"
   assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
   assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"
   assert_policy direct-ps-awk-read-only allow "ps aux | awk '{print \$2}'"
