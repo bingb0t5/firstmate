@@ -566,12 +566,14 @@ git_probe_answered() {
 GIT_REMOTE_OUTPUT=
 
 git_remote_probe() {
-  local status output
+  local status output first_status
   output=$(git_probe "$@" 2>/dev/null)
   status=$?
   if [ "$status" -ne 0 ] && [ "$status" -ne "$GIT_PROBE_NOT_ISSUED" ]; then
+    first_status=$status
     output=$(git_probe "$@" 2>/dev/null)
     status=$?
+    [ "$status" -ne "$GIT_PROBE_NOT_ISSUED" ] || status=$first_status
   fi
   GIT_REMOTE_OUTPUT=$output
   return "$status"

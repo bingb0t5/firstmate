@@ -586,10 +586,34 @@ SH
   chmod 0755 "$dir/git"
   write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
   out="$home/out.txt"
-  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=1
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_BUDGET_SECS=2 FM_TOOL_UPDATE_PROBE_SECS=2
   report=$(cat "$out")
   [ -z "$report" ] || fail "exhausted remote transport timeout was reported: $report"
-  pass "an exhausted remote transport timeout stays silent"
+  pass "an exhausted remote transport timeout stays silent when no retry can start"
+}
+
+test_default_branch_timeout_without_retry_is_silent() {
+  local home work dir out report real_git
+  home=$(make_home git-symref-timeout)
+  work=$(git_fixture git-symref-timeout-repo)
+  git -C "$work" remote set-head origin --delete >/dev/null 2>&1
+  dir="$TMP_ROOT/git-symref-timeout/bin"
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*--symref.*HEAD'; then
+  sleep 30
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/git"
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_BUDGET_SECS=2 FM_TOOL_UPDATE_PROBE_SECS=2
+  report=$(cat "$out")
+  [ -z "$report" ] || fail "a default-branch timeout without a retry was reported: $report"
+  pass "a default-branch timeout stays silent when no retry can start"
 }
 
 test_unknown_remote_keeps_the_pending_update_deduplicated() {
@@ -1153,6 +1177,7 @@ test_unusable_git_source_is_reported
 test_unreadable_remote_is_reported_after_retry
 test_remote_probe_retries_transient_failure
 test_exhausted_remote_transport_timeout_is_silent
+test_default_branch_timeout_without_retry_is_silent
 test_unknown_remote_keeps_the_pending_update_deduplicated
 test_missing_branch_on_a_readable_remote_is_still_reported
 test_git_probes_stop_when_the_sweep_budget_is_gone
