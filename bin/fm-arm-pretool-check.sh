@@ -155,7 +155,7 @@ case "$CMD" in
   *'$'*) ;;
   *)
     case "$PREFILTER" in
-      *fm-watch*|*kill*|*fuser*|*pgrep*|*pidof*|*ps*|*lsof*|*sh*|*trap*|*source*|*'. '*) ;;
+      *fm-watch*|*kill*|*fuser*|*pgrep*|*pidof*|*ps*|*lsof*|*sh*|*trap*|*source*|*'.'[[:space:]]*) ;;
       *) exit 0 ;;
     esac
     ;;

@@ -194,6 +194,8 @@ matrix_case D126 deny 'source ./cleanup'
 matrix_case D127 deny '. ./cleanup'
 matrix_case D128 deny "printf 'x\\n' | xargs sh ./cleanup"
 matrix_case D129 deny 'ps -eo pid= | xargs kill'
+matrix_case D130 deny $'.\t./cleanup'
+matrix_case D131 deny 'xargs kill < /tmp/pids'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -220,6 +222,7 @@ matrix_case E25 allow 'fuser /tmp'
 matrix_case E26 allow "bash -c 'echo safe'"
 matrix_case E27 allow "bash <<< 'echo safe'"
 matrix_case E28 allow 'source config/x-mode.env'
+matrix_case E29 allow 'xargs kill --list < /tmp/pids'
 matrix_case E23 allow "pgrep node | xargs -n1 sh -c 'echo \"\$0\"'"
 matrix_case E24 allow "pgrep node | xargs -n1 sh -c 'if true; then echo \"\$0\"; fi'"
 
@@ -382,6 +385,8 @@ test_direct_policy_contract() {
   assert_policy direct-ps-combined-pid-list-xargs-kill $'deny\tbroad-process-kill' 'ps -eo pid=,ppid= | xargs kill'
   assert_policy direct-ps-pid-list-xargs-data allow 'ps -eo pid= | xargs echo'
   assert_policy direct-ps-pid-list-xargs-list allow 'ps -eo pid= | xargs kill --list'
+  assert_policy direct-xargs-unreadable-kill-targets $'deny\tbroad-process-kill' 'xargs kill < /tmp/pids'
+  assert_policy direct-xargs-kill-list allow 'xargs kill --list < /tmp/pids'
   assert_policy direct-ps-awk-read-only allow "ps aux | awk '{print \$2}'"
   assert_policy direct-xargs-env-split-broad-pkill $'deny\tbroad-process-kill' "printf 'x\\n' | xargs env -S 'pkill -f \"tsx server.ts\"'"
   assert_policy direct-xargs-env-long-split-broad-pkill $'deny\tbroad-process-kill' "printf 'x\\n' | xargs env --split-string='pkill -f \"tsx server.ts\"'"
