@@ -185,6 +185,11 @@ matrix_case D117 deny 'fuser -k /tmp'
 matrix_case D118 deny "sudo FOO=bar pkill -f 'tsx server.ts'"
 matrix_case D119 deny "printf '%s\\n' /tmp | xargs fuser -k"
 matrix_case D120 deny "tool=pkill; printf '%s\\n' 'tsx server.ts' | xargs \"\$tool\" -f"
+matrix_case D121 deny 'bash ./cleanup'
+matrix_case D122 deny 'bash'
+matrix_case D123 deny "trap 'pkill -f \"tsx server.ts\"' EXIT"
+matrix_case D124 deny 'sh ./cleanup'
+matrix_case D125 deny "trap 'echo safe' EXIT"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -208,6 +213,8 @@ matrix_case E20 allow "ps aux | awk '{print \$2}'"
 matrix_case E21 allow 'kill 4242'
 matrix_case E22 allow "printf 'x\\n' | xargs env -S 'echo pkill'"
 matrix_case E25 allow 'fuser /tmp'
+matrix_case E26 allow "bash -c 'echo safe'"
+matrix_case E27 allow "bash <<< 'echo safe'"
 matrix_case E23 allow "pgrep node | xargs -n1 sh -c 'echo \"\$0\"'"
 matrix_case E24 allow "pgrep node | xargs -n1 sh -c 'if true; then echo \"\$0\"; fi'"
 

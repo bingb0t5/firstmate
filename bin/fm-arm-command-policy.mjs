@@ -799,10 +799,18 @@ function evalPayload(position) {
   return payloads.map((payload) => payload.value).join(" ");
 }
 
+function isOpaqueShellExecutionSink(position) {
+  return basename(position.command?.value || "") === "trap";
+}
+
 function hasUnreadableExecutionPayload(tokens, position) {
   const shell = shellInvocation(position);
-  if (["command", "script"].includes(shell?.kind) && shell.payload && (!shell.payload.literal || shell.payload.subs.length > 0)) return true;
-  if (shell?.kind === "stdin" && tokens.some((token, index) => token.type === "redir" && !token.inlineTarget && token.fd === 0 && ["<", "<<<"].includes(token.value) && tokens[index + 1]?.type === "word" && (!tokens[index + 1].literal || tokens[index + 1].subs.length > 0))) return true;
+  if (shell?.kind === "script") return true;
+  if (shell?.kind === "command" && shell.payload && (!shell.payload.literal || shell.payload.subs.length > 0)) return true;
+  if (shell?.kind === "stdin") {
+    if (tokens.some((token, index) => token.type === "redir" && !token.inlineTarget && token.fd === 0 && ["<", "<<<"].includes(token.value) && tokens[index + 1]?.type === "word" && (!tokens[index + 1].literal || tokens[index + 1].subs.length > 0))) return true;
+    return shellHeredocPayloads(tokens, position).length === 0 && shellHereStringPayloads(tokens, position).length === 0;
+  }
   if (!position.command || basename(position.command.value) !== "eval") return false;
   return position.words.slice(position.index + 1).some((payload) => !payload.literal || payload.subs.length > 0);
 }
@@ -1091,7 +1099,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (hasUnclassifiableProtectedExpansion(position.command, context.root)) unclassifiableProtected = true;
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
-    if (isBroadProcessKillWord(position.command) || fuserInvokesKill(position) || dynamicExecutableCommand(position, context.root) || hasUnreadableExecutionPayload(tokens, position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillUnsafeTarget(position)) broadProcessKill = true;
+    if (isBroadProcessKillWord(position.command) || fuserInvokesKill(position) || dynamicExecutableCommand(position, context.root) || isOpaqueShellExecutionSink(position) || hasUnreadableExecutionPayload(tokens, position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillUnsafeTarget(position)) broadProcessKill = true;
     if (directKill) literalKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
