@@ -182,6 +182,8 @@ matrix_case D114 deny "eval \"\$(printf '%s' 'pkill -f tsx')\""
 matrix_case D115 deny 'killall5 -TERM'
 matrix_case D116 deny 'skill -KILL -u rich'
 matrix_case D117 deny 'fuser -k /tmp'
+matrix_case D118 deny "sudo FOO=bar pkill -f 'tsx server.ts'"
+matrix_case D119 deny "printf '%s\\n' /tmp | xargs fuser -k"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -204,7 +206,7 @@ matrix_case E18 allow "printf '%s\\n' data | xargs echo pkill"
 matrix_case E20 allow "ps aux | awk '{print \$2}'"
 matrix_case E21 allow 'kill 4242'
 matrix_case E22 allow "printf 'x\\n' | xargs env -S 'echo pkill'"
-matrix_case E23 allow 'fuser /tmp'
+matrix_case E25 allow 'fuser /tmp'
 matrix_case E23 allow "pgrep node | xargs -n1 sh -c 'echo \"\$0\"'"
 matrix_case E24 allow "pgrep node | xargs -n1 sh -c 'if true; then echo \"\$0\"; fi'"
 
@@ -351,6 +353,8 @@ test_direct_policy_contract() {
   assert_policy direct-killall5 $'deny\tbroad-process-kill' 'killall5 -TERM'
   assert_policy direct-skill-user-selector $'deny\tbroad-process-kill' 'skill -KILL -u rich'
   assert_policy direct-fuser-kill $'deny\tbroad-process-kill' 'fuser -k /tmp'
+  assert_policy direct-sudo-environment-broad-pkill $'deny\tbroad-process-kill' "sudo FOO=bar pkill -f 'tsx server.ts'"
+  assert_policy direct-xargs-fuser-kill $'deny\tbroad-process-kill' "printf '%s\\n' /tmp | xargs fuser -k"
   assert_policy direct-fuser-read-only allow 'fuser /tmp'
   assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
   assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"

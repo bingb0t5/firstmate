@@ -113,17 +113,17 @@ Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, s
 
 ## Broad process kills
 
-Every actually executed `pkill` or `killall` command is denied as name- or pattern-based process termination.
+Every actually executed `pkill`, `killall`, `killall5`, or `skill` command, and `fuser -k`, is denied as name-, pattern-, or resource-based process termination.
 Literal direct `kill` broadcast targets - every numeric zero spelling, `-1`, and every negative process-group target - are denied.
 Literal positive PID targets remain allowed, and an exact PGID must be passed explicitly to `bin/fm-process-kill.sh --group`.
 A direct `kill` target must be a readable literal, so variable-based termination belongs to `bin/fm-process-kill.sh`.
-Path-qualified `pkill` and literal `builtin`, `time`, `nice`, `ionice`, `nohup`, `env`, `sudo`, `command`, and `exec` command prefixes are unwrapped before that decision.
+Path-qualified `pkill`, `killall`, `killall5`, and `skill`, plus `fuser -k`, and literal `builtin`, `time`, `nice`, `ionice`, `nohup`, `env`, `sudo`, `command`, and `exec` command prefixes are unwrapped before that decision.
 No other command indirection is classified as a broad-kill prefix.
-An unrecognized option on one of those prefixes that precedes `pkill` or `killall` is denied conservatively.
+An unrecognized option on one of those prefixes that precedes a named broad-kill utility is denied conservatively.
 
 `kill "$(pgrep -f '/bin/fm-watch.sh')"` is also denied because the executed `kill` consumes an executed watcher-wide `pgrep` substitution.
 Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep`, `rg`, or `awk '{print $2}'`, or `lsof -c` output is denied when it feeds `kill` through command substitution, backticks, a propagated shell variable, redirected input, or a pipeline into an `xargs` child that visibly executes literal `kill`, including through visible nested shell or group syntax.
-`xargs pkill` and `xargs killall` are denied directly after resolving xargs options and existing wrappers, including `timeout`, `gtimeout`, `env -S`, and `env --split-string`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments are allowed.
+`xargs pkill`, `xargs killall`, `xargs killall5`, `xargs skill`, and `xargs fuser -k` are denied directly after resolving xargs options and existing wrappers, including `timeout`, `gtimeout`, `env -S`, and `env --split-string`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments are allowed.
 A dynamic executable name is denied unless it is a recognized protected watcher script.
 The guard applies exactly three bounded rules: it refuses named broad-kill constructions, anything aimed at everything, and anything it cannot read; it is not a semantic analyser.
 Rewrite such work as `bin/fm-process-kill.sh` with an explicit recorded PID or PGID.
@@ -132,7 +132,7 @@ Standalone read-only `pgrep`, `pidof`, `ps`, and `lsof` calls are allowed.
 Quoted text such as `echo 'pkill -f fm-watch'` is data and is allowed.
 
 Unsupported compound grammar - a loop, `case`, `if`, or other construct the classifier does not model - is failed closed for a broad-kill command position or a name-selected `pgrep`, `pidof`, `ps`, or `lsof` target consumed by `kill`, the same way it is for protected executions.
-The classifier recognizes literal and path-qualified `pkill` or `killall` commands, including the allowlisted prefixes, but the operator must rewrite an ambiguous compound form as one plain command the guard can read.
+The classifier recognizes literal and path-qualified `pkill`, `killall`, `killall5`, and `skill` commands, plus `fuser -k`, including the allowlisted prefixes, but the operator must rewrite an ambiguous compound form as one plain command the guard can read.
 This backstop mirrors the protected-execution fail-closed rule and covers forms like `while true; do pkill -f fm-watch; done`, `for x in 1; do pkill -f fm-watch; done`, `case x in x) pkill -f tsx ;; esac`, and `if true; then /usr/bin/pkill -f tsx; fi`.
 Data mentions such as `echo 'pkill -f fm-watch'` and a loop that only names the watcher without a kill verb such as `for f in 1; do echo fm-watch; done` remain allowed.
 

@@ -70,7 +70,10 @@ function isBroadProcessKillWord(word) {
 
 function fuserInvokesKill(position) {
   if (!position.command || basename(position.command.value) !== "fuser") return false;
-  return position.words.slice(position.index + 1).some((word) => word.value === "--kill" || /(^|[A-Za-z])k[A-Za-z]*$/.test(word.value.slice(1)) && word.value.startsWith("-"));
+  return position.words.slice(position.index + 1).some((word) => {
+    const value = word.value;
+    return value === "--kill" || (value.startsWith("-") && /(^|[A-Za-z])k[A-Za-z]*$/.test(value.slice(1)));
+  });
 }
 
 function isKillWord(word) {
@@ -681,6 +684,7 @@ export function commandPosition(tokens, allowedWrappers = ALL_WRAPPERS) {
       unresolvedWrapperOption ||= options.unresolved;
       wrapperPayloads.push(...options.embeddedPayloads);
       index = options.index;
+      if (name === "sudo") while (words[index] && isAssignment(words[index].value)) index += 1;
       command = words[index];
       continue;
     }
@@ -950,7 +954,7 @@ function xargsInvokesKill(position, context, depth) {
 function xargsInvokesBroadProcessKill(position, context, depth) {
   const child = xargsChildPosition(position);
   if (!child) return false;
-  if (isBroadProcessKillWord(child?.command) || directKillUnsafeTarget(child)) return true;
+  if (isBroadProcessKillWord(child?.command) || fuserInvokesKill(child) || directKillUnsafeTarget(child)) return true;
   if (xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.broadProcessKill || analysis.broadKill)) return true;
   const nested = xargsChildShellAnalysis(child, context, depth);
   if (!nested) return false;
