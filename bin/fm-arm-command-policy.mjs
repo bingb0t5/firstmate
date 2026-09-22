@@ -898,6 +898,19 @@ function isPsPidAwk(position, pipedPs) {
   return position.words.slice(position.index + 1).some((word) => /\bprint\s+\$2\b/.test(word.value));
 }
 
+function isPsPidListing(position) {
+  if (!position.command || basename(position.command.value) !== "ps") return false;
+  const args = position.words.slice(position.index + 1);
+  const formatIncludesPid = (value) => value.split(",").includes("pid=");
+  return args.some((word, index) => {
+    if (formatIncludesPid(word.value)) return true;
+    if (["-o", "--format"].includes(word.value)) return formatIncludesPid(args[index + 1]?.value || "");
+    if (word.value.startsWith("-o")) return formatIncludesPid(word.value.slice(2));
+    if (word.value.startsWith("--format=")) return formatIncludesPid(word.value.slice("--format=".length));
+    return false;
+  });
+}
+
 function dynamicExecutableCommand(position, root) {
   const command = position.command;
   return Boolean(command && !command.literal && !protectedIdentity(command.value, root));
@@ -969,6 +982,13 @@ function xargsInvokesKill(position, context, depth) {
   return xargsChildShellAnalysis(child, context, depth)?.literalKill || false;
 }
 
+function xargsInvokesTerminatingKill(position) {
+  const child = xargsChildPosition(position);
+  const kill = child && directKillPosition(child);
+  if (!kill) return false;
+  return !kill.words.slice(kill.index + 1).some((word) => ["-l", "--list"].includes(word.value));
+}
+
 function xargsInvokesBroadProcessKill(position, context, depth) {
   const child = xargsChildPosition(position);
   if (!child) return false;
@@ -1001,6 +1021,7 @@ function analyzeProgram(command, context, depth = 0) {
   let nameSelector = false;
   let pipedNameSelector = false;
   let pipedPs = false;
+  let pipedPsPidListing = false;
   let unsupported = false;
   let activeContext = {
     ...context,
@@ -1108,7 +1129,7 @@ function analyzeProgram(command, context, depth = 0) {
     nodeNameSelector ||= isNameSelector(position) || (pipedPs && ["grep", "rg"].includes(commandName)) || isPsPidAwk(position, pipedPs);
     if (commandName === "kill" && (nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables)))) broadProcessKill = true;
     if (wordReferencesAny(position.command, nodeContext.broadKillCommandVariables)) broadProcessKill = true;
-    if ((pipedNameSelector || nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables))) && xargsInvokesKill(position, nodeContext, depth)) broadProcessKill = true;
+    if ((pipedPsPidListing && xargsInvokesTerminatingKill(position)) || ((pipedNameSelector || nodeNameSelector || args.some((word) => wordReferencesAny(word, nodeContext.nameSelectorVariables))) && xargsInvokesKill(position, nodeContext, depth))) broadProcessKill = true;
     if (xargsInvokesBroadProcessKill(position, nodeContext, depth)) broadProcessKill = true;
     if (isWatcherPgrep(position, nodeContext)) pgrepWatcher = true;
     if (hasDynamicExecutionPayload(position, nodeContext) || wordReferencesAny(position.command, nodeContext.protectedVariables)) nodeNestedProtected = true;
@@ -1124,6 +1145,7 @@ function analyzeProgram(command, context, depth = 0) {
     activeContext = nodeContext;
     pipedNameSelector = isPipeline(program.separators[nodeIndex]) && (pipedNameSelector || nodeNameSelector);
     pipedPs = isPipeline(program.separators[nodeIndex]) && (pipedPs || commandName === "ps");
+    pipedPsPidListing = isPipeline(program.separators[nodeIndex]) && (pipedPsPidListing || isPsPidListing(position));
     if (position.unresolvedWrapperOption) unsupported = true;
     nodeInfos.push({
       tokens,
