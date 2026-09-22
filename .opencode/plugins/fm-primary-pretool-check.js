@@ -47,6 +47,7 @@ export const FmPrimaryPretoolCheck = async ({ directory, worktree }) => {
       return resolve(worktree);
     }
   })() : await resolveRoot(directory);
+  const pretoolRoot = process.env.FM_PRETOOL_ROOT || root;
 
   return {
     "tool.execute.before": async (input, output) => {
@@ -54,7 +55,7 @@ export const FmPrimaryPretoolCheck = async ({ directory, worktree }) => {
       const command = output?.args?.command;
       if (!command || typeof command !== "string") return;
 
-      const result = await runProcess(`${root}/bin/fm-arm-pretool-check.sh`, ["--command", command]);
+      const result = await runProcess(`${pretoolRoot}/bin/fm-arm-pretool-check.sh`, ["--command", command]);
       if (result.code !== 2) return;
 
       const reason = result.stderr.trim() || "denied by the watcher-arm PreToolUse seatbelt";

@@ -205,10 +205,18 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
   [ -n "$wt" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
   case "$harness" in
     claude) printf '%s\n' "$wt/.claude/settings.local.json" ;;
-    opencode) printf '%s\n' "$wt/.opencode/plugins/fm-busy-state.js" ;;
-    pi|pi-signed) printf '%s\n' "$state/$id.pi-ext.ts" ;;
+    codex) printf '%s\n' "$wt/.codex/hooks.json" ;;
+    opencode)
+      printf '%s\n' "$wt/.opencode/plugins/fm-busy-state.js"
+      printf '%s\n' "$wt/.opencode/plugins/fm-fleet-pretool-check.js"
+      ;;
+    pi|pi-signed)
+      printf '%s\n' "$state/$id.pi-ext.ts"
+      printf '%s\n' "$state/$id.pi-pretool.ts"
+      ;;
     grok)
       printf '%s\n' "$wt/.fm-grok-turnend"
+      printf '%s\n' "$wt/.fm-grok-pretool-root"
       printf '%s\n' "$state/$id.grok-turnend-token"
       ;;
     kimi)
@@ -223,7 +231,10 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
       printf '%s\n' "$state/$id.muse-session"
       printf '%s\n' "$state/$id.muse-session-current"
       ;;
-    cursor) printf '%s\n' "$state/$id.cursor-session" ;;
+    cursor)
+      printf '%s\n' "$state/$id.cursor-session"
+      printf '%s\n' "$wt/.cursor/hooks.json"
+      ;;
   esac
 }
 
