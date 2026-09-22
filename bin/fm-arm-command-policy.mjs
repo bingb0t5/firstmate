@@ -780,6 +780,13 @@ function evalPayload(position) {
   return payloads.map((payload) => payload.value).join(" ");
 }
 
+function hasUnreadableExecutionPayload(position) {
+  const shell = shellInvocation(position);
+  if (shell?.kind === "command" && shell.payload && (!shell.payload.literal || shell.payload.subs.length > 0)) return true;
+  if (!position.command || basename(position.command.value) !== "eval") return false;
+  return position.words.slice(position.index + 1).some((payload) => !payload.literal || payload.subs.length > 0);
+}
+
 function wordReferencesAny(word, names) {
   if (!word || names.size === 0) return false;
   for (const match of word.value.matchAll(/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g)) {
@@ -1064,7 +1071,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (hasUnclassifiableProtectedExpansion(position.command, context.root)) unclassifiableProtected = true;
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
-    if (isBroadProcessKillWord(position.command) || dynamicExecutableCommand(position, context.root) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillUnsafeTarget(position)) broadProcessKill = true;
+    if (isBroadProcessKillWord(position.command) || dynamicExecutableCommand(position, context.root) || hasUnreadableExecutionPayload(position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillUnsafeTarget(position)) broadProcessKill = true;
     if (directKill) literalKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
