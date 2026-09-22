@@ -2,10 +2,11 @@
 # Exact-target process termination guard.
 #
 # Shared hosts run several Firstmate homes under one OS user. Never use
-# `pkill -f`, `killall`, or another name/pattern-based kill there: a matching
-# process belongs to no particular invocation. Call this helper with the
-# specifically recorded PID or process-group ID instead. It rejects patterns,
-# names, empty targets, non-numeric targets, and ambiguous target selection.
+# `pkill -f`, `killall`, `killall5`, `skill`, or `fuser -k` there: matching a
+# name, pattern, or resource belongs to no particular invocation. Call this
+# helper with the specifically recorded PID or process-group ID instead. It
+# rejects patterns, names, empty targets, non-numeric targets, and ambiguous
+# target selection.
 #
 # Usage:
 #   bin/fm-process-kill.sh --signal TERM --pid 12345
