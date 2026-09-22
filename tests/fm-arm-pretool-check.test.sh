@@ -171,6 +171,8 @@ matrix_case D103 deny 'target=4242; kill "$target"'
 matrix_case D104 deny 'kill -TERM -- 00'
 matrix_case D105 deny 'kill -TERM -- +0'
 matrix_case D106 deny 'builtin kill -TERM -- -1'
+matrix_case D107 deny "\$(printf pkill) -f 'tsx server.ts'"
+matrix_case D108 deny 'builtin -- kill -TERM -- -1'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -328,6 +330,8 @@ test_direct_policy_contract() {
   assert_policy direct-broadcast-leading-zero $'deny\tbroad-process-kill' 'kill -TERM -- 00'
   assert_policy direct-broadcast-plus-zero $'deny\tbroad-process-kill' 'kill -TERM -- +0'
   assert_policy direct-builtin-broadcast $'deny\tbroad-process-kill' 'builtin kill -TERM -- -1'
+  assert_policy direct-unreadable-dynamic-broad-kill $'deny\tbroad-process-kill' "\$(printf pkill) -f 'tsx server.ts'"
+  assert_policy direct-builtin-terminated-broadcast $'deny\tbroad-process-kill' 'builtin -- kill -TERM -- -1'
   assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
   assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"
   assert_policy direct-ps-awk-read-only allow "ps aux | awk '{print \$2}'"

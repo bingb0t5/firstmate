@@ -72,7 +72,8 @@ function isKillWord(word) {
 function directKillPosition(position) {
   if (isKillWord(position.command)) return position;
   if (!position.command || basename(position.command.value) !== "builtin") return null;
-  const index = position.index + 1;
+  let index = position.index + 1;
+  if (position.words[index]?.value === "--") index += 1;
   const command = position.words[index];
   return isKillWord(command) ? { ...position, command, index } : null;
 }
@@ -864,6 +865,11 @@ function dynamicProcessKillCommand(position) {
   return name.endsWith("pkill") || name.endsWith("killall") || name.endsWith("kill");
 }
 
+function unreadableDynamicCommand(position) {
+  const command = position.command;
+  return Boolean(command && !command.literal && command.value.length === 0);
+}
+
 function xargsChildIndex(position) {
   if (!position.command || basename(position.command.value) !== "xargs") return null;
   const words = position.words.slice(position.index + 1);
@@ -1062,7 +1068,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (hasUnclassifiableProtectedExpansion(position.command, context.root)) unclassifiableProtected = true;
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
-    if (isBroadProcessKillWord(position.command) || dynamicProcessKillCommand(position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillUnsafeTarget(position)) broadProcessKill = true;
+    if (isBroadProcessKillWord(position.command) || dynamicProcessKillCommand(position) || unreadableDynamicCommand(position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillUnsafeTarget(position)) broadProcessKill = true;
     if (directKill) literalKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
