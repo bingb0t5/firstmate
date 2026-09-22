@@ -307,7 +307,7 @@ test_direct_policy_contract() {
     assert_policy "direct-broad-pkill-wrapper-$wrapper" $'deny\tbroad-process-kill' "$wrapper pkill -f 'tsx server.ts'"
   done
   assert_policy direct-unresolved-time-option-broad-pkill $'deny\tbroad-process-kill' "/usr/bin/time -o /tmp/timing pkill -f 'tsx server.ts'"
-  assert_policy direct-loop-broad-kill-pgrep $'deny\tbroad-watcher-kill' 'until false; do kill $(pgrep -f fm-watch); done'
+  assert_policy direct-loop-broad-kill-pgrep $'deny\tbroad-process-kill' 'until false; do kill $(pgrep -f fm-watch); done'
   assert_policy direct-loop-no-kill-allowed allow 'for f in 1; do echo fm-watch; done'
   assert_policy direct-unsupported-broad-data allow "if true; then printf '%s\\n' pkill; fi"
   assert_policy direct-unsupported-broad-kill $'deny\tbroad-process-kill' "if true; then pkill -f 'tsx server.ts'; fi"
@@ -392,7 +392,7 @@ test_direct_policy_contract() {
   assert_policy direct-leading-redirection $'deny\twatcher-redirection' '>/tmp/out bin/fm-watch-arm.sh'
   assert_policy direct-unclassifiable $'deny\tunclassifiable-protected-command' "bin/fm-watch-arm.sh 'unterminated"
   assert_policy direct-unsupported $'deny\tunclassifiable-protected-command' 'if true; then bin/fm-watch-arm.sh; fi'
-  assert_policy direct-constructed-payload $'deny\twatcher-nested' "WATCHER='bin/fm-watch-arm.sh &'; bash -lc \"\$WATCHER\""
+  assert_policy direct-constructed-payload $'deny\tbroad-process-kill' "WATCHER='bin/fm-watch-arm.sh &'; bash -lc \"\$WATCHER\""
   assert_policy direct-parameter-export allow 'export FM_HOME=${HOME}; bin/fm-watch-checkpoint.sh --seconds 180'
   assert_policy direct-expanded-arm-blessed allow '$FM_HOME/bin/fm-watch-arm.sh'
   assert_policy direct-expanded-arm-background $'deny\twatcher-background' '$FM_HOME/bin/fm-watch-arm.sh &'
@@ -507,11 +507,11 @@ test_prefilter_is_strict_superset() {
   "$CHECK" --command 'bin/fm-$"watch"-arm.sh &' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] || fail "prefilter must delegate a locale-string-encoded protected path, not fast-allow it, got exit $rc"
-  # The marker is specifically $ followed by a quote, not any $ expansion: an
-  # ordinary $VAR that is not a watcher reference still takes the fast path.
+  # A dynamic executable must reach the classifier and fail closed even when it
+  # is not a watcher reference.
   "$CHECK" --command '$FM_HOME/bin/fm-teardown.sh &' >/dev/null 2>&1
   rc=$?
-  [ "$rc" -eq 0 ] || fail "a benign \$VAR non-watcher command must still fast-allow, got exit $rc"
+  [ "$rc" -eq 2 ] || fail "a dynamic non-watcher executable must be denied, got exit $rc"
   "$CHECK" --command 'echo "$HOME/scratch" && ls -la' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 0 ] || fail "a benign \$HOME command must still fast-allow, got exit $rc"

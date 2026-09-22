@@ -670,7 +670,7 @@ export function commandPosition(tokens, allowedWrappers = ALL_WRAPPERS) {
   let command = words[index];
   while (command) {
     const name = basename(command.value);
-    if (allowedWrappers.has(name) && name === "builtin") {
+    if (allowedWrappers.has(name) && command.value === "builtin") {
       wrappers.push(name);
       index += 1;
       if (words[index]?.value === "--") index += 1;
