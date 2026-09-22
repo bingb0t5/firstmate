@@ -69,7 +69,7 @@ function isKillWord(word) {
   return Boolean(word && word.type === "word" && basename(word.value) === "kill");
 }
 
-function directKillBroadcastTarget(position) {
+function directKillUnsafeTarget(position) {
   if (!isKillWord(position.command)) return false;
   const args = position.words.slice(position.index + 1);
   let options = true;
@@ -77,10 +77,6 @@ function directKillBroadcastTarget(position) {
   for (let index = 0; index < args.length; index += 1) {
     const word = args[index];
     const value = word.value;
-    if (!word.literal || word.subs.length > 0) {
-      options = false;
-      continue;
-    }
     if (options && value === "--") {
       options = false;
       continue;
@@ -95,6 +91,7 @@ function directKillBroadcastTarget(position) {
       signalSpecified = true;
       continue;
     }
+    if (!word.literal || word.subs.length > 0) return true;
     if (options && /^-[A-Za-z]+$/.test(value)) {
       signalSpecified = true;
       continue;
@@ -923,7 +920,7 @@ function xargsInvokesKill(position, context, depth) {
 function xargsInvokesBroadProcessKill(position, context, depth) {
   const child = xargsChildPosition(position);
   if (!child) return false;
-  if (isBroadProcessKillWord(child?.command) || directKillBroadcastTarget(child)) return true;
+  if (isBroadProcessKillWord(child?.command) || directKillUnsafeTarget(child)) return true;
   if (xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.broadProcessKill || analysis.broadKill)) return true;
   const nested = xargsChildShellAnalysis(child, context, depth);
   if (!nested) return false;
@@ -1051,7 +1048,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (hasUnclassifiableProtectedExpansion(position.command, context.root)) unclassifiableProtected = true;
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
-    if (isBroadProcessKillWord(position.command) || dynamicProcessKillCommand(position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillBroadcastTarget(position)) broadProcessKill = true;
+    if (isBroadProcessKillWord(position.command) || dynamicProcessKillCommand(position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillUnsafeTarget(position)) broadProcessKill = true;
     if (isKillWord(position.command)) literalKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;

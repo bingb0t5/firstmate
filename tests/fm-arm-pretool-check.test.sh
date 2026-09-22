@@ -165,6 +165,9 @@ matrix_case D97 deny 'kill 0'
 matrix_case D98 deny 'kill -TERM -- -12345'
 matrix_case D99 deny 'kill -TERM -1'
 matrix_case D100 deny "printf 'x\\n' | xargs kill 0"
+matrix_case D101 deny 'target=-1; kill -TERM -- "$target"'
+matrix_case D102 deny 'target=0; kill "$target"'
+matrix_case D103 deny 'target=4242; kill "$target"'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -316,6 +319,9 @@ test_direct_policy_contract() {
   assert_policy direct-broadcast-process-group $'deny\tbroad-process-kill' 'kill -TERM -- -12345'
   assert_policy direct-broadcast-without-terminator $'deny\tbroad-process-kill' 'kill -TERM -1'
   assert_policy direct-xargs-broadcast-current-group $'deny\tbroad-process-kill' "printf 'x\\n' | xargs kill 0"
+  assert_policy direct-dynamic-broadcast-all $'deny\tbroad-process-kill' 'target=-1; kill -TERM -- "$target"'
+  assert_policy direct-dynamic-broadcast-current-group $'deny\tbroad-process-kill' 'target=0; kill "$target"'
+  assert_policy direct-dynamic-exact-pid $'deny\tbroad-process-kill' 'target=4242; kill "$target"'
   assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
   assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"
   assert_policy direct-ps-awk-read-only allow "ps aux | awk '{print \$2}'"

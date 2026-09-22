@@ -116,6 +116,7 @@ Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, s
 Every actually executed `pkill` or `killall` command is denied as name- or pattern-based process termination.
 Literal direct `kill` broadcast targets - `0`, `-1`, and every negative process-group target - are denied.
 Literal positive PID targets remain allowed, and an exact PGID must be passed explicitly to `bin/fm-process-kill.sh --group`.
+A direct `kill` target must be a readable literal, so variable-based termination belongs to `bin/fm-process-kill.sh`.
 Path-qualified `pkill` and literal `time`, `nice`, `ionice`, `nohup`, `env`, `sudo`, `command`, and `exec` command prefixes are unwrapped before that decision.
 No other command indirection is classified as a broad-kill prefix.
 An unrecognized option on one of those prefixes that precedes `pkill` or `killall` is denied conservatively.
@@ -125,8 +126,7 @@ Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep`, `rg`, or `aw
 `xargs pkill` and `xargs killall` are denied directly after resolving xargs options and existing wrappers, including `timeout`, `gtimeout`, `env -S`, and `env --split-string`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments are allowed.
 Literal shell variables that name `pkill` or `killall` are also denied when executed as commands.
 Visible dynamic command names that end in `pkill`, `killall`, or `kill` are denied conservatively because their process-selection semantics are unreadable.
-The classifier does not resolve arbitrary generated command names or opaque dynamic shell payloads that expose no `kill`, `pkill`, or `killall` token.
-That bounded containment gap is not a supported process-management interface; the guard refuses unreadable broad-kill constructions, named broad kills, and literal broadcast targets without attempting semantic analysis.
+The guard applies exactly three bounded rules: it refuses named broad-kill constructions, anything aimed at everything, and anything it cannot read; it is not a semantic analyser.
 Rewrite such work as `bin/fm-process-kill.sh` with an explicit recorded PID or PGID.
 That helper validates the exact target shape only; the owning invocation is responsible for recording and validating its identity.
 Standalone read-only `pgrep`, `pidof`, `ps`, and `lsof` calls are allowed.
