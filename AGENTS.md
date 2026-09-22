@@ -438,7 +438,8 @@ Waiting on a healthy supervision cycle is silent; empty polls, elapsed time, and
 PreToolUse rejects the named and visible `pkill`, `killall`, `killall5`, and `skill` command forms, plus `fuser -k`, that it can classify across supported harnesses, including watcher commands, because pattern, name, and resource matching can kill sibling firstmate homes.
 It also refuses unreadable `sh -c` and `eval` payloads rather than attempting semantic analysis.
 For any process termination on a shared host, use `bin/fm-process-kill.sh` with the exact PID or PGID recorded by the owning invocation; it deliberately refuses name, pattern, and bare targets.
-2026-09-19 audit: `bin/fm-arm-command-policy.mjs` enforces the boundary, `bin/fm-process-kill.sh` and `bin/fm-watch-arm.sh` mention pattern kills only in safety documentation, and no `bin/` executable performs name- or pattern-based termination.
+2026-09-19 audit: `bin/fm-arm-command-policy.mjs` enforces the broad-utility boundary, and `bin/fm-process-kill.sh` and `bin/fm-watch-arm.sh` mention pattern kills only in safety documentation.
+`fm-remote-job-reap-orphans.sh` is the bounded selector exception: it selects candidates by worker-path suffix, requires a pruned code root and matching live-command recheck, then passes only the resulting specific PID to `fm_remote_job_stop_worker_tree`; it is distinct from broad or unreadable kill utilities.
 A forced repair must use the home-scoped owner path emitted by supervision instructions.
 
 Guard warnings do not replace the contract.

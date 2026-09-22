@@ -358,6 +358,9 @@ test_direct_policy_contract() {
   assert_policy direct-xargs-fuser-kill $'deny\tbroad-process-kill' "printf '%s\\n' /tmp | xargs fuser -k"
   assert_policy direct-dynamic-xargs-child $'deny\tbroad-process-kill' "tool=pkill; printf '%s\\n' 'tsx server.ts' | xargs \"\$tool\" -f"
   assert_policy direct-fuser-read-only allow 'fuser /tmp'
+  assert_policy direct-command-query-pkill allow 'command -v pkill'
+  assert_policy direct-command-query-killall allow 'command -V killall'
+  assert_policy direct-command-path-broad-pkill $'deny\tbroad-process-kill' "command -p pkill -f 'tsx server.ts'"
   assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
   assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"
   assert_policy direct-ps-awk-read-only allow "ps aux | awk '{print \$2}'"

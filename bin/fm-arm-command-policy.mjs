@@ -680,10 +680,17 @@ export function commandPosition(tokens, allowedWrappers = ALL_WRAPPERS) {
     }
     if (allowedWrappers.has(name) && ["command", "exec", "ionice", "nice", "nohup", "sudo", "time"].includes(name)) {
       wrappers.push(name);
+      const wrapperIndex = index;
       const options = consumeWrapperOptions(name, words, index + 1);
       unresolvedWrapperOption ||= options.unresolved;
       wrapperPayloads.push(...options.embeddedPayloads);
       index = options.index;
+      if (name === "command" && words
+        .slice(wrapperIndex + 1, index)
+        .some((word) => /^-[pvV]+$/.test(word.value) && /[vV]/.test(word.value))) {
+        command = undefined;
+        continue;
+      }
       if (name === "sudo") while (words[index] && isAssignment(words[index].value)) index += 1;
       command = words[index];
       continue;
