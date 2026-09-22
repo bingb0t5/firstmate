@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
+# shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 SPAWN="$ROOT/bin/fm-spawn.sh"
@@ -65,8 +66,9 @@ test_claude_codex_cursor_and_grok() {
     IFS='|' read -r home project worktree fakebin <<EOF
 $record
 EOF
-    out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" "$harness")
-    [ "$?" -eq 0 ] || fail "$harness spawn failed: $out"
+    if ! out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" "$harness"); then
+      fail "$harness spawn failed: $out"
+    fi
     case "$harness" in
       claude)
         command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$worktree/.claude/settings.local.json")
@@ -78,16 +80,25 @@ EOF
         ;;
       cursor)
         command=$(jq -r '.hooks.preToolUse[0].command' "$worktree/.cursor/hooks.json")
-        out=$(printf '%s' "$PAYLOAD" | sh -c "$command" 2>&1); status=$?
-        [ "$status" -eq 0 ] && printf '%s' "$out" | jq -e '.permission == "deny"' >/dev/null 2>&1 \
-          || fail "cursor did not return its executable deny response: $out"
+        if out=$(printf '%s' "$PAYLOAD" | sh -c "$command" 2>&1); then
+          if ! printf '%s' "$out" | jq -e '.permission == "deny"' >/dev/null 2>&1; then
+            fail "cursor did not return its executable deny response: $out"
+          fi
+        else
+          fail "cursor did not return its executable deny response: $out"
+        fi
         pass "cursor denies the broad process kill through its executable hook"
         ;;
       grok)
         command=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$home/grok/hooks/fm-pretool-check.json")
-        out=$(printf '%s' "$PAYLOAD" | GROK_WORKSPACE_ROOT="$worktree" sh -c "$command" 2>&1); status=$?
-        [ "$status" -eq 2 ] && printf '%s' "$out" | jq -e '.decision == "deny"' >/dev/null 2>&1 \
-          || fail "grok did not deny through its global hook: $out"
+        if out=$(printf '%s' "$PAYLOAD" | GROK_WORKSPACE_ROOT="$worktree" sh -c "$command" 2>&1); then
+          status=0
+        else
+          status=$?
+        fi
+        if [ "$status" -ne 2 ] || ! printf '%s' "$out" | jq -e '.decision == "deny"' >/dev/null 2>&1; then
+          fail "grok did not deny through its global hook: $out"
+        fi
         pass "grok denies the broad process kill through its executable hook"
         ;;
     esac
@@ -102,11 +113,12 @@ test_opencode_and_pi() {
     IFS='|' read -r home project worktree fakebin <<EOF
 $record
 EOF
-    out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" "$harness")
-    [ "$?" -eq 0 ] || fail "$harness spawn failed: $out"
+    if ! out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" "$harness"); then
+      fail "$harness spawn failed: $out"
+    fi
     case "$harness" in
       opencode)
-        out=$(FM_PRETOOL_ROOT="$ROOT" PLUGIN="$worktree/.opencode/plugins/fm-fleet-pretool-check.js" node --input-type=module <<'EOF'
+        if ! out=$(FM_PRETOOL_ROOT="$ROOT" PLUGIN="$worktree/.opencode/plugins/fm-fleet-pretool-check.js" node --input-type=module <<'EOF'
 import { pathToFileURL } from "node:url";
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 const hooks = await mod.FmPrimaryPretoolCheck({ worktree: process.cwd() });
@@ -117,13 +129,16 @@ try {
   process.stdout.write(String(error.message));
 }
 EOF
-)
-        [ "$?" -eq 0 ] && printf '%s' "$out" | grep -F 'broad-process-kill' >/dev/null \
-          || fail "opencode plugin did not block the broad process kill: $out"
+); then
+          fail "opencode plugin did not block the broad process kill: $out"
+        fi
+        if ! printf '%s' "$out" | grep -F 'broad-process-kill' >/dev/null; then
+          fail "opencode plugin did not block the broad process kill: $out"
+        fi
         pass "opencode denies the broad process kill through its executable plugin"
         ;;
       pi)
-        out=$(FM_PRETOOL_ROOT="$ROOT" EXT="$home/state/$id.pi-pretool.ts" node --input-type=module <<'EOF'
+        if ! out=$(FM_PRETOOL_ROOT="$ROOT" EXT="$home/state/$id.pi-pretool.ts" node --input-type=module <<'EOF'
 import { pathToFileURL } from "node:url";
 const mod = await import(pathToFileURL(process.env.EXT).href);
 const hooks = {};
@@ -132,9 +147,12 @@ const result = await hooks.tool_call({ type: "tool_call", toolName: "bash", inpu
 if (!result.block) process.exit(1);
 process.stdout.write(result.reason);
 EOF
-)
-        [ "$?" -eq 0 ] && printf '%s' "$out" | grep -F 'broad-process-kill' >/dev/null \
-          || fail "pi extension did not block the broad process kill: $out"
+); then
+          fail "pi extension did not block the broad process kill: $out"
+        fi
+        if ! printf '%s' "$out" | grep -F 'broad-process-kill' >/dev/null; then
+          fail "pi extension did not block the broad process kill: $out"
+        fi
         pass "pi denies the broad process kill through its executable extension"
         ;;
     esac
@@ -158,8 +176,9 @@ EOF
       opencode) parent=.opencode; target=plugins/fm-fleet-pretool-check.js ;;
     esac
     ln -s "$outside" "$worktree/$parent"
-    out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" "$harness")
-    [ "$?" -ne 0 ] || fail "$harness accepted a symlinked hook parent: $out"
+    if out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" "$harness"); then
+      fail "$harness accepted a symlinked hook parent: $out"
+    fi
     [ ! -e "$outside/$target" ] && [ ! -L "$outside/$target" ] \
       || fail "$harness wrote through a symlinked hook parent"
     pass "$harness refuses a symlinked hook parent"
@@ -173,8 +192,9 @@ EOF
   outside="$TMP_ROOT/outside-grok"
   mkdir -p "$outside"
   ln -s "$outside/pretool-root" "$worktree/.fm-grok-pretool-root"
-  out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" grok)
-  [ "$?" -ne 0 ] || fail "grok accepted a symlinked PreToolUse pointer: $out"
+  if out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" grok); then
+    fail "grok accepted a symlinked PreToolUse pointer: $out"
+  fi
   [ ! -e "$outside/pretool-root" ] && [ ! -L "$outside/pretool-root" ] \
     || fail "grok wrote through a symlinked PreToolUse pointer"
   pass "grok refuses a symlinked PreToolUse pointer"
