@@ -912,7 +912,7 @@ spawn_herdr_presentation_order_lock_acquire() {
 }
 
 clear_relaunch_harness_wiring() {
-  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path
+  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path safe_path
   # The wiring arms above match on harness PREFIXES, because a task launched
   # from a raw command records that command's basename rather than the exact
   # adapter name. The retirement tables are keyed by the exact adapter, so the
@@ -932,7 +932,14 @@ clear_relaunch_harness_wiring() {
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    rm -f -- "$path" || return 1
+    case "$path" in
+      "$wt"/*)
+        safe_path=$(fm_control_worktree_artifact_removable "$wt" "$path") || return 1
+        [ -n "$safe_path" ] || continue
+        rm -f -- "$safe_path" || return 1
+        ;;
+      *) rm -f -- "$path" || return 1 ;;
+    esac
   done <<EOF
 $(fm_control_harness_wiring_paths "$harness" "$wt" "$state" "$id")
 EOF
@@ -2569,7 +2576,10 @@ if [ "$KIND" != secondmate ]; then
       # the turn-ended NOTIFICATION touch for the watcher. Every
       # hook command tolerates a refused event (|| true) so a stale-gen writer
       # can never break Claude's own lifecycle.
-      mkdir -p "$WT/.claude"
+      CLAUDE_SETTINGS=$(fm_control_worktree_artifact_path "$WT" '.claude/settings.local.json' replace) || {
+        echo "error: refusing unsafe Claude hook path in $WT" >&2
+        exit 1
+      }
       busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
       busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source claude-hook"
       j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
@@ -2577,20 +2587,23 @@ if [ "$KIND" != secondmate ]; then
       j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
       j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
       j_pretool=$(json_escape "exec $(shell_quote "$FM_ROOT/bin/fm-arm-pretool-check.sh") --claude")
-      cat > "$WT/.claude/settings.local.json" <<EOF
+      cat > "$CLAUDE_SETTINGS" <<EOF
 {"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}],"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$j_pretool","timeout":10}]}]}}
 EOF
       exclude_path '.claude/settings.local.json'
       ;;
     opencode*)
-      mkdir -p "$WT/.opencode/plugins"
-      if [ -e "$WT/.opencode/plugins/fm-fleet-pretool-check.js" ]; then
-        echo "error: $WT/.opencode/plugins/fm-fleet-pretool-check.js already exists; refusing to replace a project hook" >&2
+      OPENCODE_PRETOOL=$(fm_control_worktree_artifact_path "$WT" '.opencode/plugins/fm-fleet-pretool-check.js' new) || {
+        echo "error: refusing unsafe OpenCode PreToolUse hook path in $WT" >&2
         exit 1
-      fi
-      ln -s "$FM_ROOT/.opencode/plugins/fm-primary-pretool-check.js" "$WT/.opencode/plugins/fm-fleet-pretool-check.js"
+      }
+      OPENCODE_BUSY=$(fm_control_worktree_artifact_path "$WT" '.opencode/plugins/fm-busy-state.js' replace) || {
+        echo "error: refusing unsafe OpenCode busy hook path in $WT" >&2
+        exit 1
+      }
+      ln -s "$FM_ROOT/.opencode/plugins/fm-primary-pretool-check.js" "$OPENCODE_PRETOOL"
       exclude_path '.opencode/plugins/fm-fleet-pretool-check.js'
-      cat > "$WT/.opencode/plugins/fm-busy-state.js" <<EOF
+      cat > "$OPENCODE_BUSY" <<EOF
 // Firstmate semantic busy-state events + turn-end notification; written by
 // fm-spawn under the contract owned by bin/fm-busy-lib.sh.
 // Semantic state comes from OpenCode's session.status events: busy and retry
@@ -2752,7 +2765,11 @@ EOF
       chmod +x "$GROK_HOOKS_DIR/fm-turn-end.sh"
       hook_command=$(json_escape "bash $(shell_quote "$GROK_HOOKS_DIR/fm-turn-end.sh")")
       printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"%s"}]}]}}\n' "$hook_command" > "$GROK_HOOKS_DIR/fm-turn-end.json"
-      printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-grok-turnend"
+      GROK_TURNEND_POINTER=$(fm_control_worktree_artifact_path "$WT" '.fm-grok-turnend' replace) || {
+        echo "error: refusing unsafe Grok turn-end pointer path in $WT" >&2
+        exit 1
+      }
+      printf 'token=%s\n' "${auth_file##*/}" > "$GROK_TURNEND_POINTER"
       exclude_path '.fm-grok-turnend'
       cat > "$GROK_HOOKS_DIR/fm-pretool-check.sh" <<'EOF'
 #!/usr/bin/env bash
@@ -2770,7 +2787,11 @@ EOF
       chmod +x "$GROK_HOOKS_DIR/fm-pretool-check.sh"
       hook_command=$(json_escape "bash $(shell_quote "$GROK_HOOKS_DIR/fm-pretool-check.sh")")
       printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"%s","timeout":10}]}]}}\n' "$hook_command" > "$GROK_HOOKS_DIR/fm-pretool-check.json"
-      printf '%s\n' "$FM_ROOT" > "$WT/.fm-grok-pretool-root"
+      GROK_PRETOOL_POINTER=$(fm_control_worktree_artifact_path "$WT" '.fm-grok-pretool-root' new) || {
+        echo "error: refusing unsafe Grok PreToolUse pointer path in $WT" >&2
+        exit 1
+      }
+      printf '%s\n' "$FM_ROOT" > "$GROK_PRETOOL_POINTER"
       exclude_path '.fm-grok-pretool-root'
       ;;
     muse*)
@@ -2823,13 +2844,12 @@ EOF
           done
         fi
       } > "$STATE/$ID.cursor-session"
-      mkdir -p "$WT/.cursor"
-      if [ -e "$WT/.cursor/hooks.json" ]; then
-        echo "error: $WT/.cursor/hooks.json already exists; refusing to replace a project hook" >&2
+      CURSOR_HOOKS=$(fm_control_worktree_artifact_path "$WT" '.cursor/hooks.json' new) || {
+        echo "error: refusing unsafe Cursor PreToolUse hook path in $WT" >&2
         exit 1
-      fi
+      }
       cursor_pretool=$(shell_quote "$FM_ROOT/bin/fm-arm-pretool-check.sh")
-      jq -n --arg command "exec $cursor_pretool --cursor" '{version: 1, hooks: {preToolUse: [{matcher: "Shell", type: "command", command: $command, timeout: 10}]}}' > "$WT/.cursor/hooks.json"
+      jq -n --arg command "exec $cursor_pretool --cursor" '{version: 1, hooks: {preToolUse: [{matcher: "Shell", type: "command", command: $command, timeout: 10}]}}' > "$CURSOR_HOOKS"
       exclude_path '.cursor/hooks.json'
       ;;
     kimi*)
@@ -2844,20 +2864,23 @@ EOF
       umask "$old_umask"
       printf '%s\n' "$TURNEND" > "$auth_file"
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.kimi-turnend-token"
-      printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-kimi-turnend"
+      KIMI_TURNEND_POINTER=$(fm_control_worktree_artifact_path "$WT" '.fm-kimi-turnend' replace) || {
+        echo "error: refusing unsafe Kimi turn-end pointer path in $WT" >&2
+        exit 1
+      }
+      printf 'token=%s\n' "${auth_file##*/}" > "$KIMI_TURNEND_POINTER"
       exclude_path '.fm-kimi-turnend'
       ;;
   esac
 fi
 
 if [ "$KIND" != secondmate ] && [ "$HARNESS" = codex ]; then
-  mkdir -p "$WT/.codex"
-  if [ -e "$WT/.codex/hooks.json" ]; then
-    echo "error: $WT/.codex/hooks.json already exists; refusing to replace a project hook" >&2
+  CODEX_HOOKS=$(fm_control_worktree_artifact_path "$WT" '.codex/hooks.json' new) || {
+    echo "error: refusing unsafe Codex PreToolUse hook path in $WT" >&2
     exit 1
-  fi
+  }
   codex_pretool=$(shell_quote "$FM_ROOT/bin/fm-arm-pretool-check.sh")
-  jq -n --arg command "exec $codex_pretool" '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: $command, timeout: 10}]}]}}' > "$WT/.codex/hooks.json"
+  jq -n --arg command "exec $codex_pretool" '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: $command, timeout: 10}]}]}}' > "$CODEX_HOOKS"
   exclude_path '.codex/hooks.json'
 fi
 

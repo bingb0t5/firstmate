@@ -141,7 +141,47 @@ EOF
   done
 }
 
+test_hook_wiring_refuses_worktree_symlink_escapes() {
+  local harness parent target record home project worktree fakebin id out outside
+  for harness in claude codex cursor opencode; do
+    id="symlink-$harness"
+    record=$(make_case "$id" "$harness" "$id")
+    IFS='|' read -r home project worktree fakebin <<EOF
+$record
+EOF
+    outside="$TMP_ROOT/outside-$harness"
+    mkdir -p "$outside"
+    case "$harness" in
+      claude) parent=.claude; target=settings.local.json ;;
+      codex) parent=.codex; target=hooks.json ;;
+      cursor) parent=.cursor; target=hooks.json ;;
+      opencode) parent=.opencode; target=plugins/fm-fleet-pretool-check.js ;;
+    esac
+    ln -s "$outside" "$worktree/$parent"
+    out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" "$harness")
+    [ "$?" -ne 0 ] || fail "$harness accepted a symlinked hook parent: $out"
+    [ ! -e "$outside/$target" ] && [ ! -L "$outside/$target" ] \
+      || fail "$harness wrote through a symlinked hook parent"
+    pass "$harness refuses a symlinked hook parent"
+  done
+
+  id=symlink-grok
+  record=$(make_case "$id" grok "$id")
+  IFS='|' read -r home project worktree fakebin <<EOF
+$record
+EOF
+  outside="$TMP_ROOT/outside-grok"
+  mkdir -p "$outside"
+  ln -s "$outside/pretool-root" "$worktree/.fm-grok-pretool-root"
+  out=$(spawn_case "$home" "$project" "$worktree" "$fakebin" "$id" grok)
+  [ "$?" -ne 0 ] || fail "grok accepted a symlinked PreToolUse pointer: $out"
+  [ ! -e "$outside/pretool-root" ] && [ ! -L "$outside/pretool-root" ] \
+    || fail "grok wrote through a symlinked PreToolUse pointer"
+  pass "grok refuses a symlinked PreToolUse pointer"
+}
+
 test_claude_codex_cursor_and_grok
 test_opencode_and_pi
+test_hook_wiring_refuses_worktree_symlink_escapes
 
 echo "all fm-spawn PreToolUse wiring tests passed"
