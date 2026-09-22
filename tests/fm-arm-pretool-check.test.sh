@@ -190,6 +190,9 @@ matrix_case D122 deny 'bash'
 matrix_case D123 deny "trap 'pkill -f \"tsx server.ts\"' EXIT"
 matrix_case D124 deny 'sh ./cleanup'
 matrix_case D125 deny "trap 'echo safe' EXIT"
+matrix_case D126 deny 'source ./cleanup'
+matrix_case D127 deny '. ./cleanup'
+matrix_case D128 deny "printf 'x\\n' | xargs sh ./cleanup"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -215,6 +218,7 @@ matrix_case E22 allow "printf 'x\\n' | xargs env -S 'echo pkill'"
 matrix_case E25 allow 'fuser /tmp'
 matrix_case E26 allow "bash -c 'echo safe'"
 matrix_case E27 allow "bash <<< 'echo safe'"
+matrix_case E28 allow 'source config/x-mode.env'
 matrix_case E23 allow "pgrep node | xargs -n1 sh -c 'echo \"\$0\"'"
 matrix_case E24 allow "pgrep node | xargs -n1 sh -c 'if true; then echo \"\$0\"; fi'"
 

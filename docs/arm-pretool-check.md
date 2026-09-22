@@ -32,10 +32,10 @@ The wrapper discovers the code root from its own location.
 The active firstmate home is `${FM_HOME:-<code-root>}`.
 It passes both roots and the exact command string to the Node policy owner.
 
-The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain `fm-watch`, `kill`, `pkill`, `killall`, `pgrep`, `pidof`, `ps`, `lsof`, `sh`, `bash`, `zsh`, or `trap` bytes even after the classifier's decoders run.
+The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain `fm-watch`, `kill`, `pkill`, `killall`, `pgrep`, `pidof`, `ps`, `lsof`, `sh`, `bash`, `zsh`, `trap`, `source`, or dot-command bytes even after the classifier's decoders run.
 The fast path may allow only when both of these hold:
 
-1. The stripped text lacks the `fm-watch`, `kill`, `pkill`, `killall`, `pgrep`, `pidof`, `ps`, `lsof`, `sh`, `bash`, `zsh`, and `trap` substrings, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
+1. The stripped text lacks the `fm-watch`, `kill`, `pkill`, `killall`, `pgrep`, `pidof`, `ps`, `lsof`, `sh`, `bash`, `zsh`, `trap`, `source`, and dot-command substrings, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
 2. The raw command carries no dollar expansion marker.
 
 Any protected substring match or dollar expansion marker delegates to the classifier.
@@ -114,7 +114,7 @@ Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, s
 ## Broad process kills
 
 Every actually executed `pkill`, `killall`, `killall5`, or `skill` command, and `fuser -k`, is denied as name-, pattern-, or resource-based process termination.
-Non-inline `sh`, `bash`, and `zsh` scripts or standard input are refused, while readable inline `-c`, heredoc, and here-string payloads are classified; `trap` is refused as an opaque deferred execution sink.
+Non-inline `sh`, `bash`, and `zsh` scripts or standard input, and noncanonical `source` or dot-command script paths, are refused, while readable inline `-c`, heredoc, and here-string payloads are classified; only the canonical x-mode setup source is allowed; `trap` is refused as an opaque deferred execution sink.
 Literal direct `kill` broadcast targets - every numeric zero spelling, `-1`, and every negative process-group target - are denied.
 Literal positive PID targets remain allowed, and an exact PGID must be passed explicitly to `bin/fm-process-kill.sh --group`.
 A direct `kill` target must be a readable literal, so variable-based termination belongs to `bin/fm-process-kill.sh`.
