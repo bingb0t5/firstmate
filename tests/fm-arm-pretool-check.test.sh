@@ -160,6 +160,11 @@ matrix_case D92 deny "pgrep node | xargs env -S 'kill'"
 matrix_case D93 deny "pgrep node | xargs -n1 sh -c 'kill \"\$0\"'"
 matrix_case D94 deny "pgrep node | xargs -n1 sh -c 'if true; then kill \"\$0\"; fi'"
 matrix_case D95 deny "pgrep node | xargs -n1 sh -c '(kill \"\$0\")'"
+matrix_case D96 deny 'kill -TERM -- -1'
+matrix_case D97 deny 'kill 0'
+matrix_case D98 deny 'kill -TERM -- -12345'
+matrix_case D99 deny 'kill -TERM -1'
+matrix_case D100 deny "printf 'x\\n' | xargs kill 0"
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -305,6 +310,12 @@ test_direct_policy_contract() {
   assert_policy direct-dynamic-suffix-broad-kill $'deny\tbroad-process-kill' "p=p; \"\${p}\"kill -f 'tsx server.ts'"
   assert_policy direct-dynamic-suffix-numeric-kill $'deny\tbroad-process-kill' 'p=p; "${p}"kill 4242'
   assert_policy direct-literal-exact-pid allow 'kill 4242'
+  assert_policy direct-signal-exact-pid allow 'kill -TERM 4242'
+  assert_policy direct-broadcast-all $'deny\tbroad-process-kill' 'kill -TERM -- -1'
+  assert_policy direct-broadcast-current-group $'deny\tbroad-process-kill' 'kill 0'
+  assert_policy direct-broadcast-process-group $'deny\tbroad-process-kill' 'kill -TERM -- -12345'
+  assert_policy direct-broadcast-without-terminator $'deny\tbroad-process-kill' 'kill -TERM -1'
+  assert_policy direct-xargs-broadcast-current-group $'deny\tbroad-process-kill' "printf 'x\\n' | xargs kill 0"
   assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
   assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"
   assert_policy direct-ps-awk-read-only allow "ps aux | awk '{print \$2}'"

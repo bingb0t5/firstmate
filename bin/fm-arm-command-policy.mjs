@@ -23,7 +23,7 @@ const REASONS = {
   "watcher-redirection": "a protected watcher command must not use shell redirection",
   "watcher-bundled": "a protected watcher command must be the sole final command after approved setup nodes",
   "watcher-nested": "a protected watcher command must not run through a wrapper, substitution, or compound command",
-  "broad-process-kill": "name- or pattern-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID",
+  "broad-process-kill": "name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID",
   "broad-watcher-kill": "a broad process kill targeting the firstmate watcher is forbidden",
   "unclassifiable-protected-command": "unsupported or malformed shell syntax contains a protected watcher command",
   "watcher-direct": "bin/fm-watch.sh must not be run directly; arm the watcher with bin/fm-watch-arm.sh or run bin/fm-watch-checkpoint.sh instead",
@@ -67,6 +67,46 @@ function isBroadProcessKillWord(word) {
 
 function isKillWord(word) {
   return Boolean(word && word.type === "word" && basename(word.value) === "kill");
+}
+
+function directKillBroadcastTarget(position) {
+  if (!isKillWord(position.command)) return false;
+  const args = position.words.slice(position.index + 1);
+  let options = true;
+  let signalSpecified = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const word = args[index];
+    const value = word.value;
+    if (!word.literal || word.subs.length > 0) {
+      options = false;
+      continue;
+    }
+    if (options && value === "--") {
+      options = false;
+      continue;
+    }
+    if (options && ["-l", "--list"].includes(value)) return false;
+    if (options && ["-s", "-n", "--signal"].includes(value)) {
+      signalSpecified = true;
+      index += 1;
+      continue;
+    }
+    if (options && value.startsWith("--signal=")) {
+      signalSpecified = true;
+      continue;
+    }
+    if (options && /^-[A-Za-z]+$/.test(value)) {
+      signalSpecified = true;
+      continue;
+    }
+    if (options && /^-\d+$/.test(value) && !signalSpecified) {
+      signalSpecified = true;
+      continue;
+    }
+    options = false;
+    if (value === "0" || /^-\d+$/.test(value)) return true;
+  }
+  return false;
 }
 
 function tokensMentionBroadProcessKill(tokens) {
@@ -883,7 +923,7 @@ function xargsInvokesKill(position, context, depth) {
 function xargsInvokesBroadProcessKill(position, context, depth) {
   const child = xargsChildPosition(position);
   if (!child) return false;
-  if (isBroadProcessKillWord(child?.command)) return true;
+  if (isBroadProcessKillWord(child?.command) || directKillBroadcastTarget(child)) return true;
   if (xargsChildPayloadAnalyses(child, context, depth).some((analysis) => analysis.broadProcessKill || analysis.broadKill)) return true;
   const nested = xargsChildShellAnalysis(child, context, depth);
   if (!nested) return false;
@@ -1011,7 +1051,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (hasUnclassifiableProtectedExpansion(position.command, context.root)) unclassifiableProtected = true;
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
-    if (isBroadProcessKillWord(position.command) || dynamicProcessKillCommand(position) || unresolvedWrapperMentionsBroadProcessKill(position)) broadProcessKill = true;
+    if (isBroadProcessKillWord(position.command) || dynamicProcessKillCommand(position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillBroadcastTarget(position)) broadProcessKill = true;
     if (isKillWord(position.command)) literalKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;

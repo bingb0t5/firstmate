@@ -32,10 +32,10 @@ The wrapper discovers the code root from its own location.
 The active firstmate home is `${FM_HOME:-<code-root>}`.
 It passes both roots and the exact command string to the Node policy owner.
 
-The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain `fm-watch`, `pkill`, `killall`, `pgrep`, `pidof`, `ps`, or `lsof` bytes even after the classifier's decoders run.
+The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain `fm-watch`, `kill`, `pkill`, `killall`, `pgrep`, `pidof`, `ps`, or `lsof` bytes even after the classifier's decoders run.
 The fast path may allow only when both of these hold:
 
-1. The stripped text lacks the `fm-watch`, `pkill`, `killall`, `pgrep`, `pidof`, `ps`, and `lsof` substrings, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
+1. The stripped text lacks the `fm-watch`, `kill`, `pkill`, `killall`, `pgrep`, `pidof`, `ps`, and `lsof` substrings, after mirroring the classifier's cheapest byte normalizations - dropping line-continuation and escape backslashes, quotes, and newlines.
 2. The raw command carries no dollar expansion marker.
 
 Any protected substring match or dollar expansion marker delegates to the classifier.
@@ -114,6 +114,8 @@ Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, s
 ## Broad process kills
 
 Every actually executed `pkill` or `killall` command is denied as name- or pattern-based process termination.
+Literal direct `kill` broadcast targets - `0`, `-1`, and every negative process-group target - are denied.
+Literal positive PID targets remain allowed, and an exact PGID must be passed explicitly to `bin/fm-process-kill.sh --group`.
 Path-qualified `pkill` and literal `time`, `nice`, `ionice`, `nohup`, `env`, `sudo`, `command`, and `exec` command prefixes are unwrapped before that decision.
 No other command indirection is classified as a broad-kill prefix.
 An unrecognized option on one of those prefixes that precedes `pkill` or `killall` is denied conservatively.
@@ -124,7 +126,7 @@ Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep`, `rg`, or `aw
 Literal shell variables that name `pkill` or `killall` are also denied when executed as commands.
 Visible dynamic command names that end in `pkill`, `killall`, or `kill` are denied conservatively because their process-selection semantics are unreadable.
 The classifier does not resolve arbitrary generated command names or opaque dynamic shell payloads that expose no `kill`, `pkill`, or `killall` token.
-That bounded containment gap is not a supported process-management interface; the guard refuses unreadable broad-kill constructions and does not attempt semantic analysis.
+That bounded containment gap is not a supported process-management interface; the guard refuses unreadable broad-kill constructions, named broad kills, and literal broadcast targets without attempting semantic analysis.
 Rewrite such work as `bin/fm-process-kill.sh` with an explicit recorded PID or PGID.
 That helper validates the exact target shape only; the owning invocation is responsible for recording and validating its identity.
 Standalone read-only `pgrep`, `pidof`, `ps`, and `lsof` calls are allowed.
@@ -146,7 +148,7 @@ Every semantic deny includes one stable code in square brackets before its prose
 | `watcher-redirection` | A protected execution uses shell redirection. |
 | `watcher-bundled` | The outer command list is not the blessed setup-plus-final tree. |
 | `watcher-nested` | A wrapper, group, substitution, nested shell, `eval`, or constructed dynamic payload executes the protected command. |
-| `broad-process-kill` | An actual or conservatively unresolved broad process kill. |
+| `broad-process-kill` | An actual or conservatively unresolved named, pattern, or broadcast process kill. |
 | `broad-watcher-kill` | An actual broad process kill targets the watcher. |
 | `unclassifiable-protected-command` | Malformed or unsupported syntax contains a protected command and cannot be safely classified. |
 | `watcher-direct` | A direct `bin/fm-watch.sh` execution; the watcher must be reached through `bin/fm-watch-arm.sh` or `bin/fm-watch-checkpoint.sh`. |
