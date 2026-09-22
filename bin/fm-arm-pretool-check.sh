@@ -128,7 +128,7 @@ fi
 
 # Strict-superset prefilter (transport only; owns zero classification semantics).
 # Every protected watcher execution and every broad process kill resolves to a
-# fm-watch, kill, pkill, killall, pgrep, pidof, ps, or lsof byte sequence AFTER the classifier's byte
+# fm-watch, kill, pkill, killall, killall5, skill, fuser, pgrep, pidof, ps, or lsof byte sequence AFTER the classifier's byte
 # normalization, so a command that cannot contain one of those even after that
 # normalization can never be denied and is fast-allowed without the Node policy
 # owner. We mirror the classifier's cheapest byte transforms here (drop line-
@@ -138,7 +138,7 @@ fi
 # existing protected command.
 #
 # The fast path may allow ONLY when BOTH hold: (a) the stripped/normalized text
-# lacks the fm-watch, kill, pkill, killall, pgrep, pidof, ps, or lsof substring, AND (b) the raw
+# lacks the fm-watch, kill, pkill, killall, killall5, skill, fuser, pgrep, pidof, ps, or lsof substring, AND (b) the raw
 # command carries no dollar expansion marker. The classifier can reconstruct
 # an executable name from a dollar expansion while this cheap byte strip cannot,
 # so every dollar-bearing command delegates to the single policy owner.
@@ -155,7 +155,7 @@ case "$CMD" in
   *'$'*) ;;
   *)
     case "$PREFILTER" in
-      *fm-watch*|*kill*|*pgrep*|*pidof*|*ps*|*lsof*) ;;
+      *fm-watch*|*kill*|*skill*|*fuser*|*pgrep*|*pidof*|*ps*|*lsof*) ;;
       *) exit 0 ;;
     esac
     ;;

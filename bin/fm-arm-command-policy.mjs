@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Semantic policy for watcher arm, checkpoint, and broad process-kill shell commands.
+// Semantic policy for watcher arm, checkpoint, and named broad process-kill commands: pkill, killall, killall5, skill, and fuser -k.
 //
 // This parser is deliberately narrow.
 // It recognizes executed command positions without evaluating, expanding,
@@ -16,6 +16,8 @@
 import path from "node:path";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+const BROAD_PROCESS_KILL_COMMANDS = new Set(["pkill", "killall", "killall5", "skill"]);
 
 const REASONS = {
   "watcher-background": "a protected watcher command cannot run in an asynchronous shell list or through nohup/disown",
@@ -56,13 +58,19 @@ function rawMentionsBroadKill(command) {
 function rawCaseMentionsBroadProcessKill(command) {
   const normalized = normalizeLineContinuations(command);
   const nameSelector = /\b(?:pgrep|pidof)\b/.test(normalized) || /\bps\b[^\n;|&()]*\s(?:-C\S*|--(?:C|comm)(?:=|\s|$))/.test(normalized) || /\bps\b[^\n;|&()]*\|\s*(?:[^\s;|&()]+\/)?(?:grep|rg)\b/.test(normalized) || /\blsof\b[^\n;|&()]*\s-c\S*/.test(normalized);
-  return /\bcase\b/.test(normalized) && (/(?:^|[^A-Za-z0-9_])(?:(?:[^\s;|&()]+\/)?(?:pkill|killall))\b/.test(normalized) || (nameSelector && /\bkill\b/.test(normalized)));
+  const namedBroadKill = /(?:^|[^A-Za-z0-9_])(?:(?:[^\s;|&()]+\/)?(?:pkill|killall|killall5|skill))\b/.test(normalized);
+  const fuserKill = /(?:^|[^A-Za-z0-9_])(?:[^\s;|&()]+\/)?fuser\b[^\n;|&()]*(?:\s-[A-Za-z]*k[A-Za-z]*\b|\s--kill\b)/.test(normalized);
+  return /\bcase\b/.test(normalized) && (namedBroadKill || fuserKill || (nameSelector && /\bkill\b/.test(normalized)));
 }
 
 function isBroadProcessKillWord(word) {
   if (!word || word.type !== "word") return false;
-  const name = basename(word.value);
-  return name === "pkill" || name === "killall";
+  return BROAD_PROCESS_KILL_COMMANDS.has(basename(word.value));
+}
+
+function fuserInvokesKill(position) {
+  if (!position.command || basename(position.command.value) !== "fuser") return false;
+  return position.words.slice(position.index + 1).some((word) => word.value === "--kill" || /(^|[A-Za-z])k[A-Za-z]*$/.test(word.value.slice(1)) && word.value.startsWith("-"));
 }
 
 function isKillWord(word) {
@@ -644,7 +652,7 @@ function unresolvedWrapperMentionsBroadProcessKill(position) {
   if (!position.unresolvedWrapperOption) return false;
   return position.words.slice(position.index + 1).some((word) => {
     const name = basename(word.value);
-    return name === "pkill" || name === "killall";
+    return BROAD_PROCESS_KILL_COMMANDS.has(name) || name === "fuser";
   });
 }
 
@@ -834,7 +842,7 @@ function contextWithAssignments(context, words) {
     else watcherPids.delete(name);
     if (wordReferencesAny(word, nameSelectorVariables)) nameSelectorVariables.add(name);
     else nameSelectorVariables.delete(name);
-    if (!word.unquotedExpansion && word.subs.length === 0 && ["pkill", "killall"].includes(basename(value))) broadKillCommandVariables.add(name);
+    if (!word.unquotedExpansion && word.subs.length === 0 && BROAD_PROCESS_KILL_COMMANDS.has(basename(value))) broadKillCommandVariables.add(name);
     else broadKillCommandVariables.delete(name);
   }
   return { ...context, protectedVariables, watcherPatterns, watcherPids, nameSelectorVariables, broadKillCommandVariables };
@@ -1071,7 +1079,7 @@ function analyzeProgram(command, context, depth = 0) {
     if (hasUnclassifiableProtectedExpansion(position.command, context.root)) unclassifiableProtected = true;
     const commandName = basename(executable);
     const args = position.words.slice(position.index + 1);
-    if (isBroadProcessKillWord(position.command) || dynamicExecutableCommand(position, context.root) || hasUnreadableExecutionPayload(position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillUnsafeTarget(position)) broadProcessKill = true;
+    if (isBroadProcessKillWord(position.command) || fuserInvokesKill(position) || dynamicExecutableCommand(position, context.root) || hasUnreadableExecutionPayload(position) || unresolvedWrapperMentionsBroadProcessKill(position) || directKillUnsafeTarget(position)) broadProcessKill = true;
     if (directKill) literalKill = true;
     if (commandName === "pkill" && args.some((word) => /fm-watch/.test(word.value) || wordReferencesAny(word, nodeContext.watcherPatterns))) broadKill = true;
     if (commandName === "kill" && (nodePgrepWatcher || args.some((word) => wordReferencesAny(word, nodeContext.watcherPids)))) broadKill = true;
