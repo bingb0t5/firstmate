@@ -1,0 +1,5 @@
+LIVE EXACT-TARGET TERMINATION TRANSCRIPT
+PASS | own PID started and is alive | pid=1274459
+PASS | bare pattern refused without signaling unrelated own PID
+PASS | explicitly recorded own PID terminated by helper
+PASS | explicitly recorded own PGID terminated by helper
