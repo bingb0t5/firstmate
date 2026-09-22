@@ -340,6 +340,7 @@ test_direct_policy_contract() {
   assert_policy direct-dynamic-broadcast-all $'deny\tbroad-process-kill' 'target=-1; kill -TERM -- "$target"'
   assert_policy direct-dynamic-broadcast-current-group $'deny\tbroad-process-kill' 'target=0; kill "$target"'
   assert_policy direct-dynamic-exact-pid $'deny\tbroad-process-kill' 'target=4242; kill "$target"'
+  assert_policy direct-job-spec-kill $'deny\tbroad-process-kill' 'sleep 60 & kill %?sleep'
   assert_policy direct-broadcast-leading-zero $'deny\tbroad-process-kill' 'kill -TERM -- 00'
   assert_policy direct-broadcast-plus-zero $'deny\tbroad-process-kill' 'kill -TERM -- +0'
   assert_policy direct-builtin-broadcast $'deny\tbroad-process-kill' 'builtin kill -TERM -- -1'
@@ -350,6 +351,8 @@ test_direct_policy_contract() {
   assert_policy direct-xargs-substitution-selector-kill $'deny\tbroad-process-kill' 'xargs kill <<< "$(pgrep node)"'
   assert_policy direct-dynamic-prefix-broad-kill $'deny\tbroad-process-kill' "p=pk; \"\${p}ill\" -f 'tsx server.ts'"
   assert_policy direct-unreadable-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c \"\$(printf '%s' 'pkill -f tsx')\""
+  assert_policy direct-unreadable-shell-stdin-broad-pkill $'deny\tbroad-process-kill' 'payload='"'"'pkill -f tsx'"'"'; bash <<< "$payload"'
+  assert_policy direct-unreadable-shell-script $'deny\tbroad-process-kill' 'script=payload; bash "$script"'
   assert_policy direct-unreadable-eval-broad-pkill $'deny\tbroad-process-kill' "eval \"\$(printf '%s' 'pkill -f tsx')\""
   assert_policy direct-killall5 $'deny\tbroad-process-kill' 'killall5 -TERM'
   assert_policy direct-skill-user-selector $'deny\tbroad-process-kill' 'skill -KILL -u rich'
