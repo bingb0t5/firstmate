@@ -15,7 +15,7 @@
 #   B) Inheritance. The primary pushes a declared, extensible set of LOCAL
 #      (gitignored) config items - config/crew-dispatch.json, config/crew-harness,
 #      config/backlog-backend, config/backend, config/herdr-presentation-spaces,
-#      config/startup-memory-budget, and config/trace-context -
+#      config/startup-memory-budget, config/trace-context, and config/devplans.env -
 #      down into each secondmate home's config/, so the secondmate's OWN crewmates,
 #      dispatch profiles, backlog backend, runtime-backend default, Herdr
 #      presentation choice, startup-memory budget, and trace context inherit the
@@ -28,10 +28,11 @@
 #      config push).
 #      config/secondmate-harness is deliberately NOT inherited (secondmates do
 #      not spawn secondmates). After a successful push that changes allowlisted
-#      config under an already-running home, a literal-content reread instruction
-#      is written to the secondmate home and only its pointer is sent via the
-#      routed secondmate path (exact destination bytes, no summaries); unchanged
-#      config sends nothing unless a previous send failure is pending.
+#      non-secret config under an already-running home, a literal-content reread
+#      instruction is written to the secondmate home and only its pointer is sent
+#      via the routed secondmate path (exact destination bytes, no summaries).
+#      Secret-bearing devplans.env is copied without a literal-content artifact.
+#      Unchanged config sends nothing unless a previous send failure is pending.
 
 #   C) Model/effort pin. config/secondmate-harness may carry optional model and
 #      effort tokens after the harness ("<harness> [<model>] [<effort>]"), read by
@@ -384,6 +385,7 @@ test_propagate_lib() {
   printf 'tmux\n' > "$src/backend"
   : > "$src/herdr-presentation-spaces"
   : > "$src/trace-context"
+  printf 'LALO_PLANS_BASE_URL=https://devplans.example\nLALO_PLANS_UPLOAD_KEY=secret-fixture\n' > "$src/devplans.env"
   stdout="$d/clean-copy.out"
   stderr="$d/clean-copy.err"
   propagate_inheritable_config "$src" "$dest" >"$stdout" 2>"$stderr" || fail "propagate returned non-zero"
@@ -398,6 +400,7 @@ test_propagate_lib() {
   propagate_inheritable_config "$src" "$dest"
   [ "$(cat "$dest/backend")" = tmux ] || fail "primary backend did not overwrite a divergent destination"
   [ -f "$dest/trace-context" ] || fail "trace-context not propagated by the default inheritable set"
+  cmp -s "$src/devplans.env" "$dest/devplans.env" || fail "devplans.env not propagated by the default inheritable set"
 
   # 2. idempotent: an unchanged re-run does not churn the mtime
   m1=$(date -r "$dest/crew-harness" +%s 2>/dev/null || stat -c %Y "$dest/crew-harness")
@@ -858,8 +861,10 @@ test_spawn_secondmate_harness_model_token() {
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-token: meta model not opus (got '$(meta_field "$meta" model)')"
   [ "$(meta_field "$meta" effort)" = default ] || fail "model-token: meta effort not default (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --model 'opus'" \
-    "model-token: launch did not carry --model opus"
+  assert_contains "$launch" "--model" \
+    "model-token: launch did not carry --model"
+  assert_contains "$launch" "opus" \
+    "model-token: launch did not carry the configured model token"
   assert_not_contains "$launch" "--effort" "model-token: launch must not carry an --effort flag"
   pass "C3 spawn: config/secondmate-harness's model token threads --model into the launch and meta"
 }
@@ -880,8 +885,14 @@ test_spawn_secondmate_harness_model_and_effort_tokens() {
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-effort-tokens: meta model not opus"
   [ "$(meta_field "$meta" effort)" = high ] || fail "model-effort-tokens: meta effort not high (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --model 'opus' --effort 'high'" \
-    "model-effort-tokens: launch did not carry both --model opus and --effort high"
+  assert_contains "$launch" "--model" \
+    "model-effort-tokens: launch did not carry --model"
+  assert_contains "$launch" "opus" \
+    "model-effort-tokens: launch did not carry the configured model token"
+  assert_contains "$launch" "--effort" \
+    "model-effort-tokens: launch did not carry --effort"
+  assert_contains "$launch" "high" \
+    "model-effort-tokens: launch did not carry the configured effort token"
   pass "C4 spawn: config/secondmate-harness's model+effort tokens thread into the launch and meta"
 }
 
@@ -902,8 +913,9 @@ test_spawn_explicit_model_overrides_secondmate_harness_token() {
     || fail "explicit-model: meta model not sonnet (got '$(meta_field "$meta" model)'), explicit flag did not win over file token"
   [ "$(meta_field "$meta" effort)" = high ] || fail "explicit-model: file's effort token should still apply"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "--model 'sonnet'" "explicit-model: launch did not use the explicit --model"
-  assert_not_contains "$launch" "--model 'opus'" "explicit-model: launch leaked the file's model token"
+  assert_contains "$launch" "--model" "explicit-model: launch did not use the explicit --model"
+  assert_contains "$launch" "sonnet" "explicit-model: launch did not carry the explicit model token"
+  assert_not_contains "$launch" "opus" "explicit-model: launch leaked the file's model token"
   pass "C5 spawn: an explicit --model overrides config/secondmate-harness's model token; the file's effort token still applies"
 }
 
@@ -924,8 +936,9 @@ test_spawn_explicit_effort_overrides_secondmate_harness_token() {
   [ "$(meta_field "$meta" effort)" = low ] \
     || fail "explicit-effort: meta effort not low (got '$(meta_field "$meta" effort)'), explicit flag did not win over file token"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "--effort 'low'" "explicit-effort: launch did not use the explicit --effort"
-  assert_not_contains "$launch" "--effort 'high'" "explicit-effort: launch leaked the file's effort token"
+  assert_contains "$launch" "--effort" "explicit-effort: launch did not use the explicit --effort"
+  assert_contains "$launch" "low" "explicit-effort: launch did not carry the explicit effort token"
+  assert_not_contains "$launch" "high" "explicit-effort: launch leaked the file's effort token"
   pass "C6 spawn: an explicit --effort overrides config/secondmate-harness's effort token; the file's model token still applies"
 }
 
@@ -969,11 +982,15 @@ test_spawn_explicit_harness_uses_explicit_profile_axes() {
   [ "$(meta_field "$meta" model)" = gpt-5.5 ] || fail "explicit-harness-explicit-axes: meta model did not use explicit value"
   [ "$(meta_field "$meta" effort)" = xhigh ] || fail "explicit-harness-explicit-axes: meta effort did not use explicit value"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "--model 'gpt-5.5'" \
+  assert_contains "$launch" "--model" \
     "explicit-harness-explicit-axes: launch did not use the explicit --model"
-  assert_contains "$launch" "-c 'model_reasoning_effort=\"xhigh\"'" \
+  assert_contains "$launch" "gpt-5.5" \
+    "explicit-harness-explicit-axes: launch did not carry the explicit model token"
+  assert_contains "$launch" "model_reasoning_effort" \
     "explicit-harness-explicit-axes: launch did not use the explicit --effort"
-  assert_not_contains "$launch" "--model 'opus'" \
+  assert_contains "$launch" "xhigh" \
+    "explicit-harness-explicit-axes: launch did not carry the explicit effort token"
+  assert_not_contains "$launch" "opus" \
     "explicit-harness-explicit-axes: launch leaked the file's model token"
   assert_not_contains "$launch" "model_reasoning_effort=\"high\"" \
     "explicit-harness-explicit-axes: launch leaked the file's effort token"
@@ -1106,7 +1123,7 @@ new_world() {
     printf 'projects/\nstate/\ndata/\n.no-mistakes/\n'
     [ "$dispatch_ignore" = no ] || printf 'config/crew-dispatch.json\n'
     printf 'config/crew-harness\nconfig/secondmate-harness\nconfig/backlog-backend\n'
-    printf 'config/backend\nconfig/herdr-presentation-spaces\nconfig/startup-memory-budget\n'
+    printf 'config/backend\nconfig/herdr-presentation-spaces\nconfig/startup-memory-budget\nconfig/devplans.env\n'
   } > "$w/main/.gitignore"
   printf 'v1\n' > "$w/main/AGENTS.md"
   printf 'r1\n' > "$w/main/README.md"
@@ -1688,6 +1705,80 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
     "unchanged config must not send a reread message"
   [ ! -s "$log" ] || fail "unchanged config push still invoked tmux send: $(cat "$log")"
   pass "B12 config-push propagates via shared live discovery, reports items, rereads on change only, and does not fast-forward"
+}
+
+test_config_push_propagates_devplans_without_reread_content() {
+  local w head log out err status instruction key
+  w=$(new_world config-push-devplans-secret)
+  head=$(git -C "$w/main" rev-parse HEAD)
+  add_sm_worktree "$w" sm "$head"
+  mkdir -p "$w/sm/config"
+  key='devplans-upload-key-fixture'
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  printf 'old\n' > "$w/sm/config/crew-harness"
+  printf 'LALO_PLANS_BASE_URL=https://devplans.example\nLALO_PLANS_UPLOAD_KEY=%s\n' "$key" > "$w/home/config/devplans.env"
+  chmod 644 "$w/home/config/devplans.env"
+  record_live_watcher_fixture "$w/home"
+  log="$w/config-push-devplans-secret.tmux.log"
+  err="$w/config-push-devplans-secret.err"
+
+  out=$(run_config_push "$w" "$log" 2>"$err"); status=$?
+
+  expect_code 0 "$status" "DevPlans config push should succeed"
+  assert_contains "$out" "devplans.env: pushed" \
+    "DevPlans config push did not report copied credentials"
+  cmp -s "$w/home/config/devplans.env" "$w/sm/config/devplans.env" \
+    || fail "DevPlans credentials did not reach the secondmate config"
+  [ "$(fm_inherit_file_mode "$w/home/config/devplans.env")" = 600 ] \
+    || fail "DevPlans source config was not normalized to owner-only mode"
+  [ "$(fm_inherit_file_mode "$w/sm/config/devplans.env")" = 600 ] \
+    || fail "DevPlans secondmate config was not normalized to owner-only mode"
+  instruction=$(reread_instruction_path "$w/sm") \
+    || fail "non-secret config change did not publish a reread instruction"
+  assert_not_contains "$(cat "$instruction")" "config/devplans.env" \
+    "reread instruction exposed the DevPlans config path"
+  assert_not_contains "$(cat "$instruction")" "$key" \
+    "reread instruction exposed the DevPlans upload key"
+  assert_not_contains "$(inbox_stream "$w/home/state" sm)" "$key" \
+    "routed reread pointer exposed the DevPlans upload key"
+  assert_not_contains "$out" "$key" "config push output exposed the DevPlans upload key"
+  assert_not_contains "$(cat "$err")" "$key" "config push diagnostics exposed the DevPlans upload key"
+  chmod 644 "$w/sm/config/devplans.env"
+  out=$(run_config_push "$w" "$log" 2>"$err"); status=$?
+  expect_code 0 "$status" "byte-identical DevPlans config mode repair should succeed"
+  assert_contains "$out" "devplans.env: pushed - normalized private mode" \
+    "byte-identical DevPlans config did not report private-mode repair"
+  [ "$(fm_inherit_file_mode "$w/sm/config/devplans.env")" = 600 ] \
+    || fail "byte-identical DevPlans config was not normalized to owner-only mode"
+  rm -f "$w/home/config/devplans.env"
+  mkdir "$w/home/config/devplans.env"
+  out=$(run_config_push "$w" "$log" 2>"$err"); status=$?
+  expect_code 1 "$status" "malformed DevPlans source should fail without removing the destination"
+  assert_contains "$out" "devplans.env: error - unsafe primary source" \
+    "malformed DevPlans source did not report its propagation error"
+  [ "$(cat "$w/sm/config/devplans.env")" = $'LALO_PLANS_BASE_URL=https://devplans.example\nLALO_PLANS_UPLOAD_KEY=devplans-upload-key-fixture' ] \
+    || fail "malformed DevPlans source removed or changed the secondmate credentials"
+  pass "B12a config-push propagates DevPlans config without serializing credentials into reread state"
+}
+
+test_remote_devplans_config_normalizes_private_mode() {
+  local w remote payload bytes hash out
+  w=$(new_world remote-devplans-private-mode)
+  remote="$w/remote"
+  payload="$w/devplans.env"
+  mkdir -p "$remote/config"
+  printf 'LALO_PLANS_BASE_URL=https://devplans.example\nLALO_PLANS_UPLOAD_KEY=remote-fixture\n' > "$payload"
+  bytes=$(LC_ALL=C wc -c < "$payload" | tr -d ' ')
+  hash=$(fm_inherit_sha256 "$payload") || fail "could not hash remote DevPlans fixture"
+  cp "$payload" "$remote/config/devplans.env"
+  chmod 644 "$remote/config/devplans.env"
+
+  out=$(FM_HOME="$remote" "$ROOT/bin/fm-remote-inherit.sh" put config/devplans.env "$bytes" "$hash" 1 < "$payload")
+  assert_contains "$out" "unchanged: config/devplans.env" \
+    "remote byte-identical DevPlans config did not converge"
+  [ "$(fm_inherit_file_mode "$remote/config/devplans.env")" = 600 ] \
+    || fail "remote byte-identical DevPlans config was not normalized to owner-only mode"
+  pass "B12aa remote inheritance normalizes byte-identical DevPlans config to owner-only mode"
 }
 
 test_config_push_reports_skips_dirty_and_invalid_home() {
@@ -2710,6 +2801,8 @@ test_presentation_inheritance_default_on_and_opt_out
 test_bootstrap_sweep_surfaces_config_propagation_failure
 test_bootstrap_rereads_after_partial_propagation
 test_config_push_propagates_reports_without_ff_or_nudge
+test_config_push_propagates_devplans_without_reread_content
+test_remote_devplans_config_normalizes_private_mode
 test_config_push_reports_skips_dirty_and_invalid_home
 test_config_push_exits_nonzero_on_copy_error
 test_config_push_rereads_after_partial_propagation

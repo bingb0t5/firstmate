@@ -33,7 +33,9 @@
 # primary; an item the primary does not set is mirrored as absence downstream.
 # After successful config/* changes under an already-running secondmate, callers
 # invoke fm_config_send_reread_nudge so the live agent re-reads exact post-write
-# bytes (spawn/respawn already re-reads at launch and needs no redundant nudge).
+# bytes for non-secret configuration (spawn/respawn already re-reads at launch
+# and needs no redundant nudge). Secret-bearing configuration is copied without
+# a literal-content reread artifact and is read from its private file when used.
 #
 # Extensible by design: FM_INHERITABLE_CONFIG is the single declared list of
 # config-dir-relative items the primary propagates. Add an item there and every
@@ -63,7 +65,7 @@ FM_SHARED_CAPTAIN_MODE="444"
 # The declared inheritable set (space-separated, config-dir-relative item paths).
 # Extend here to inherit more of the primary's local config; override via the
 # environment only in tests. Items must not contain whitespace.
-FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context}"
+FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context devplans.env}"
 
 # Items whose value is a home-SESSION enablement decision rather than durable
 # local configuration. They are inherited at the launch convergence point, where
@@ -127,8 +129,21 @@ fm_inherit_sha256() {
   fi
 }
 
+fm_config_inherit_item_requires_private_mode() {
+  [ "$1" = devplans.env ]
+}
+
+fm_config_inherit_secure_item() {
+  local item=$1 path=$2
+  fm_config_inherit_item_requires_private_mode "$item" || return 0
+  [ -f "$path" ] && [ ! -L "$path" ] || return 1
+  [ "$(fm_inherit_file_mode "$path")" = 600 ] && return 0
+  chmod 600 "$path" 2>/dev/null || return 1
+  [ "$(fm_inherit_file_mode "$path")" = 600 ]
+}
+
 copy_inheritable_file() {
-  local src=$1 dest=$2 dest_parent tmp
+  local src=$1 dest=$2 item=$3 dest_parent tmp
   if [ -e "$dest" ] && [ ! -f "$dest" ] && [ ! -L "$dest" ]; then
     return 1
   fi
@@ -137,6 +152,10 @@ copy_inheritable_file() {
   mkdir -p "$dest_parent" 2>/dev/null || return 1
   tmp=$(mktemp "$dest_parent/.fm-inherit.XXXXXX" 2>/dev/null) || return 1
   if ! cp "$src" "$tmp" 2>/dev/null; then
+    rm -f "$tmp" 2>/dev/null || true
+    return 1
+  fi
+  if ! fm_config_inherit_secure_item "$item" "$tmp"; then
     rm -f "$tmp" 2>/dev/null || true
     return 1
   fi
@@ -440,7 +459,7 @@ propagate_secondmate_inheritance() {
 }
 
 propagate_inheritable_config() {
-  local src_config=$1 dest_config=$2 item src dest reason rc
+  local src_config=$1 dest_config=$2 item src dest reason rc mode_repaired
   [ -n "$src_config" ] || return 1
   [ -n "$dest_config" ] || return 1
   rc=0
@@ -495,7 +514,21 @@ propagate_inheritable_config() {
         fi
       fi
     fi
+    if { [ -e "$src" ] || [ -L "$src" ]; } && { [ ! -f "$src" ] || [ -L "$src" ]; }; then
+      reason="unsafe primary source"
+      warn_inheritable_config_error "$item" "$src" "$reason"
+      record_inheritable_config_result "$item" error "$reason"
+      rc=1
+      continue
+    fi
     if [ -f "$src" ]; then
+      if ! fm_config_inherit_secure_item "$item" "$src"; then
+        reason="failed to secure private mode"
+        warn_inheritable_config_error "$item" "$src" "$reason"
+        record_inheritable_config_result "$item" error "$reason"
+        rc=1
+        continue
+      fi
       if ! destination_allows_inherited_item "$dest_config" "$item"; then
         reason=$(inheritable_config_skip_reason)
         warn_inheritable_config_skip "$item" "$dest_config" "$reason"
@@ -503,7 +536,7 @@ propagate_inheritable_config() {
         continue
       fi
       if [ -L "$dest" ] || [ ! -f "$dest" ] || ! cmp -s "$src" "$dest"; then
-        if copy_inheritable_file "$src" "$dest"; then
+        if copy_inheritable_file "$src" "$dest" "$item"; then
           record_inheritable_config_result "$item" pushed ""
         else
           reason="failed to copy"
@@ -512,7 +545,21 @@ propagate_inheritable_config() {
           rc=1
         fi
       else
-        record_inheritable_config_result "$item" unchanged ""
+        mode_repaired=0
+        if fm_config_inherit_item_requires_private_mode "$item" \
+          && [ "$(fm_inherit_file_mode "$dest")" != 600 ]; then
+          mode_repaired=1
+        fi
+        if ! fm_config_inherit_secure_item "$item" "$dest"; then
+          reason="failed to secure private mode"
+          warn_inheritable_config_error "$item" "$dest" "$reason"
+          record_inheritable_config_result "$item" error "$reason"
+          rc=1
+        elif [ "$mode_repaired" = 1 ]; then
+          record_inheritable_config_result "$item" pushed "normalized private mode"
+        else
+          record_inheritable_config_result "$item" unchanged ""
+        fi
       fi
     elif [ -e "$dest" ] || [ -L "$dest" ]; then
       if ! destination_allows_inherited_item "$dest_config" "$item"; then
@@ -551,25 +598,30 @@ FM_CONFIG_INHERIT_LOCK_REL="state/.fm-inherited-config.lock"
 # an enforcement claim, and never a parsed summary of file contents.
 FM_CONFIG_REREAD_FRAMING='These inherited config files changed. Re-read and apply their exact contents at every future intake. They are defaults/rules and do not remove your judgment to choose differently when warranted.'
 
+# The non-secret inherited config files safe to inline into a durable reread
+# instruction. Propagation is separately owned by FM_INHERITABLE_CONFIG, so
+# secret-bearing items such as devplans.env never enter state or retry artifacts.
+FM_CONFIG_REREAD_INLINE_CONFIG="crew-dispatch.json crew-harness backlog-backend backend herdr-presentation-spaces startup-memory-budget trace-context"
+
 # fm_config_reread_is_allowlisted_item <item>
-# True only for the declared inheritable config allowlist (bare item name as
-# recorded in FM_CONFIG_INHERIT_REPORT). data/captain-shared.md is never
-# allowlisted here and must never be inlined into a reread instruction.
+# True only for the declared non-secret config inline allowlist (bare item name
+# as recorded in FM_CONFIG_INHERIT_REPORT). data/captain-shared.md and
+# secret-bearing inheritable files are never inlined into a reread instruction.
 fm_config_reread_is_allowlisted_item() {
   local item=$1 candidate
-  for candidate in $FM_INHERITABLE_CONFIG; do
+  for candidate in $FM_CONFIG_REREAD_INLINE_CONFIG; do
     [ "$candidate" = "$item" ] && return 0
   done
   return 1
 }
 
 # fm_config_reread_changed_items <report>
-# Print bare allowlisted config item names whose report status is "pushed",
-# in FM_INHERITABLE_CONFIG order (deterministic path order). Empty when none.
+# Print bare non-secret inline config item names whose report status is "pushed",
+# in FM_CONFIG_REREAD_INLINE_CONFIG order (deterministic path order). Empty when none.
 fm_config_reread_changed_items() {
   local report=$1 item status
   [ -n "$report" ] && [ -f "$report" ] || return 0
-  for item in $FM_INHERITABLE_CONFIG; do
+  for item in $FM_CONFIG_REREAD_INLINE_CONFIG; do
     status=$(awk -F '\t' -v item="$item" '$1 == item { print $2; exit }' "$report" 2>/dev/null) || status=""
     [ "$status" = pushed ] || continue
     printf '%s\n' "$item"
