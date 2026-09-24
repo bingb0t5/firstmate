@@ -201,6 +201,7 @@ emit() {
   local text key
   text=$(printf '%s' "$1" | tr '\t\r\n' '   ')
   key=${2:-finding:$text}
+  key=$(printf '%s' "$key" | tr '\t\r\n;' '    ')
   if [ -z "$FINDINGS" ]; then
     FINDINGS=$text
     if [ -z "$FINDING_KEYS" ]; then
@@ -218,6 +219,11 @@ emit_update() {
   local identity=$1 text=$2
   identity=$(printf '%s' "$identity" | tr '\t\r\n;' '    ')
   emit "$text" "update:$identity"
+}
+
+canonical_finding_keys() {
+  local keys=$1
+  [ -z "$keys" ] || printf '%s\n' "$keys" | tr ';' '\n' | sort -u | paste -sd ';' -
 }
 
 budget_exhausted() {
@@ -765,7 +771,7 @@ record_write() {
 
 action_check() {
   local name command_name args_joined announce announce_args repo remote branch
-  local line now
+  local line now finding_keys reported_keys
 
   [ -f "$CONFIG" ] || return 0
 
@@ -802,16 +808,19 @@ action_check() {
     line=$FM_LINE_CAP_LINE
   fi
 
+  finding_keys=$(canonical_finding_keys "$FINDING_KEYS")
+  reported_keys=$(canonical_finding_keys "$RECORD_REPORTED")
+
   # The cut line is what gets printed, but the whole finding set is what decides
   # whether this is news, because a finding that lands past the cut leaves the
   # printed line unchanged and would otherwise be suppressed for good.
   #
   # Report before recording, so a record that cannot be written costs a repeated
   # report rather than a lost one.
-  if [ -n "$line" ] && [ "$FINDING_KEYS" != "$RECORD_REPORTED" ]; then
+  if [ -n "$line" ] && [ "$finding_keys" != "$reported_keys" ]; then
     printf '%s\n' "$line"
   fi
-  record_write "$FINDING_KEYS" || true
+  record_write "$finding_keys" || true
   return 0
 }
 

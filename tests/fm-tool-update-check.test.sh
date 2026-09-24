@@ -876,6 +876,26 @@ test_findings_are_reported_once_until_they_change() {
   pass "the same pending update is reported once, and a change is reported again"
 }
 
+test_update_identities_ignore_configuration_order() {
+  local home first second out
+  home=$(make_home ordered-identities)
+  first=$(git_fixture ordered-identities-first)
+  second=$(git_fixture ordered-identities-second)
+  git -C "$first" reset -q --hard HEAD~2
+  git -C "$second" reset -q --hard HEAD~2
+  out="$home/out.txt"
+  write_config "$home" "{\"tools\":[{\"name\":\"alpha\",\"git\":{\"repo\":\"$first\",\"branch\":\"main\"}},{\"name\":\"beta\",\"git\":{\"repo\":\"$second\",\"branch\":\"main\"}}]}"
+
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" "alpha update available" "the first pending update was not reported"
+  assert_contains "$(cat "$out")" "beta update available" "the second pending update was not reported"
+
+  write_config "$home" "{\"tools\":[{\"name\":\"beta\",\"git\":{\"repo\":\"$second\",\"branch\":\"main\"}},{\"name\":\"alpha\",\"git\":{\"repo\":\"$first\",\"branch\":\"main\"}}]}"
+  run_check "$home" "$PATH" "$out"
+  [ ! -s "$out" ] || fail "reordering unchanged update identities repeated an alert: $(cat "$out")"
+  pass "unchanged update identities ignore configuration order"
+}
+
 test_an_overlong_report_says_it_was_cut() {
   local home out report i tools=
   # Many watched tools can outgrow one line. The report must say it was cut
@@ -1233,6 +1253,7 @@ test_a_stalled_repository_probe_is_not_reported_as_not_a_repository
 test_absent_registry_is_silent
 test_malformed_registry_is_reported_not_ignored
 test_findings_are_reported_once_until_they_change
+test_update_identities_ignore_configuration_order
 test_an_overlong_report_says_it_was_cut
 test_a_finding_past_the_cut_is_still_reported
 test_probes_are_skipped_between_intervals
