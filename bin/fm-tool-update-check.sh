@@ -564,16 +564,17 @@ git_probe_answered() {
 # otherwise successful checks. A failed retry leaves the source unknown and
 # silent; an empty successful answer remains actionable as a missing branch.
 GIT_REMOTE_OUTPUT=
+GIT_REMOTE_RETRY_SKIPPED=0
 
 git_remote_probe() {
-  local status output first_status
+  local status output
+  GIT_REMOTE_RETRY_SKIPPED=0
   output=$(git_probe "$@" 2>/dev/null)
   status=$?
   if [ "$status" -ne 0 ] && [ "$status" -ne "$GIT_PROBE_NOT_ISSUED" ]; then
-    first_status=$status
     output=$(git_probe "$@" 2>/dev/null)
     status=$?
-    [ "$status" -ne "$GIT_PROBE_NOT_ISSUED" ] || status=$first_status
+    [ "$status" -ne "$GIT_PROBE_NOT_ISSUED" ] || GIT_REMOTE_RETRY_SKIPPED=1
   fi
   GIT_REMOTE_OUTPUT=$output
   return "$status"
@@ -636,9 +637,9 @@ git_findings() {
     # rather than reporting a check failure the operator cannot act on.
     git_remote_probe "$repo" ls-remote --symref "$remote" HEAD
     status=$?
-    if [ "$status" -eq "$GIT_PROBE_NOT_ISSUED" ]; then
+    if [ "$status" -eq "$GIT_PROBE_NOT_ISSUED" ] && [ "$GIT_REMOTE_RETRY_SKIPPED" -eq 0 ]; then
       git_probe_answered "$status" "$name" "$remote" "which branch it uses by default" || return 0
-    elif [ "$status" -eq 124 ]; then
+    elif [ "$status" -eq 124 ] || [ "$GIT_REMOTE_RETRY_SKIPPED" -eq 1 ]; then
       retain_reported_git_updates "$name"
       return 0
     elif [ "$status" -ne 0 ]; then
@@ -656,9 +657,9 @@ git_findings() {
 
   git_remote_probe "$repo" ls-remote "$remote" "refs/heads/$branch"
   status=$?
-  if [ "$status" -eq "$GIT_PROBE_NOT_ISSUED" ]; then
+  if [ "$status" -eq "$GIT_PROBE_NOT_ISSUED" ] && [ "$GIT_REMOTE_RETRY_SKIPPED" -eq 0 ]; then
     git_probe_answered "$status" "$name" "$remote" "where $branch points" || return 0
-  elif [ "$status" -eq 124 ]; then
+  elif [ "$status" -eq 124 ] || [ "$GIT_REMOTE_RETRY_SKIPPED" -eq 1 ]; then
     retain_reported_git_updates "$name"
     return 0
   elif [ "$status" -ne 0 ]; then

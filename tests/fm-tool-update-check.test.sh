@@ -616,6 +616,52 @@ SH
   pass "a default-branch timeout stays silent when no retry can start"
 }
 
+test_non_timeout_retry_without_budget_stays_silent() {
+  local home work dir out real_date real_git date_count
+  home=$(make_home git-retry-budget)
+  work=$(git_fixture git-retry-budget-repo)
+  git -C "$work" reset -q --hard HEAD~2
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" 'firstmate update available' "the initial pending update was not reported"
+
+  dir="$TMP_ROOT/git-retry-budget/bin"
+  date_count="$TMP_ROOT/git-retry-budget/date-count"
+  real_date=$(command -v date)
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/date" <<SH
+#!/usr/bin/env bash
+count=\$(cat '$date_count' 2>/dev/null || printf 0)
+count=\$((count + 1))
+printf '%s\\n' "\$count" > '$date_count'
+if [ "\${1:-}" = +%s ]; then
+if [ "\$count" -ge 8 ]; then
+    printf '102\\n'
+  else
+    printf '100\\n'
+  fi
+  exit 0
+fi
+exec '$real_date' "\$@"
+SH
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*refs/heads/main'; then
+  exit 128
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/date" "$dir/git"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_NOW=100 FM_TOOL_UPDATE_BUDGET_SECS=2 FM_TOOL_UPDATE_PROBE_SECS=2
+  [ ! -s "$out" ] || fail "a retry skipped for budget was reported: $(cat "$out")"
+
+  run_check "$home" "$PATH" "$out"
+  [ ! -s "$out" ] || fail "a recovered remote repeated its existing pending update: $(cat "$out")"
+  pass "a non-timeout retry skipped for budget stays silently unknown"
+}
+
 test_unknown_remote_keeps_the_pending_update_deduplicated() {
   local home work dir out real_git
   home=$(make_home git-unknown-dedup)
@@ -1178,6 +1224,7 @@ test_unreadable_remote_is_reported_after_retry
 test_remote_probe_retries_transient_failure
 test_exhausted_remote_transport_timeout_is_silent
 test_default_branch_timeout_without_retry_is_silent
+test_non_timeout_retry_without_budget_stays_silent
 test_unknown_remote_keeps_the_pending_update_deduplicated
 test_missing_branch_on_a_readable_remote_is_still_reported
 test_git_probes_stop_when_the_sweep_budget_is_gone
