@@ -423,17 +423,23 @@ Each entry needs a `name` and at least one of `command` or `git`; an entry may c
 A `command` entry gives the `PATH` comparison above, and adding `announce_pattern` also reports the tool's own update announcement, which is how a tool that already reports its own updates is read rather than reimplemented.
 A tool does not always announce a new release on the command that prints its version: `no-mistakes --version` prints only the version, while its other commands carry the announcement.
 `announce_args` names the command to search for the announcement in that case, and it is asked only of the copy `PATH` resolves; without it the version probe's own output is searched.
+The final dotted version in the `announce_pattern` match is its target version for repeat-report suppression; a match without one is rejected as a check failure.
 An `announce_pattern` that is not a usable extended regular expression stops `arm`, and during a sweep it is reported as that one tool's own check failure so one broken pattern never stops the other watched tools from being checked.
 A `git` entry reports how many commits the local clone is behind its remote branch, and stays silent when the clone is current or ahead.
 An omitted `branch` uses the remote's default branch, taken from the clone's own record of it and otherwise asked of the remote directly, so a `--single-branch` clone still resolves.
-Both probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
+Both probe kinds are read-only and bounded.
+A local probe that cannot answer is reported as a check failure rather than assumed current.
+A remote Git probe is retried once.
+If its retry times out or cannot start before the sweep budget expires, the source is left silently unknown until a later sweep.
+A remote failure whose retry returns nonzero without timing out is reported as a check failure.
 See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a starting point to copy into local `config/watched-tools.json`.
 
 Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
 That writes `state/tool-updates.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the existing watcher polls it on its normal cadence and turns its one line into a `check:` wake; no separate schedule is involved.
 The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required, so a home with no in-flight work and no other reason to watch does not start a watcher just for this check.
 `bin/fm-tool-update-check.sh disarm` removes the shim, its trust binding, and the report record.
-The check prints nothing when everything is current, and `state/.tool-updates` records the findings the last report was made from so the same pending update is reported once instead of on every poll.
+The check prints nothing when everything is current, and `state/.tool-updates` records stable finding identities rather than the rendered report.
+Each pending update is identified by its tool and target version, so changing report wording, paths, or configuration order does not repeat that update alert.
 A changed or returning condition is reported again.
 Adding, removing, or changing a watched tool is an edit to this file and needs no code change or re-arming.
 This file is not inherited by secondmate homes, so each home watches the tools it actually depends on.

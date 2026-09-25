@@ -271,6 +271,52 @@ SH
   pass "an announcement carried by another command is read from that command"
 }
 
+test_announced_target_change_is_reported_again() {
+  local home dir out report target
+  home=$(make_home announce-target)
+  dir="$TMP_ROOT/announce-target/bin"
+  target="$TMP_ROOT/announce-target/target"
+  mkdir -p "$dir"
+  printf '1.47.0\n' > "$target"
+  cat > "$dir/no-mistakes-fixture" <<SH
+#!/usr/bin/env bash
+printf 'no-mistakes version v1.46.0\n'
+printf 'A new version of no-mistakes is available: v1.46.0 -> v%s\n' "\$(cat '$target')" >&2
+SH
+  chmod 0755 "$dir/no-mistakes-fixture"
+  write_config "$home" '{"tools":[{"name":"no-mistakes","command":"no-mistakes-fixture","announce_pattern":"A new version of no-mistakes is available: [^ ]+ -> [^ ]+"}]}'
+  out="$home/out.txt"
+
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" '-> v1.47.0' "the first announced target was not reported"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  [ ! -s "$out" ] || fail "the same announced target was reported twice: $(cat "$out")"
+
+  printf '1.48.0\n' > "$target"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" '-> v1.48.0' "a changed announced target was suppressed by the installed version"
+  pass "an announced target version is reported again when it changes"
+}
+
+test_targetless_announcement_is_rejected() {
+  local home dir out
+  home=$(make_home announce-targetless)
+  dir="$TMP_ROOT/announce-targetless/bin"
+  mkdir -p "$dir"
+  cat > "$dir/no-mistakes-fixture" <<'SH'
+#!/usr/bin/env bash
+printf 'no-mistakes version v1.46.0\n'
+printf 'New release available\n' >&2
+SH
+  chmod 0755 "$dir/no-mistakes-fixture"
+  write_config "$home" '{"tools":[{"name":"no-mistakes","command":"no-mistakes-fixture","announce_pattern":"New release available"}]}'
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" "no-mistakes check failed: update announcement has no dotted target version" "a targetless announcement was accepted without an identity"
+  pass "a targetless announcement is rejected"
+}
+
 test_unusable_announce_pattern_is_reported_not_read_as_silence() {
   local home dir out status
   # A pattern the search cannot use answers exactly like a tool with nothing to
@@ -480,12 +526,8 @@ test_unusable_git_source_is_reported() {
   pass "an unusable git source is reported as a check failure"
 }
 
-test_unreadable_remote_is_not_reported_as_a_missing_branch() {
+test_unreadable_remote_is_reported_after_retry() {
   local home work out report
-  # A remote that cannot be reached at all and a branch that was deleted are
-  # different problems with different repairs. Reporting the first as the second
-  # wakes firstmate with a diagnosis that is simply wrong, so the report must
-  # name only what the probe established.
   home=$(make_home git-unreadable)
   work=$(git_fixture git-unreadable-repo)
   rm -rf "$TMP_ROOT/git-unreadable-repo.git"
@@ -493,10 +535,161 @@ test_unreadable_remote_is_not_reported_as_a_missing_branch() {
   out="$home/out.txt"
   run_check "$home" "$PATH" "$out"
   report=$(cat "$out")
-  assert_contains "$report" "firstmate check failed" "a remote that could not be read was not reported"
-  assert_contains "$report" "origin could not be reached or read" "the report does not name the condition the probe actually found"
-  assert_not_contains "$report" "has no branch" "a remote that could not be read was reported as a deleted branch"
-  pass "a remote that cannot be read is reported as unreadable, not as a missing branch"
+  assert_contains "$report" "firstmate check failed: origin could not be reached or read from $work" "a retry-exhausted remote failure was hidden"
+  pass "a retry-exhausted remote failure is reported"
+}
+
+test_remote_probe_retries_transient_failure() {
+  local home work dir out report log real_git
+  home=$(make_home git-retry)
+  work=$(git_fixture git-retry-repo)
+  git -C "$work" reset -q --hard HEAD~2
+  dir="$TMP_ROOT/git-retry/bin"
+  log="$TMP_ROOT/git-retry/probes.log"
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*refs/heads/main'; then
+  count=\$(wc -l < '$log' 2>/dev/null || printf 0)
+  printf '%s\\n' remote >> '$log'
+  if [ "\$count" = 0 ]; then
+    exit 128
+  fi
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/git"
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  report=$(cat "$out")
+  assert_contains "$report" "firstmate update available: local main is 2 commits behind origin/main" "a transient remote failure was not retried to a successful comparison"
+  [ "$(wc -l < "$log" | tr -d ' ')" = 2 ] || fail "the remote probe was not retried exactly once"
+  pass "a transient remote probe failure retries and then reports the successful comparison"
+}
+
+test_exhausted_remote_transport_timeout_is_silent() {
+  local home work dir out report real_git
+  home=$(make_home git-timeout)
+  work=$(git_fixture git-timeout-repo)
+  dir="$TMP_ROOT/git-timeout/bin"
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*refs/heads/main'; then
+  sleep 30
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/git"
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_BUDGET_SECS=2 FM_TOOL_UPDATE_PROBE_SECS=2
+  report=$(cat "$out")
+  [ -z "$report" ] || fail "exhausted remote transport timeout was reported: $report"
+  pass "an exhausted remote transport timeout stays silent when no retry can start"
+}
+
+test_default_branch_timeout_without_retry_is_silent() {
+  local home work dir out report real_git
+  home=$(make_home git-symref-timeout)
+  work=$(git_fixture git-symref-timeout-repo)
+  git -C "$work" remote set-head origin --delete >/dev/null 2>&1
+  dir="$TMP_ROOT/git-symref-timeout/bin"
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*--symref.*HEAD'; then
+  sleep 30
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/git"
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_BUDGET_SECS=2 FM_TOOL_UPDATE_PROBE_SECS=2
+  report=$(cat "$out")
+  [ -z "$report" ] || fail "a default-branch timeout without a retry was reported: $report"
+  pass "a default-branch timeout stays silent when no retry can start"
+}
+
+test_non_timeout_retry_without_budget_stays_silent() {
+  local home work dir out real_date real_git date_count
+  home=$(make_home git-retry-budget)
+  work=$(git_fixture git-retry-budget-repo)
+  git -C "$work" reset -q --hard HEAD~2
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" 'firstmate update available' "the initial pending update was not reported"
+
+  dir="$TMP_ROOT/git-retry-budget/bin"
+  date_count="$TMP_ROOT/git-retry-budget/date-count"
+  real_date=$(command -v date)
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/date" <<SH
+#!/usr/bin/env bash
+count=\$(cat '$date_count' 2>/dev/null || printf 0)
+count=\$((count + 1))
+printf '%s\\n' "\$count" > '$date_count'
+if [ "\${1:-}" = +%s ]; then
+if [ "\$count" -ge 8 ]; then
+    printf '102\\n'
+  else
+    printf '100\\n'
+  fi
+  exit 0
+fi
+exec '$real_date' "\$@"
+SH
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*refs/heads/main'; then
+  exit 128
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/date" "$dir/git"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_NOW=100 FM_TOOL_UPDATE_BUDGET_SECS=2 FM_TOOL_UPDATE_PROBE_SECS=2
+  [ ! -s "$out" ] || fail "a retry skipped for budget was reported: $(cat "$out")"
+
+  run_check "$home" "$PATH" "$out"
+  [ ! -s "$out" ] || fail "a recovered remote repeated its existing pending update: $(cat "$out")"
+  pass "a non-timeout retry skipped for budget stays silently unknown"
+}
+
+test_unknown_remote_keeps_the_pending_update_deduplicated() {
+  local home work dir out real_git
+  home=$(make_home git-unknown-dedup)
+  work=$(git_fixture git-unknown-dedup-repo)
+  git -C "$work" reset -q --hard HEAD~2
+  write_config "$home" "{\"tools\":[{\"name\":\"firstmate\",\"git\":{\"repo\":\"$work\",\"remote\":\"origin\",\"branch\":\"main\"}}]}"
+  out="$home/out.txt"
+
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" 'firstmate update available' "the initial pending update was not reported"
+
+  dir="$TMP_ROOT/git-unknown-dedup/bin"
+  real_git=$(command -v git)
+  mkdir -p "$dir"
+  cat > "$dir/git" <<SH
+#!/usr/bin/env bash
+if printf '%s\\n' "\$*" | grep -q 'ls-remote.*refs/heads/main'; then
+  sleep 30
+fi
+exec '$real_git' "\$@"
+SH
+  chmod 0755 "$dir/git"
+  run_check "$home" "$(fixture_path "$dir")" "$out" FM_TOOL_UPDATE_PROBE_SECS=1
+  [ ! -s "$out" ] || fail "an unknown remote result was not silent: $(cat "$out")"
+
+  run_check "$home" "$PATH" "$out"
+  [ ! -s "$out" ] || fail "a recovered remote repeated its existing pending update: $(cat "$out")"
+  pass "an unknown remote result retains the existing pending update identity"
 }
 
 test_missing_branch_on_a_readable_remote_is_still_reported() {
@@ -645,7 +838,7 @@ test_malformed_registry_is_reported_not_ignored() {
 }
 
 test_findings_are_reported_once_until_they_change() {
-  local home stale fresh out path
+  local home stale fresh fresh2 out path
   home=$(make_home no-nag)
   stale="$TMP_ROOT/no-nag/old/bin"
   fresh="$TMP_ROOT/no-nag/new/bin"
@@ -659,6 +852,13 @@ test_findings_are_reported_once_until_they_change() {
   assert_contains "$(cat "$out")" "not in effect" "the first sweep did not report the pending update"
   run_check "$home" "$path" "$out"
   [ ! -s "$out" ] || fail "the same pending update was reported twice: $(cat "$out")"
+
+  # The rendered report can change while the pending update identity stays the
+  # same, such as when the installed copy is reached through another path.
+  fresh2="$TMP_ROOT/no-nag/another-new/bin"
+  make_copy "$fresh2" "$TOOL" 'herdr 0.8.2'
+  run_check "$home" "$(fixture_path "$stale:$fresh2")" "$out"
+  [ ! -s "$out" ] || fail "the same pending update was re-reported after its rendered path changed: $(cat "$out")"
 
   # A changed finding is news again.
   make_copy "$fresh" "$TOOL" 'herdr 0.9.0'
@@ -674,6 +874,26 @@ test_findings_are_reported_once_until_they_change() {
   run_check "$home" "$path" "$out"
   assert_contains "$(cat "$out")" "PATH resolves 0.8.0" "a returning finding was not reported again"
   pass "the same pending update is reported once, and a change is reported again"
+}
+
+test_update_identities_ignore_configuration_order() {
+  local home first second out
+  home=$(make_home ordered-identities)
+  first=$(git_fixture ordered-identities-first)
+  second=$(git_fixture ordered-identities-second)
+  git -C "$first" reset -q --hard HEAD~2
+  git -C "$second" reset -q --hard HEAD~2
+  out="$home/out.txt"
+  write_config "$home" "{\"tools\":[{\"name\":\"alpha\",\"git\":{\"repo\":\"$first\",\"branch\":\"main\"}},{\"name\":\"beta\",\"git\":{\"repo\":\"$second\",\"branch\":\"main\"}}]}"
+
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" "alpha update available" "the first pending update was not reported"
+  assert_contains "$(cat "$out")" "beta update available" "the second pending update was not reported"
+
+  write_config "$home" "{\"tools\":[{\"name\":\"beta\",\"git\":{\"repo\":\"$second\",\"branch\":\"main\"}},{\"name\":\"alpha\",\"git\":{\"repo\":\"$first\",\"branch\":\"main\"}}]}"
+  run_check "$home" "$PATH" "$out"
+  [ ! -s "$out" ] || fail "reordering unchanged update identities repeated an alert: $(cat "$out")"
+  pass "unchanged update identities ignore configuration order"
 }
 
 test_an_overlong_report_says_it_was_cut() {
@@ -736,7 +956,7 @@ test_probes_are_skipped_between_intervals() {
   FM_HOME="$home" PATH="$(fixture_path "$dir")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=900 FM_TOOL_UPDATE_NOW="$now" \
     "$CHECK" >"$out" 2>&1 || status=$?
   expect_code 0 "$status" "first cadence run exit"
-  assert_grep 'fm-tool-updates-v1' "$home/state/.tool-updates" "the first run did not record its sweep"
+  assert_grep 'fm-tool-updates-v2' "$home/state/.tool-updates" "the first run did not record its sweep"
 
   # A finding appears, but the interval has not elapsed, so no probe runs.
   make_copy "$dir" "$TOOL" 'no version here'
@@ -1008,6 +1228,8 @@ test_unreadable_version_is_a_failure_not_a_pass
 test_missing_command_is_reported
 test_announced_update_is_reported_from_the_tool_itself
 test_announcement_is_read_from_a_second_command
+test_announced_target_change_is_reported_again
+test_targetless_announcement_is_rejected
 test_unusable_announce_pattern_is_reported_not_read_as_silence
 test_one_broken_pattern_does_not_blind_the_rest_of_the_sweep
 test_an_unchecked_announcement_source_is_not_read_as_current
@@ -1018,7 +1240,12 @@ test_default_branch_is_detected_when_branch_is_omitted
 test_default_branch_is_asked_of_the_remote_when_the_clone_has_no_record
 test_current_and_ahead_repositories_are_silent
 test_unusable_git_source_is_reported
-test_unreadable_remote_is_not_reported_as_a_missing_branch
+test_unreadable_remote_is_reported_after_retry
+test_remote_probe_retries_transient_failure
+test_exhausted_remote_transport_timeout_is_silent
+test_default_branch_timeout_without_retry_is_silent
+test_non_timeout_retry_without_budget_stays_silent
+test_unknown_remote_keeps_the_pending_update_deduplicated
 test_missing_branch_on_a_readable_remote_is_still_reported
 test_git_probes_stop_when_the_sweep_budget_is_gone
 test_a_git_probe_that_does_not_answer_is_not_an_update
@@ -1026,6 +1253,7 @@ test_a_stalled_repository_probe_is_not_reported_as_not_a_repository
 test_absent_registry_is_silent
 test_malformed_registry_is_reported_not_ignored
 test_findings_are_reported_once_until_they_change
+test_update_identities_ignore_configuration_order
 test_an_overlong_report_says_it_was_cut
 test_a_finding_past_the_cut_is_still_reported
 test_probes_are_skipped_between_intervals
