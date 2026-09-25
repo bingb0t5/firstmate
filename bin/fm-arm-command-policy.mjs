@@ -291,6 +291,17 @@ function isParameterExpansionStart(character) {
   return Boolean(character) && (/^[A-Za-z0-9_]$/.test(character) || "@*#?$!-{".includes(character));
 }
 
+function parameterExpansionContentMayProduceMultipleWords(content) {
+  for (let index = 0; index < content.length; index += 1) {
+    if (content[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (content[index] === "$" && parameterExpansionMayProduceMultipleWords(content, index)) return true;
+  }
+  return false;
+}
+
 function parameterExpansionMayProduceMultipleWords(source, start) {
   if (source[start] !== "$") return false;
   if (source[start + 1] === "@") return true;
@@ -298,7 +309,7 @@ function parameterExpansionMayProduceMultipleWords(source, start) {
   const parameter = extractBalanced(source, start + 2, "{", "}");
   if (!parameter) return false;
   const content = parameter.content;
-  return content.startsWith("@") || /^!?[A-Za-z_][A-Za-z0-9_]*\[@\]/.test(content) || /^![A-Za-z_][A-Za-z0-9_]*@/.test(content);
+  return content.startsWith("@") || /^!?[A-Za-z_][A-Za-z0-9_]*\[@\]/.test(content) || /^![A-Za-z_][A-Za-z0-9_]*@/.test(content) || parameterExpansionContentMayProduceMultipleWords(content);
 }
 
 export class Lexer {

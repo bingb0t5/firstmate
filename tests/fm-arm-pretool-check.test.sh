@@ -235,6 +235,7 @@ matrix_case E46 allow '"$B"/'\''$FILE'\'''
 matrix_case E47 allow '$/fm-pr-merge.sh task1 https://x/1'
 matrix_case E48 deny 'set -- pkill -f target; "${@#x}"/fm-pr-merge.sh task1'
 matrix_case E49 deny 'set -- pkill -f target; "${@}"/fm-pr-merge.sh task1'
+matrix_case E50 deny 'set -- pkill -f target; B=1; "${B:+$@}"/fm-pr-merge.sh task1'
 matrix_case E17 allow 'for f in 1; do echo fm-watch; done'
 matrix_case E18 allow "printf '%s\\n' data | xargs echo pkill"
 matrix_case E20 allow "ps aux | awk '{print \$2}'"
@@ -472,6 +473,7 @@ test_direct_policy_contract() {
   assert_policy direct-literal-dollar-prefix allow '$/fm-pr-merge.sh task1 https://x/1'
   assert_policy direct-quoted-positional-modifier-prefix $'deny\tbroad-process-kill' 'set -- pkill -f target; "${@#x}"/fm-pr-merge.sh task1'
   assert_policy direct-quoted-braced-positional-prefix $'deny\tbroad-process-kill' 'set -- pkill -f target; "${@}"/fm-pr-merge.sh task1'
+  assert_policy direct-nested-quoted-positional-prefix $'deny\tbroad-process-kill' 'set -- pkill -f target; B=1; "${B:+$@}"/fm-pr-merge.sh task1'
   heredoc_data=$'cat <<\'EOF\'\nbin/fm-watch-arm.sh &\nEOF'
   heredoc_watcher=$'bin/fm-watch-arm.sh <<\'EOF\'\ndata only\nEOF'
   heredoc_broad_data=$'cat <<\'EOF\'\npkill -f tsx\nkillall node\nEOF'
