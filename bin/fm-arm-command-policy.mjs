@@ -298,7 +298,7 @@ function parameterExpansionMayProduceMultipleWords(source, start) {
   const parameter = extractBalanced(source, start + 2, "{", "}");
   if (!parameter) return false;
   const content = parameter.content;
-  return content === "@" || content.startsWith("@:") || /^!?[A-Za-z_][A-Za-z0-9_]*\[@\]/.test(content) || /^![A-Za-z_][A-Za-z0-9_]*@/.test(content);
+  return content.startsWith("@") || /^!?[A-Za-z_][A-Za-z0-9_]*\[@\]/.test(content) || /^![A-Za-z_][A-Za-z0-9_]*@/.test(content);
 }
 
 export class Lexer {
