@@ -116,7 +116,7 @@ Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, s
 Every actually executed `pkill`, `killall`, `killall5`, or `skill` command, and `fuser -k`, is denied as name-, pattern-, or resource-based process termination.
 Non-inline `sh`, `bash`, and `zsh` scripts or standard input, and noncanonical `source` or dot-command script paths, are refused, while readable inline `-c`, heredoc, and here-string payloads are classified; only the canonical x-mode setup source is allowed; `trap` is refused as an opaque deferred execution sink.
 Literal direct `kill` broadcast targets - every numeric zero spelling, `-1`, and every negative process-group target - are denied.
-Literal positive PID targets remain allowed as direct `kill` commands, and an exact PGID must be passed explicitly to `bin/fm-process-kill.sh --group`.
+Literal positive PID targets remain allowed as direct `kill` commands, while process-group termination belongs to the exact-target helper.
 A direct `kill` target must be a readable literal, so variable-based termination belongs to `bin/fm-process-kill.sh`.
 Path-qualified `pkill`, `killall`, `killall5`, and `skill`, plus `fuser -k`, and literal `builtin`, `time`, `nice`, `ionice`, `nohup`, `env`, `sudo`, `command`, and `exec` command prefixes are unwrapped before that decision.
 No other command indirection is classified as a broad-kill prefix.
@@ -127,8 +127,7 @@ Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep`, `rg`, or `aw
 `xargs pkill`, `xargs killall`, `xargs killall5`, `xargs skill`, `xargs fuser -k`, and terminating `xargs kill` children are denied directly after resolving xargs options and existing wrappers, including `timeout`, `gtimeout`, `env -S`, and `env --split-string`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments and read-only `kill -l` or `kill --list` queries are allowed.
 A dynamic executable name is denied unless it is a recognized protected watcher script.
 The guard applies exactly three bounded rules: it refuses named broad-kill constructions, anything aimed at everything, and anything it cannot read; it is not a semantic analyser.
-Rewrite such work as `bin/fm-process-kill.sh` with an explicit recorded PID or PGID plus the identity fingerprint captured for it at record time.
-That helper refuses to signal a target whose live identity no longer matches what the caller recorded, so a bare positive PID or PGID number alone is never enough to terminate anything.
+Rewrite such work through `bin/fm-process-kill.sh`; its header and `--help` own the recorded-target and identity-verification contract.
 Standalone read-only `pgrep`, `pidof`, `ps`, `lsof`, and `command -v` or `command -V` queries are allowed.
 Quoted text such as `echo 'pkill -f fm-watch'` is data and is allowed.
 
