@@ -127,8 +127,8 @@ Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep`, `rg`, or `aw
 `xargs pkill`, `xargs killall`, `xargs killall5`, `xargs skill`, `xargs fuser -k`, and terminating `xargs kill` children are denied directly after resolving xargs options and existing wrappers, including `timeout`, `gtimeout`, `env -S`, and `env --split-string`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments and read-only `kill -l` or `kill --list` queries are allowed.
 A dynamic executable name is denied unless it is a recognized protected watcher script.
 The guard applies exactly three bounded rules: it refuses named broad-kill constructions, anything aimed at everything, and anything it cannot read; it is not a semantic analyser.
-Rewrite such work as `bin/fm-process-kill.sh` with an explicit recorded PID or PGID.
-That helper validates the exact target shape only; the owning invocation is responsible for recording and validating its identity.
+Rewrite such work as `bin/fm-process-kill.sh` with an explicit recorded PID or PGID plus the identity fingerprint captured for it at record time.
+That helper refuses to signal a target whose live identity no longer matches what the caller recorded, so a bare positive PID or PGID number alone is never enough to terminate anything.
 Standalone read-only `pgrep`, `pidof`, `ps`, `lsof`, and `command -v` or `command -V` queries are allowed.
 Quoted text such as `echo 'pkill -f fm-watch'` is data and is allowed.
 
@@ -251,7 +251,7 @@ Every native-path automatic marker was present and every deny sentinel remained 
 `tests/fm-arm-pretool-check.test.sh` owns the adversarial acceptance matrix.
 Every row runs through Codex-shaped stdin, Claude-shaped stdin, Grok-shaped stdin, OpenCode-shaped CLI, and Pi-shaped CLI entry forms.
 The suite also verifies real newline bytes, direct classifier reason codes, comments, heredoc data, malformed and unsupported protected syntax, constructed dynamic payloads, malformed transport fail-open behavior, missing runtime fail-open behavior, output shapes, and exact adapter field forwarding plus exit-2 mapping.
-`tests/fm-process-kill.test.sh` verifies the exact-target helper refuses pattern, ambiguous, and zero-value inputs while terminating an explicitly recorded PID or PGID.
+`tests/fm-process-kill.test.sh` verifies the exact-target helper refuses pattern, ambiguous, zero-value, missing-identity, and stale-identity inputs while terminating a PID or PGID whose live identity matches what was recorded at capture time.
 `tests/fm-spawn-pretool-wiring.test.sh` verifies spawned hook enforcement for the wired harnesses and rejects symlinked hook paths that would escape a task worktree.
 
 Run:
