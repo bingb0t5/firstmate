@@ -429,14 +429,17 @@ A `git` entry reports how many commits the local clone is behind its remote bran
 An omitted `branch` uses the remote's default branch, taken from the clone's own record of it and otherwise asked of the remote directly, so a `--single-branch` clone still resolves.
 Both probe kinds are read-only and bounded.
 A local probe that cannot answer is reported as a check failure rather than assumed current.
-A remote Git probe is retried once, and an exhausted timeout is left silently unknown until a later sweep while another retry-exhausted remote failure is reported as a check failure.
+A remote Git probe is retried once.
+If its retry times out or cannot start before the sweep budget expires, the source is left silently unknown until a later sweep.
+A remote failure whose retry returns nonzero without timing out is reported as a check failure.
 See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a starting point to copy into local `config/watched-tools.json`.
 
 Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
 That writes `state/tool-updates.check.sh` and binds its bytes with `bin/fm-check-register.sh`, so the existing watcher polls it on its normal cadence and turns its one line into a `check:` wake; no separate schedule is involved.
 The armed check runs whenever that home has a watcher running, and arming alone does not make watcher supervision required, so a home with no in-flight work and no other reason to watch does not start a watcher just for this check.
 `bin/fm-tool-update-check.sh disarm` removes the shim, its trust binding, and the report record.
-The check prints nothing when everything is current, and `state/.tool-updates` records the findings the last report was made from so the same pending update is reported once instead of on every poll.
+The check prints nothing when everything is current, and `state/.tool-updates` records stable finding identities rather than the rendered report.
+Each pending update is identified by its tool and target version, so changing report wording, paths, or configuration order does not repeat that update alert.
 A changed or returning condition is reported again.
 Adding, removing, or changing a watched tool is an edit to this file and needs no code change or re-arming.
 This file is not inherited by secondmate homes, so each home watches the tools it actually depends on.

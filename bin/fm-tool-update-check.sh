@@ -567,8 +567,9 @@ git_probe_answered() {
 }
 
 # Remote answers are retried once because a transport can briefly fail between
-# otherwise successful checks. A failed retry leaves the source unknown and
-# silent; an empty successful answer remains actionable as a missing branch.
+# otherwise successful checks. An unanswered retry, from a timeout or exhausted
+# budget, leaves the source unknown and silent; an empty successful answer
+# remains actionable as a missing branch.
 GIT_REMOTE_OUTPUT=
 GIT_REMOTE_RETRY_SKIPPED=0
 
