@@ -423,6 +423,7 @@ test_direct_policy_contract() {
   assert_policy direct-fully-dynamic-program-name $'deny\tbroad-process-kill' '$CMD 12345'
   assert_policy direct-dynamic-filename-component $'deny\tbroad-process-kill' '$DIR/$FILE 12345'
   assert_policy direct-dynamic-prefix-kill-basename $'deny\tbroad-process-kill' '$B/pkill foo'
+  assert_policy direct-parameter-expansion-slash-broad-kill $'deny\tbroad-process-kill' 'CMD=pkill; ${CMD#*/} -f target'
   assert_policy direct-dynamic-prefix-compound-chain allow \
     '(cd "$ROOT" && $B/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); $B/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && $B/fm-build.sh task3 | tail -2); $B/fm-send.sh task4 "hello there, multi word message"; $B/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
   heredoc_data=$'cat <<\'EOF\'\nbin/fm-watch-arm.sh &\nEOF'

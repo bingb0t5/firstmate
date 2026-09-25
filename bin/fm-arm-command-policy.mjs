@@ -915,10 +915,29 @@ function isPsPidListing(position) {
 // (the segment after the last literal "/") is unresolved at policy-check time, not
 // merely because an earlier directory-prefix segment came from a variable expansion
 // or substitution (e.g. "$B/fm-pr-merge.sh" resolves to a known-safe literal script).
+function lastLiteralSlash(value) {
+  let slash = -1;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === "/") {
+      slash = index;
+      continue;
+    }
+    if (value[index] !== "$" || value[index + 1] !== "{") continue;
+    let depth = 1;
+    index += 2;
+    for (; index < value.length && depth > 0; index += 1) {
+      if (value[index] === "{") depth += 1;
+      if (value[index] === "}") depth -= 1;
+    }
+    index -= 1;
+  }
+  return slash;
+}
+
 function dynamicExecutableBasename(word) {
   if (!word || word.type !== "word") return false;
   if (word.literal && word.subs.length === 0) return false;
-  const basenameStart = word.value.lastIndexOf("/") + 1;
+  const basenameStart = lastLiteralSlash(word.value) + 1;
   if (word.value.slice(basenameStart).includes("$")) return true;
   return word.subs.some((sub) => sub.at >= basenameStart);
 }
