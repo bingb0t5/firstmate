@@ -1,0 +1,376 @@
+ok - matrix A01: allow through all five entry forms
+ok - matrix A02: allow through all five entry forms
+ok - matrix A03: allow through all five entry forms
+ok - matrix A04: allow through all five entry forms
+ok - matrix A05: allow through all five entry forms
+ok - matrix A06: allow through all five entry forms
+ok - matrix A07: allow through all five entry forms
+ok - matrix A08: allow through all five entry forms
+ok - matrix A09: allow through all five entry forms
+ok - matrix A10: allow through all five entry forms
+ok - matrix A11: allow through all five entry forms
+ok - matrix A12: allow through all five entry forms
+ok - matrix A13: allow through all five entry forms
+ok - matrix A14: allow through all five entry forms
+ok - matrix A15: allow through all five entry forms
+ok - matrix A16: allow through all five entry forms
+ok - matrix A17: allow through all five entry forms
+ok - matrix R01: allow through all five entry forms
+ok - matrix R02: allow through all five entry forms
+ok - matrix R03: allow through all five entry forms
+ok - matrix R04: allow through all five entry forms
+ok - matrix R05: allow through all five entry forms
+ok - matrix R06: allow through all five entry forms
+ok - matrix R07: allow through all five entry forms
+ok - matrix R08: allow through all five entry forms
+ok - matrix R09: allow through all five entry forms
+ok - matrix R10: allow through all five entry forms
+ok - matrix R11: allow through all five entry forms
+ok - matrix R12: allow through all five entry forms
+ok - matrix R13: allow through all five entry forms
+ok - matrix R14: allow through all five entry forms
+ok - matrix R15: allow through all five entry forms
+ok - matrix R16: allow through all five entry forms
+ok - matrix R17: allow through all five entry forms
+ok - matrix R18: allow through all five entry forms
+ok - matrix R19: allow through all five entry forms
+ok - matrix D01: deny through all five entry forms
+ok - matrix D02: deny through all five entry forms
+ok - matrix D03: deny through all five entry forms
+ok - matrix D04: deny through all five entry forms
+ok - matrix D05: deny through all five entry forms
+ok - matrix D06: deny through all five entry forms
+ok - matrix D07: deny through all five entry forms
+ok - matrix D08: deny through all five entry forms
+ok - matrix D09: deny through all five entry forms
+ok - matrix D10: deny through all five entry forms
+ok - matrix D11: deny through all five entry forms
+ok - matrix D12: deny through all five entry forms
+ok - matrix D13: deny through all five entry forms
+ok - matrix D14: deny through all five entry forms
+ok - matrix D15: deny through all five entry forms
+ok - matrix D16: deny through all five entry forms
+ok - matrix D17: deny through all five entry forms
+ok - matrix D18: deny through all five entry forms
+ok - matrix D19: deny through all five entry forms
+ok - matrix D20: deny through all five entry forms
+ok - matrix D21: deny through all five entry forms
+ok - matrix D22: deny through all five entry forms
+ok - matrix D23: deny through all five entry forms
+ok - matrix D24: deny through all five entry forms
+ok - matrix D25: deny through all five entry forms
+ok - matrix D26: deny through all five entry forms
+ok - matrix D27: deny through all five entry forms
+ok - matrix D28: deny through all five entry forms
+ok - matrix D29: deny through all five entry forms
+ok - matrix D30: deny through all five entry forms
+ok - matrix D31: deny through all five entry forms
+ok - matrix D32: deny through all five entry forms
+ok - matrix D33: deny through all five entry forms
+ok - matrix D34: deny through all five entry forms
+ok - matrix D35: deny through all five entry forms
+ok - matrix D36: deny through all five entry forms
+ok - matrix D37: deny through all five entry forms
+ok - matrix D38: deny through all five entry forms
+ok - matrix D39: deny through all five entry forms
+ok - matrix D40: deny through all five entry forms
+ok - matrix D41: deny through all five entry forms
+ok - matrix D42: deny through all five entry forms
+ok - matrix D43: deny through all five entry forms
+ok - matrix D44: deny through all five entry forms
+ok - matrix D45: deny through all five entry forms
+ok - matrix D46: deny through all five entry forms
+ok - matrix D47: deny through all five entry forms
+ok - matrix D48: deny through all five entry forms
+ok - matrix D49: deny through all five entry forms
+ok - matrix D50: deny through all five entry forms
+ok - matrix D51: deny through all five entry forms
+ok - matrix D52: deny through all five entry forms
+ok - matrix D53: deny through all five entry forms
+ok - matrix D54: deny through all five entry forms
+ok - matrix D55: deny through all five entry forms
+ok - matrix D56: deny through all five entry forms
+ok - matrix D57: deny through all five entry forms
+ok - matrix D58: deny through all five entry forms
+ok - matrix D59: deny through all five entry forms
+ok - matrix D60: deny through all five entry forms
+ok - matrix D61: deny through all five entry forms
+ok - matrix D62: deny through all five entry forms
+ok - matrix D63: deny through all five entry forms
+ok - matrix D64: deny through all five entry forms
+ok - matrix D65: deny through all five entry forms
+ok - matrix D66: deny through all five entry forms
+ok - matrix D67: deny through all five entry forms
+ok - matrix D68: deny through all five entry forms
+ok - matrix D69: deny through all five entry forms
+ok - matrix D70: deny through all five entry forms
+ok - matrix D71: deny through all five entry forms
+ok - matrix D72: deny through all five entry forms
+ok - matrix D73: deny through all five entry forms
+ok - matrix D74: deny through all five entry forms
+ok - matrix D75: deny through all five entry forms
+ok - matrix D76: deny through all five entry forms
+ok - matrix D77: deny through all five entry forms
+ok - matrix D78: deny through all five entry forms
+ok - matrix D79: deny through all five entry forms
+ok - matrix D80: deny through all five entry forms
+ok - matrix D81: deny through all five entry forms
+ok - matrix D82: deny through all five entry forms
+ok - matrix D83: deny through all five entry forms
+ok - matrix D84: deny through all five entry forms
+ok - matrix D85: deny through all five entry forms
+ok - matrix D86: deny through all five entry forms
+ok - matrix D87: deny through all five entry forms
+ok - matrix D88: deny through all five entry forms
+ok - matrix D89: deny through all five entry forms
+ok - matrix D90: deny through all five entry forms
+ok - matrix D91: deny through all five entry forms
+ok - matrix D92: deny through all five entry forms
+ok - matrix D93: deny through all five entry forms
+ok - matrix D94: deny through all five entry forms
+ok - matrix D95: deny through all five entry forms
+ok - matrix D96: deny through all five entry forms
+ok - matrix D97: deny through all five entry forms
+ok - matrix D98: deny through all five entry forms
+ok - matrix D99: deny through all five entry forms
+ok - matrix D100: deny through all five entry forms
+ok - matrix D101: deny through all five entry forms
+ok - matrix D102: deny through all five entry forms
+ok - matrix D103: deny through all five entry forms
+ok - matrix D104: deny through all five entry forms
+ok - matrix D105: deny through all five entry forms
+ok - matrix D106: deny through all five entry forms
+ok - matrix D107: deny through all five entry forms
+ok - matrix D108: deny through all five entry forms
+ok - matrix D109: deny through all five entry forms
+ok - matrix D110: deny through all five entry forms
+ok - matrix D111: deny through all five entry forms
+ok - matrix D112: deny through all five entry forms
+ok - matrix D113: deny through all five entry forms
+ok - matrix D114: deny through all five entry forms
+ok - matrix D115: deny through all five entry forms
+ok - matrix D116: deny through all five entry forms
+ok - matrix D117: deny through all five entry forms
+ok - matrix D118: deny through all five entry forms
+ok - matrix D119: deny through all five entry forms
+ok - matrix D120: deny through all five entry forms
+ok - matrix D121: deny through all five entry forms
+ok - matrix D122: deny through all five entry forms
+ok - matrix D123: deny through all five entry forms
+ok - matrix D124: deny through all five entry forms
+ok - matrix D125: deny through all five entry forms
+ok - matrix D126: deny through all five entry forms
+ok - matrix D127: deny through all five entry forms
+ok - matrix D128: deny through all five entry forms
+ok - matrix D129: deny through all five entry forms
+ok - matrix D130: deny through all five entry forms
+ok - matrix D131: deny through all five entry forms
+ok - matrix D132: deny through all five entry forms
+ok - matrix D133: deny through all five entry forms
+ok - matrix E01: allow through all five entry forms
+ok - matrix E02: allow through all five entry forms
+ok - matrix E03: allow through all five entry forms
+ok - matrix E04: allow through all five entry forms
+ok - matrix E05: deny through all five entry forms
+ok - matrix E06: deny through all five entry forms
+ok - matrix E07: deny through all five entry forms
+ok - matrix E08: deny through all five entry forms
+ok - matrix E09: deny through all five entry forms
+ok - matrix E10: deny through all five entry forms
+ok - matrix E11: deny through all five entry forms
+ok - matrix E12: deny through all five entry forms
+ok - matrix E13: allow through all five entry forms
+ok - matrix E14: deny through all five entry forms
+ok - matrix E15: allow through all five entry forms
+ok - matrix E16: allow through all five entry forms
+ok - matrix E30: deny through all five entry forms
+ok - matrix E31: deny through all five entry forms
+ok - matrix E32: deny through all five entry forms
+ok - matrix E33: deny through all five entry forms
+ok - matrix E34: deny through all five entry forms
+ok - matrix E35: deny through all five entry forms
+ok - matrix E36: deny through all five entry forms
+ok - matrix E37: allow through all five entry forms
+ok - matrix E38: allow through all five entry forms
+ok - matrix E39: allow through all five entry forms
+ok - matrix E40: allow through all five entry forms
+ok - matrix E41: allow through all five entry forms
+ok - matrix E42: deny through all five entry forms
+ok - matrix E43: deny through all five entry forms
+ok - matrix E44: deny through all five entry forms
+ok - matrix E45: deny through all five entry forms
+ok - matrix E46: allow through all five entry forms
+ok - matrix E47: allow through all five entry forms
+ok - matrix E48: deny through all five entry forms
+ok - matrix E49: deny through all five entry forms
+ok - matrix E50: deny through all five entry forms
+ok - matrix E17: allow through all five entry forms
+ok - matrix E18: allow through all five entry forms
+ok - matrix E20: allow through all five entry forms
+ok - matrix E21: allow through all five entry forms
+ok - matrix E22: allow through all five entry forms
+ok - matrix E25: allow through all five entry forms
+ok - matrix E26: allow through all five entry forms
+ok - matrix E27: allow through all five entry forms
+ok - matrix E28: allow through all five entry forms
+ok - matrix E29: allow through all five entry forms
+ok - matrix E23: allow through all five entry forms
+ok - matrix E24: allow through all five entry forms
+ok - direct policy direct-data-pkill: allow
+ok - direct policy direct-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-loop-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-broad-pkill-no-watcher: deny	broad-process-kill
+ok - direct policy direct-bare-pkill: deny	broad-process-kill
+ok - direct policy direct-killall: deny	broad-process-kill
+ok - direct policy direct-broad-pkill-wrapper-time: deny	broad-process-kill
+ok - direct policy direct-broad-pkill-wrapper-nice: deny	broad-process-kill
+ok - direct policy direct-broad-pkill-wrapper-ionice: deny	broad-process-kill
+ok - direct policy direct-broad-pkill-wrapper-nohup: deny	broad-process-kill
+ok - direct policy direct-broad-pkill-wrapper-env: deny	broad-process-kill
+ok - direct policy direct-broad-pkill-wrapper-sudo: deny	broad-process-kill
+ok - direct policy direct-broad-pkill-wrapper-command: deny	broad-process-kill
+ok - direct policy direct-broad-pkill-wrapper-exec: deny	broad-process-kill
+ok - direct policy direct-unresolved-time-option-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-loop-broad-kill-pgrep: deny	broad-process-kill
+ok - direct policy direct-loop-no-kill-allowed: allow
+ok - direct policy direct-unsupported-broad-data: allow
+ok - direct policy direct-unsupported-broad-kill: deny	broad-process-kill
+ok - direct policy direct-unsupported-qualified-broad-kill: deny	broad-process-kill
+ok - direct policy direct-unsupported-wrapped-broad-kill: deny	broad-process-kill
+ok - direct policy direct-case-broad-kill: deny	broad-process-kill
+ok - direct policy direct-pgrep-substitution-kill: deny	broad-process-kill
+ok - direct policy direct-pgrep-backtick-kill: deny	broad-process-kill
+ok - direct policy direct-pgrep-xargs-kill: deny	broad-process-kill
+ok - direct policy direct-unsupported-pgrep-substitution-kill: deny	broad-process-kill
+ok - direct policy direct-case-pgrep-substitution-kill: deny	broad-process-kill
+ok - direct policy direct-plain-pgrep-substitution-kill: deny	broad-process-kill
+ok - direct policy direct-pidof-substitution-kill: deny	broad-process-kill
+ok - direct policy direct-xargs-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-ps-name-selector-kill: deny	broad-process-kill
+ok - direct policy direct-case-ps-name-selector-kill: deny	broad-process-kill
+ok - direct policy direct-ps-grep-name-selector-kill: deny	broad-process-kill
+ok - direct policy direct-lsof-name-selector-kill: deny	broad-process-kill
+ok - direct policy direct-ps-grep-read-only: allow
+ok - direct policy direct-lsof-pid-read-only: allow
+ok - direct policy direct-xargs-broad-pkill-with-option: deny	broad-process-kill
+ok - direct policy direct-pgrep-xargs-kill-with-option: deny	broad-process-kill
+ok - direct policy direct-xargs-data-argument: allow
+ok - direct policy direct-ps-rg-name-selector-xargs-kill: deny	broad-process-kill
+ok - direct policy direct-ps-rg-read-only: allow
+ok - direct policy direct-xargs-env-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-pgrep-xargs-env-kill: deny	broad-process-kill
+ok - direct policy direct-literal-dynamic-broad-kill: deny	broad-process-kill
+ok - direct policy direct-literal-dynamic-safe-command: deny	broad-process-kill
+ok - direct policy direct-xargs-timeout-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-xargs-shell-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-dynamic-suffix-broad-kill: deny	broad-process-kill
+ok - direct policy direct-dynamic-suffix-numeric-kill: deny	broad-process-kill
+ok - direct policy direct-literal-exact-pid: allow
+ok - direct policy direct-signal-exact-pid: allow
+ok - direct policy direct-broadcast-all: deny	broad-process-kill
+ok - direct policy direct-broadcast-current-group: deny	broad-process-kill
+ok - direct policy direct-broadcast-process-group: deny	broad-process-kill
+ok - direct policy direct-broadcast-without-terminator: deny	broad-process-kill
+ok - direct policy direct-xargs-broadcast-current-group: deny	broad-process-kill
+ok - direct policy direct-dynamic-broadcast-all: deny	broad-process-kill
+ok - direct policy direct-dynamic-broadcast-current-group: deny	broad-process-kill
+ok - direct policy direct-dynamic-exact-pid: deny	broad-process-kill
+ok - direct policy direct-job-spec-kill: deny	broad-process-kill
+ok - direct policy direct-broadcast-leading-zero: deny	broad-process-kill
+ok - direct policy direct-broadcast-plus-zero: deny	broad-process-kill
+ok - direct policy direct-builtin-broadcast: deny	broad-process-kill
+ok - direct policy direct-unreadable-dynamic-broad-kill: deny	broad-process-kill
+ok - direct policy direct-builtin-terminated-broadcast: deny	broad-process-kill
+ok - direct policy direct-builtin-command-broad-kill: deny	broad-process-kill
+ok - direct policy direct-builtin-eval-broadcast: deny	broad-process-kill
+ok - direct policy direct-xargs-substitution-selector-kill: deny	broad-process-kill
+ok - direct policy direct-dynamic-prefix-broad-kill: deny	broad-process-kill
+ok - direct policy direct-unreadable-shell-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-unreadable-shell-stdin-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-unreadable-shell-script: deny	broad-process-kill
+ok - direct policy direct-unreadable-eval-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-killall5: deny	broad-process-kill
+ok - direct policy direct-skill-user-selector: deny	broad-process-kill
+ok - direct policy direct-fuser-kill: deny	broad-process-kill
+ok - direct policy direct-sudo-environment-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-xargs-fuser-kill: deny	broad-process-kill
+ok - direct policy direct-dynamic-xargs-child: deny	broad-process-kill
+ok - direct policy direct-fuser-read-only: allow
+ok - direct policy direct-command-query-pkill: allow
+ok - direct policy direct-command-query-killall: allow
+ok - direct policy direct-command-path-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-shell-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-ps-awk-xargs-kill: deny	broad-process-kill
+ok - direct policy direct-ps-pid-list-xargs-kill: deny	broad-process-kill
+ok - direct policy direct-ps-combined-pid-list-xargs-kill: deny	broad-process-kill
+ok - direct policy direct-ps-pid-list-xargs-data: allow
+ok - direct policy direct-ps-pid-list-xargs-list: allow
+ok - direct policy direct-xargs-unreadable-kill-targets: deny	broad-process-kill
+ok - direct policy direct-xargs-kill-list: allow
+ok - direct policy direct-ps-awk-read-only: allow
+ok - direct policy direct-xargs-env-split-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-xargs-env-long-split-broad-pkill: deny	broad-process-kill
+ok - direct policy direct-pgrep-xargs-env-split-kill: deny	broad-process-kill
+ok - direct policy direct-xargs-env-split-data: allow
+ok - direct policy direct-pgrep-xargs-shell-kill: deny	broad-process-kill
+ok - direct policy direct-pgrep-xargs-shell-data: allow
+ok - direct policy direct-pgrep-xargs-nested-shell-kill: deny	broad-process-kill
+ok - direct policy direct-pgrep-xargs-shell-group-kill: deny	broad-process-kill
+ok - direct policy direct-pgrep-xargs-nested-shell-data: allow
+ok - direct policy direct-broad-comment: allow
+ok - direct policy direct-pipeline: deny	watcher-pipeline
+ok - direct policy direct-leading-redirection: deny	watcher-redirection
+ok - direct policy direct-unclassifiable: deny	unclassifiable-protected-command
+ok - direct policy direct-unsupported: deny	unclassifiable-protected-command
+ok - direct policy direct-constructed-payload: deny	broad-process-kill
+ok - direct policy direct-parameter-export: allow
+ok - direct policy direct-expanded-arm-blessed: allow
+ok - direct policy direct-expanded-arm-background: deny	watcher-background
+ok - direct policy direct-expanded-arm-pipeline: deny	watcher-pipeline
+ok - direct policy direct-watch-not-blessed: deny	watcher-direct
+ok - direct policy direct-watch-expanded: deny	watcher-direct
+ok - direct policy direct-watch-safe-shape: deny	watcher-direct
+ok - direct policy direct-unquoted-prefix-literal-script: deny	broad-process-kill
+ok - direct policy direct-unquoted-prefix-literal-coreutil: deny	broad-process-kill
+ok - direct policy direct-quoted-prefix-literal-script: allow
+ok - direct policy direct-quoted-prefix-literal-coreutil: allow
+ok - direct policy direct-fully-dynamic-program-name: deny	broad-process-kill
+ok - direct policy direct-dynamic-filename-component: deny	broad-process-kill
+ok - direct policy direct-dynamic-prefix-kill-basename: deny	broad-process-kill
+ok - direct policy direct-parameter-expansion-slash-broad-kill: deny	broad-process-kill
+ok - direct policy direct-parameter-expansion-escaped-brace-broad-kill: deny	broad-process-kill
+ok - direct policy direct-parameter-expansion-quoted-slash-broad-kill: deny	broad-process-kill
+ok - direct policy direct-dynamic-glob-basename: deny	broad-process-kill
+ok - direct policy direct-unquoted-glob-prefix-literal-script: deny	broad-process-kill
+ok - direct policy direct-quoted-glob-prefix-literal-script: allow
+ok - direct policy direct-unquoted-prefix-compound-chain: deny	broad-process-kill
+ok - direct policy direct-quoted-prefix-compound-chain: allow
+ok - direct policy direct-quoted-prefix-embedded-spaces-safe: allow
+ok - direct policy direct-unquoted-prefix-embedded-spaces-exploit-shape: deny	broad-process-kill
+ok - direct policy direct-quoted-positional-array-prefix: deny	broad-process-kill
+ok - direct policy direct-quoted-indexed-array-prefix: deny	broad-process-kill
+ok - direct policy direct-brace-expanded-kill-basename: deny	broad-process-kill
+ok - direct policy direct-literal-dollar-basename: allow
+ok - direct policy direct-literal-dollar-prefix: allow
+ok - direct policy direct-quoted-positional-modifier-prefix: deny	broad-process-kill
+ok - direct policy direct-quoted-braced-positional-prefix: deny	broad-process-kill
+ok - direct policy direct-nested-quoted-positional-prefix: deny	broad-process-kill
+ok - direct policy direct-heredoc-data: allow
+ok - direct policy direct-heredoc-watcher: deny	watcher-redirection
+ok - direct policy direct-heredoc-broad-data: allow
+ok - --command=<val> equals-form parses correctly
+ok - --background is accepted for interface parity and is never itself a deny signal
+ok - unknown CLI flag is rejected
+ok - stdin grok schema (toolInput.command): denied with Grok-shaped stdout JSON
+ok - stdin claude/codex schema (tool_input.command): blessed shape allowed
+ok - stdin claude/codex schema (tool_input.command): backgrounded shape denied
+ok - stdin: unrelated command is a fast allow
+ok - transport prefilter is a strict superset: non-fm-watch fast-allows, every fm-watch and quoting-decoder-marker command reaches the classifier
+ok - fail-open: empty stdin
+ok - fail-open: unparseable JSON on stdin
+ok - fail-open: missing jq on stdin path
+ok - fail-open: missing classifier runtime
+ok - --claude: stdout empty, stderr carries hookSpecificOutput deny JSON
+ok - default mode: stdout carries Grok-shaped decision JSON on deny
+ok - allow is silent on both stdout and stderr in default and --claude mode
+ok - bin/fm-arm-pretool-check.sh is clean under bin/fm-lint.sh

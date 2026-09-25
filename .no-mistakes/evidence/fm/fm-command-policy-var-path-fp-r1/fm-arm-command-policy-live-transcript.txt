@@ -1,0 +1,35 @@
+fm-arm-pretool-check.sh live CLI transport transcript
+
+CASE: unquoted dynamic prefix with field-splitting exploit shape is blocked
+COMMAND: B="pkill -f target"; $B/fm-pr-merge.sh task1
+EXIT: 2
+OUTPUT: {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+
+CASE: entire double-quoted scalar prefix is allowed
+COMMAND: B="pkill -f target"; "$B"/fm-pr-merge.sh task1
+EXIT: 0
+OUTPUT: <silent allow>
+
+CASE: literal dollar directory name is allowed
+COMMAND: $/fm-pr-merge.sh task1 https://x/1
+EXIT: 0
+OUTPUT: <silent allow>
+
+CASE: quoted positional modifier remains blocked
+COMMAND: set -- pkill -f target; "${@#x}"/fm-pr-merge.sh task1
+EXIT: 2
+OUTPUT: {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+
+CASE: unquoted glob in dynamic executable basename is blocked
+COMMAND: $B/p[k]ill -f target
+EXIT: 2
+OUTPUT: {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+
+CASE: quoted directory-prefix glob with literal safe basename is allowed
+COMMAND: "$B/p[k]dir"/fm-pr-merge.sh task1 https://x/1
+EXIT: 0
+OUTPUT: <silent allow>
+
