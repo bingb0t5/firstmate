@@ -196,6 +196,8 @@ matrix_case D128 deny "printf 'x\\n' | xargs sh ./cleanup"
 matrix_case D129 deny 'ps -eo pid= | xargs kill'
 matrix_case D130 deny $'.\t./cleanup'
 matrix_case D131 deny 'xargs kill < /tmp/pids'
+matrix_case D132 deny 'CMD=pkill; ${CMD#\}/unused} -f target'
+matrix_case D133 deny '$B/p[k]ill -f target'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -210,9 +212,30 @@ matrix_case E10 deny "eval 'bin/fm-watch-arm.sh &'"
 matrix_case E11 deny "exec bash -lc 'bin/fm-watch-arm.sh &'"
 matrix_case E12 deny 'bash -lc "$WATCHER_COMMAND" # fm-watch-arm.sh'
 matrix_case E13 allow "printf '%s\\n' 'argument has ; and fm-watch-arm.sh and &&'"
-matrix_case E14 deny '$FM_HOME/bin/fm-teardown.sh &'
+matrix_case E14 deny '$CMD &'
 matrix_case E15 allow '$FM_HOME/bin/fm-watch-arm.sh'
 matrix_case E16 allow '~/firstmate/bin/fm-watch-checkpoint.sh --seconds 180'
+matrix_case E30 deny '$FM_HOME/bin/fm-teardown.sh &'
+matrix_case E31 deny '$B/fm-pr-merge.sh task1 https://x/1'
+matrix_case E32 deny '$B/ls -la'
+matrix_case E33 deny '$DIR/$FILE 12345'
+matrix_case E34 deny '$B/pkill foo'
+matrix_case E35 deny '(cd "$ROOT" && $B/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); $B/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && $B/fm-build.sh task3 | tail -2); $B/fm-send.sh task4 "hello there, multi word message"; $B/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
+matrix_case E36 deny '$B/p[k]dir/fm-pr-merge.sh task1 https://x/1'
+matrix_case E37 allow '"$B/fm-pr-merge.sh" task1 https://x/1'
+matrix_case E38 allow '"$B"/ls -la'
+matrix_case E39 allow '(cd "$ROOT" && "$B"/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); "$B"/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && "$B"/fm-build.sh task3 | tail -2); "$B"/fm-send.sh task4 "hello there, multi word message"; "$B"/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
+matrix_case E40 allow '"$B/p[k]dir"/fm-pr-merge.sh task1 https://x/1'
+matrix_case E41 allow 'B="pkill -f target"; "$B"/fm-pr-merge.sh task1'
+matrix_case E42 deny 'B="pkill -f target"; $B/fm-pr-merge.sh task1'
+matrix_case E43 deny 'set -- pkill -f target; "$@"/fm-pr-merge.sh'
+matrix_case E44 deny '"${array[@]}"/fm-pr-merge.sh'
+matrix_case E45 deny 'p{kill,noop} -f target'
+matrix_case E46 allow '"$B"/'\''$FILE'\'''
+matrix_case E47 allow '$/fm-pr-merge.sh task1 https://x/1'
+matrix_case E48 deny 'set -- pkill -f target; "${@#x}"/fm-pr-merge.sh task1'
+matrix_case E49 deny 'set -- pkill -f target; "${@}"/fm-pr-merge.sh task1'
+matrix_case E50 deny 'set -- pkill -f target; B=1; "${B:+$@}"/fm-pr-merge.sh task1'
 matrix_case E17 allow 'for f in 1; do echo fm-watch; done'
 matrix_case E18 allow "printf '%s\\n' data | xargs echo pkill"
 matrix_case E20 allow "ps aux | awk '{print \$2}'"
@@ -410,6 +433,37 @@ test_direct_policy_contract() {
   assert_policy direct-watch-not-blessed $'deny\twatcher-direct' 'bin/fm-watch.sh'
   assert_policy direct-watch-expanded $'deny\twatcher-direct' '$FM_HOME/bin/fm-watch.sh'
   assert_policy direct-watch-safe-shape $'deny\twatcher-direct' 'cd /tmp; bin/fm-watch.sh'
+  # docs/arm-pretool-check.md owns the directory-prefix executable policy.
+  assert_policy direct-unquoted-prefix-literal-script $'deny\tbroad-process-kill' '$B/fm-pr-merge.sh task1 https://x/1'
+  assert_policy direct-unquoted-prefix-literal-coreutil $'deny\tbroad-process-kill' '$B/ls -la'
+  assert_policy direct-quoted-prefix-literal-script allow '"$B/fm-pr-merge.sh" task1 https://x/1'
+  assert_policy direct-quoted-prefix-literal-coreutil allow '"$B"/ls -la'
+  assert_policy direct-fully-dynamic-program-name $'deny\tbroad-process-kill' '$CMD 12345'
+  assert_policy direct-dynamic-filename-component $'deny\tbroad-process-kill' '$DIR/$FILE 12345'
+  assert_policy direct-dynamic-prefix-kill-basename $'deny\tbroad-process-kill' '$B/pkill foo'
+  assert_policy direct-parameter-expansion-slash-broad-kill $'deny\tbroad-process-kill' 'CMD=pkill; ${CMD#*/} -f target'
+  assert_policy direct-parameter-expansion-escaped-brace-broad-kill $'deny\tbroad-process-kill' 'CMD=pkill; ${CMD#\}/unused} -f target'
+  assert_policy direct-parameter-expansion-quoted-slash-broad-kill $'deny\tbroad-process-kill' "CMD=pkill; \${CMD#'/'} -f target"
+  assert_policy direct-dynamic-glob-basename $'deny\tbroad-process-kill' '$B/p[k]ill -f target'
+  assert_policy direct-unquoted-glob-prefix-literal-script $'deny\tbroad-process-kill' '$B/p[k]dir/fm-pr-merge.sh task1 https://x/1'
+  assert_policy direct-quoted-glob-prefix-literal-script allow '"$B/p[k]dir"/fm-pr-merge.sh task1 https://x/1'
+  assert_policy direct-unquoted-prefix-compound-chain $'deny\tbroad-process-kill' \
+    '(cd "$ROOT" && $B/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); $B/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && $B/fm-build.sh task3 | tail -2); $B/fm-send.sh task4 "hello there, multi word message"; $B/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
+  assert_policy direct-quoted-prefix-compound-chain allow \
+    '(cd "$ROOT" && "$B"/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); "$B"/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && "$B"/fm-build.sh task3 | tail -2); "$B"/fm-send.sh task4 "hello there, multi word message"; "$B"/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
+  # Even with an embedded-whitespace runtime value that would field-split an
+  # unquoted prefix into a separate pkill invocation, the quoted form stays
+  # a single shell word (worst case: a nonexistent path), so it still allows.
+  assert_policy direct-quoted-prefix-embedded-spaces-safe allow 'B="pkill -f target"; "$B"/fm-pr-merge.sh task1'
+  assert_policy direct-unquoted-prefix-embedded-spaces-exploit-shape $'deny\tbroad-process-kill' 'B="pkill -f target"; $B/fm-pr-merge.sh task1'
+  assert_policy direct-quoted-positional-array-prefix $'deny\tbroad-process-kill' 'set -- pkill -f target; "$@"/fm-pr-merge.sh'
+  assert_policy direct-quoted-indexed-array-prefix $'deny\tbroad-process-kill' '"${array[@]}"/fm-pr-merge.sh'
+  assert_policy direct-brace-expanded-kill-basename $'deny\tbroad-process-kill' 'p{kill,noop} -f target'
+  assert_policy direct-literal-dollar-basename allow '"$B"/'\''$FILE'\'''
+  assert_policy direct-literal-dollar-prefix allow '$/fm-pr-merge.sh task1 https://x/1'
+  assert_policy direct-quoted-positional-modifier-prefix $'deny\tbroad-process-kill' 'set -- pkill -f target; "${@#x}"/fm-pr-merge.sh task1'
+  assert_policy direct-quoted-braced-positional-prefix $'deny\tbroad-process-kill' 'set -- pkill -f target; "${@}"/fm-pr-merge.sh task1'
+  assert_policy direct-nested-quoted-positional-prefix $'deny\tbroad-process-kill' 'set -- pkill -f target; B=1; "${B:+$@}"/fm-pr-merge.sh task1'
   heredoc_data=$'cat <<\'EOF\'\nbin/fm-watch-arm.sh &\nEOF'
   heredoc_watcher=$'bin/fm-watch-arm.sh <<\'EOF\'\ndata only\nEOF'
   heredoc_broad_data=$'cat <<\'EOF\'\npkill -f tsx\nkillall node\nEOF'
@@ -517,11 +571,10 @@ test_prefilter_is_strict_superset() {
   "$CHECK" --command 'bin/fm-$"watch"-arm.sh &' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] || fail "prefilter must delegate a locale-string-encoded protected path, not fast-allow it, got exit $rc"
-  # A dynamic executable must reach the classifier and fail closed even when it
-  # is not a watcher reference.
-  "$CHECK" --command '$FM_HOME/bin/fm-teardown.sh &' >/dev/null 2>&1
+  # docs/arm-pretool-check.md owns the dynamic executable distinction.
+  "$CHECK" --command '$CMD &' >/dev/null 2>&1
   rc=$?
-  [ "$rc" -eq 2 ] || fail "a dynamic non-watcher executable must be denied, got exit $rc"
+  [ "$rc" -eq 2 ] || fail "a fully dynamic non-watcher executable must be denied, got exit $rc"
   "$CHECK" --command 'echo "$HOME/scratch" && ls -la' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 0 ] || fail "a benign \$HOME command must still fast-allow, got exit $rc"

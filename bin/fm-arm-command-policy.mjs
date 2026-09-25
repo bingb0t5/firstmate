@@ -278,6 +278,40 @@ function decodeAnsiCQuoted(source, start) {
   return null;
 }
 
+function appendWordValue(word, value, literalSlashes = true) {
+  if (literalSlashes) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (value[index] === "/") word.literalSlashOffsets.push(word.value.length + index);
+    }
+  }
+  word.value += value;
+}
+
+function isParameterExpansionStart(character) {
+  return Boolean(character) && (/^[A-Za-z0-9_]$/.test(character) || "@*#?$!-{".includes(character));
+}
+
+function parameterExpansionContentMayProduceMultipleWords(content) {
+  for (let index = 0; index < content.length; index += 1) {
+    if (content[index] === "\\") {
+      index += 1;
+      continue;
+    }
+    if (content[index] === "$" && parameterExpansionMayProduceMultipleWords(content, index)) return true;
+  }
+  return false;
+}
+
+function parameterExpansionMayProduceMultipleWords(source, start) {
+  if (source[start] !== "$") return false;
+  if (source[start + 1] === "@") return true;
+  if (!source.startsWith("${", start)) return false;
+  const parameter = extractBalanced(source, start + 2, "{", "}");
+  if (!parameter) return false;
+  const content = parameter.content;
+  return content.startsWith("@") || /^!?[A-Za-z_][A-Za-z0-9_]*\[@\]/.test(content) || /^![A-Za-z_][A-Za-z0-9_]*@/.test(content) || parameterExpansionContentMayProduceMultipleWords(content);
+}
+
 export class Lexer {
   constructor(source) {
     this.source = source;
@@ -396,8 +430,9 @@ export class Lexer {
   }
 
   readWord() {
-    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false };
+    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, unquotedExpansionOffsets: [], literalSlashOffsets: [], parameterExpansionOffsets: [], unquotedDollarOffsets: [], quotedMultiwordParameterOffsets: [] };
     let consumed = false;
+    let parameterEnd = -1;
     while (this.index < this.source.length) {
       const char = this.source[this.index];
       if (/\s/.test(char) || ";&|<>()".includes(char)) break;
@@ -410,13 +445,13 @@ export class Lexer {
           this.error = "unclosed single quote";
           return null;
         }
-        word.value += this.source.slice(this.index + 1, end);
+        appendWordValue(word, this.source.slice(this.index + 1, end), this.index >= parameterEnd);
         this.index = end + 1;
         continue;
       }
       if (char === '"') {
         word.quoted = true;
-        if (!this.readDoubleQuoted(word)) return null;
+        if (!this.readDoubleQuoted(word, parameterEnd)) return null;
         continue;
       }
       if (char === "\\") {
@@ -428,7 +463,7 @@ export class Lexer {
           this.index += 2;
           continue;
         }
-        word.value += this.source[this.index + 1];
+        appendWordValue(word, this.source[this.index + 1], this.index >= parameterEnd);
         this.index += 2;
         continue;
       }
@@ -439,14 +474,14 @@ export class Lexer {
           return null;
         }
         word.quoted = true;
-        word.value += ansi.value;
+        appendWordValue(word, ansi.value, this.index >= parameterEnd);
         this.index = ansi.next;
         continue;
       }
       if (this.source.startsWith('$"', this.index)) {
         word.quoted = true;
         this.index += 1;
-        if (!this.readDoubleQuoted(word)) return null;
+        if (!this.readDoubleQuoted(word, parameterEnd)) return null;
         continue;
       }
       if (this.source.startsWith("$(", this.index)) {
@@ -455,18 +490,19 @@ export class Lexer {
           this.error = "unclosed command substitution";
           return null;
         }
-        word.subs.push({ kind: "command", content: balanced.content });
+        word.subs.push({ kind: "command", content: balanced.content, at: word.value.length, quoted: false });
         word.literal = false;
         this.index = balanced.next;
         continue;
       }
+      // Unreachable: bare < or > ends readWord, so process substitutions tokenize as a redirection plus subshell group rather than word.subs.
       if ((char === "<" || char === ">") && this.source[this.index + 1] === "(") {
         const balanced = extractBalanced(this.source, this.index + 2, "(", ")");
         if (!balanced) {
           this.error = "unclosed process substitution";
           return null;
         }
-        word.subs.push({ kind: "process", content: balanced.content });
+        word.subs.push({ kind: "process", content: balanced.content, at: word.value.length, quoted: false });
         word.literal = false;
         this.index = balanced.next;
         continue;
@@ -477,21 +513,35 @@ export class Lexer {
           this.error = "unclosed backtick substitution";
           return null;
         }
-        word.subs.push({ kind: "command", content: backticks.content });
+        word.subs.push({ kind: "command", content: backticks.content, at: word.value.length, quoted: false });
         word.literal = false;
         this.index = backticks.next;
         continue;
       }
-      if (char === "$") word.literal = false;
-      if ("*?[]{}".includes(char)) word.unquotedExpansion = true;
-      word.value += char;
+      if (char === "$" && isParameterExpansionStart(this.source[this.index + 1])) {
+        word.literal = false;
+        if (this.index >= parameterEnd) {
+          word.parameterExpansionOffsets.push(word.value.length);
+          word.unquotedDollarOffsets.push(word.value.length);
+        }
+      }
+      if (this.index >= parameterEnd && this.source.startsWith("${", this.index)) {
+        const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
+        if (parameter) parameterEnd = parameter.next;
+      }
+      if ("*?[]{}".includes(char)) {
+        word.unquotedExpansion = true;
+        if (this.index >= parameterEnd) word.unquotedExpansionOffsets.push(word.value.length);
+      }
+      appendWordValue(word, char, this.index >= parameterEnd);
       this.index += 1;
     }
     return consumed ? word : null;
   }
 
-  readDoubleQuoted(word) {
+  readDoubleQuoted(word, inheritedParameterEnd = -1) {
     this.index += 1;
+    let parameterEnd = inheritedParameterEnd;
     while (this.index < this.source.length) {
       const char = this.source[this.index];
       if (char === '"') {
@@ -504,14 +554,14 @@ export class Lexer {
           this.index += 2;
           continue;
         }
-        word.value += this.source[this.index + 1];
+        appendWordValue(word, this.source[this.index + 1], this.index >= parameterEnd);
         this.index += 2;
         continue;
       }
       if (this.source.startsWith("$(", this.index)) {
         const balanced = extractBalanced(this.source, this.index + 2, "(", ")");
         if (!balanced) break;
-        word.subs.push({ kind: "command", content: balanced.content });
+        word.subs.push({ kind: "command", content: balanced.content, at: word.value.length, quoted: true });
         word.literal = false;
         this.index = balanced.next;
         continue;
@@ -519,13 +569,28 @@ export class Lexer {
       if (char === "`") {
         const backticks = extractBackticks(this.source, this.index + 1);
         if (!backticks) break;
-        word.subs.push({ kind: "command", content: backticks.content });
+        word.subs.push({ kind: "command", content: backticks.content, at: word.value.length, quoted: true });
         word.literal = false;
         this.index = backticks.next;
         continue;
       }
-      if (char === "$") word.literal = false;
-      word.value += char;
+      // A bare $ expansion here is inside double quotes, so it cannot undergo field
+      // splitting or pathname expansion; unlike the main unquoted loop, this is not
+      // recorded in word.unquotedDollarOffsets.
+      if (char === "$" && isParameterExpansionStart(this.source[this.index + 1])) {
+        word.literal = false;
+        if (this.index >= parameterEnd) {
+          word.parameterExpansionOffsets.push(word.value.length);
+          if (parameterExpansionMayProduceMultipleWords(this.source, this.index)) {
+            word.quotedMultiwordParameterOffsets.push(word.value.length);
+          }
+        }
+      }
+      if (this.index >= parameterEnd && this.source.startsWith("${", this.index)) {
+        const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
+        if (parameter) parameterEnd = parameter.next;
+      }
+      appendWordValue(word, char, this.index >= parameterEnd);
       this.index += 1;
     }
     this.error = "unclosed double quote";
@@ -911,9 +976,47 @@ function isPsPidListing(position) {
   });
 }
 
+// A command word is dynamic-executable risk only when the invoked filename itself
+// (the segment after the last literal "/") is unresolved at policy-check time, not
+// merely because an earlier directory-prefix segment came from a variable expansion
+// or substitution (e.g. "$B/fm-pr-merge.sh" resolves to a known-safe literal script).
+// A directory-prefix segment (before the last literal "/") is only treated as
+// non-dynamic when every expansion in it is double-quoted: bash never performs
+// field splitting or pathname expansion inside double quotes, so a quoted
+// prefix cannot resolve to extra words at runtime regardless of its value. An
+// unquoted prefix expansion (e.g. $B/fm-pr-merge.sh) keeps denying even when
+// the basename is a literal, known-safe filename, because a runtime value
+// containing whitespace would field-split into a different, unrelated command.
+// Positional and array parameter expansions that can produce multiple words are
+// rejected separately, even when they are quoted.
+function hasUnquotedExecutableExpansion(word, basenameStart) {
+  return word.unquotedExpansionOffsets.some((offset) => {
+    if (offset < basenameStart) return false;
+    const character = word.value[offset];
+    if (character === "*" || character === "?") return true;
+    if (character === "[") return word.value.indexOf("]", offset + 1) !== -1;
+    if (character !== "{") return false;
+    const close = word.value.indexOf("}", offset + 1);
+    if (close === -1) return false;
+    const content = word.value.slice(offset + 1, close);
+    return content.includes(",") || content.includes("..");
+  });
+}
+
+function dynamicExecutableBasename(word) {
+  if (!word || word.type !== "word") return false;
+  const basenameStart = (word.literalSlashOffsets.at(-1) ?? -1) + 1;
+  if (word.parameterExpansionOffsets.some((offset) => offset >= basenameStart)) return true;
+  if (hasUnquotedExecutableExpansion(word, basenameStart)) return true;
+  if (word.subs.some((sub) => sub.at >= basenameStart)) return true;
+  if (word.unquotedDollarOffsets.some((offset) => offset < basenameStart)) return true;
+  if (word.quotedMultiwordParameterOffsets.some((offset) => offset < basenameStart)) return true;
+  return word.subs.some((sub) => !sub.quoted && sub.at < basenameStart);
+}
+
 function dynamicExecutableCommand(position, root) {
   const command = position.command;
-  return Boolean(command && !command.literal && !protectedIdentity(command.value, root));
+  return Boolean(command && dynamicExecutableBasename(command) && !protectedIdentity(command.value, root));
 }
 
 function xargsChildIndex(position) {

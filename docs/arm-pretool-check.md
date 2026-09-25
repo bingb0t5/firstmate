@@ -125,7 +125,13 @@ An unrecognized option on one of those prefixes that precedes a named broad-kill
 `kill "$(pgrep -f '/bin/fm-watch.sh')"` is also denied because the executed `kill` consumes an executed watcher-wide `pgrep` substitution.
 Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep`, `rg`, or `awk '{print $2}'`, or `lsof -c` output is denied when it feeds `kill` through command substitution, backticks, a propagated shell variable, redirected input, or a pipeline into an `xargs` child that visibly executes literal `kill`, including through visible nested shell or group syntax.
 `xargs pkill`, `xargs killall`, `xargs killall5`, `xargs skill`, `xargs fuser -k`, and terminating `xargs kill` children are denied directly after resolving xargs options and existing wrappers, including `timeout`, `gtimeout`, `env -S`, and `env --split-string`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments and read-only `kill -l` or `kill --list` queries are allowed.
-A dynamic executable name is denied unless it is a recognized protected watcher script.
+Only an unresolved final basename - the segment after the last literal slash - makes an executable dynamically unsafe: a parameter expansion, command or backtick substitution, or unquoted glob or brace syntax in that segment denies unless it is a recognized protected watcher script.
+A bare dollar sign starts a parameter expansion only when its following character can start one in Bash, so `$/fm-pr-merge.sh` is a literal dollar-sign path rather than an unresolved executable.
+A directory-prefix expansion ahead of that literal basename is allowed only when the whole expansion is double-quoted (e.g. `"$B/fm-pr-merge.sh"` or `"$B"/fm-pr-merge.sh`) and cannot expand into multiple words.
+Double quotes rule out field splitting and pathname expansion for an ordinary scalar expansion, so a runtime value cannot resolve to extra words or a different command regardless of its contents.
+Any expansion naming the positional parameter `@` - `$@`, `${@}`, or `${@<operator>}` - and an array `[@]` expansion that can produce multiple words remains unsafe in that position even when quoted.
+An unquoted directory-prefix expansion (e.g. `$B/fm-pr-merge.sh`) still denies even with a literal, known-safe basename, because a runtime value containing whitespace would field-split into a separate, unrelated command.
+A literal broad-kill basename remains denied independently of any of this.
 The guard applies exactly three bounded rules: it refuses named broad-kill constructions, anything aimed at everything, and anything it cannot read; it is not a semantic analyser.
 Rewrite such work through `bin/fm-process-kill.sh`; its header and `--help` own the recorded-target and identity-verification contract.
 Standalone read-only `pgrep`, `pidof`, `ps`, `lsof`, and `command -v` or `command -V` queries are allowed.
