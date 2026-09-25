@@ -433,17 +433,7 @@ test_direct_policy_contract() {
   assert_policy direct-watch-not-blessed $'deny\twatcher-direct' 'bin/fm-watch.sh'
   assert_policy direct-watch-expanded $'deny\twatcher-direct' '$FM_HOME/bin/fm-watch.sh'
   assert_policy direct-watch-safe-shape $'deny\twatcher-direct' 'cd /tmp; bin/fm-watch.sh'
-  # dynamic-executable-basename narrowing (docs/arm-pretool-check.md): a
-  # directory-prefix expansion ahead of a literal, non-kill filename is not
-  # dynamic-executable risk only when the whole prefix expansion is
-  # double-quoted - double quotes rule out field splitting and pathname
-  # expansion, so a runtime value with embedded whitespace or glob metacharacters
-  # cannot resolve to extra words or a different command. An UNQUOTED prefix
-  # expansion still denies even with a literal, known-safe basename, because an
-  # attacker-influenced runtime value could field-split into an unrelated
-  # command (e.g. B='pkill -f target'; $B/fm-pr-merge.sh runs `pkill -f
-  # target/fm-pr-merge.sh`). Only an unresolved filename/basename itself is
-  # otherwise dynamic-executable risk.
+  # docs/arm-pretool-check.md owns the directory-prefix executable policy.
   assert_policy direct-unquoted-prefix-literal-script $'deny\tbroad-process-kill' '$B/fm-pr-merge.sh task1 https://x/1'
   assert_policy direct-unquoted-prefix-literal-coreutil $'deny\tbroad-process-kill' '$B/ls -la'
   assert_policy direct-quoted-prefix-literal-script allow '"$B/fm-pr-merge.sh" task1 https://x/1'
@@ -581,10 +571,7 @@ test_prefilter_is_strict_superset() {
   "$CHECK" --command 'bin/fm-$"watch"-arm.sh &' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] || fail "prefilter must delegate a locale-string-encoded protected path, not fast-allow it, got exit $rc"
-  # A command whose invoked filename itself is unresolved must reach the
-  # classifier and fail closed even when it is not a watcher reference. A
-  # merely dynamic directory-prefix ahead of a literal, known-safe filename
-  # (e.g. "$FM_HOME/bin/fm-teardown.sh") is not this case; see E30/E31/E32.
+  # docs/arm-pretool-check.md owns the dynamic executable distinction.
   "$CHECK" --command '$CMD &' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] || fail "a fully dynamic non-watcher executable must be denied, got exit $rc"

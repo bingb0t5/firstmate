@@ -984,9 +984,11 @@ function isPsPidListing(position) {
 // non-dynamic when every expansion in it is double-quoted: bash never performs
 // field splitting or pathname expansion inside double quotes, so a quoted
 // prefix cannot resolve to extra words at runtime regardless of its value. An
-// unquoted prefix expansion (e.g. "$B/fm-pr-merge.sh") keeps denying even when
+// unquoted prefix expansion (e.g. $B/fm-pr-merge.sh) keeps denying even when
 // the basename is a literal, known-safe filename, because a runtime value
 // containing whitespace would field-split into a different, unrelated command.
+// Positional and array parameter expansions that can produce multiple words are
+// rejected separately, even when they are quoted.
 function hasUnquotedExecutableExpansion(word, basenameStart) {
   return word.unquotedExpansionOffsets.some((offset) => {
     if (offset < basenameStart) return false;
