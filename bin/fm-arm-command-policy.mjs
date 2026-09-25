@@ -278,6 +278,15 @@ function decodeAnsiCQuoted(source, start) {
   return null;
 }
 
+function appendWordValue(word, value, literalSlashes = true) {
+  if (literalSlashes) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (value[index] === "/") word.literalSlashOffsets.push(word.value.length + index);
+    }
+  }
+  word.value += value;
+}
+
 export class Lexer {
   constructor(source) {
     this.source = source;
@@ -396,8 +405,9 @@ export class Lexer {
   }
 
   readWord() {
-    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false };
+    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, literalSlashOffsets: [] };
     let consumed = false;
+    let parameterEnd = -1;
     while (this.index < this.source.length) {
       const char = this.source[this.index];
       if (/\s/.test(char) || ";&|<>()".includes(char)) break;
@@ -410,13 +420,13 @@ export class Lexer {
           this.error = "unclosed single quote";
           return null;
         }
-        word.value += this.source.slice(this.index + 1, end);
+        appendWordValue(word, this.source.slice(this.index + 1, end), this.index >= parameterEnd);
         this.index = end + 1;
         continue;
       }
       if (char === '"') {
         word.quoted = true;
-        if (!this.readDoubleQuoted(word)) return null;
+        if (!this.readDoubleQuoted(word, parameterEnd)) return null;
         continue;
       }
       if (char === "\\") {
@@ -428,7 +438,7 @@ export class Lexer {
           this.index += 2;
           continue;
         }
-        word.value += this.source[this.index + 1];
+        appendWordValue(word, this.source[this.index + 1], this.index >= parameterEnd);
         this.index += 2;
         continue;
       }
@@ -439,14 +449,14 @@ export class Lexer {
           return null;
         }
         word.quoted = true;
-        word.value += ansi.value;
+        appendWordValue(word, ansi.value, this.index >= parameterEnd);
         this.index = ansi.next;
         continue;
       }
       if (this.source.startsWith('$"', this.index)) {
         word.quoted = true;
         this.index += 1;
-        if (!this.readDoubleQuoted(word)) return null;
+        if (!this.readDoubleQuoted(word, parameterEnd)) return null;
         continue;
       }
       if (this.source.startsWith("$(", this.index)) {
@@ -482,16 +492,21 @@ export class Lexer {
         this.index = backticks.next;
         continue;
       }
+      if (this.index >= parameterEnd && this.source.startsWith("${", this.index)) {
+        const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
+        if (parameter) parameterEnd = parameter.next;
+      }
       if (char === "$") word.literal = false;
       if ("*?[]{}".includes(char)) word.unquotedExpansion = true;
-      word.value += char;
+      appendWordValue(word, char, this.index >= parameterEnd);
       this.index += 1;
     }
     return consumed ? word : null;
   }
 
-  readDoubleQuoted(word) {
+  readDoubleQuoted(word, inheritedParameterEnd = -1) {
     this.index += 1;
+    let parameterEnd = inheritedParameterEnd;
     while (this.index < this.source.length) {
       const char = this.source[this.index];
       if (char === '"') {
@@ -504,7 +519,7 @@ export class Lexer {
           this.index += 2;
           continue;
         }
-        word.value += this.source[this.index + 1];
+        appendWordValue(word, this.source[this.index + 1], this.index >= parameterEnd);
         this.index += 2;
         continue;
       }
@@ -524,8 +539,12 @@ export class Lexer {
         this.index = backticks.next;
         continue;
       }
+      if (this.index >= parameterEnd && this.source.startsWith("${", this.index)) {
+        const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
+        if (parameter) parameterEnd = parameter.next;
+      }
       if (char === "$") word.literal = false;
-      word.value += char;
+      appendWordValue(word, char, this.index >= parameterEnd);
       this.index += 1;
     }
     this.error = "unclosed double quote";
@@ -915,29 +934,10 @@ function isPsPidListing(position) {
 // (the segment after the last literal "/") is unresolved at policy-check time, not
 // merely because an earlier directory-prefix segment came from a variable expansion
 // or substitution (e.g. "$B/fm-pr-merge.sh" resolves to a known-safe literal script).
-function lastLiteralSlash(value) {
-  let slash = -1;
-  for (let index = 0; index < value.length; index += 1) {
-    if (value[index] === "/") {
-      slash = index;
-      continue;
-    }
-    if (value[index] !== "$" || value[index + 1] !== "{") continue;
-    let depth = 1;
-    index += 2;
-    for (; index < value.length && depth > 0; index += 1) {
-      if (value[index] === "{") depth += 1;
-      if (value[index] === "}") depth -= 1;
-    }
-    index -= 1;
-  }
-  return slash;
-}
-
 function dynamicExecutableBasename(word) {
   if (!word || word.type !== "word") return false;
   if (word.literal && word.subs.length === 0) return false;
-  const basenameStart = lastLiteralSlash(word.value) + 1;
+  const basenameStart = (word.literalSlashOffsets.at(-1) ?? -1) + 1;
   if (word.value.slice(basenameStart).includes("$")) return true;
   return word.subs.some((sub) => sub.at >= basenameStart);
 }

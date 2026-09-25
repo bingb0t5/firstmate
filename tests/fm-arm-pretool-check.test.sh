@@ -196,6 +196,7 @@ matrix_case D128 deny "printf 'x\\n' | xargs sh ./cleanup"
 matrix_case D129 deny 'ps -eo pid= | xargs kill'
 matrix_case D130 deny $'.\t./cleanup'
 matrix_case D131 deny 'xargs kill < /tmp/pids'
+matrix_case D132 deny 'CMD=pkill; ${CMD#\}/unused} -f target'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -218,6 +219,7 @@ matrix_case E31 allow '$B/fm-pr-merge.sh task1 https://x/1'
 matrix_case E32 allow '$B/ls -la'
 matrix_case E33 deny '$DIR/$FILE 12345'
 matrix_case E34 deny '$B/pkill foo'
+matrix_case E35 allow '(cd "$ROOT" && $B/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); $B/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && $B/fm-build.sh task3 | tail -2); $B/fm-send.sh task4 "hello there, multi word message"; $B/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
 matrix_case E17 allow 'for f in 1; do echo fm-watch; done'
 matrix_case E18 allow "printf '%s\\n' data | xargs echo pkill"
 matrix_case E20 allow "ps aux | awk '{print \$2}'"
@@ -424,6 +426,8 @@ test_direct_policy_contract() {
   assert_policy direct-dynamic-filename-component $'deny\tbroad-process-kill' '$DIR/$FILE 12345'
   assert_policy direct-dynamic-prefix-kill-basename $'deny\tbroad-process-kill' '$B/pkill foo'
   assert_policy direct-parameter-expansion-slash-broad-kill $'deny\tbroad-process-kill' 'CMD=pkill; ${CMD#*/} -f target'
+  assert_policy direct-parameter-expansion-escaped-brace-broad-kill $'deny\tbroad-process-kill' 'CMD=pkill; ${CMD#\}/unused} -f target'
+  assert_policy direct-parameter-expansion-quoted-slash-broad-kill $'deny\tbroad-process-kill' "CMD=pkill; \${CMD#'/'} -f target"
   assert_policy direct-dynamic-prefix-compound-chain allow \
     '(cd "$ROOT" && $B/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); $B/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && $B/fm-build.sh task3 | tail -2); $B/fm-send.sh task4 "hello there, multi word message"; $B/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
   heredoc_data=$'cat <<\'EOF\'\nbin/fm-watch-arm.sh &\nEOF'
