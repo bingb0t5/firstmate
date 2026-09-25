@@ -287,6 +287,10 @@ function appendWordValue(word, value, literalSlashes = true) {
   word.value += value;
 }
 
+function isParameterExpansionStart(character) {
+  return Boolean(character) && (/^[A-Za-z0-9_]$/.test(character) || "@*#?$!-{".includes(character));
+}
+
 function parameterExpansionMayProduceMultipleWords(source, start) {
   if (source[start] !== "$") return false;
   if (source[start + 1] === "@") return true;
@@ -503,7 +507,7 @@ export class Lexer {
         this.index = backticks.next;
         continue;
       }
-      if (char === "$") {
+      if (char === "$" && isParameterExpansionStart(this.source[this.index + 1])) {
         word.literal = false;
         if (this.index >= parameterEnd) {
           word.parameterExpansionOffsets.push(word.value.length);
@@ -562,7 +566,7 @@ export class Lexer {
       // A bare $ expansion here is inside double quotes, so it cannot undergo field
       // splitting or pathname expansion; unlike the main unquoted loop, this is not
       // recorded in word.unquotedDollarOffsets.
-      if (char === "$") {
+      if (char === "$" && isParameterExpansionStart(this.source[this.index + 1])) {
         word.literal = false;
         if (this.index >= parameterEnd) {
           word.parameterExpansionOffsets.push(word.value.length);
