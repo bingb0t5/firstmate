@@ -470,6 +470,7 @@ export class Lexer {
         this.index = balanced.next;
         continue;
       }
+      // Unreachable: bare < or > ends readWord, so process substitutions tokenize as a redirection plus subshell group rather than word.subs.
       if ((char === "<" || char === ">") && this.source[this.index + 1] === "(") {
         const balanced = extractBalanced(this.source, this.index + 2, "(", ")");
         if (!balanced) {
