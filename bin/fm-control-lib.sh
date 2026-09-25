@@ -194,6 +194,70 @@ fm_control_backend_state_verified() {  # <backend>
   return 1
 }
 
+fm_control_worktree_artifact_path() {  # <worktree> <relative-path> <new|replace>
+  local wt=${1-} rel=${2-} mode=${3-} wt_real wt_real_next parent base component candidate target
+  [ -n "$wt" ] && [ -n "$rel" ] || return 1
+  case "$rel" in
+    /*|.|..|../*|*/../*|*//*) return 1 ;;
+  esac
+  case "$mode" in new|replace) ;; *) return 1 ;; esac
+  wt_real=$(cd "$wt" && pwd -P) || return 1
+  parent=${rel%/*}
+  [ "$parent" = "$rel" ] && parent=
+  base=${rel##*/}
+  [ -n "$base" ] && [ "$base" != . ] && [ "$base" != .. ] || return 1
+  while [ -n "$parent" ]; do
+    component=${parent%%/*}
+    case "$component" in ''|.|..) return 1 ;; esac
+    candidate="$wt_real/$component"
+    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+      [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 1
+    else
+      mkdir "$candidate" || return 1
+    fi
+    wt_real_next=$(cd "$candidate" && pwd -P) || return 1
+    case "$wt_real_next" in "$wt_real"|"$wt_real"/*) ;; *) return 1 ;; esac
+    wt_real=$wt_real_next
+    case "$parent" in */*) parent=${parent#*/} ;; *) parent= ;; esac
+  done
+  target="$wt_real/$base"
+  [ ! -L "$target" ] || return 1
+  if [ -e "$target" ]; then
+    [ "$mode" = replace ] && [ -f "$target" ] || return 1
+  fi
+  printf '%s\n' "$target"
+}
+
+fm_control_worktree_artifact_removable() {  # <worktree> <artifact-path>
+  local wt=${1-} path=${2-} wt_real rel parent base component candidate current
+  [ -n "$wt" ] && [ -n "$path" ] || return 1
+  wt_real=$(cd "$wt" && pwd -P) || return 1
+  case "$path" in
+    "$wt"/*) rel=${path#"$wt"/} ;;
+    "$wt_real"/*) rel=${path#"$wt_real"/} ;;
+    *) return 1 ;;
+  esac
+  case "$rel" in ''|/*|.|..|../*|*/../*|*//*) return 1 ;; esac
+  parent=${rel%/*}
+  [ "$parent" = "$rel" ] && parent=
+  base=${rel##*/}
+  [ -n "$base" ] && [ "$base" != . ] && [ "$base" != .. ] || return 1
+  current=$wt_real
+  while [ -n "$parent" ]; do
+    component=${parent%%/*}
+    case "$component" in ''|.|..) return 1 ;; esac
+    candidate="$current/$component"
+    if [ ! -e "$candidate" ] && [ ! -L "$candidate" ]; then
+      return 0
+    fi
+    [ -d "$candidate" ] && [ ! -L "$candidate" ] || return 1
+    current=$(cd "$candidate" && pwd -P) || return 1
+    case "$current" in "$wt_real"|"$wt_real"/*) ;; *) return 1 ;; esac
+    case "$parent" in */*) parent=${parent#*/} ;; *) parent= ;; esac
+  done
+  printf '%s\n' "$current/$base"
+}
+
 # The per-task wiring artifacts a harness leaves behind, so a relaunch that
 # changes harness (or re-arms the same one with a fresh busy generation) can
 # clear the previous incarnation's wiring instead of leaving a stale hook
@@ -205,10 +269,18 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
   [ -n "$wt" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
   case "$harness" in
     claude) printf '%s\n' "$wt/.claude/settings.local.json" ;;
-    opencode) printf '%s\n' "$wt/.opencode/plugins/fm-busy-state.js" ;;
-    pi|pi-signed) printf '%s\n' "$state/$id.pi-ext.ts" ;;
+    codex) printf '%s\n' "$wt/.codex/hooks.json" ;;
+    opencode)
+      printf '%s\n' "$wt/.opencode/plugins/fm-busy-state.js"
+      printf '%s\n' "$wt/.opencode/plugins/fm-fleet-pretool-check.js"
+      ;;
+    pi|pi-signed)
+      printf '%s\n' "$state/$id.pi-ext.ts"
+      printf '%s\n' "$state/$id.pi-pretool.ts"
+      ;;
     grok)
       printf '%s\n' "$wt/.fm-grok-turnend"
+      printf '%s\n' "$wt/.fm-grok-pretool-root"
       printf '%s\n' "$state/$id.grok-turnend-token"
       ;;
     kimi)
@@ -223,7 +295,10 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
       printf '%s\n' "$state/$id.muse-session"
       printf '%s\n' "$state/$id.muse-session-current"
       ;;
-    cursor) printf '%s\n' "$state/$id.cursor-session" ;;
+    cursor)
+      printf '%s\n' "$state/$id.cursor-session"
+      printf '%s\n' "$wt/.cursor/hooks.json"
+      ;;
   esac
 }
 

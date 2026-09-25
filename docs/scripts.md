@@ -43,8 +43,9 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-turnend-guard.sh`    | Shared primary turn-end guard predicate so no turn ends blind (docs/turnend-guard.md) |
 | `fm-turnend-guard-grok.sh` | Grok Stop-hook adapter for the primary turn-end guard                              |
 | `fm-kimi-turnend-hook.sh` | Surgically install or remove Kimi's guarded global crew turn-end hook                |
-| `fm-arm-pretool-check.sh` | Stable PreToolUse transport for the watcher-arm command policy (docs/arm-pretool-check.md) |
-| `fm-arm-command-policy.mjs` | Semantic owner of the watcher-arm PreToolUse policy (docs/arm-pretool-check.md)   |
+| `fm-arm-pretool-check.sh` | Stable PreToolUse transport for the watcher-arm and broad-process-termination policy (docs/arm-pretool-check.md) |
+| `fm-arm-command-policy.mjs` | Semantic owner of the watcher-arm and broad-process-termination PreToolUse policy (docs/arm-pretool-check.md)   |
+| `fm-process-kill.sh`      | Terminate one explicitly recorded PID or process group while refusing name, pattern, and bare targets |
 | `fm-subagent-pretool-check.sh` | Primary-home delegation-shape PreToolUse guard (docs/subagent-guard.md) |
 | `fm-supervision-instructions.sh` | Render the session-start primary-harness supervision block or the one-line repair instruction |
 | `fm-home-seed.sh`        | Transactionally provision a local secondmate home and maintain `data/secondmates.md`, refusing nested secondmate homes |

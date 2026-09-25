@@ -13,6 +13,7 @@ set -u
 
 CHECK="$ROOT/bin/fm-arm-pretool-check.sh"
 POLICY="$ROOT/bin/fm-arm-command-policy.mjs"
+export FM_HOME="$ROOT"
 
 # --- full cross-harness acceptance matrix ----------------------------------
 
@@ -122,6 +123,79 @@ matrix_case D55 deny 'while true; do pkill -f fm-watch; done'
 matrix_case D56 deny 'for x in 1; do pkill -f fm-watch; done'
 matrix_case D57 deny 'case x in x) pkill -f fm-watch ;; esac'
 matrix_case D58 deny 'until false; do kill $(pgrep -f fm-watch); done'
+matrix_case D59 deny "pkill -f 'tsx server.ts'"
+matrix_case D60 deny "pkill -u rich -f 'tsx server.ts'"
+matrix_case D61 deny 'pkill node'
+matrix_case D62 deny 'killall node'
+matrix_case D63 deny "time pkill -f 'tsx server.ts'"
+matrix_case D64 deny "nice pkill -f 'tsx server.ts'"
+matrix_case D65 deny "ionice pkill -f 'tsx server.ts'"
+matrix_case D66 deny "kill \"\$(pgrep -f 'tsx server.ts')\""
+matrix_case D67 deny 'kill "`pgrep -f '\''tsx server.ts'\''`"'
+matrix_case D68 deny "pgrep -f 'tsx server.ts' | xargs kill"
+matrix_case D69 deny "if true; then kill \"\$(pgrep -f 'tsx server.ts')\"; fi"
+matrix_case D70 deny "case x in x) kill \"\$(pgrep -f 'tsx server.ts')\" ;; esac"
+matrix_case D71 deny "kill \"\$(pgrep node)\""
+matrix_case D72 deny "kill \"\$(pidof node)\""
+matrix_case D73 deny "printf '%s\\n' 'tsx server.ts' | xargs pkill -f"
+matrix_case D74 deny "kill \"\$(ps -C node -o pid=)\""
+matrix_case D75 deny "case x in x) kill \"\$(ps -C node -o pid=)\" ;; esac"
+matrix_case D76 deny "kill \"\$(ps aux | grep '[n]ode' | awk '{print \$2}')\""
+matrix_case D77 deny "kill \"\$(lsof -t -c node)\""
+matrix_case D78 deny "printf '%s\\n' 'tsx server.ts' | xargs -n1 pkill -f"
+matrix_case D79 deny "pgrep node | xargs -n1 kill"
+matrix_case D80 deny "ps aux | rg '[n]ode' | awk '{print \$2}' | xargs kill"
+matrix_case D81 deny "printf '%s\\n' x | xargs env pkill -f 'tsx server.ts'"
+matrix_case D82 deny "pgrep node | xargs env kill"
+matrix_case D83 deny "killer=pkill; \"\$killer\" -f 'tsx server.ts'"
+matrix_case D84 deny "printf '%s\\n' x | xargs timeout 5 pkill -f 'tsx server.ts'"
+matrix_case D85 deny "printf 'tsx server.ts\\n' | xargs sh -c 'pkill -f \"\$0\"'"
+matrix_case D86 deny "p=p; \"\${p}\"kill -f 'tsx server.ts'"
+matrix_case D87 deny "sh -c 'pkill -f \"\$0\"'"
+matrix_case D88 deny "ps aux | awk '{print \$2}' | xargs kill"
+matrix_case D89 deny 'p=p; "${p}"kill 4242'
+matrix_case D90 deny "printf 'x\\n' | xargs env -S 'pkill -f \"tsx server.ts\"'"
+matrix_case D91 deny "printf 'x\\n' | xargs env --split-string='pkill -f \"tsx server.ts\"'"
+matrix_case D92 deny "pgrep node | xargs env -S 'kill'"
+matrix_case D93 deny "pgrep node | xargs -n1 sh -c 'kill \"\$0\"'"
+matrix_case D94 deny "pgrep node | xargs -n1 sh -c 'if true; then kill \"\$0\"; fi'"
+matrix_case D95 deny "pgrep node | xargs -n1 sh -c '(kill \"\$0\")'"
+matrix_case D96 deny 'kill -TERM -- -1'
+matrix_case D97 deny 'kill 0'
+matrix_case D98 deny 'kill -TERM -- -12345'
+matrix_case D99 deny 'kill -TERM -1'
+matrix_case D100 deny "printf 'x\\n' | xargs kill 0"
+matrix_case D101 deny 'target=-1; kill -TERM -- "$target"'
+matrix_case D102 deny 'target=0; kill "$target"'
+matrix_case D103 deny 'target=4242; kill "$target"'
+matrix_case D104 deny 'kill -TERM -- 00'
+matrix_case D105 deny 'kill -TERM -- +0'
+matrix_case D106 deny 'builtin kill -TERM -- -1'
+matrix_case D107 deny "\$(printf pkill) -f 'tsx server.ts'"
+matrix_case D108 deny 'builtin -- kill -TERM -- -1'
+matrix_case D109 deny "builtin command pkill -f 'tsx server.ts'"
+matrix_case D110 deny "builtin eval 'kill -TERM -- -1'"
+matrix_case D111 deny 'xargs kill <<< "$(pgrep node)"'
+matrix_case D112 deny "p=pk; \"\${p}ill\" -f 'tsx server.ts'"
+matrix_case D113 deny "sh -c \"\$(printf '%s' 'pkill -f tsx')\""
+matrix_case D114 deny "eval \"\$(printf '%s' 'pkill -f tsx')\""
+matrix_case D115 deny 'killall5 -TERM'
+matrix_case D116 deny 'skill -KILL -u rich'
+matrix_case D117 deny 'fuser -k /tmp'
+matrix_case D118 deny "sudo FOO=bar pkill -f 'tsx server.ts'"
+matrix_case D119 deny "printf '%s\\n' /tmp | xargs fuser -k"
+matrix_case D120 deny "tool=pkill; printf '%s\\n' 'tsx server.ts' | xargs \"\$tool\" -f"
+matrix_case D121 deny 'bash ./cleanup'
+matrix_case D122 deny 'bash'
+matrix_case D123 deny "trap 'pkill -f \"tsx server.ts\"' EXIT"
+matrix_case D124 deny 'sh ./cleanup'
+matrix_case D125 deny "trap 'echo safe' EXIT"
+matrix_case D126 deny 'source ./cleanup'
+matrix_case D127 deny '. ./cleanup'
+matrix_case D128 deny "printf 'x\\n' | xargs sh ./cleanup"
+matrix_case D129 deny 'ps -eo pid= | xargs kill'
+matrix_case D130 deny $'.\t./cleanup'
+matrix_case D131 deny 'xargs kill < /tmp/pids'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -134,12 +208,23 @@ matrix_case E08 deny "bash -lc 'bin/fm-watch-checkpoint.sh --seconds 180'"
 matrix_case E09 deny '(bin/fm-watch-checkpoint.sh --seconds 180)'
 matrix_case E10 deny "eval 'bin/fm-watch-arm.sh &'"
 matrix_case E11 deny "exec bash -lc 'bin/fm-watch-arm.sh &'"
-matrix_case E12 allow 'bash -lc "$WATCHER_COMMAND" # fm-watch-arm.sh'
+matrix_case E12 deny 'bash -lc "$WATCHER_COMMAND" # fm-watch-arm.sh'
 matrix_case E13 allow "printf '%s\\n' 'argument has ; and fm-watch-arm.sh and &&'"
-matrix_case E14 allow '$FM_HOME/bin/fm-teardown.sh &'
+matrix_case E14 deny '$FM_HOME/bin/fm-teardown.sh &'
 matrix_case E15 allow '$FM_HOME/bin/fm-watch-arm.sh'
 matrix_case E16 allow '~/firstmate/bin/fm-watch-checkpoint.sh --seconds 180'
 matrix_case E17 allow 'for f in 1; do echo fm-watch; done'
+matrix_case E18 allow "printf '%s\\n' data | xargs echo pkill"
+matrix_case E20 allow "ps aux | awk '{print \$2}'"
+matrix_case E21 allow 'kill 4242'
+matrix_case E22 allow "printf 'x\\n' | xargs env -S 'echo pkill'"
+matrix_case E25 allow 'fuser /tmp'
+matrix_case E26 allow "bash -c 'echo safe'"
+matrix_case E27 allow "bash <<< 'echo safe'"
+matrix_case E28 allow 'source config/x-mode.env'
+matrix_case E29 allow 'xargs kill --list < /tmp/pids'
+matrix_case E23 allow "pgrep node | xargs -n1 sh -c 'echo \"\$0\"'"
+matrix_case E24 allow "pgrep node | xargs -n1 sh -c 'if true; then echo \"\$0\"; fi'"
 
 MATRIX_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-arm-policy-matrix.XXXXXX")
 FM_TEST_CLEANUP_DIRS+=("$MATRIX_TMP")
@@ -183,7 +268,7 @@ run_matrix_entry() {
   fi
 
   [ "$rc" -eq 2 ] || fail "$id via $entry must deny, got exit $rc"
-  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.systemMessage | test("\\[(watcher-(background|pipeline|redirection|bundled|nested|direct)|broad-watcher-kill|unclassifiable-protected-command)\\]"))' "$err_file" >/dev/null 2>&1 \
+  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.systemMessage | test("\\[(watcher-(background|pipeline|redirection|bundled|nested|direct)|broad-(process|watcher)-kill|unclassifiable-protected-command)\\]"))' "$err_file" >/dev/null 2>&1 \
     || fail "$id via $entry deny must carry a stable reason code on stderr: $(cat "$err_file")"
   if [ "$entry" = claude ]; then
     [ ! -s "$out_file" ] || fail "$id via claude deny must leave stdout empty: $(cat "$out_file")"
@@ -215,17 +300,109 @@ assert_policy() {
 }
 
 test_direct_policy_contract() {
-  local heredoc_data heredoc_watcher
+  local heredoc_data heredoc_watcher heredoc_broad_data
   assert_policy direct-data-pkill allow "echo 'pkill -f fm-watch'"
-  assert_policy direct-broad-pkill $'deny\tbroad-watcher-kill' "pkill -f '/bin/fm-watch.sh'"
-  assert_policy direct-loop-broad-pkill $'deny\tbroad-watcher-kill' 'while true; do pkill -f fm-watch; done'
-  assert_policy direct-loop-broad-kill-pgrep $'deny\tbroad-watcher-kill' 'until false; do kill $(pgrep -f fm-watch); done'
+  assert_policy direct-broad-pkill $'deny\tbroad-process-kill' "pkill -f '/bin/fm-watch.sh'"
+  assert_policy direct-loop-broad-pkill $'deny\tbroad-process-kill' 'while true; do pkill -f fm-watch; done'
+  assert_policy direct-broad-pkill-no-watcher $'deny\tbroad-process-kill' "pkill -f 'tsx server.ts'"
+  assert_policy direct-bare-pkill $'deny\tbroad-process-kill' 'pkill node'
+  assert_policy direct-killall $'deny\tbroad-process-kill' 'killall node'
+  for wrapper in time nice ionice nohup env sudo command exec; do
+    assert_policy "direct-broad-pkill-wrapper-$wrapper" $'deny\tbroad-process-kill' "$wrapper pkill -f 'tsx server.ts'"
+  done
+  assert_policy direct-unresolved-time-option-broad-pkill $'deny\tbroad-process-kill' "/usr/bin/time -o /tmp/timing pkill -f 'tsx server.ts'"
+  assert_policy direct-loop-broad-kill-pgrep $'deny\tbroad-process-kill' 'until false; do kill $(pgrep -f fm-watch); done'
   assert_policy direct-loop-no-kill-allowed allow 'for f in 1; do echo fm-watch; done'
+  assert_policy direct-unsupported-broad-data allow "if true; then printf '%s\\n' pkill; fi"
+  assert_policy direct-unsupported-broad-kill $'deny\tbroad-process-kill' "if true; then pkill -f 'tsx server.ts'; fi"
+  assert_policy direct-unsupported-qualified-broad-kill $'deny\tbroad-process-kill' "if true; then /usr/bin/pkill -f 'tsx server.ts'; fi"
+  assert_policy direct-unsupported-wrapped-broad-kill $'deny\tbroad-process-kill' "if true; then time pkill -f 'tsx server.ts'; fi"
+  assert_policy direct-case-broad-kill $'deny\tbroad-process-kill' "case x in x) pkill -f 'tsx server.ts' ;; esac"
+  assert_policy direct-pgrep-substitution-kill $'deny\tbroad-process-kill' "kill \"\$(pgrep -f 'tsx server.ts')\""
+  assert_policy direct-pgrep-backtick-kill $'deny\tbroad-process-kill' 'kill "`pgrep -f '\''tsx server.ts'\''`"'
+  assert_policy direct-pgrep-xargs-kill $'deny\tbroad-process-kill' "pgrep -f 'tsx server.ts' | xargs kill"
+  assert_policy direct-unsupported-pgrep-substitution-kill $'deny\tbroad-process-kill' "if true; then kill \"\$(pgrep -f 'tsx server.ts')\"; fi"
+  assert_policy direct-case-pgrep-substitution-kill $'deny\tbroad-process-kill' "case x in x) kill \"\$(pgrep -f 'tsx server.ts')\" ;; esac"
+  assert_policy direct-plain-pgrep-substitution-kill $'deny\tbroad-process-kill' "kill \"\$(pgrep node)\""
+  assert_policy direct-pidof-substitution-kill $'deny\tbroad-process-kill' "kill \"\$(pidof node)\""
+  assert_policy direct-xargs-broad-pkill $'deny\tbroad-process-kill' "printf '%s\\n' 'tsx server.ts' | xargs pkill -f"
+  assert_policy direct-ps-name-selector-kill $'deny\tbroad-process-kill' "kill \"\$(ps -C node -o pid=)\""
+  assert_policy direct-case-ps-name-selector-kill $'deny\tbroad-process-kill' "case x in x) kill \"\$(ps -C node -o pid=)\" ;; esac"
+  assert_policy direct-ps-grep-name-selector-kill $'deny\tbroad-process-kill' "kill \"\$(ps aux | grep '[n]ode' | awk '{print \$2}')\""
+  assert_policy direct-lsof-name-selector-kill $'deny\tbroad-process-kill' "kill \"\$(lsof -t -c node)\""
+  assert_policy direct-ps-grep-read-only allow "ps aux | grep '[n]ode' | awk '{print \$2}'"
+  assert_policy direct-lsof-pid-read-only allow 'lsof -t -p 4242'
+  assert_policy direct-xargs-broad-pkill-with-option $'deny\tbroad-process-kill' "printf '%s\\n' 'tsx server.ts' | xargs -n1 pkill -f"
+  assert_policy direct-pgrep-xargs-kill-with-option $'deny\tbroad-process-kill' 'pgrep node | xargs -n1 kill'
+  assert_policy direct-xargs-data-argument allow "printf '%s\\n' data | xargs echo pkill"
+  assert_policy direct-ps-rg-name-selector-xargs-kill $'deny\tbroad-process-kill' "ps aux | rg '[n]ode' | awk '{print \$2}' | xargs kill"
+  assert_policy direct-ps-rg-read-only allow "ps aux | rg '[n]ode' | awk '{print \$2}'"
+  assert_policy direct-xargs-env-broad-pkill $'deny\tbroad-process-kill' "printf '%s\\n' x | xargs env pkill -f 'tsx server.ts'"
+  assert_policy direct-pgrep-xargs-env-kill $'deny\tbroad-process-kill' 'pgrep node | xargs env kill'
+  assert_policy direct-literal-dynamic-broad-kill $'deny\tbroad-process-kill' "killer=pkill; \"\$killer\" -f 'tsx server.ts'"
+  assert_policy direct-literal-dynamic-safe-command $'deny\tbroad-process-kill' 'runner=echo; "$runner" pkill'
+  assert_policy direct-xargs-timeout-broad-pkill $'deny\tbroad-process-kill' "printf '%s\\n' x | xargs timeout 5 pkill -f 'tsx server.ts'"
+  assert_policy direct-xargs-shell-broad-pkill $'deny\tbroad-process-kill' "printf 'tsx server.ts\\n' | xargs sh -c 'pkill -f \"\$0\"'"
+  assert_policy direct-dynamic-suffix-broad-kill $'deny\tbroad-process-kill' "p=p; \"\${p}\"kill -f 'tsx server.ts'"
+  assert_policy direct-dynamic-suffix-numeric-kill $'deny\tbroad-process-kill' 'p=p; "${p}"kill 4242'
+  assert_policy direct-literal-exact-pid allow 'kill 4242'
+  assert_policy direct-signal-exact-pid allow 'kill -TERM 4242'
+  assert_policy direct-broadcast-all $'deny\tbroad-process-kill' 'kill -TERM -- -1'
+  assert_policy direct-broadcast-current-group $'deny\tbroad-process-kill' 'kill 0'
+  assert_policy direct-broadcast-process-group $'deny\tbroad-process-kill' 'kill -TERM -- -12345'
+  assert_policy direct-broadcast-without-terminator $'deny\tbroad-process-kill' 'kill -TERM -1'
+  assert_policy direct-xargs-broadcast-current-group $'deny\tbroad-process-kill' "printf 'x\\n' | xargs kill 0"
+  assert_policy direct-dynamic-broadcast-all $'deny\tbroad-process-kill' 'target=-1; kill -TERM -- "$target"'
+  assert_policy direct-dynamic-broadcast-current-group $'deny\tbroad-process-kill' 'target=0; kill "$target"'
+  assert_policy direct-dynamic-exact-pid $'deny\tbroad-process-kill' 'target=4242; kill "$target"'
+  assert_policy direct-job-spec-kill $'deny\tbroad-process-kill' 'sleep 60 & kill %?sleep'
+  assert_policy direct-broadcast-leading-zero $'deny\tbroad-process-kill' 'kill -TERM -- 00'
+  assert_policy direct-broadcast-plus-zero $'deny\tbroad-process-kill' 'kill -TERM -- +0'
+  assert_policy direct-builtin-broadcast $'deny\tbroad-process-kill' 'builtin kill -TERM -- -1'
+  assert_policy direct-unreadable-dynamic-broad-kill $'deny\tbroad-process-kill' "\$(printf pkill) -f 'tsx server.ts'"
+  assert_policy direct-builtin-terminated-broadcast $'deny\tbroad-process-kill' 'builtin -- kill -TERM -- -1'
+  assert_policy direct-builtin-command-broad-kill $'deny\tbroad-process-kill' "builtin command pkill -f 'tsx server.ts'"
+  assert_policy direct-builtin-eval-broadcast $'deny\tbroad-process-kill' "builtin eval 'kill -TERM -- -1'"
+  assert_policy direct-xargs-substitution-selector-kill $'deny\tbroad-process-kill' 'xargs kill <<< "$(pgrep node)"'
+  assert_policy direct-dynamic-prefix-broad-kill $'deny\tbroad-process-kill' "p=pk; \"\${p}ill\" -f 'tsx server.ts'"
+  assert_policy direct-unreadable-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c \"\$(printf '%s' 'pkill -f tsx')\""
+  assert_policy direct-unreadable-shell-stdin-broad-pkill $'deny\tbroad-process-kill' 'payload='"'"'pkill -f tsx'"'"'; bash <<< "$payload"'
+  assert_policy direct-unreadable-shell-script $'deny\tbroad-process-kill' 'script=payload; bash "$script"'
+  assert_policy direct-unreadable-eval-broad-pkill $'deny\tbroad-process-kill' "eval \"\$(printf '%s' 'pkill -f tsx')\""
+  assert_policy direct-killall5 $'deny\tbroad-process-kill' 'killall5 -TERM'
+  assert_policy direct-skill-user-selector $'deny\tbroad-process-kill' 'skill -KILL -u rich'
+  assert_policy direct-fuser-kill $'deny\tbroad-process-kill' 'fuser -k /tmp'
+  assert_policy direct-sudo-environment-broad-pkill $'deny\tbroad-process-kill' "sudo FOO=bar pkill -f 'tsx server.ts'"
+  assert_policy direct-xargs-fuser-kill $'deny\tbroad-process-kill' "printf '%s\\n' /tmp | xargs fuser -k"
+  assert_policy direct-dynamic-xargs-child $'deny\tbroad-process-kill' "tool=pkill; printf '%s\\n' 'tsx server.ts' | xargs \"\$tool\" -f"
+  assert_policy direct-fuser-read-only allow 'fuser /tmp'
+  assert_policy direct-command-query-pkill allow 'command -v pkill'
+  assert_policy direct-command-query-killall allow 'command -V killall'
+  assert_policy direct-command-path-broad-pkill $'deny\tbroad-process-kill' "command -p pkill -f 'tsx server.ts'"
+  assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
+  assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"
+  assert_policy direct-ps-pid-list-xargs-kill $'deny\tbroad-process-kill' 'ps -eo pid= | xargs kill'
+  assert_policy direct-ps-combined-pid-list-xargs-kill $'deny\tbroad-process-kill' 'ps -eo pid=,ppid= | xargs kill'
+  assert_policy direct-ps-pid-list-xargs-data allow 'ps -eo pid= | xargs echo'
+  assert_policy direct-ps-pid-list-xargs-list allow 'ps -eo pid= | xargs kill --list'
+  assert_policy direct-xargs-unreadable-kill-targets $'deny\tbroad-process-kill' 'xargs kill < /tmp/pids'
+  assert_policy direct-xargs-kill-list allow 'xargs kill --list < /tmp/pids'
+  assert_policy direct-ps-awk-read-only allow "ps aux | awk '{print \$2}'"
+  assert_policy direct-xargs-env-split-broad-pkill $'deny\tbroad-process-kill' "printf 'x\\n' | xargs env -S 'pkill -f \"tsx server.ts\"'"
+  assert_policy direct-xargs-env-long-split-broad-pkill $'deny\tbroad-process-kill' "printf 'x\\n' | xargs env --split-string='pkill -f \"tsx server.ts\"'"
+  assert_policy direct-pgrep-xargs-env-split-kill $'deny\tbroad-process-kill' "pgrep node | xargs env -S 'kill'"
+  assert_policy direct-xargs-env-split-data allow "printf 'x\\n' | xargs env -S 'echo pkill'"
+  assert_policy direct-pgrep-xargs-shell-kill $'deny\tbroad-process-kill' "pgrep node | xargs -n1 sh -c 'kill \"\$0\"'"
+  assert_policy direct-pgrep-xargs-shell-data allow "pgrep node | xargs -n1 sh -c 'echo \"\$0\"'"
+  assert_policy direct-pgrep-xargs-nested-shell-kill $'deny\tbroad-process-kill' "pgrep node | xargs -n1 sh -c 'if true; then kill \"\$0\"; fi'"
+  assert_policy direct-pgrep-xargs-shell-group-kill $'deny\tbroad-process-kill' "pgrep node | xargs -n1 sh -c '(kill \"\$0\")'"
+  assert_policy direct-pgrep-xargs-nested-shell-data allow "pgrep node | xargs -n1 sh -c 'if true; then echo \"\$0\"; fi'"
+  assert_policy direct-broad-comment allow $'# killall node\necho ok'
   assert_policy direct-pipeline $'deny\twatcher-pipeline' 'bin/fm-watch-arm.sh | cat'
   assert_policy direct-leading-redirection $'deny\twatcher-redirection' '>/tmp/out bin/fm-watch-arm.sh'
   assert_policy direct-unclassifiable $'deny\tunclassifiable-protected-command' "bin/fm-watch-arm.sh 'unterminated"
   assert_policy direct-unsupported $'deny\tunclassifiable-protected-command' 'if true; then bin/fm-watch-arm.sh; fi'
-  assert_policy direct-constructed-payload $'deny\twatcher-nested' "WATCHER='bin/fm-watch-arm.sh &'; bash -lc \"\$WATCHER\""
+  assert_policy direct-constructed-payload $'deny\tbroad-process-kill' "WATCHER='bin/fm-watch-arm.sh &'; bash -lc \"\$WATCHER\""
   assert_policy direct-parameter-export allow 'export FM_HOME=${HOME}; bin/fm-watch-checkpoint.sh --seconds 180'
   assert_policy direct-expanded-arm-blessed allow '$FM_HOME/bin/fm-watch-arm.sh'
   assert_policy direct-expanded-arm-background $'deny\twatcher-background' '$FM_HOME/bin/fm-watch-arm.sh &'
@@ -235,8 +412,10 @@ test_direct_policy_contract() {
   assert_policy direct-watch-safe-shape $'deny\twatcher-direct' 'cd /tmp; bin/fm-watch.sh'
   heredoc_data=$'cat <<\'EOF\'\nbin/fm-watch-arm.sh &\nEOF'
   heredoc_watcher=$'bin/fm-watch-arm.sh <<\'EOF\'\ndata only\nEOF'
+  heredoc_broad_data=$'cat <<\'EOF\'\npkill -f tsx\nkillall node\nEOF'
   assert_policy direct-heredoc-data allow "$heredoc_data"
   assert_policy direct-heredoc-watcher $'deny\twatcher-redirection' "$heredoc_watcher"
+  assert_policy direct-heredoc-broad-data allow "$heredoc_broad_data"
 }
 
 # --- CLI parsing -------------------------------------------------------------
@@ -315,6 +494,9 @@ test_prefilter_is_strict_superset() {
   "$CHECK" --command "pkill -f '/bin/fm-watch.sh'" >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] || fail "prefilter must delegate a broad watcher kill, not fast-allow it, got exit $rc"
+  "$CHECK" --command "pkill -f 'tsx server.ts'" >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 2 ] || fail "prefilter must delegate a broad process kill, not fast-allow it, got exit $rc"
   # Obfuscated protected paths lose the literal fm-watch bytes (a line
   # continuation or a quote splits them), yet the classifier reconstructs them.
   # The prefilter normalizes those bytes first, so both must still delegate and
@@ -335,11 +517,11 @@ test_prefilter_is_strict_superset() {
   "$CHECK" --command 'bin/fm-$"watch"-arm.sh &' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] || fail "prefilter must delegate a locale-string-encoded protected path, not fast-allow it, got exit $rc"
-  # The marker is specifically $ followed by a quote, not any $ expansion: an
-  # ordinary $VAR that is not a watcher reference still takes the fast path.
+  # A dynamic executable must reach the classifier and fail closed even when it
+  # is not a watcher reference.
   "$CHECK" --command '$FM_HOME/bin/fm-teardown.sh &' >/dev/null 2>&1
   rc=$?
-  [ "$rc" -eq 0 ] || fail "a benign \$VAR non-watcher command must still fast-allow, got exit $rc"
+  [ "$rc" -eq 2 ] || fail "a dynamic non-watcher executable must be denied, got exit $rc"
   "$CHECK" --command 'echo "$HOME/scratch" && ls -la' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 0 ] || fail "a benign \$HOME command must still fast-allow, got exit $rc"

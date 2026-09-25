@@ -912,7 +912,7 @@ spawn_herdr_presentation_order_lock_acquire() {
 }
 
 clear_relaunch_harness_wiring() {
-  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path
+  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path safe_path
   # The wiring arms above match on harness PREFIXES, because a task launched
   # from a raw command records that command's basename rather than the exact
   # adapter name. The retirement tables are keyed by the exact adapter, so the
@@ -932,7 +932,14 @@ clear_relaunch_harness_wiring() {
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    rm -f -- "$path" || return 1
+    case "$path" in
+      "$wt"/*)
+        safe_path=$(fm_control_worktree_artifact_removable "$wt" "$path") || return 1
+        [ -n "$safe_path" ] || continue
+        rm -f -- "$safe_path" || return 1
+        ;;
+      *) rm -f -- "$path" || return 1 ;;
+    esac
   done <<EOF
 $(fm_control_harness_wiring_paths "$harness" "$wt" "$state" "$id")
 EOF
@@ -1242,9 +1249,9 @@ launch_template() {
     claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     codex)
       if [ "$kind" = secondmate ]; then
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c __HOMENOTIFY__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust -c __HOMENOTIFY__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       else
-        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
       ;;
     opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
@@ -1253,7 +1260,7 @@ launch_template() {
       if [ "$kind" = secondmate ]; then
         printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       else
-        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ -e __PIPRETOOL__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
       ;;
     # grok (Grok Build TUI): a positional prompt starts the supervised interactive
@@ -2569,21 +2576,34 @@ if [ "$KIND" != secondmate ]; then
       # the turn-ended NOTIFICATION touch for the watcher. Every
       # hook command tolerates a refused event (|| true) so a stale-gen writer
       # can never break Claude's own lifecycle.
-      mkdir -p "$WT/.claude"
+      CLAUDE_SETTINGS=$(fm_control_worktree_artifact_path "$WT" '.claude/settings.local.json' replace) || {
+        echo "error: refusing unsafe Claude hook path in $WT" >&2
+        exit 1
+      }
       busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
       busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source claude-hook"
       j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
       j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
       j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
       j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
-      cat > "$WT/.claude/settings.local.json" <<EOF
-{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}]}}
+      j_pretool=$(json_escape "exec $(shell_quote "$FM_ROOT/bin/fm-arm-pretool-check.sh") --claude")
+      cat > "$CLAUDE_SETTINGS" <<EOF
+{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}],"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$j_pretool","timeout":10}]}]}}
 EOF
       exclude_path '.claude/settings.local.json'
       ;;
     opencode*)
-      mkdir -p "$WT/.opencode/plugins"
-      cat > "$WT/.opencode/plugins/fm-busy-state.js" <<EOF
+      OPENCODE_PRETOOL=$(fm_control_worktree_artifact_path "$WT" '.opencode/plugins/fm-fleet-pretool-check.js' new) || {
+        echo "error: refusing unsafe OpenCode PreToolUse hook path in $WT" >&2
+        exit 1
+      }
+      OPENCODE_BUSY=$(fm_control_worktree_artifact_path "$WT" '.opencode/plugins/fm-busy-state.js' replace) || {
+        echo "error: refusing unsafe OpenCode busy hook path in $WT" >&2
+        exit 1
+      }
+      ln -s "$FM_ROOT/.opencode/plugins/fm-primary-pretool-check.js" "$OPENCODE_PRETOOL"
+      exclude_path '.opencode/plugins/fm-fleet-pretool-check.js'
+      cat > "$OPENCODE_BUSY" <<EOF
 // Firstmate semantic busy-state events + turn-end notification; written by
 // fm-spawn under the contract owned by bin/fm-busy-lib.sh.
 // Semantic state comes from OpenCode's session.status events: busy and retry
@@ -2666,6 +2686,28 @@ export default function (pi: any) {
   pi.on("turn_end", () => execFile("touch", ["$TURNEND"]));
 }
 EOF
+      cat > "$STATE/$ID.pi-pretool.ts" <<EOF
+import { spawn } from "node:child_process";
+const root = process.env.FM_PRETOOL_ROOT || "";
+function check(command: string): Promise<{ code: number; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("$FM_ROOT/bin/fm-arm-pretool-check.sh", ["--command", command], { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    child.on("error", () => resolve({ code: 0, stderr: "" }));
+    child.on("close", (code) => resolve({ code: code ?? 0, stderr }));
+  });
+}
+export default function (pi: any) {
+  pi.on("tool_call", async (event: any) => {
+    if (!root || event.type !== "tool_call" || event.toolName !== "bash") return {};
+    const command = String(event.input?.command ?? "");
+    if (!command) return {};
+    const result = await check(command);
+    return result.code === 2 ? { block: true, reason: result.stderr.trim() || "denied by the watcher-arm PreToolUse seatbelt" } : {};
+  });
+}
+EOF
       ;;
     codex*)
       # Semantic busy-state source negotiation (bin/fm-busy-lib.sh owns the
@@ -2723,8 +2765,34 @@ EOF
       chmod +x "$GROK_HOOKS_DIR/fm-turn-end.sh"
       hook_command=$(json_escape "bash $(shell_quote "$GROK_HOOKS_DIR/fm-turn-end.sh")")
       printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"%s"}]}]}}\n' "$hook_command" > "$GROK_HOOKS_DIR/fm-turn-end.json"
-      printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-grok-turnend"
+      GROK_TURNEND_POINTER=$(fm_control_worktree_artifact_path "$WT" '.fm-grok-turnend' replace) || {
+        echo "error: refusing unsafe Grok turn-end pointer path in $WT" >&2
+        exit 1
+      }
+      printf 'token=%s\n' "${auth_file##*/}" > "$GROK_TURNEND_POINTER"
       exclude_path '.fm-grok-turnend'
+      cat > "$GROK_HOOKS_DIR/fm-pretool-check.sh" <<'EOF'
+#!/usr/bin/env bash
+set -u
+workspace=${GROK_WORKSPACE_ROOT:-}
+[ -n "$workspace" ] || exit 0
+pointer="$workspace/.fm-grok-pretool-root"
+[ -f "$pointer" ] || exit 0
+root=
+IFS= read -r root < "$pointer" 2>/dev/null || [ -n "$root" ] || exit 0
+case "$root" in /*) ;; *) exit 0 ;; esac
+[ -x "$root/bin/fm-arm-pretool-check.sh" ] || exit 0
+exec "$root/bin/fm-arm-pretool-check.sh"
+EOF
+      chmod +x "$GROK_HOOKS_DIR/fm-pretool-check.sh"
+      hook_command=$(json_escape "bash $(shell_quote "$GROK_HOOKS_DIR/fm-pretool-check.sh")")
+      printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"%s","timeout":10}]}]}}\n' "$hook_command" > "$GROK_HOOKS_DIR/fm-pretool-check.json"
+      GROK_PRETOOL_POINTER=$(fm_control_worktree_artifact_path "$WT" '.fm-grok-pretool-root' new) || {
+        echo "error: refusing unsafe Grok PreToolUse pointer path in $WT" >&2
+        exit 1
+      }
+      printf '%s\n' "$FM_ROOT" > "$GROK_PRETOOL_POINTER"
+      exclude_path '.fm-grok-pretool-root'
       ;;
     muse*)
       # muse's turn lifecycle is neither a hook nor a launch flag: its plugin
@@ -2776,6 +2844,13 @@ EOF
           done
         fi
       } > "$STATE/$ID.cursor-session"
+      CURSOR_HOOKS=$(fm_control_worktree_artifact_path "$WT" '.cursor/hooks.json' new) || {
+        echo "error: refusing unsafe Cursor PreToolUse hook path in $WT" >&2
+        exit 1
+      }
+      cursor_pretool=$(shell_quote "$FM_ROOT/bin/fm-arm-pretool-check.sh")
+      jq -n --arg command "exec $cursor_pretool --cursor" '{version: 1, hooks: {preToolUse: [{matcher: "Shell", type: "command", command: $command, timeout: 10}]}}' > "$CURSOR_HOOKS"
+      exclude_path '.cursor/hooks.json'
       ;;
     kimi*)
       # Kimi's Stop hook is global, but it is inert unless cwd contains this
@@ -2789,10 +2864,24 @@ EOF
       umask "$old_umask"
       printf '%s\n' "$TURNEND" > "$auth_file"
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.kimi-turnend-token"
-      printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-kimi-turnend"
+      KIMI_TURNEND_POINTER=$(fm_control_worktree_artifact_path "$WT" '.fm-kimi-turnend' replace) || {
+        echo "error: refusing unsafe Kimi turn-end pointer path in $WT" >&2
+        exit 1
+      }
+      printf 'token=%s\n' "${auth_file##*/}" > "$KIMI_TURNEND_POINTER"
       exclude_path '.fm-kimi-turnend'
       ;;
   esac
+fi
+
+if [ "$KIND" != secondmate ] && [ "$HARNESS" = codex ]; then
+  CODEX_HOOKS=$(fm_control_worktree_artifact_path "$WT" '.codex/hooks.json' new) || {
+    echo "error: refusing unsafe Codex PreToolUse hook path in $WT" >&2
+    exit 1
+  }
+  codex_pretool=$(shell_quote "$FM_ROOT/bin/fm-arm-pretool-check.sh")
+  jq -n --arg command "exec $codex_pretool" '{hooks: {PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: $command, timeout: 10}]}]}}' > "$CODEX_HOOKS"
+  exclude_path '.codex/hooks.json'
 fi
 
 # Delivery posture recorded in meta so fm-teardown's safety check and the
@@ -2946,6 +3035,7 @@ SPAWN_BROWSER_ARMED=1
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
 sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
+sq_pipretool=$(shell_quote "$STATE/$ID.pi-pretool.ts")
 sq_piturnend=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-turnend-guard.ts")
 sq_piwatch=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-pi-watch.ts")
 sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
@@ -2964,6 +3054,7 @@ if [ "$KIND" = secondmate ] && [ "$HARNESS" = codex ]; then
   LAUNCH="FM_HOME_WAKE_BACKEND=$(shell_quote "$BACKEND") FM_HOME_WAKE_TARGET=$(shell_quote "$T") $LAUNCH"
 fi
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
+LAUNCH=${LAUNCH//__PIPRETOOL__/$sq_pipretool}
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
 LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
@@ -2986,6 +3077,11 @@ esac
 # an unset value is the single-store default and needs no prefix.
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
+fi
+if [ "$KIND" != secondmate ]; then
+  case "$HARNESS" in
+    opencode|pi|pi-signed) LAUNCH="FM_PRETOOL_ROOT=$(shell_quote "$FM_ROOT") $LAUNCH" ;;
+  esac
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
