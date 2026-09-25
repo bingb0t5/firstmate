@@ -1,0 +1,19 @@
+Live CLI verification - fm-process-kill.sh
+
+Command: isolated bash session spawning its own sleep(1) process, capturing its identity using `--print-identity`, then exercising the public CLI.
+
+PID scenario output:
+live PID identity capture: ok
+error: pattern/name targets are refused; provide an exact recorded PID or PGID
+pattern refusal: ok
+error: process and group targets are mutually exclusive
+ambiguous target refusal preserves process: ok
+error: recorded PID identity no longer matches the live process; refusing to signal a possibly reused PID
+identity mismatch refusal preserves process: ok
+recorded PID termination: ok (TERM delivered)
+
+PGID scenario output:
+live PGID leader identity capture: ok
+recorded PGID termination: ok (TERM delivered to isolated group)
+
+All spawned processes were owned by the isolated verification shell and were terminated before it exited.
