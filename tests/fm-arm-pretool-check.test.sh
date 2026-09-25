@@ -215,13 +215,19 @@ matrix_case E13 allow "printf '%s\\n' 'argument has ; and fm-watch-arm.sh and &&
 matrix_case E14 deny '$CMD &'
 matrix_case E15 allow '$FM_HOME/bin/fm-watch-arm.sh'
 matrix_case E16 allow '~/firstmate/bin/fm-watch-checkpoint.sh --seconds 180'
-matrix_case E30 allow '$FM_HOME/bin/fm-teardown.sh &'
-matrix_case E31 allow '$B/fm-pr-merge.sh task1 https://x/1'
-matrix_case E32 allow '$B/ls -la'
+matrix_case E30 deny '$FM_HOME/bin/fm-teardown.sh &'
+matrix_case E31 deny '$B/fm-pr-merge.sh task1 https://x/1'
+matrix_case E32 deny '$B/ls -la'
 matrix_case E33 deny '$DIR/$FILE 12345'
 matrix_case E34 deny '$B/pkill foo'
-matrix_case E35 allow '(cd "$ROOT" && $B/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); $B/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && $B/fm-build.sh task3 | tail -2); $B/fm-send.sh task4 "hello there, multi word message"; $B/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
-matrix_case E36 allow '$B/p[k]dir/fm-pr-merge.sh task1 https://x/1'
+matrix_case E35 deny '(cd "$ROOT" && $B/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); $B/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && $B/fm-build.sh task3 | tail -2); $B/fm-send.sh task4 "hello there, multi word message"; $B/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
+matrix_case E36 deny '$B/p[k]dir/fm-pr-merge.sh task1 https://x/1'
+matrix_case E37 allow '"$B/fm-pr-merge.sh" task1 https://x/1'
+matrix_case E38 allow '"$B"/ls -la'
+matrix_case E39 allow '(cd "$ROOT" && "$B"/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); "$B"/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && "$B"/fm-build.sh task3 | tail -2); "$B"/fm-send.sh task4 "hello there, multi word message"; "$B"/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
+matrix_case E40 allow '"$B/p[k]dir"/fm-pr-merge.sh task1 https://x/1'
+matrix_case E41 allow 'B="pkill -f target"; "$B"/fm-pr-merge.sh task1'
+matrix_case E42 deny 'B="pkill -f target"; $B/fm-pr-merge.sh task1'
 matrix_case E17 allow 'for f in 1; do echo fm-watch; done'
 matrix_case E18 allow "printf '%s\\n' data | xargs echo pkill"
 matrix_case E20 allow "ps aux | awk '{print \$2}'"
@@ -420,10 +426,20 @@ test_direct_policy_contract() {
   assert_policy direct-watch-expanded $'deny\twatcher-direct' '$FM_HOME/bin/fm-watch.sh'
   assert_policy direct-watch-safe-shape $'deny\twatcher-direct' 'cd /tmp; bin/fm-watch.sh'
   # dynamic-executable-basename narrowing (docs/arm-pretool-check.md): a
-  # variable-expanded directory prefix ahead of a literal, non-kill filename
-  # is not dynamic-executable risk; only an unresolved filename/basename is.
-  assert_policy direct-dynamic-prefix-literal-script allow '$B/fm-pr-merge.sh task1 https://x/1'
-  assert_policy direct-dynamic-prefix-literal-coreutil allow '$B/ls -la'
+  # directory-prefix expansion ahead of a literal, non-kill filename is not
+  # dynamic-executable risk only when the whole prefix expansion is
+  # double-quoted - double quotes rule out field splitting and pathname
+  # expansion, so a runtime value with embedded whitespace or glob metacharacters
+  # cannot resolve to extra words or a different command. An UNQUOTED prefix
+  # expansion still denies even with a literal, known-safe basename, because an
+  # attacker-influenced runtime value could field-split into an unrelated
+  # command (e.g. B='pkill -f target'; $B/fm-pr-merge.sh runs `pkill -f
+  # target/fm-pr-merge.sh`). Only an unresolved filename/basename itself is
+  # otherwise dynamic-executable risk.
+  assert_policy direct-unquoted-prefix-literal-script $'deny\tbroad-process-kill' '$B/fm-pr-merge.sh task1 https://x/1'
+  assert_policy direct-unquoted-prefix-literal-coreutil $'deny\tbroad-process-kill' '$B/ls -la'
+  assert_policy direct-quoted-prefix-literal-script allow '"$B/fm-pr-merge.sh" task1 https://x/1'
+  assert_policy direct-quoted-prefix-literal-coreutil allow '"$B"/ls -la'
   assert_policy direct-fully-dynamic-program-name $'deny\tbroad-process-kill' '$CMD 12345'
   assert_policy direct-dynamic-filename-component $'deny\tbroad-process-kill' '$DIR/$FILE 12345'
   assert_policy direct-dynamic-prefix-kill-basename $'deny\tbroad-process-kill' '$B/pkill foo'
@@ -431,9 +447,17 @@ test_direct_policy_contract() {
   assert_policy direct-parameter-expansion-escaped-brace-broad-kill $'deny\tbroad-process-kill' 'CMD=pkill; ${CMD#\}/unused} -f target'
   assert_policy direct-parameter-expansion-quoted-slash-broad-kill $'deny\tbroad-process-kill' "CMD=pkill; \${CMD#'/'} -f target"
   assert_policy direct-dynamic-glob-basename $'deny\tbroad-process-kill' '$B/p[k]ill -f target'
-  assert_policy direct-dynamic-glob-prefix-literal-script allow '$B/p[k]dir/fm-pr-merge.sh task1 https://x/1'
-  assert_policy direct-dynamic-prefix-compound-chain allow \
+  assert_policy direct-unquoted-glob-prefix-literal-script $'deny\tbroad-process-kill' '$B/p[k]dir/fm-pr-merge.sh task1 https://x/1'
+  assert_policy direct-quoted-glob-prefix-literal-script allow '"$B/p[k]dir"/fm-pr-merge.sh task1 https://x/1'
+  assert_policy direct-unquoted-prefix-compound-chain $'deny\tbroad-process-kill' \
     '(cd "$ROOT" && $B/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); $B/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && $B/fm-build.sh task3 | tail -2); $B/fm-send.sh task4 "hello there, multi word message"; $B/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
+  assert_policy direct-quoted-prefix-compound-chain allow \
+    '(cd "$ROOT" && "$B"/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); "$B"/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && "$B"/fm-build.sh task3 | tail -2); "$B"/fm-send.sh task4 "hello there, multi word message"; "$B"/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
+  # Even with an embedded-whitespace runtime value that would field-split an
+  # unquoted prefix into a separate pkill invocation, the quoted form stays
+  # a single shell word (worst case: a nonexistent path), so it still allows.
+  assert_policy direct-quoted-prefix-embedded-spaces-safe allow 'B="pkill -f target"; "$B"/fm-pr-merge.sh task1'
+  assert_policy direct-unquoted-prefix-embedded-spaces-exploit-shape $'deny\tbroad-process-kill' 'B="pkill -f target"; $B/fm-pr-merge.sh task1'
   heredoc_data=$'cat <<\'EOF\'\nbin/fm-watch-arm.sh &\nEOF'
   heredoc_watcher=$'bin/fm-watch-arm.sh <<\'EOF\'\ndata only\nEOF'
   heredoc_broad_data=$'cat <<\'EOF\'\npkill -f tsx\nkillall node\nEOF'

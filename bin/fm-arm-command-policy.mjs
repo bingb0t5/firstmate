@@ -405,7 +405,7 @@ export class Lexer {
   }
 
   readWord() {
-    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, unquotedExpansionOffsets: [], literalSlashOffsets: [] };
+    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, unquotedExpansionOffsets: [], literalSlashOffsets: [], unquotedDollarOffsets: [] };
     let consumed = false;
     let parameterEnd = -1;
     while (this.index < this.source.length) {
@@ -465,7 +465,7 @@ export class Lexer {
           this.error = "unclosed command substitution";
           return null;
         }
-        word.subs.push({ kind: "command", content: balanced.content, at: word.value.length });
+        word.subs.push({ kind: "command", content: balanced.content, at: word.value.length, quoted: false });
         word.literal = false;
         this.index = balanced.next;
         continue;
@@ -477,7 +477,7 @@ export class Lexer {
           this.error = "unclosed process substitution";
           return null;
         }
-        word.subs.push({ kind: "process", content: balanced.content, at: word.value.length });
+        word.subs.push({ kind: "process", content: balanced.content, at: word.value.length, quoted: false });
         word.literal = false;
         this.index = balanced.next;
         continue;
@@ -488,7 +488,7 @@ export class Lexer {
           this.error = "unclosed backtick substitution";
           return null;
         }
-        word.subs.push({ kind: "command", content: backticks.content, at: word.value.length });
+        word.subs.push({ kind: "command", content: backticks.content, at: word.value.length, quoted: false });
         word.literal = false;
         this.index = backticks.next;
         continue;
@@ -497,7 +497,10 @@ export class Lexer {
         const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
         if (parameter) parameterEnd = parameter.next;
       }
-      if (char === "$") word.literal = false;
+      if (char === "$") {
+        word.literal = false;
+        word.unquotedDollarOffsets.push(word.value.length);
+      }
       if ("*?[]{}".includes(char)) {
         word.unquotedExpansion = true;
         if (this.index >= parameterEnd) word.unquotedExpansionOffsets.push(word.value.length);
@@ -530,7 +533,7 @@ export class Lexer {
       if (this.source.startsWith("$(", this.index)) {
         const balanced = extractBalanced(this.source, this.index + 2, "(", ")");
         if (!balanced) break;
-        word.subs.push({ kind: "command", content: balanced.content, at: word.value.length });
+        word.subs.push({ kind: "command", content: balanced.content, at: word.value.length, quoted: true });
         word.literal = false;
         this.index = balanced.next;
         continue;
@@ -538,7 +541,7 @@ export class Lexer {
       if (char === "`") {
         const backticks = extractBackticks(this.source, this.index + 1);
         if (!backticks) break;
-        word.subs.push({ kind: "command", content: backticks.content, at: word.value.length });
+        word.subs.push({ kind: "command", content: backticks.content, at: word.value.length, quoted: true });
         word.literal = false;
         this.index = backticks.next;
         continue;
@@ -547,6 +550,9 @@ export class Lexer {
         const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
         if (parameter) parameterEnd = parameter.next;
       }
+      // A bare $ expansion here is inside double quotes, so it cannot undergo field
+      // splitting or pathname expansion; unlike the main unquoted loop, this is not
+      // recorded in word.unquotedDollarOffsets.
       if (char === "$") word.literal = false;
       appendWordValue(word, char, this.index >= parameterEnd);
       this.index += 1;
@@ -938,13 +944,22 @@ function isPsPidListing(position) {
 // (the segment after the last literal "/") is unresolved at policy-check time, not
 // merely because an earlier directory-prefix segment came from a variable expansion
 // or substitution (e.g. "$B/fm-pr-merge.sh" resolves to a known-safe literal script).
+// A directory-prefix segment (before the last literal "/") is only treated as
+// non-dynamic when every expansion in it is double-quoted: bash never performs
+// field splitting or pathname expansion inside double quotes, so a quoted
+// prefix cannot resolve to extra words at runtime regardless of its value. An
+// unquoted prefix expansion (e.g. "$B/fm-pr-merge.sh") keeps denying even when
+// the basename is a literal, known-safe filename, because a runtime value
+// containing whitespace would field-split into a different, unrelated command.
 function dynamicExecutableBasename(word) {
   if (!word || word.type !== "word") return false;
   if (word.literal && word.subs.length === 0) return false;
   const basenameStart = (word.literalSlashOffsets.at(-1) ?? -1) + 1;
   if (word.value.slice(basenameStart).includes("$")) return true;
   if (word.unquotedExpansionOffsets.some((offset) => offset >= basenameStart)) return true;
-  return word.subs.some((sub) => sub.at >= basenameStart);
+  if (word.subs.some((sub) => sub.at >= basenameStart)) return true;
+  if (word.unquotedDollarOffsets.some((offset) => offset < basenameStart)) return true;
+  return word.subs.some((sub) => !sub.quoted && sub.at < basenameStart);
 }
 
 function dynamicExecutableCommand(position, root) {
