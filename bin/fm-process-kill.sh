@@ -32,6 +32,11 @@
 # target, so callers must invoke `--print-identity` only for a PID or PGID
 # they just recorded through their own process-management flow, never an
 # arbitrary or probed target.
+# Identity verification and signaling are separate operations. A verified
+# PID or PGID can exit and be reused by an unrelated process between the
+# identity check and signal. This narrows the pre-existing no-identity-check
+# window but does not eliminate it; closing it requires an atomic OS-backed
+# handle such as a Linux pidfd, which is outside this helper's scope.
 set -u
 
 signal=TERM
@@ -57,6 +62,11 @@ only defends against target reuse after genuine record-time capture; it does
 not prove the caller started or owns a target. Only call --print-identity for
 a PID or PGID the caller just recorded through its own process-management
 flow, never an arbitrary or probed target.
+Identity verification and signaling are separate operations, so a verified
+PID or PGID can exit and be reused by an unrelated process between the
+identity check and signal. This narrows the pre-existing no-identity-check
+window but does not eliminate it; closing it requires an atomic OS-backed
+handle such as a Linux pidfd, which is outside this helper's scope.
 EOF
 }
 
