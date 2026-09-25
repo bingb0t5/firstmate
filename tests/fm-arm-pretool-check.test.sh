@@ -210,9 +210,14 @@ matrix_case E10 deny "eval 'bin/fm-watch-arm.sh &'"
 matrix_case E11 deny "exec bash -lc 'bin/fm-watch-arm.sh &'"
 matrix_case E12 deny 'bash -lc "$WATCHER_COMMAND" # fm-watch-arm.sh'
 matrix_case E13 allow "printf '%s\\n' 'argument has ; and fm-watch-arm.sh and &&'"
-matrix_case E14 deny '$FM_HOME/bin/fm-teardown.sh &'
+matrix_case E14 deny '$CMD &'
 matrix_case E15 allow '$FM_HOME/bin/fm-watch-arm.sh'
 matrix_case E16 allow '~/firstmate/bin/fm-watch-checkpoint.sh --seconds 180'
+matrix_case E30 allow '$FM_HOME/bin/fm-teardown.sh &'
+matrix_case E31 allow '$B/fm-pr-merge.sh task1 https://x/1'
+matrix_case E32 allow '$B/ls -la'
+matrix_case E33 deny '$DIR/$FILE 12345'
+matrix_case E34 deny '$B/pkill foo'
 matrix_case E17 allow 'for f in 1; do echo fm-watch; done'
 matrix_case E18 allow "printf '%s\\n' data | xargs echo pkill"
 matrix_case E20 allow "ps aux | awk '{print \$2}'"
@@ -410,6 +415,16 @@ test_direct_policy_contract() {
   assert_policy direct-watch-not-blessed $'deny\twatcher-direct' 'bin/fm-watch.sh'
   assert_policy direct-watch-expanded $'deny\twatcher-direct' '$FM_HOME/bin/fm-watch.sh'
   assert_policy direct-watch-safe-shape $'deny\twatcher-direct' 'cd /tmp; bin/fm-watch.sh'
+  # dynamic-executable-basename narrowing (docs/arm-pretool-check.md): a
+  # variable-expanded directory prefix ahead of a literal, non-kill filename
+  # is not dynamic-executable risk; only an unresolved filename/basename is.
+  assert_policy direct-dynamic-prefix-literal-script allow '$B/fm-pr-merge.sh task1 https://x/1'
+  assert_policy direct-dynamic-prefix-literal-coreutil allow '$B/ls -la'
+  assert_policy direct-fully-dynamic-program-name $'deny\tbroad-process-kill' '$CMD 12345'
+  assert_policy direct-dynamic-filename-component $'deny\tbroad-process-kill' '$DIR/$FILE 12345'
+  assert_policy direct-dynamic-prefix-kill-basename $'deny\tbroad-process-kill' '$B/pkill foo'
+  assert_policy direct-dynamic-prefix-compound-chain allow \
+    '(cd "$ROOT" && $B/fm-pr-check.sh task1 https://x/1 | grep something | tail -1); $B/fm-fetch.sh task2 | grep other | tail -2; (cd "$ROOT/sub" && $B/fm-build.sh task3 | tail -2); $B/fm-send.sh task4 "hello there, multi word message"; $B/fm-wake-drain.sh --ack-through 5 --recovery-generation 3'
   heredoc_data=$'cat <<\'EOF\'\nbin/fm-watch-arm.sh &\nEOF'
   heredoc_watcher=$'bin/fm-watch-arm.sh <<\'EOF\'\ndata only\nEOF'
   heredoc_broad_data=$'cat <<\'EOF\'\npkill -f tsx\nkillall node\nEOF'
@@ -517,11 +532,13 @@ test_prefilter_is_strict_superset() {
   "$CHECK" --command 'bin/fm-$"watch"-arm.sh &' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 2 ] || fail "prefilter must delegate a locale-string-encoded protected path, not fast-allow it, got exit $rc"
-  # A dynamic executable must reach the classifier and fail closed even when it
-  # is not a watcher reference.
-  "$CHECK" --command '$FM_HOME/bin/fm-teardown.sh &' >/dev/null 2>&1
+  # A command whose invoked filename itself is unresolved must reach the
+  # classifier and fail closed even when it is not a watcher reference. A
+  # merely dynamic directory-prefix ahead of a literal, known-safe filename
+  # (e.g. "$FM_HOME/bin/fm-teardown.sh") is not this case; see E30/E31/E32.
+  "$CHECK" --command '$CMD &' >/dev/null 2>&1
   rc=$?
-  [ "$rc" -eq 2 ] || fail "a dynamic non-watcher executable must be denied, got exit $rc"
+  [ "$rc" -eq 2 ] || fail "a fully dynamic non-watcher executable must be denied, got exit $rc"
   "$CHECK" --command 'echo "$HOME/scratch" && ls -la' >/dev/null 2>&1
   rc=$?
   [ "$rc" -eq 0 ] || fail "a benign \$HOME command must still fast-allow, got exit $rc"
