@@ -12,7 +12,7 @@ agent_config:
 # so it is honored only from the default-branch copy of this file. Layered above
 # the NO_MISTAKES_GATE lifecycle refusal (bin/fm-gate-refuse-lib.sh) and the
 # HEAD-continuity guard; see docs/architecture.md "No-mistakes gate authority boundary."
-disable_project_settings: false
+disable_project_settings: true
 
 # Trusted documentation placement policy for the Document step.
 # The audience inventory and coding guideline own the detail; keep this as a
