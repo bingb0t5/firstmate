@@ -125,7 +125,8 @@ An unrecognized option on one of those prefixes that precedes a named broad-kill
 `kill "$(pgrep -f '/bin/fm-watch.sh')"` is also denied because the executed `kill` consumes an executed watcher-wide `pgrep` substitution.
 Name-selected `pgrep`, `pidof`, `ps -C`, `ps` piped through `grep`, `rg`, or `awk '{print $2}'`, or `lsof -c` output is denied when it feeds `kill` through command substitution, backticks, a propagated shell variable, redirected input, or a pipeline into an `xargs` child that visibly executes literal `kill`, including through visible nested shell or group syntax.
 `xargs pkill`, `xargs killall`, `xargs killall5`, `xargs skill`, `xargs fuser -k`, and terminating `xargs kill` children are denied directly after resolving xargs options and existing wrappers, including `timeout`, `gtimeout`, `env -S`, and `env --split-string`, to the actual child command; `sh -c` children with a visible payload are classified recursively; data arguments and read-only `kill -l` or `kill --list` queries are allowed.
-A dynamic executable name is denied unless it is a recognized protected watcher script.
+Only an unresolved final basename - the segment after the last literal slash - makes an executable dynamically unsafe: a bare dollar expansion, command or backtick substitution, or unquoted glob or brace syntax in that segment denies unless it is a recognized protected watcher script.
+An unresolved directory prefix does not do so, while a literal broad-kill basename remains denied independently.
 The guard applies exactly three bounded rules: it refuses named broad-kill constructions, anything aimed at everything, and anything it cannot read; it is not a semantic analyser.
 Rewrite such work through `bin/fm-process-kill.sh`; its header and `--help` own the recorded-target and identity-verification contract.
 Standalone read-only `pgrep`, `pidof`, `ps`, `lsof`, and `command -v` or `command -V` queries are allowed.
