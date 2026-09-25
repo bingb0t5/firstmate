@@ -57,11 +57,11 @@
 # refused outright.
 #
 # The report record state/.tool-updates is written only when a sweep runs to its
-# end, and it carries the whole finding set the last report was made from,
-# uncut, so the same pending update is reported once rather than on every poll
-# while a new finding that lands past the one-line cut is still news. A sweep
-# killed part way through leaves no record and is retried, instead of
-# suppressing its finding.
+# end, and it carries stable identities for the whole finding set the last report
+# was made from, uncut, so the same pending update is reported once even when its
+# rendered paths or wording change while a new finding that lands past the
+# one-line cut is still news. A sweep killed part way through leaves no record
+# and is retried, instead of suppressing its finding.
 set -u
 export LC_ALL=C
 # A watched git remote must never stop to ask for credentials; an unauthenticated
@@ -77,7 +77,7 @@ CHECK_ID=tool-updates
 CHECK_SHIM="$STATE/$CHECK_ID.check.sh"
 CHECK_TRUST="$STATE/$CHECK_ID.check-trust"
 REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
-RECORD_SCHEMA=fm-tool-updates-v1
+RECORD_SCHEMA=fm-tool-updates-v2
 # Wider than the digest default because one finding names two absolute paths and
 # their two versions, and several tools can report in the same sweep.
 MAX_LINE=1000
@@ -191,19 +191,39 @@ record_epoch_now() {
 real_epoch() { date +%s; }
 
 FINDINGS=
+FINDING_KEYS=
 DEADLINE=0
 INCOMPLETE_REPORTED=0
 
 # Each finding is flattened to a single line here, because the whole report must
 # stay one line for the wake record.
 emit() {
-  local text
+  local text key
   text=$(printf '%s' "$1" | tr '\t\r\n' '   ')
+  key=${2:-finding:$text}
+  key=$(printf '%s' "$key" | tr '\t\r\n;' '    ')
   if [ -z "$FINDINGS" ]; then
     FINDINGS=$text
+    if [ -z "$FINDING_KEYS" ]; then
+      FINDING_KEYS=$key
+    else
+      FINDING_KEYS="$FINDING_KEYS;$key"
+    fi
   else
     FINDINGS="$FINDINGS; $text"
+    FINDING_KEYS="$FINDING_KEYS;$key"
   fi
+}
+
+emit_update() {
+  local identity=$1 text=$2
+  identity=$(printf '%s' "$identity" | tr '\t\r\n;' '    ')
+  emit "$text" "update:$identity"
+}
+
+canonical_finding_keys() {
+  local keys=$1
+  [ -z "$keys" ] || printf '%s\n' "$keys" | tr ';' '\n' | sort -u | paste -sd ';' -
 }
 
 budget_exhausted() {
@@ -241,6 +261,10 @@ probe_bound() {
 # First dotted number in the text, so "herdr 0.8.2" and "v1.46.0" both work.
 parse_version() {
   printf '%s' "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | head -n 1
+}
+
+parse_target_version() {
+  printf '%s' "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | tail -n 1
 }
 
 # version_newer <a> <b>: true when version a is numerically newer than b.
@@ -403,7 +427,7 @@ probe_output() {
 
 command_findings() {
   local name=$1 command_name=$2 args_joined=$3 announce=$4 announce_args=$5
-  local hit out version matched announce_out status
+  local hit out version matched announce_out status target_version
   local resolved_path='' resolved_version='' resolved_out=''
   local best_path='' best_version='' unreadable='' hits=''
 
@@ -478,7 +502,13 @@ EOF
       if [ "$status" -gt 1 ]; then
         emit "$name check failed: announce_pattern is not a usable extended regular expression"
       elif [ -n "$matched" ]; then
-        emit "$name update available: $(printf '%s\n' "$matched" | head -n 1)"
+        matched=$(printf '%s\n' "$matched" | head -n 1)
+        target_version=$(parse_target_version "$matched")
+        if [ -z "$target_version" ]; then
+          emit "$name check failed: update announcement has no dotted target version"
+        else
+          emit_update "announce:$name|$target_version" "$name update available: $matched"
+        fi
       fi
     fi
   fi
@@ -492,7 +522,7 @@ EOF
 
   if [ -n "$best_version" ] && [ "$best_path" != "$resolved_path" ] \
     && version_newer "$best_version" "$resolved_version"; then
-    emit "$name update not in effect: PATH resolves $resolved_version at $resolved_path but $best_version is installed at $best_path"
+    emit_update "path:$name|$best_version" "$name update not in effect: PATH resolves $resolved_version at $resolved_path but $best_version is installed at $best_path"
   fi
 
   if [ -n "$unreadable" ]; then
@@ -536,6 +566,48 @@ git_probe_answered() {
   return 0
 }
 
+# Remote answers are retried once because a transport can briefly fail between
+# otherwise successful checks. An unanswered retry, from a timeout or exhausted
+# budget, leaves the source unknown and silent; an empty successful answer
+# remains actionable as a missing branch.
+GIT_REMOTE_OUTPUT=
+GIT_REMOTE_RETRY_SKIPPED=0
+
+git_remote_probe() {
+  local status output
+  GIT_REMOTE_RETRY_SKIPPED=0
+  output=$(git_probe "$@" 2>/dev/null)
+  status=$?
+  if [ "$status" -ne 0 ] && [ "$status" -ne "$GIT_PROBE_NOT_ISSUED" ]; then
+    output=$(git_probe "$@" 2>/dev/null)
+    status=$?
+    [ "$status" -ne "$GIT_PROBE_NOT_ISSUED" ] || GIT_REMOTE_RETRY_SKIPPED=1
+  fi
+  GIT_REMOTE_OUTPUT=$output
+  return "$status"
+}
+
+retain_reported_git_updates() {
+  local name=$1 remaining=$RECORD_REPORTED key
+  while [ -n "$remaining" ]; do
+    key=${remaining%%;*}
+    if [ "$key" = "$remaining" ]; then
+      remaining=
+    else
+      remaining=${remaining#*;}
+    fi
+    case "$key" in
+      "update:git:$name|"*)
+        if [ -z "$FINDING_KEYS" ]; then
+          FINDING_KEYS=$key
+        else
+          FINDING_KEYS="$FINDING_KEYS;$key"
+        fi
+        ;;
+    esac
+  done
+}
+
 # Read-only throughout: nothing here writes to the watched repository. This is the
 # one tool kind that issues several probes in a row, two of them over the network,
 # and each of them goes through git_probe, which owns both the bound and the
@@ -570,8 +642,18 @@ git_findings() {
     # A clone made with --single-branch, or one that never ran remote set-head,
     # has no local record of the remote's default branch. Ask the remote itself
     # rather than reporting a check failure the operator cannot act on.
-    symref=$(git_probe "$repo" ls-remote --symref "$remote" HEAD 2>/dev/null)
-    git_probe_answered "$?" "$name" "$remote" "which branch it uses by default" || return 0
+    git_remote_probe "$repo" ls-remote --symref "$remote" HEAD
+    status=$?
+    if [ "$status" -eq "$GIT_PROBE_NOT_ISSUED" ] && [ "$GIT_REMOTE_RETRY_SKIPPED" -eq 0 ]; then
+      git_probe_answered "$status" "$name" "$remote" "which branch it uses by default" || return 0
+    elif [ "$status" -eq 124 ] || [ "$GIT_REMOTE_RETRY_SKIPPED" -eq 1 ]; then
+      retain_reported_git_updates "$name"
+      return 0
+    elif [ "$status" -ne 0 ]; then
+      emit "$name check failed: $remote could not be reached or read from $repo"
+      return 0
+    fi
+    symref=$GIT_REMOTE_OUTPUT
     branch=$(printf '%s\n' "$symref" \
       | awk '$1 == "ref:" { sub(/^refs\/heads\//, "", $2); print $2; exit }')
   fi
@@ -580,17 +662,18 @@ git_findings() {
     return 0
   fi
 
-  remote_sha=$(git_probe "$repo" ls-remote "$remote" "refs/heads/$branch" 2>/dev/null)
+  git_remote_probe "$repo" ls-remote "$remote" "refs/heads/$branch"
   status=$?
-  git_probe_answered "$status" "$name" "$remote" "where $branch points" || return 0
-  if [ "$status" -ne 0 ]; then
-    # The probe itself failed, so nothing at all is known about the branch. An
-    # offline host and a deleted branch are different problems, and reporting a
-    # missing branch here would name a cause that was never established.
+  if [ "$status" -eq "$GIT_PROBE_NOT_ISSUED" ] && [ "$GIT_REMOTE_RETRY_SKIPPED" -eq 0 ]; then
+    git_probe_answered "$status" "$name" "$remote" "where $branch points" || return 0
+  elif [ "$status" -eq 124 ] || [ "$GIT_REMOTE_RETRY_SKIPPED" -eq 1 ]; then
+    retain_reported_git_updates "$name"
+    return 0
+  elif [ "$status" -ne 0 ]; then
     emit "$name check failed: $remote could not be reached or read from $repo"
     return 0
   fi
-  remote_sha=$(printf '%s\n' "$remote_sha" | awk 'NR == 1 { print $1 }')
+  remote_sha=$(printf '%s\n' "$GIT_REMOTE_OUTPUT" | awk 'NR == 1 { print $1 }')
   if [ -z "$remote_sha" ]; then
     emit "$name check failed: $remote has no branch $branch"
     return 0
@@ -633,12 +716,12 @@ git_findings() {
       ''|*[!0-9]*|0) count= ;;
     esac
     if [ -n "$count" ]; then
-      emit "$name update available: $local_label is $(commit_phrase "$count") behind $remote/$branch"
+      emit_update "git:$name|$remote_sha" "$name update available: $local_label is $(commit_phrase "$count") behind $remote/$branch"
       return 0
     fi
   fi
 
-  emit "$name update available: $remote/$branch is at $short which this copy does not have"
+  emit_update "git:$name|$remote_sha" "$name update available: $remote/$branch is at $short which this copy does not have"
   return 0
 }
 
@@ -689,7 +772,7 @@ record_write() {
 
 action_check() {
   local name command_name args_joined announce announce_args repo remote branch
-  local line now
+  local line now finding_keys reported_keys
 
   [ -f "$CONFIG" ] || return 0
 
@@ -726,16 +809,19 @@ action_check() {
     line=$FM_LINE_CAP_LINE
   fi
 
+  finding_keys=$(canonical_finding_keys "$FINDING_KEYS")
+  reported_keys=$(canonical_finding_keys "$RECORD_REPORTED")
+
   # The cut line is what gets printed, but the whole finding set is what decides
   # whether this is news, because a finding that lands past the cut leaves the
   # printed line unchanged and would otherwise be suppressed for good.
   #
   # Report before recording, so a record that cannot be written costs a repeated
   # report rather than a lost one.
-  if [ -n "$line" ] && [ "$FINDINGS" != "$RECORD_REPORTED" ]; then
+  if [ -n "$line" ] && [ "$finding_keys" != "$reported_keys" ]; then
     printf '%s\n' "$line"
   fi
-  record_write "$FINDINGS" || true
+  record_write "$finding_keys" || true
   return 0
 }
 
