@@ -287,6 +287,16 @@ function appendWordValue(word, value, literalSlashes = true) {
   word.value += value;
 }
 
+function parameterExpansionMayProduceMultipleWords(source, start) {
+  if (source[start] !== "$") return false;
+  if (source[start + 1] === "@") return true;
+  if (!source.startsWith("${", start)) return false;
+  const parameter = extractBalanced(source, start + 2, "{", "}");
+  if (!parameter) return false;
+  const content = parameter.content;
+  return content === "@" || content.startsWith("@:") || /^!?[A-Za-z_][A-Za-z0-9_]*\[@\]/.test(content) || /^![A-Za-z_][A-Za-z0-9_]*@/.test(content);
+}
+
 export class Lexer {
   constructor(source) {
     this.source = source;
@@ -405,7 +415,7 @@ export class Lexer {
   }
 
   readWord() {
-    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, unquotedExpansionOffsets: [], literalSlashOffsets: [], unquotedDollarOffsets: [] };
+    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, unquotedExpansionOffsets: [], literalSlashOffsets: [], unquotedDollarOffsets: [], quotedMultiwordParameterOffsets: [] };
     let consumed = false;
     let parameterEnd = -1;
     while (this.index < this.source.length) {
@@ -553,7 +563,12 @@ export class Lexer {
       // A bare $ expansion here is inside double quotes, so it cannot undergo field
       // splitting or pathname expansion; unlike the main unquoted loop, this is not
       // recorded in word.unquotedDollarOffsets.
-      if (char === "$") word.literal = false;
+      if (char === "$") {
+        word.literal = false;
+        if (this.index >= parameterEnd && parameterExpansionMayProduceMultipleWords(this.source, this.index)) {
+          word.quotedMultiwordParameterOffsets.push(word.value.length);
+        }
+      }
       appendWordValue(word, char, this.index >= parameterEnd);
       this.index += 1;
     }
@@ -959,6 +974,7 @@ function dynamicExecutableBasename(word) {
   if (word.unquotedExpansionOffsets.some((offset) => offset >= basenameStart)) return true;
   if (word.subs.some((sub) => sub.at >= basenameStart)) return true;
   if (word.unquotedDollarOffsets.some((offset) => offset < basenameStart)) return true;
+  if (word.quotedMultiwordParameterOffsets.some((offset) => offset < basenameStart)) return true;
   return word.subs.some((sub) => !sub.quoted && sub.at < basenameStart);
 }
 
