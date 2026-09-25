@@ -415,7 +415,7 @@ export class Lexer {
   }
 
   readWord() {
-    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, unquotedExpansionOffsets: [], literalSlashOffsets: [], unquotedDollarOffsets: [], quotedMultiwordParameterOffsets: [] };
+    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, unquotedExpansionOffsets: [], literalSlashOffsets: [], parameterExpansionOffsets: [], unquotedDollarOffsets: [], quotedMultiwordParameterOffsets: [] };
     let consumed = false;
     let parameterEnd = -1;
     while (this.index < this.source.length) {
@@ -503,13 +503,16 @@ export class Lexer {
         this.index = backticks.next;
         continue;
       }
+      if (char === "$") {
+        word.literal = false;
+        if (this.index >= parameterEnd) {
+          word.parameterExpansionOffsets.push(word.value.length);
+          word.unquotedDollarOffsets.push(word.value.length);
+        }
+      }
       if (this.index >= parameterEnd && this.source.startsWith("${", this.index)) {
         const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
         if (parameter) parameterEnd = parameter.next;
-      }
-      if (char === "$") {
-        word.literal = false;
-        word.unquotedDollarOffsets.push(word.value.length);
       }
       if ("*?[]{}".includes(char)) {
         word.unquotedExpansion = true;
@@ -556,18 +559,21 @@ export class Lexer {
         this.index = backticks.next;
         continue;
       }
-      if (this.index >= parameterEnd && this.source.startsWith("${", this.index)) {
-        const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
-        if (parameter) parameterEnd = parameter.next;
-      }
       // A bare $ expansion here is inside double quotes, so it cannot undergo field
       // splitting or pathname expansion; unlike the main unquoted loop, this is not
       // recorded in word.unquotedDollarOffsets.
       if (char === "$") {
         word.literal = false;
-        if (this.index >= parameterEnd && parameterExpansionMayProduceMultipleWords(this.source, this.index)) {
-          word.quotedMultiwordParameterOffsets.push(word.value.length);
+        if (this.index >= parameterEnd) {
+          word.parameterExpansionOffsets.push(word.value.length);
+          if (parameterExpansionMayProduceMultipleWords(this.source, this.index)) {
+            word.quotedMultiwordParameterOffsets.push(word.value.length);
+          }
         }
+      }
+      if (this.index >= parameterEnd && this.source.startsWith("${", this.index)) {
+        const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
+        if (parameter) parameterEnd = parameter.next;
       }
       appendWordValue(word, char, this.index >= parameterEnd);
       this.index += 1;
@@ -966,12 +972,25 @@ function isPsPidListing(position) {
 // unquoted prefix expansion (e.g. "$B/fm-pr-merge.sh") keeps denying even when
 // the basename is a literal, known-safe filename, because a runtime value
 // containing whitespace would field-split into a different, unrelated command.
+function hasUnquotedExecutableExpansion(word, basenameStart) {
+  return word.unquotedExpansionOffsets.some((offset) => {
+    if (offset < basenameStart) return false;
+    const character = word.value[offset];
+    if (character === "*" || character === "?") return true;
+    if (character === "[") return word.value.indexOf("]", offset + 1) !== -1;
+    if (character !== "{") return false;
+    const close = word.value.indexOf("}", offset + 1);
+    if (close === -1) return false;
+    const content = word.value.slice(offset + 1, close);
+    return content.includes(",") || content.includes("..");
+  });
+}
+
 function dynamicExecutableBasename(word) {
   if (!word || word.type !== "word") return false;
-  if (word.literal && word.subs.length === 0) return false;
   const basenameStart = (word.literalSlashOffsets.at(-1) ?? -1) + 1;
-  if (word.value.slice(basenameStart).includes("$")) return true;
-  if (word.unquotedExpansionOffsets.some((offset) => offset >= basenameStart)) return true;
+  if (word.parameterExpansionOffsets.some((offset) => offset >= basenameStart)) return true;
+  if (hasUnquotedExecutableExpansion(word, basenameStart)) return true;
   if (word.subs.some((sub) => sub.at >= basenameStart)) return true;
   if (word.unquotedDollarOffsets.some((offset) => offset < basenameStart)) return true;
   if (word.quotedMultiwordParameterOffsets.some((offset) => offset < basenameStart)) return true;
