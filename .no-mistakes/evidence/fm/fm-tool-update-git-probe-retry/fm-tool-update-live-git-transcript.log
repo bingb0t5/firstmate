@@ -1,0 +1,12 @@
+To /tmp/fm-tool-update-live.xbpeBm/remote.git
+ * [new branch]      main -> main
+Cloning into '/tmp/fm-tool-update-live.xbpeBm/work'...
+done.
+To /tmp/fm-tool-update-live.xbpeBm/remote.git
+   efd423f..ee056d9  main -> main
+FIRST POLL (two real Git remotes behind):
+tool updates: alpha update available: origin/main is at ee056d97da2f which this copy does not have; beta update available: origin/main is at ee056d97da2f which this copy does not have
+SECOND POLL AFTER CONFIGURATION REORDER (must be silent):
+output-bytes=0
+READABLE REMOTE, MISSING REQUESTED BRANCH:
+tool updates: alpha check failed: origin has no branch does-not-exist
