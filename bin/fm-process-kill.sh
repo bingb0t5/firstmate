@@ -27,6 +27,11 @@
 # mismatch means the recorded process is gone and something else, possibly
 # an unrelated sibling worktree's process, now holds that PID or PGID; the
 # helper refuses to signal it rather than trust a bare caller-supplied number.
+# Identity matching only defends against PID or PGID reuse after a genuine
+# record-time capture. It does not prove that the caller started or owns the
+# target, so callers must invoke `--print-identity` only for a PID or PGID
+# they just recorded through their own process-management flow, never an
+# arbitrary or probed target.
 set -u
 
 signal=TERM
@@ -47,7 +52,11 @@ owning invocation's state instead.
 --print-identity PID prints that PID's current identity fingerprint so a
 caller can capture it at record time. --identity IDENTITY must equal the
 target's live fingerprint at kill time (the PGID leader's fingerprint for
---group); a mismatch is refused without signaling anything.
+--group); a mismatch is refused without signaling anything. Identity matching
+only defends against target reuse after genuine record-time capture; it does
+not prove the caller started or owns a target. Only call --print-identity for
+a PID or PGID the caller just recorded through its own process-management
+flow, never an arbitrary or probed target.
 EOF
 }
 
@@ -67,24 +76,23 @@ require_positive_int() {  # <label> <value>
   esac
 }
 
-# Mirrors fm_pid_identity in bin/fm-wake-lib.sh byte-for-byte so identities
+# Uses the fm_pid_identity format from bin/fm-wake-lib.sh so identities
 # captured by either implementation compare equal. Kept as its own copy
 # rather than sourced: this helper must stay a dependency-free, side-effect-
 # free primitive callable from any context, matching the existing per-
 # subsystem copies in fm-teardown.sh and fm-browser-lifecycle-lib.sh.
 process_identity() {  # <pid>
-  local pid=$1 out proc_root stat_line starttime cmdline_hex identity_key uname_out
+  local pid=$1 out stat_line starttime cmdline_hex identity_key uname_out
   local -a stat_fields
-  proc_root=${FM_PROC_ROOT_OVERRIDE:-/proc}
-  if [ -r "$proc_root/$pid/stat" ] && [ -r "$proc_root/$pid/cmdline" ]; then
-    stat_line=$(command cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
+  if [ -r "/proc/$pid/stat" ] && [ -r "/proc/$pid/cmdline" ]; then
+    stat_line=$(command cat "/proc/$pid/stat" 2>/dev/null) || return 1
     read -r -a stat_fields <<< "${stat_line##*)}"
     [ "${#stat_fields[@]}" -ge 20 ] || return 1
     starttime=${stat_fields[19]}
     case "$starttime" in
       ''|*[!0-9]*) return 1 ;;
     esac
-    cmdline_hex=$(od -An -v -tx1 "$proc_root/$pid/cmdline" 2>/dev/null | tr -d '[:space:]') || return 1
+    cmdline_hex=$(od -An -v -tx1 "/proc/$pid/cmdline" 2>/dev/null | tr -d '[:space:]') || return 1
     [ -n "$cmdline_hex" ] || return 1
     uname_out=$(uname 2>/dev/null || echo unknown)
     identity_key=proc-starttime
