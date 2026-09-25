@@ -405,7 +405,7 @@ export class Lexer {
   }
 
   readWord() {
-    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, literalSlashOffsets: [] };
+    const word = { type: "word", value: "", literal: true, subs: [], quoted: false, unquotedExpansion: false, unquotedExpansionOffsets: [], literalSlashOffsets: [] };
     let consumed = false;
     let parameterEnd = -1;
     while (this.index < this.source.length) {
@@ -497,7 +497,10 @@ export class Lexer {
         if (parameter) parameterEnd = parameter.next;
       }
       if (char === "$") word.literal = false;
-      if ("*?[]{}".includes(char)) word.unquotedExpansion = true;
+      if ("*?[]{}".includes(char)) {
+        word.unquotedExpansion = true;
+        if (this.index >= parameterEnd) word.unquotedExpansionOffsets.push(word.value.length);
+      }
       appendWordValue(word, char, this.index >= parameterEnd);
       this.index += 1;
     }
@@ -939,6 +942,7 @@ function dynamicExecutableBasename(word) {
   if (word.literal && word.subs.length === 0) return false;
   const basenameStart = (word.literalSlashOffsets.at(-1) ?? -1) + 1;
   if (word.value.slice(basenameStart).includes("$")) return true;
+  if (word.unquotedExpansionOffsets.some((offset) => offset >= basenameStart)) return true;
   return word.subs.some((sub) => sub.at >= basenameStart);
 }
 
