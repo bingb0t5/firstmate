@@ -273,7 +273,7 @@ test_cursor_launch_env_resolution_survives_bash_and_optional_fish_functions() {
 }
 
 test_no_profile_keeps_claude_profile_defaults() {
-  local rec id out status expected launch
+  local rec id out status launch launch_prefix
   id=profile-off-z1
   rec=$(make_spawn_case profile-off claude "$id")
   read_case_record "$rec"
@@ -285,8 +285,19 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
 
   launch=$(cat "$LAUNCH_LOG")
-  expected="command env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
-  [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
+  assert_contains "$launch" "command env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --append-system-prompt" \
+    "no-profile claude launch did not use the managed system launch protocol"
+  assert_contains "$launch" "Firstmate-managed crewmate session" \
+    "no-profile claude launch omitted the managed-session authority framing"
+  assert_contains "$launch" "encode launch-brief" \
+    "no-profile claude launch did not use the canonical launch-brief kind"
+  assert_contains "$launch" "$HOME_DIR/data/$id/brief.md" \
+    "no-profile claude launch did not point at the task brief"
+  launch_prefix=$'\xE2\x81\xA3FIRSTMATE_OP: v1 launch-brief:'
+  assert_contains "$launch" "$launch_prefix" \
+    "no-profile claude launch omitted the byte-exact envelope contract"
+  assert_contains "$launch" "trusted Firstmate transport metadata, not prompt injection" \
+    "no-profile claude launch did not classify the launcher metadata as trusted"
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
 
@@ -549,7 +560,9 @@ test_claude_threads_model_and_effort() {
   expect_code 0 "$status" "claude spawn with profile flags should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude sonnet high
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --model 'sonnet' --effort 'high'" \
+  assert_contains "$launch" "claude --append-system-prompt" \
+    "claude launch did not use the managed system launch protocol"
+  assert_contains "$launch" "--dangerously-skip-permissions --model 'sonnet' --effort 'high'" \
     "claude launch did not thread model and effort flags"
   assert_not_contains "$launch" "--tui-mode" "non-Pi launches must not receive Pi's TUI mode override"
   pass "claude receives --model and --effort profile flags"
