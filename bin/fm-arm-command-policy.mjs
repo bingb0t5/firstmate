@@ -529,6 +529,7 @@ export class Lexer {
         const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
         if (parameter) parameterEnd = parameter.next;
       }
+      if (char === "~" && word.value.length === 0 && !word.quoted) word.literal = false;
       if ("*?[]{}".includes(char)) {
         word.unquotedExpansion = true;
         if (this.index >= parameterEnd) word.unquotedExpansionOffsets.push(word.value.length);
@@ -852,8 +853,12 @@ function shellHereStringPayloads(tokens, position) {
   return payloads;
 }
 
+function isSourceCommand(position) {
+  return [".", "source"].includes(position.command?.value);
+}
+
 function sourcedScript(position) {
-  if (!position.command || ![".", "source"].includes(position.command.value)) return null;
+  if (!isSourceCommand(position)) return null;
   return position.words[position.index + 1] || null;
 }
 
@@ -871,7 +876,8 @@ function isOpaqueShellExecutionSink(position) {
 function hasUnreadableExecutionPayload(tokens, position, context) {
   const shell = shellInvocation(position);
   const source = sourcedScript(position);
-  if (source && !xModePathAllowed(source.value, context.home)) return true;
+  if (isSourceCommand(position) && !source) return true;
+  if (source && (!source.literal || source.subs.length > 0 || hasUnquotedExecutableExpansion(source, 0))) return true;
   if (shell?.kind === "script") return true;
   if (shell?.kind === "command" && shell.payload && (!shell.payload.literal || shell.payload.subs.length > 0)) return true;
   if (shell?.kind === "stdin") {
