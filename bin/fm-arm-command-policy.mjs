@@ -853,19 +853,13 @@ function shellHereStringPayloads(tokens, position) {
   return payloads;
 }
 
-function sourcedScript(position) {
-  if (!position.command || ![".", "source"].includes(position.command.value)) return null;
-  return position.words[position.index + 1] || null;
+function isSourceCommand(position) {
+  return [".", "source"].includes(position.command?.value);
 }
 
-function sourceProcessSubstitutionTarget(tokens, position) {
-  if (sourcedScript(position) || !position.command || ![".", "source"].includes(position.command.value)) return false;
-  const commandIndex = tokens.indexOf(position.command);
-  return commandIndex !== -1
-    && tokens[commandIndex + 1]?.type === "redir"
-    && ["<", ">"].includes(tokens[commandIndex + 1].value)
-    && tokens[commandIndex + 2]?.type === "group"
-    && tokens[commandIndex + 2].kind === "subshell";
+function sourcedScript(position) {
+  if (!isSourceCommand(position)) return null;
+  return position.words[position.index + 1] || null;
 }
 
 function evalPayload(position) {
@@ -882,7 +876,7 @@ function isOpaqueShellExecutionSink(position) {
 function hasUnreadableExecutionPayload(tokens, position, context) {
   const shell = shellInvocation(position);
   const source = sourcedScript(position);
-  if (sourceProcessSubstitutionTarget(tokens, position)) return true;
+  if (isSourceCommand(position) && !source) return true;
   if (source && (!source.literal || source.subs.length > 0 || hasUnquotedExecutableExpansion(source, 0))) return true;
   if (shell?.kind === "script") return true;
   if (shell?.kind === "command" && shell.payload && (!shell.payload.literal || shell.payload.subs.length > 0)) return true;
