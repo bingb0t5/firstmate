@@ -202,6 +202,8 @@ matrix_case D132 deny 'CMD=pkill; ${CMD#\}/unused} -f target'
 matrix_case D133 deny '$B/p[k]ill -f target'
 matrix_case D134 deny 'source $SOME_UNKNOWN_VAR'
 matrix_case D135 deny '. $SOME_UNKNOWN_VAR'
+matrix_case D136 deny 'source ./*'
+matrix_case D137 deny '. ./{safe,unsafe}'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -411,6 +413,8 @@ test_direct_policy_contract() {
   assert_policy direct-literal-dot-source allow '. bin/fm-lint.sh'
   assert_policy direct-dynamic-source $'deny\tbroad-process-kill' 'source $SOME_UNKNOWN_VAR'
   assert_policy direct-dynamic-dot-source $'deny\tbroad-process-kill' '. $SOME_UNKNOWN_VAR'
+  assert_policy direct-glob-source $'deny\tbroad-process-kill' 'source ./*'
+  assert_policy direct-brace-dot-source $'deny\tbroad-process-kill' '. ./{safe,unsafe}'
   assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"
   assert_policy direct-ps-pid-list-xargs-kill $'deny\tbroad-process-kill' 'ps -eo pid= | xargs kill'
   assert_policy direct-ps-combined-pid-list-xargs-kill $'deny\tbroad-process-kill' 'ps -eo pid=,ppid= | xargs kill'
