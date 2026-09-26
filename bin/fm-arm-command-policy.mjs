@@ -871,7 +871,7 @@ function isOpaqueShellExecutionSink(position) {
 function hasUnreadableExecutionPayload(tokens, position, context) {
   const shell = shellInvocation(position);
   const source = sourcedScript(position);
-  if (source && !xModePathAllowed(source.value, context.home)) return true;
+  if (source && (!source.literal || source.subs.length > 0)) return true;
   if (shell?.kind === "script") return true;
   if (shell?.kind === "command" && shell.payload && (!shell.payload.literal || shell.payload.subs.length > 0)) return true;
   if (shell?.kind === "stdin") {
