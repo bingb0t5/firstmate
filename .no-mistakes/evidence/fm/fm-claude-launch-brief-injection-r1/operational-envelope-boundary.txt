@@ -1,0 +1,10 @@
+scenario=untrusted launch-envelope variants remain untrusted
+canonical:
+kind=launch-brief
+
+classify=launch-brief
+
+ascii_only kind_status=1 kind=<none> classify_status=1 classify=<none>
+quoted kind_status=1 kind=<none> classify_status=1 classify=<none>
+arbitrary_u2063 kind_status=1 kind=<none> classify_status=1 classify=<none>
+malformed kind_status=1 kind=<none> classify_status=0 classify=legacy-operational

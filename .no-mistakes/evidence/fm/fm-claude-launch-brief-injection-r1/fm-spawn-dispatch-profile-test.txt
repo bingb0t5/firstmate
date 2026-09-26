@@ -1,0 +1,31 @@
+ok - generated Codex home notify: empty
+ok - generated Codex home notify: queued
+ok - generated Codex home notify: busy
+ok - generated Codex home notify: pending
+ok - generated Codex home notify: late-pending
+ok - generated Codex home notify: unconfirmed
+ok - generated Codex home notify: away
+ok - generated Codex home notify: handled
+ok - generated Codex home notify: watcher-reused
+ok - generated Codex home notify: watcher-stale
+ok - generated Codex home notify: watcher-healthy
+ok - generated Codex home notify: watcher-grace
+ok - generated Codex home notify: watcher-override
+ok - generated Codex secondmate launch clears inherited classification pins and preserves away-mode health checks
+skip: fish not installed (optional shell coverage unavailable for shared launch)
+ok - shared launch env cleanup bypasses interactive shell functions
+skip: fish not installed (optional shell coverage unavailable for Cursor launch)
+ok - Cursor launch env cleanup bypasses interactive shell functions
+ok - no --model/--effort records defaults and types the claude launch instructions
+ok - non-cursor launches clear inherited Cursor identity markers
+ok - relative home overrides ignore CDPATH and become absolute before spawn launch construction
+ok - FM_HOME defaults resolve relative paths and preserve absolute spellings
+ok - absolute override spellings are preserved in spawn launch paths
+ok - unresolvable relative spawn overrides fail with named diagnostics
+ok - active crew-dispatch profile requires an explicit harness for ship spawns
+ok - active crew-dispatch profile requires an explicit harness for scout spawns
+not ok - explicit harness launch did not thread model and effort (missing: 'codex --model 'gpt-5' -c 'model_reasoning_effort="high"' --dangerously-bypass-approvals-and-sandbox')
+--- output ---
+bash -c '. '\''/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M3EARK63AR0CWVJZ8N7M3N5F/bin/fm-browser-lifecycle-lib.sh'\''; fm_browser_worker_run '\''/tmp/fm-spawn-dispatch-profile.mBeca3/profile-explicit/home/state'\'' '\''profile-explicit-z13'\'' '\''s1790412483.2134767.15510'\'' -- bash -c '\''command env -u CURSOR_AGENT -u CURSOR_INVOKED_AS codex --model '\''\'\'''\''gpt-5'\''\'\'''\'' -c '\''\'\'''\''model_reasoning_effort="high"'\''\'\'''\'' --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust -c "notify=[\"bash\",\"-c\",\"touch '\''\'\'''\''/tmp/fm-spawn-dispatch-profile.mBeca3/profile-explicit/home/state/profile-explicit-z13.turn-ended'\''\'\'''\''\"]" "$('\''\'\'''\''/home/rich/.no-mistakes/worktrees/7ce0540b75f4/01M3EARK63AR0CWVJZ8N7M3N5F/bin/fm-operational-input.sh'\''\'\'''\'' encode launch-brief < '\''\'\'''\''/tmp/fm-spawn-dispatch-profile.mBeca3/profile-explicit/home/data/profile-explicit-z13/brief.md'\''\'\'''\'')"'\'''
+
+exit_code=1

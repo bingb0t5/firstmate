@@ -1,0 +1,6 @@
+canonical kind: launch-brief
+canonical classify: launch-brief
+ascii classify: rejected
+quoted classify: rejected
+arbitrary-u2063 classify: rejected
+malformed classify: legacy-operational
