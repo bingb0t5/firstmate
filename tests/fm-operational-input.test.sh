@@ -140,6 +140,37 @@ JS
   pass "operational input: the OpenCode adapter constructs through the canonical owner"
 }
 
+test_launch_brief_accepts_exact_envelope_and_rejects_imitation() {
+  local body encoded parsed near_miss
+  body='Firstmate-managed task instructions with no private content.'
+  fm_operational_input_encode launch-brief "$body" encoded \
+    || fail "the canonical launch-brief envelope could not be constructed"
+  fm_operational_input_kind "$encoded" parsed \
+    || fail "the canonical launch-brief envelope was not accepted"
+  [ "$parsed" = launch-brief ] \
+    || fail "the canonical launch-brief envelope became $parsed"
+  [ "$(printf '%s' "$encoded" | "$OWNER" kind)" = launch-brief ] \
+    || fail "the CLI did not accept the canonical launch-brief envelope"
+
+  for near_miss in \
+    "FIRSTMATE_OP: v1 launch-brief: $body" \
+    "Captain quote: $encoded" \
+    "${FM_OPERATIONAL_MARK}arbitrary captain text"; do
+    ! fm_operational_input_classify "$near_miss" parsed \
+      || fail "launch-brief imitation was accepted as $parsed: $near_miss"
+    if printf '%s' "$near_miss" | "$OWNER" classify >/dev/null 2>&1; then
+      fail "CLI accepted a launch-brief imitation: $near_miss"
+    fi
+  done
+
+  near_miss="${FM_OPERATIONAL_MARK}FIRSTMATE_OP: v1 launch-brief $body"
+  ! fm_operational_input_kind "$near_miss" parsed \
+    || fail "malformed launch-brief imitation passed the current parser"
+  [ "$(printf '%s' "$near_miss" | "$OWNER" classify)" = legacy-operational ] \
+    || fail "malformed launch-brief imitation was not isolated as legacy-operational"
+  pass "operational input: the exact launch-brief envelope is accepted and imitations stay untrusted"
+}
+
 test_invalid_current_encodings_are_rejected() {
   local output
   output=$(printf 'body' | "$OWNER" encode legacy-operational 2>/dev/null) \
@@ -157,4 +188,5 @@ test_landed_untyped_prefix_is_explicitly_legacy
 test_isolated_legacy_matrix
 test_genuine_near_misses_remain_unclassified
 test_cross_language_adapter_uses_the_owner
+test_launch_brief_accepts_exact_envelope_and_rejects_imitation
 test_invalid_current_encodings_are_rejected
