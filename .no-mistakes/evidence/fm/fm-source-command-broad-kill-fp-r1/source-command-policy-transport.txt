@@ -1,0 +1,62 @@
+Source-command policy transport evidence
+Each checker call uses the Codex PreToolUse JSON transport; exit 0 is allow, exit 2 is deny.
+Shell semantic control: process substitution is the first source operand even when a literal follows.
+
+source_rc=37
+
+command: source /dev/null
+exit: 0
+
+command: source bin/fm-lint.sh
+exit: 0
+
+command: source config/x-mode.env
+exit: 0
+
+command: . bin/fm-lint.sh
+exit: 0
+
+command: source $SOME_UNKNOWN_VAR
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+exit: 2
+
+command: source "$HOME/.bashrc"
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+exit: 2
+
+command: source ./*
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+exit: 2
+
+command: . ./{safe,unsafe}
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+exit: 2
+
+command: source ~/.policy
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+exit: 2
+
+command: source <(printf 'return 37')
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+exit: 2
+
+command: source <(printf 'return 37') /dev/null
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+exit: 2
+
+command: . <(printf 'return 37') /dev/null
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+exit: 2
+
+command: source 2>/dev/null <(printf 'return 37') /dev/null
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"},"systemMessage":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+{"decision":"deny","reason":"[broad-process-kill] name-, pattern-, or broadcast-based process termination is forbidden; use bin/fm-process-kill.sh with an exact recorded PID or PGID"}
+exit: 2
