@@ -529,6 +529,7 @@ export class Lexer {
         const parameter = extractBalanced(this.source, this.index + 2, "{", "}");
         if (parameter) parameterEnd = parameter.next;
       }
+      if (char === "~" && word.value.length === 0 && !word.quoted) word.literal = false;
       if ("*?[]{}".includes(char)) {
         word.unquotedExpansion = true;
         if (this.index >= parameterEnd) word.unquotedExpansionOffsets.push(word.value.length);

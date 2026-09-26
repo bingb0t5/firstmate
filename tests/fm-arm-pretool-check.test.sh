@@ -46,6 +46,7 @@ matrix_case A16 allow "export FM_HOME=$ROOT && bin/fm-watch-checkpoint.sh --seco
 matrix_case A17 allow $'source "config/x-mode.env"\nbin/fm-watch-checkpoint.sh --seconds 180'
 matrix_case A18 allow 'source /dev/null'
 matrix_case A19 allow 'source bin/fm-lint.sh'
+matrix_case A20 allow 'source "~/.policy"'
 
 matrix_case R01 allow "pgrep -fl '/bin/fm-watch.sh' || true"
 matrix_case R02 allow "ps aux | rg '/bin/fm-watch.sh'"
@@ -206,6 +207,8 @@ matrix_case D136 deny 'source ./*'
 matrix_case D137 deny '. ./{safe,unsafe}'
 matrix_case D138 deny "source <(printf 'pkill -f target')"
 matrix_case D139 deny ". <(printf 'pkill -f target')"
+matrix_case D140 deny 'source ~/.policy'
+matrix_case D141 deny '. ~rich/.policy'
 
 matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
@@ -413,12 +416,15 @@ test_direct_policy_contract() {
   assert_policy direct-shell-broad-pkill $'deny\tbroad-process-kill' "sh -c 'pkill -f \"\$0\"'"
   assert_policy direct-literal-source allow 'source /dev/null'
   assert_policy direct-literal-dot-source allow '. bin/fm-lint.sh'
+  assert_policy direct-quoted-tilde-source allow 'source "~/.policy"'
   assert_policy direct-dynamic-source $'deny\tbroad-process-kill' 'source $SOME_UNKNOWN_VAR'
   assert_policy direct-dynamic-dot-source $'deny\tbroad-process-kill' '. $SOME_UNKNOWN_VAR'
   assert_policy direct-glob-source $'deny\tbroad-process-kill' 'source ./*'
   assert_policy direct-brace-dot-source $'deny\tbroad-process-kill' '. ./{safe,unsafe}'
   assert_policy direct-process-substitution-source $'deny\tbroad-process-kill' "source <(printf 'pkill -f target')"
   assert_policy direct-process-substitution-dot-source $'deny\tbroad-process-kill' ". <(printf 'pkill -f target')"
+  assert_policy direct-tilde-source $'deny\tbroad-process-kill' 'source ~/.policy'
+  assert_policy direct-tilde-dot-source $'deny\tbroad-process-kill' '. ~rich/.policy'
   assert_policy direct-ps-awk-xargs-kill $'deny\tbroad-process-kill' "ps aux | awk '{print \$2}' | xargs kill"
   assert_policy direct-ps-pid-list-xargs-kill $'deny\tbroad-process-kill' 'ps -eo pid= | xargs kill'
   assert_policy direct-ps-combined-pid-list-xargs-kill $'deny\tbroad-process-kill' 'ps -eo pid=,ppid= | xargs kill'

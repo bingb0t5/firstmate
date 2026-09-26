@@ -114,7 +114,7 @@ Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, s
 ## Broad process kills
 
 Every actually executed `pkill`, `killall`, `killall5`, or `skill` command, and `fuser -k`, is denied as name-, pattern-, or resource-based process termination.
-Non-inline `sh`, `bash`, and `zsh` scripts or standard input, and `source` or dot-command targets with parameter, command, or process substitutions or unquoted pathname expansion, are refused, while readable inline `-c`, heredoc, here-string, and literal source payloads are classified; only the canonical x-mode source is approved in the setup tree; `trap` is refused as an opaque deferred execution sink.
+Non-inline `sh`, `bash`, and `zsh` scripts or standard input, and `source` or dot-command targets with parameter, command, or process substitutions, an unquoted leading tilde, or unquoted pathname expansion, are refused, while readable inline `-c`, heredoc, here-string, and literal source payloads are classified; only the canonical x-mode source is approved in the setup tree; `trap` is refused as an opaque deferred execution sink.
 Literal direct `kill` broadcast targets - every numeric zero spelling, `-1`, and every negative process-group target - are denied.
 Literal positive PID targets remain allowed as direct `kill` commands, while process-group termination belongs to the exact-target helper.
 A direct `kill` target must be a readable literal, so variable-based termination belongs to `bin/fm-process-kill.sh`.
