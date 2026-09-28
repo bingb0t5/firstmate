@@ -839,7 +839,10 @@ warn_stale_public_commitments_for_transfer() { # <source-id> <destination-id> <m
 
 validate_transfer_receiver_binding() { # <destination-id> <destination-home>
   local id=$1 home=$2 meta="$STATE/$1.meta" meta_home abs_meta_home
-  [ -e "$meta" ] || [ -L "$meta" ] || return 0
+  [ -e "$meta" ] || [ -L "$meta" ] || {
+    echo "error: destination secondmate $id has no live receiver endpoint" >&2
+    return 1
+  }
   [ -f "$meta" ] && [ ! -L "$meta" ] || {
     echo "error: destination secondmate $id has unsafe endpoint metadata" >&2
     return 1

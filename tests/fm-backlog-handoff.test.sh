@@ -1061,33 +1061,29 @@ test_secondmate_transfer_reports_public_binding() {
   pass "secondmate transfer preserves and reports public-followup bindings"
 }
 
-test_secondmate_transfer_retries_public_binding_after_failed_wake() {
-  local parent="$TMP_ROOT/transfer-public-retry-parent" source="$TMP_ROOT/transfer-public-retry-source"
-  local destination="$TMP_ROOT/transfer-public-retry-destination" out rc=0
+test_secondmate_transfer_refuses_missing_receiver_before_mutation() {
+  local parent="$TMP_ROOT/transfer-missing-receiver-parent" source="$TMP_ROOT/transfer-missing-receiver-source"
+  local destination="$TMP_ROOT/transfer-missing-receiver-destination" out rc=0 source_before destination_before
   setup_transfer_homes "$parent" "$source" "$destination"
-  printf '## Queued\n- [ ] transfer-public-retry - promised work (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
-  seed_public_commitment "$parent" pf-transfer-retry secondmate:source-mate transfer-public-retry
+  printf '## Queued\n- [ ] transfer-missing-receiver - blocked delivery (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+  source_before=$(cat "$source/data/backlog.md")
+  destination_before=$(cat "$destination/data/backlog.md")
   rm -f "$parent/state/destination-mate.meta"
   out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-public-retry 2>&1) || rc=$?
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-missing-receiver 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "transfer without a destination endpoint reported success"
-  assert_grep 'transfer-public-retry' "$destination/data/backlog.md" \
-    "failed wake lost the transferred public work"
-  cat > "$parent/state/destination-mate.meta" <<EOF
-window=firstmate:fm-destination-mate
-kind=secondmate
-home=$destination
-worktree=$destination
-EOF
-  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
-    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
-    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-public-retry-tmux.log" \
-    FM_FAKE_TMUX_CAPTURE="$HANDOFF_FAKEBIN/pane.txt" \
-    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-public-retry 2>&1) \
-    || fail "public-binding retry did not wake the destination: $out"
-  assert_contains "$out" 'transfer-public-retry still owes a public reply bound to secondmate:source-mate/transfer-public-retry' \
-    "retry did not surface the stale source public binding"
-  pass "secondmate transfer retry reports the stale public-followup binding"
+  assert_contains "$out" 'destination secondmate destination-mate has no live receiver endpoint' \
+    "missing receiver was not reported before transfer"
+  [ "$source_before" = "$(cat "$source/data/backlog.md")" ] \
+    || fail "missing receiver changed the source backlog"
+  [ "$destination_before" = "$(cat "$destination/data/backlog.md")" ] \
+    || fail "missing receiver changed the destination backlog"
+  assert_absent "$parent/state/destination-mate.inbox" \
+    "missing receiver transfer sent destination work"
+  assert_absent "$parent/state/.backlog-handoff-destination-mate.wake-pending" \
+    "missing receiver transfer prepared a destination wake"
+  pass "secondmate transfer refuses missing receiver before mutation"
 }
 
 test_secondmate_transfer_reports_public_binding_for_already_queued_items() {
@@ -1796,7 +1792,7 @@ test_handoff_wakes_live_local_receiver
 test_secondmate_transfer_moves_dependency_closed_set
 test_secondmate_transfer_refuses_duplicate_closure_ownership
 test_secondmate_transfer_reports_public_binding
-test_secondmate_transfer_retries_public_binding_after_failed_wake
+test_secondmate_transfer_refuses_missing_receiver_before_mutation
 test_secondmate_transfer_reports_public_binding_for_already_queued_items
 test_secondmate_transfer_is_idempotent
 test_secondmate_transfer_refuses_invalid_destination
