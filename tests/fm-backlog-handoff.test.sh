@@ -964,7 +964,171 @@ EOF
 }
 
 # A home that never opted into the relay must pay nothing and say nothing here.
-test_handoff_is_silent_about_public_commitments_without_the_relay() {
+setup_transfer_homes() { # <parent> <source-home> <destination-home>
+  local parent=$1 source=$2 destination=$3
+  mkdir -p "$parent/data" "$parent/state"
+  seed_secondmate_home_marker "$source" source-mate
+  seed_secondmate_home_marker "$destination" destination-mate
+  printf -- '- source-mate - draining source (home: %s; scope: source; projects: alpha; added 2026-09-28)\n- destination-mate - surviving destination (home: %s; scope: destination; projects: alpha; added 2026-09-28)\n' \
+    "$source" "$destination" > "$parent/data/secondmates.md"
+  cat > "$parent/state/destination-mate.meta" <<EOF
+window=firstmate:fm-destination-mate
+kind=secondmate
+home=$destination
+worktree=$destination
+EOF
+}
+
+test_secondmate_transfer_moves_dependency_closed_set() {
+  local parent="$TMP_ROOT/transfer-success-parent" source="$TMP_ROOT/transfer-success-source"
+  local destination="$TMP_ROOT/transfer-success-destination" before out
+  setup_transfer_homes "$parent" "$source" "$destination"
+  cat > "$source/data/backlog.md" <<'EOF'
+## Queued
+- [ ] transfer-blocker - prerequisite (repo: alpha) (priority: 3)
+- [ ] transfer-dependent - dependent work (repo: alpha) (priority: 1) blocked-by: transfer-blocker - waits
+
+## Done
+EOF
+  printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+  before=$(cat "$source/data/backlog.md")
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-success-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$HANDOFF_FAKEBIN/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-dependent 2>&1) \
+    || fail "dependency-closed transfer failed: $out"
+  assert_contains "$out" 'transferred 2 item(s) from source-mate to destination-mate' \
+    "transfer did not report the dependency-closed set"
+  assert_no_grep 'transfer-' "$source/data/backlog.md" "successful transfer left source work behind"
+  assert_grep 'transfer-blocker' "$destination/data/backlog.md" "transfer lost the blocker"
+  assert_grep 'transfer-dependent' "$destination/data/backlog.md" "transfer lost the dependent"
+  assert_grep 'blocked-by: transfer-blocker - waits' "$destination/data/backlog.md" \
+    "transfer did not preserve the dependency link"
+  [ "$before" != "$(cat "$source/data/backlog.md")" ] || fail "successful transfer did not mutate the source backlog"
+  pass "secondmate transfer moves a dependency-closed queued set and preserves links"
+}
+
+test_secondmate_transfer_reports_public_binding() {
+  local parent="$TMP_ROOT/transfer-public-parent" source="$TMP_ROOT/transfer-public-source"
+  local destination="$TMP_ROOT/transfer-public-destination" out rc=0
+  setup_transfer_homes "$parent" "$source" "$destination"
+  printf '## Queued\n- [ ] transfer-public - promised work (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  seed_public_commitment "$parent" pf-transfer secondmate:source-mate transfer-public
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-public-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$HANDOFF_FAKEBIN/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-public 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "public-binding transfer failed: $out"
+  assert_contains "$out" 'transfer-public still owes a public reply bound to secondmate:source-mate/transfer-public' \
+    "transfer did not surface the source public binding"
+  assert_contains "$out" '--work-home secondmate:destination-mate' \
+    "transfer did not provide the destination rebinding hint"
+  pass "secondmate transfer preserves and reports public-followup bindings"
+}
+
+test_secondmate_transfer_is_idempotent() {
+  local parent="$TMP_ROOT/transfer-idem-parent" source="$TMP_ROOT/transfer-idem-source"
+  local destination="$TMP_ROOT/transfer-idem-destination" first_dest out count
+  setup_transfer_homes "$parent" "$source" "$destination"
+  printf '## Queued\n- [ ] transfer-idem - retryable item (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+  FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-idem-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$HANDOFF_FAKEBIN/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-idem >/dev/null \
+    || fail "initial secondmate transfer failed"
+  first_dest=$(cat "$destination/data/backlog.md")
+  count=$(inbox_record_count "$parent/state" destination-mate)
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-idem-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$HANDOFF_FAKEBIN/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-idem 2>&1) \
+    || fail "idempotent secondmate transfer failed: $out"
+  assert_contains "$out" 'already present (skipped): transfer-idem' \
+    "idempotent transfer did not report the destination item"
+  [ "$first_dest" = "$(cat "$destination/data/backlog.md")" ] \
+    || fail "idempotent transfer changed the destination backlog"
+  [ "$count" -eq "$(inbox_record_count "$parent/state" destination-mate)" ] \
+    || fail "idempotent transfer duplicated the destination wake"
+  pass "secondmate transfer retries without duplicating backlog bytes or receiver wake"
+}
+
+test_secondmate_transfer_refuses_invalid_destination() {
+  local parent="$TMP_ROOT/transfer-invalid-parent" source="$TMP_ROOT/transfer-invalid-source"
+  local destination="$TMP_ROOT/transfer-invalid-destination" out rc=0 before
+  setup_transfer_homes "$parent" "$source" "$destination"
+  rm -rf -- "${destination:?}/bin"
+  printf '## Queued\n- [ ] transfer-invalid - must remain queued (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  before=$(cat "$source/data/backlog.md")
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-invalid 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "transfer accepted an invalid seeded destination"
+  assert_contains "$out" 'missing bin/' "invalid destination refusal was not explicit"
+  [ "$before" = "$(cat "$source/data/backlog.md")" ] || fail "invalid destination refusal changed the source"
+  [ ! -e "$destination/data/backlog.md" ] || fail "invalid destination refusal created a backlog"
+  assert_absent "$parent/state/destination-mate.inbox" "invalid destination refusal notified the receiver"
+  pass "secondmate transfer validates both homes before mutation or notification"
+}
+
+test_secondmate_transfer_refuses_dependency_inflight() {
+  local parent="$TMP_ROOT/transfer-inflight-parent" source="$TMP_ROOT/transfer-inflight-source"
+  local destination="$TMP_ROOT/transfer-inflight-destination" out rc=0 before
+  setup_transfer_homes "$parent" "$source" "$destination"
+  cat > "$source/data/backlog.md" <<'EOF'
+## In flight
+- [ ] transfer-live - active blocker (repo: alpha) (priority: 2)
+
+## Queued
+- [ ] transfer-dependent-live - queued dependent (repo: alpha) (priority: 1) blocked-by: transfer-live - waits
+
+## Done
+EOF
+  printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+  before=$(cat "$source/data/backlog.md")
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-dependent-live 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "transfer moved an in-flight dependency"
+  assert_contains "$out" 'only Queued items may be handed off (found in ## In flight)' \
+    "in-flight dependency refusal was not explicit"
+  [ "$before" = "$(cat "$source/data/backlog.md")" ] || fail "in-flight dependency refusal changed the source"
+  assert_no_grep 'transfer-' "$destination/data/backlog.md" "in-flight dependency appeared at destination"
+  assert_absent "$parent/state/destination-mate.inbox" "in-flight dependency refusal notified the destination"
+  pass "secondmate transfer refuses an in-flight dependency without partial delivery"
+}
+
+test_secondmate_transfer_preserves_source_on_tasks_failure() {
+  local parent="$TMP_ROOT/transfer-failure-parent" source="$TMP_ROOT/transfer-failure-source"
+  local destination="$TMP_ROOT/transfer-failure-destination" fakebin real_tasks out rc=0 before
+  setup_transfer_homes "$parent" "$source" "$destination"
+  printf '## Queued\n- [ ] transfer-failure - preserve on failure (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  before=$(cat "$source/data/backlog.md")
+  mkdir -p "$TMP_ROOT/transfer-failure-bin"
+  fakebin="$TMP_ROOT/transfer-failure-bin"
+  real_tasks=$(command -v tasks-axi)
+  cat > "$fakebin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *" --file "*" --to "*") exit 41 ;;
+esac
+exec "$FM_REAL_TASKS_AXI" "$@"
+SH
+  chmod +x "$fakebin/tasks-axi"
+  out=$(FM_REAL_TASKS_AXI="$real_tasks" FM_TASKS_AXI_COMPATIBLE=1 PATH="$fakebin:$PATH" \
+    FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-failure 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "transfer reported success after tasks-axi failure"
+  assert_contains "$out" 'atomic secondmate transfer failed' "tasks-axi failure was not explicit"
+  [ "$before" = "$(cat "$source/data/backlog.md")" ] || fail "tasks-axi failure changed the source"
+  [ ! -e "$destination/data/backlog.md" ] || fail "tasks-axi failure left a destination scaffold"
+  assert_absent "$parent/state/destination-mate.inbox" "tasks-axi failure notified the destination"
+  pass "secondmate transfer preserves source work and wake state after move failure"
+}
+
+ test_handoff_is_silent_about_public_commitments_without_the_relay() {
   local home="$TMP_ROOT/pf-silent-main"
   local sub="$TMP_ROOT/pf-silent-sub"
   setup_homes "$home" "$sub"
@@ -1470,6 +1634,12 @@ EOF
 }
 
 test_handoff_wakes_live_local_receiver
+test_secondmate_transfer_moves_dependency_closed_set
+test_secondmate_transfer_reports_public_binding
+test_secondmate_transfer_is_idempotent
+test_secondmate_transfer_refuses_invalid_destination
+test_secondmate_transfer_refuses_dependency_inflight
+test_secondmate_transfer_preserves_source_on_tasks_failure
 test_already_present_missing_priority_refuses_without_wake
 test_already_done_refuses_without_wake
 test_dependency_closure_refuses_inflight_blocker

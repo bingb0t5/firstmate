@@ -64,7 +64,14 @@
 # receiving endpoint. A missing endpoint or a live endpoint that rejects the
 # wake makes the handoff fail with the delivered backlog intact.
 # Usage: fm-backlog-handoff.sh <secondmate-id> <item-key>...
+#        fm-backlog-handoff.sh --transfer <source-secondmate-id> <destination-secondmate-id> <item-key>...
 #        fm-backlog-handoff.sh --resume-pending
+#
+# `--transfer` is the local consolidation path. It moves a dependency-closed
+# queued set from one genuine seeded secondmate home to another in one
+# tasks-axi transaction, then wakes only the destination receiver. Remote
+# secondmate routes are unsupported for this path and are refused before any
+# backlog or wake state changes.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -106,12 +113,42 @@ sha256_file() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi
 }
 
+usage() {
+  sed -n '2,/^set -eu$/p' "$0" | sed 's/^# \{0,1\}//'
+}
+
 RESUME_PENDING=0
-if [ "${1:-}" = --resume-pending ]; then
+TRANSFER_MODE=0
+SOURCE_ID=
+DESTINATION_ID=
+if [ "${1:-}" = --help ]; then
+  [ "$#" -eq 1 ] || { usage >&2; exit 1; }
+  usage
+  exit 0
+elif [ "${1:-}" = --resume-pending ]; then
   [ "$#" -eq 1 ] || { echo "usage: fm-backlog-handoff.sh --resume-pending" >&2; exit 1; }
   RESUME_PENDING=1
   ID=
   shift
+elif [ "${1:-}" = --transfer ]; then
+  [ "$#" -ge 4 ] || {
+    echo "usage: fm-backlog-handoff.sh --transfer <source-secondmate-id> <destination-secondmate-id> <item-key>..." >&2
+    exit 1
+  }
+  TRANSFER_MODE=1
+  SOURCE_ID=$2
+  DESTINATION_ID=$3
+  for transfer_id in "$SOURCE_ID" "$DESTINATION_ID"; do
+    case "$transfer_id" in
+      ''|*[!A-Za-z0-9._-]*) echo "error: unsafe secondmate id: $transfer_id" >&2; exit 1 ;;
+    esac
+  done
+  [ "$SOURCE_ID" != "$DESTINATION_ID" ] || {
+    echo "error: source and destination secondmate ids must differ" >&2
+    exit 1
+  }
+  ID=
+  shift 3
 else
   [ "$#" -ge 2 ] || { echo "usage: fm-backlog-handoff.sh <secondmate-id> <item-key>..." >&2; exit 1; }
   ID=$1
@@ -740,13 +777,16 @@ outbox_queued_keys() { # <path>
   ' "$1"
 }
 
-resolve_handoff_move_closure() { # <queued-key>...
-  local snapshot config projects
+resolve_handoff_move_closure_for_home() { # <home> <queued-key>...
+  local handoff_home=$1 snapshot config projects state data
+  shift
   [ "$#" -gt 0 ] || return 0
-  config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
-  projects=${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}
-  snapshot=$(FM_ROOT_OVERRIDE="$FM_ROOT" FM_HOME="$FM_HOME" \
-    FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+  data=${FM_DATA_OVERRIDE:-$handoff_home/data}
+  state=${FM_STATE_OVERRIDE:-$handoff_home/state}
+  config=${FM_CONFIG_OVERRIDE:-$handoff_home/config}
+  projects=${FM_PROJECTS_OVERRIDE:-$handoff_home/projects}
+  snapshot=$(FM_ROOT_OVERRIDE="$FM_ROOT" FM_HOME="$handoff_home" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" \
     FM_CONFIG_OVERRIDE="$config" FM_PROJECTS_OVERRIDE="$projects" \
     "$SCRIPT_DIR/fm-fleet-snapshot.sh" --local-json 2>/dev/null) || {
     echo "error: local backlog dependencies could not be resolved; refusing handoff" >&2
@@ -767,6 +807,215 @@ resolve_handoff_move_closure() { # <queued-key>...
         end;
       closure($requested; [])[]
   ' "$@"
+}
+
+resolve_handoff_move_closure() { # <queued-key>...
+  resolve_handoff_move_closure_for_home "$FM_HOME" "$@"
+}
+
+# A consolidation transfer keeps the existing public promise reachable by
+# reporting bindings that still name the source secondmate. Rebinding remains
+# an explicit public-followup operation; this warning is deliberately
+# non-blocking, matching the main-to-secondmate handoff contract.
+warn_stale_public_commitments_for_transfer() { # <source-id> <destination-id> <moved-key>...
+  local source_id=$1 destination_id=$2 key out rc
+  shift 2
+  for key in "$@"; do
+    rc=0
+    out=$("$SCRIPT_DIR/fm-public-followup.sh" guard-work "secondmate:$source_id" "$key" 2>/dev/null) || rc=$?
+    [ "$rc" -eq 0 ] || {
+      [ -z "$out" ] || printf '%s\n' "$out" >&2
+      printf 'warning: %s still owes a public reply bound to secondmate:%s/%s; rebind it to secondmate:%s (tasks-axi public-followup bind-work, then bin/fm-public-followup.sh register <obligation-id> --relation <relation-id> --work-home secondmate:%s --work-id %s --generation <n>) or the promised reply will be reconciled against work the source home no longer owns.\n' \
+        "$key" "$source_id" "$key" "$destination_id" "$destination_id" "$key" >&2
+    }
+  done
+  return 0
+}
+
+validate_transfer_receiver_binding() { # <destination-id> <destination-home>
+  local id=$1 home=$2 meta="$STATE/$1.meta" meta_home abs_meta_home
+  [ -e "$meta" ] || [ -L "$meta" ] || return 0
+  [ -f "$meta" ] && [ ! -L "$meta" ] || {
+    echo "error: destination secondmate $id has unsafe endpoint metadata" >&2
+    return 1
+  }
+  [ "$(grep '^kind=' "$meta" | cut -d= -f2-)" = secondmate ] || {
+    echo "error: destination secondmate $id has non-secondmate endpoint metadata" >&2
+    return 1
+  }
+  meta_home=$(grep '^home=' "$meta" | cut -d= -f2-)
+  [ -n "$meta_home" ] || {
+    echo "error: destination secondmate $id endpoint has no home binding" >&2
+    return 1
+  }
+  abs_meta_home=$(resolved_existing_dir "$meta_home") || return 1
+  [ "$abs_meta_home" = "$home" ] || {
+    echo "error: destination secondmate $id endpoint is bound to a different home" >&2
+    return 1
+  }
+}
+
+transfer_local_handoff() { # <source-secondmate-id> <destination-secondmate-id> <keys...>
+  local source_id=$1 destination_id=$2 source_raw destination_raw source_home destination_home
+  local source_backlog destination_backlog source_section destination_section key closure mv_out
+  local requested_batch wake_marker source_state
+  local -a to_move=() already=() missing=() in_flight=() done_items=() not_queued=() closure_keys=()
+  shift 2
+  requested_batch=
+  [ "$#" -gt 0 ] || {
+    echo "usage: fm-backlog-handoff.sh --transfer <source-secondmate-id> <destination-secondmate-id> <item-key>..." >&2
+    return 1
+  }
+  source_raw=$(secondmate_home "$source_id") || return 1
+  destination_raw=$(secondmate_home "$destination_id") || return 1
+  [ "$(secondmate_registry_field "$REG" "$source_id" remote 2>/dev/null || true)" = 0 ] || {
+    echo "error: source secondmate $source_id is a remote route; local consolidation transfers do not support remote homes" >&2
+    return 1
+  }
+  [ "$(secondmate_registry_field "$REG" "$destination_id" remote 2>/dev/null || true)" = 0 ] || {
+    echo "error: destination secondmate $destination_id is a remote route; local consolidation transfers do not support remote homes" >&2
+    return 1
+  }
+  source_home=$(validate_secondmate_home "$source_id" "$source_raw") || return 1
+  destination_home=$(validate_secondmate_home "$destination_id" "$destination_raw") || return 1
+  [ "$source_home" != "$destination_home" ] || {
+    echo "error: source and destination secondmate homes must differ" >&2
+    return 1
+  }
+  validate_transfer_receiver_binding "$destination_id" "$destination_home" || return 1
+  source_backlog="$source_home/data/backlog.md"
+  destination_backlog="$destination_home/data/backlog.md"
+  validate_backlog_file "source secondmate backlog" "$source_backlog" || return 1
+  validate_backlog_file "destination secondmate backlog" "$destination_backlog" || return 1
+  source_state="$STATE/.backlog-handoff-$source_id.wake-pending"
+  if [ -e "$source_state" ] || [ -L "$source_state" ]; then
+    echo "error: source secondmate $source_id has an unresolved receiver wake; retry that handoff before transferring its work" >&2
+    return 1
+  fi
+
+  for key in "$@"; do
+    source_section=$(backlog_key_section "$source_backlog" "$key" 2>/dev/null || true)
+    destination_section=$(backlog_key_section "$destination_backlog" "$key" 2>/dev/null || true)
+    if [ -n "$source_section" ] && [ -n "$destination_section" ]; then
+      echo "error: refusing to transfer $key: it exists in both source and destination backlogs" >&2
+      return 1
+    fi
+    if [ -n "$destination_section" ]; then
+      case "$destination_section" in
+        '## Queued') already+=("$key") ;;
+        '## In flight') in_flight+=("$key") ;;
+        '## Done') done_items+=("$key") ;;
+        *) not_queued+=("$key") ;;
+      esac
+    else
+      case "$source_section" in
+        '## Queued') to_move+=("$key") ;;
+        '## In flight') in_flight+=("$key") ;;
+        '## Done') done_items+=("$key") ;;
+        '') missing+=("$key") ;;
+        *) not_queued+=("$key") ;;
+      esac
+    fi
+  done
+  if [ "${#in_flight[@]}" -gt 0 ] || [ "${#done_items[@]}" -gt 0 ] \
+    || [ "${#not_queued[@]}" -gt 0 ] || [ "${#missing[@]}" -gt 0 ]; then
+    [ "${#in_flight[@]}" -eq 0 ] || echo "error: refusing to transfer in-flight backlog items: ${in_flight[*]}" >&2
+    [ "${#done_items[@]}" -eq 0 ] || echo "error: refusing to transfer Done backlog items: ${done_items[*]}" >&2
+    [ "${#not_queued[@]}" -eq 0 ] || echo "error: refusing to transfer non-queued backlog items: ${not_queued[*]}" >&2
+    [ "${#missing[@]}" -eq 0 ] || echo "error: no source or destination backlog item matched: ${missing[*]}" >&2
+    echo "       nothing was transferred." >&2
+    return 1
+  fi
+  if [ "${#to_move[@]}" -gt 0 ]; then
+    closure=$(resolve_handoff_move_closure_for_home "$source_home" "${to_move[@]}") || return 1
+    mapfile -t closure_keys <<< "$closure"
+    partition_handoff_closure to_move already "$destination_backlog" -- "${closure_keys[@]}"
+    validate_handoff_queued_only "$source_backlog" "${to_move[@]}" || return 1
+  fi
+  validate_handoff_priorities "$source_backlog" "${to_move[@]}" || return 1
+  validate_handoff_priorities "$destination_backlog" "${already[@]}" || return 1
+  for key in "${to_move[@]}"; do
+    while IFS= read -r line; do
+      printf 'error: refusing to transfer %s: non-2-space continuation line: %s\n' "$key" "$line" >&2
+      return 1
+    done < <(backlog_key_noncanonical_body_lines "$source_backlog" "$key")
+  done
+  if [ "${#to_move[@]}" -eq 0 ]; then
+    wake_marker="$STATE/.backlog-handoff-$destination_id.wake-pending"
+    requested_batch=$(receiver_wake_batch_id "$@") || return 1
+    case "$(cat "$wake_marker" 2>/dev/null || true)" in
+      prepared:*:"$requested_batch")
+        receiver_wake_promote_prepared "$destination_id" "$requested_batch" || return 1
+        wake_pending_secondmate_receiver "$destination_id" || return 1
+        ;;
+      prepared:*)
+        echo "error: a prepared receiver wake for destination $destination_id belongs to a different transfer; retry that transfer first" >&2
+        return 1
+        ;;
+      pending|pending:*)
+        wake_pending_secondmate_receiver "$destination_id" || return 1
+        ;;
+      confirmed|confirmed:*) ;;
+      *) ;;
+    esac
+    echo "nothing to transfer: already present (skipped): ${already[*]:-no keys}"
+    return 0
+  fi
+  fm_tasks_axi_compatible || {
+    echo "error: a compatible tasks-axi with atomic multi-ID mv support is required for secondmate consolidation transfers" >&2
+    return 1
+  }
+  requested_batch=$(receiver_wake_batch_id "$@") || {
+    echo "error: receiver wake batch identity could not be recorded; nothing was transferred" >&2
+    return 1
+  }
+  wake_marker="$STATE/.backlog-handoff-$destination_id.wake-pending"
+  if [ -e "$wake_marker" ] || [ -L "$wake_marker" ]; then
+    case "$(cat "$wake_marker" 2>/dev/null || true)" in
+      prepared:*:"$requested_batch") receiver_wake_discard_prepared "$destination_id" || return 1 ;;
+      prepared:*)
+        echo "error: a prepared receiver wake for destination $destination_id belongs to a different transfer; retry that transfer first" >&2
+        return 1
+        ;;
+      confirmed|confirmed:*) receiver_wake_clear_confirmed "$destination_id" || return 1 ;;
+      *)
+        wake_pending_secondmate_receiver "$destination_id" || {
+          echo "error: previous receiver wake for destination $destination_id is unresolved; nothing was transferred" >&2
+          return 1
+        }
+        ;;
+    esac
+  fi
+  receiver_wake_mark_prepared "$destination_id" "$requested_batch" || {
+    echo "error: destination receiver wake state could not be recorded; nothing was transferred" >&2
+    return 1
+  }
+  mkdir -p "$destination_home/data"
+  local destination_created=0
+  if [ ! -f "$destination_backlog" ]; then
+    printf '## In flight\n\n## Queued\n\n## Done\n' > "$destination_backlog"
+    destination_created=1
+  fi
+  if [ "${#to_move[@]}" -gt 0 ]; then
+    if ! mv_out=$(tasks-axi mv "${to_move[@]}" --file "$source_backlog" --to "$destination_backlog" 2>&1); then
+      [ "$destination_created" -eq 0 ] || rm -f -- "$destination_backlog"
+      receiver_wake_discard_prepared "$destination_id" || {
+        echo "error: tasks-axi transfer failed and destination receiver wake state could not be cleared" >&2
+        return 1
+      }
+      [ -z "$mv_out" ] || printf '%s\n' "$mv_out" >&2
+      echo "error: atomic secondmate transfer failed; nothing was transferred" >&2
+      return 1
+    fi
+  fi
+  echo "transferred ${#to_move[@]} item(s) from $source_id to $destination_id: ${to_move[*]}"
+  [ "${#already[@]}" -eq 0 ] || echo "  already present (skipped): ${already[*]}"
+  receiver_wake_promote_prepared "$destination_id" "$requested_batch" || {
+    echo "error: transferred work landed, but destination receiver wake state could not be recorded" >&2
+    return 1
+  }
+  wake_pending_secondmate_receiver "$destination_id" || return 1
+  warn_stale_public_commitments_for_transfer "$source_id" "$destination_id" "${to_move[@]}"
 }
 
 remote_handoff() { # <secondmate-id> <keys...>
@@ -922,6 +1171,24 @@ resume_pending_outboxes() {
 if [ "$RESUME_PENDING" -eq 1 ]; then
   resume_pending_outboxes
   exit $?
+fi
+
+if [ "$TRANSFER_MODE" -eq 1 ]; then
+  ACTIVE_REGISTRY_LOCK=$(secondmate_registry_lock_path "$STATE")
+  fm_lock_acquire_wait "$ACTIVE_REGISTRY_LOCK"
+  if [ "$(secondmate_registry_field "$REG" "$SOURCE_ID" remote 2>/dev/null || true)" != 0 ] \
+    || [ "$(secondmate_registry_field "$REG" "$DESTINATION_ID" remote 2>/dev/null || true)" != 0 ]; then
+    echo "error: secondmate consolidation transfers support only registered local homes" >&2
+    release_remote_locks
+    exit 1
+  fi
+  TRANSFER_LOCK_FIRST=$(printf '%s\n' "$SOURCE_ID" "$DESTINATION_ID" | LC_ALL=C sort | head -n1)
+  TRANSFER_LOCK_SECOND=$(printf '%s\n' "$SOURCE_ID" "$DESTINATION_ID" | LC_ALL=C sort | tail -n1)
+  ACTIVE_HANDOFF_LOCK="$STATE/.backlog-handoff-transfer-$TRANSFER_LOCK_FIRST-$TRANSFER_LOCK_SECOND.lock"
+  fm_lock_acquire_wait "$ACTIVE_HANDOFF_LOCK"
+  if transfer_local_handoff "$SOURCE_ID" "$DESTINATION_ID" "$@"; then rc=0; else rc=$?; fi
+  release_remote_locks
+  exit "$rc"
 fi
 
 ACTIVE_REGISTRY_LOCK=$(secondmate_registry_lock_path "$STATE")
