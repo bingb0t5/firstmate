@@ -1086,6 +1086,43 @@ test_secondmate_transfer_refuses_missing_receiver_before_mutation() {
   pass "secondmate transfer refuses missing receiver before mutation"
 }
 
+test_secondmate_transfer_refuses_targetless_receiver_before_mutation() {
+  local backend parent source destination out rc source_before destination_before expected
+  for backend in tmux orca unknown; do
+    parent="$TMP_ROOT/transfer-targetless-$backend-parent"
+    source="$TMP_ROOT/transfer-targetless-$backend-source"
+    destination="$TMP_ROOT/transfer-targetless-$backend-destination"
+    setup_transfer_homes "$parent" "$source" "$destination"
+    printf '## Queued\n- [ ] transfer-targetless-%s - blocked delivery (repo: alpha) (priority: 2)\n\n## Done\n' "$backend" > "$source/data/backlog.md"
+    printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+    cat > "$parent/state/destination-mate.meta" <<EOF
+kind=secondmate
+backend=$backend
+home=$destination
+worktree=$destination
+EOF
+    source_before=$(cat "$source/data/backlog.md")
+    destination_before=$(cat "$destination/data/backlog.md")
+    rc=0
+    out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+      "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate "transfer-targetless-$backend" 2>&1) || rc=$?
+    [ "$rc" -ne 0 ] || fail "transfer with targetless $backend receiver reported success"
+    expected='endpoint has no backend target'
+    [ "$backend" != unknown ] || expected="unknown backend 'unknown'"
+    assert_contains "$out" "$expected" \
+      "targetless $backend receiver was not refused before transfer"
+    [ "$source_before" = "$(cat "$source/data/backlog.md")" ] \
+      || fail "targetless $backend receiver changed the source backlog"
+    [ "$destination_before" = "$(cat "$destination/data/backlog.md")" ] \
+      || fail "targetless $backend receiver changed the destination backlog"
+    assert_absent "$parent/state/destination-mate.inbox" \
+      "targetless $backend receiver transfer sent destination work"
+    assert_absent "$parent/state/.backlog-handoff-destination-mate.wake-pending" \
+      "targetless $backend receiver transfer prepared a destination wake"
+  done
+  pass "secondmate transfer refuses targetless receiver before mutation"
+}
+
 test_secondmate_transfer_reports_public_binding_for_already_queued_items() {
   local parent="$TMP_ROOT/transfer-public-mixed-parent" source="$TMP_ROOT/transfer-public-mixed-source"
   local destination="$TMP_ROOT/transfer-public-mixed-destination" out rc=0
@@ -1793,6 +1830,7 @@ test_secondmate_transfer_moves_dependency_closed_set
 test_secondmate_transfer_refuses_duplicate_closure_ownership
 test_secondmate_transfer_reports_public_binding
 test_secondmate_transfer_refuses_missing_receiver_before_mutation
+test_secondmate_transfer_refuses_targetless_receiver_before_mutation
 test_secondmate_transfer_reports_public_binding_for_already_queued_items
 test_secondmate_transfer_is_idempotent
 test_secondmate_transfer_refuses_invalid_destination

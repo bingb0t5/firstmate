@@ -838,7 +838,7 @@ warn_stale_public_commitments_for_transfer() { # <source-id> <destination-id> <m
 }
 
 validate_transfer_receiver_binding() { # <destination-id> <destination-home>
-  local id=$1 home=$2 meta="$STATE/$1.meta" meta_home abs_meta_home
+  local id=$1 home=$2 meta="$STATE/$1.meta" meta_home abs_meta_home backend target
   [ -e "$meta" ] || [ -L "$meta" ] || {
     echo "error: destination secondmate $id has no live receiver endpoint" >&2
     return 1
@@ -859,6 +859,13 @@ validate_transfer_receiver_binding() { # <destination-id> <destination-home>
   abs_meta_home=$(resolved_existing_dir "$meta_home") || return 1
   [ "$abs_meta_home" = "$home" ] || {
     echo "error: destination secondmate $id endpoint is bound to a different home" >&2
+    return 1
+  }
+  backend=$(fm_backend_of_meta "$meta")
+  fm_backend_validate "$backend" || return 1
+  target=$(fm_backend_target_of_meta "$meta")
+  [ -n "$target" ] || {
+    echo "error: destination secondmate $id endpoint has no backend target" >&2
     return 1
   }
 }
