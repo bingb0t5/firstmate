@@ -973,9 +973,11 @@ setup_transfer_homes() { # <parent> <source-home> <destination-home>
     "$source" "$destination" > "$parent/data/secondmates.md"
   cat > "$parent/state/destination-mate.meta" <<EOF
 window=firstmate:fm-destination-mate
+endpoint_task_id=destination-mate
 kind=secondmate
 home=$destination
 worktree=$destination
+project=$destination
 EOF
 }
 
@@ -1097,18 +1099,21 @@ test_secondmate_transfer_refuses_targetless_receiver_before_mutation() {
     printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
     cat > "$parent/state/destination-mate.meta" <<EOF
 kind=secondmate
+endpoint_task_id=destination-mate
 backend=$backend
 home=$destination
 worktree=$destination
+project=$destination
 EOF
+    [ "$backend" != unknown ] || printf 'window=firstmate:fm-destination-mate\n' >> "$parent/state/destination-mate.meta"
     source_before=$(cat "$source/data/backlog.md")
     destination_before=$(cat "$destination/data/backlog.md")
     rc=0
     out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
       "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate "transfer-targetless-$backend" 2>&1) || rc=$?
     [ "$rc" -ne 0 ] || fail "transfer with targetless $backend receiver reported success"
-    expected='endpoint has no backend target'
-    [ "$backend" != unknown ] || expected="unknown backend 'unknown'"
+    expected='missing, empty, or ambiguous window endpoint'
+    [ "$backend" != unknown ] || expected='missing, ambiguous, or unknown backend identity'
     assert_contains "$out" "$expected" \
       "targetless $backend receiver was not refused before transfer"
     [ "$source_before" = "$(cat "$source/data/backlog.md")" ] \
@@ -1131,9 +1136,11 @@ test_secondmate_transfer_refuses_remote_receiver_metadata_before_mutation() {
   printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
   cat > "$parent/state/destination-mate.meta" <<EOF
 window=firstmate:fm-destination-mate
+endpoint_task_id=destination-mate
 kind=secondmate
 home=$destination
 worktree=$destination
+project=$destination
 remote_host=remote-host
 EOF
   source_before=$(cat "$source/data/backlog.md")
@@ -1152,6 +1159,38 @@ EOF
   assert_absent "$parent/state/.backlog-handoff-destination-mate.wake-pending" \
     "remote receiver metadata transfer prepared a destination wake"
   pass "secondmate transfer refuses remote receiver metadata before mutation"
+}
+
+test_secondmate_transfer_refuses_misdirected_receiver_before_mutation() {
+  local parent="$TMP_ROOT/transfer-misdirected-parent" source="$TMP_ROOT/transfer-misdirected-source"
+  local destination="$TMP_ROOT/transfer-misdirected-destination" out rc=0 source_before destination_before
+  setup_transfer_homes "$parent" "$source" "$destination"
+  printf '## Queued\n- [ ] transfer-misdirected - must wake its destination (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+  cat > "$parent/state/destination-mate.meta" <<EOF
+window=firstmate:fm-other
+endpoint_task_id=destination-mate
+kind=secondmate
+home=$destination
+worktree=$destination
+project=$destination
+EOF
+  source_before=$(cat "$source/data/backlog.md")
+  destination_before=$(cat "$destination/data/backlog.md")
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-misdirected 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "transfer with a misdirected receiver reported success"
+  assert_contains "$out" "does not belong to task destination-mate" \
+    "misdirected receiver was not refused before transfer"
+  [ "$source_before" = "$(cat "$source/data/backlog.md")" ] \
+    || fail "misdirected receiver changed the source backlog"
+  [ "$destination_before" = "$(cat "$destination/data/backlog.md")" ] \
+    || fail "misdirected receiver changed the destination backlog"
+  assert_absent "$parent/state/destination-mate.inbox" \
+    "misdirected receiver transfer sent destination work"
+  assert_absent "$parent/state/.backlog-handoff-destination-mate.wake-pending" \
+    "misdirected receiver transfer prepared a destination wake"
+  pass "secondmate transfer refuses a misdirected receiver before mutation"
 }
 
 test_secondmate_transfer_reports_public_binding_for_already_queued_items() {
@@ -1863,6 +1902,7 @@ test_secondmate_transfer_reports_public_binding
 test_secondmate_transfer_refuses_missing_receiver_before_mutation
 test_secondmate_transfer_refuses_targetless_receiver_before_mutation
 test_secondmate_transfer_refuses_remote_receiver_metadata_before_mutation
+test_secondmate_transfer_refuses_misdirected_receiver_before_mutation
 test_secondmate_transfer_reports_public_binding_for_already_queued_items
 test_secondmate_transfer_is_idempotent
 test_secondmate_transfer_refuses_invalid_destination
