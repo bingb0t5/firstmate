@@ -1011,6 +1011,44 @@ EOF
   pass "secondmate transfer moves a dependency-closed queued set and preserves links"
 }
 
+test_secondmate_transfer_resolves_dependencies_from_source_home_despite_parent_overrides() {
+  local parent="$TMP_ROOT/transfer-source-override-parent" source="$TMP_ROOT/transfer-source-override-source"
+  local destination="$TMP_ROOT/transfer-source-override-destination" override out
+  setup_transfer_homes "$parent" "$source" "$destination"
+  override="$TMP_ROOT/transfer-source-override-data"
+  mkdir -p "$override"
+  cp "$parent/data/secondmates.md" "$override/secondmates.md"
+  cat > "$override/backlog.md" <<'EOF'
+## Queued
+- [ ] transfer-source-override-dependent - parent shadow (repo: alpha) (priority: 1)
+
+## Done
+EOF
+  cat > "$source/data/backlog.md" <<'EOF'
+## Queued
+- [ ] transfer-source-override-blocker - source prerequisite (repo: alpha) (priority: 3)
+- [ ] transfer-source-override-dependent - source dependent (repo: alpha) (priority: 1) blocked-by: transfer-source-override-blocker - waits
+
+## Done
+EOF
+  printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" FM_DATA_OVERRIDE="$override" \
+    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-source-override-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$HANDOFF_FAKEBIN/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-source-override-dependent 2>&1) \
+    || fail "source-home dependency transfer failed: $out"
+  assert_contains "$out" 'transferred 2 item(s) from source-mate to destination-mate' \
+    "transfer did not resolve the source dependency closure"
+  assert_no_grep 'transfer-source-override-' "$source/data/backlog.md" \
+    "source dependency closure was left in the draining home"
+  assert_grep 'transfer-source-override-blocker' "$destination/data/backlog.md" \
+    "transfer lost the source-only blocker behind a parent override"
+  assert_grep 'transfer-source-override-dependent' "$destination/data/backlog.md" \
+    "transfer lost the requested dependent behind a parent override"
+  pass "secondmate transfer resolves dependencies from its source home"
+}
+
 test_secondmate_transfer_refuses_duplicate_closure_ownership() {
   local parent="$TMP_ROOT/transfer-duplicate-parent" source="$TMP_ROOT/transfer-duplicate-source"
   local destination="$TMP_ROOT/transfer-duplicate-destination" source_before destination_before out rc=0
@@ -1341,6 +1379,9 @@ case " $* " in
       while [ ! -f "$FM_TRANSFER_LOCK_RELEASE" ]; do sleep 0.02; done
     fi
     ;;
+  *" --file $FM_TRANSFER_LOCK_SOURCE_BACKLOG --to $FM_TRANSFER_LOCK_DESTINATION_BACKLOG"*)
+    touch "$FM_TRANSFER_LOCK_TRANSFER_REACHED"
+    ;;
 esac
 exec "$FM_REAL_TASKS_AXI" "$@"
 SH
@@ -1363,7 +1404,11 @@ SH
     [ "$i" -le 250 ] || fail "normal handoff to $normal_id never reached its locked move"
     sleep 0.02
   done
-  (FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+  (FM_REAL_TASKS_AXI="$(command -v tasks-axi)" PATH="$blockbin:$fakebin:$PATH" \
+    FM_TRANSFER_LOCK_SOURCE_BACKLOG="$source/data/backlog.md" \
+    FM_TRANSFER_LOCK_DESTINATION_BACKLOG="$destination/data/backlog.md" \
+    FM_TRANSFER_LOCK_TRANSFER_REACHED="$TMP_ROOT/transfer-lock-$1.transfer-reached" \
+    FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
     FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-lock-$1-transfer-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/transfer-lock-$1-fake/pane.txt" \
@@ -1373,6 +1418,8 @@ SH
   sleep 0.2
   assert_absent "$TMP_ROOT/transfer-lock-$1-transfer.exit" \
     "transfer did not wait for the normal handoff to $normal_id"
+  assert_absent "$TMP_ROOT/transfer-lock-$1.transfer-reached" \
+    "transfer reached its move boundary before the normal handoff to $normal_id released its shared lock"
   touch "$TMP_ROOT/transfer-lock-$1.release"
   wait "$normal" || fail "normal handoff to $normal_id failed while transfer waited"
   wait "$transfer" || fail "transfer wrapper failed after $normal_id handoff"
@@ -1897,6 +1944,7 @@ EOF
 
 test_handoff_wakes_live_local_receiver
 test_secondmate_transfer_moves_dependency_closed_set
+test_secondmate_transfer_resolves_dependencies_from_source_home_despite_parent_overrides
 test_secondmate_transfer_refuses_duplicate_closure_ownership
 test_secondmate_transfer_reports_public_binding
 test_secondmate_transfer_refuses_missing_receiver_before_mutation

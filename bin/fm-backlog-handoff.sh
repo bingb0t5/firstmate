@@ -950,7 +950,8 @@ transfer_local_handoff() { # <source-secondmate-id> <destination-secondmate-id> 
     return 1
   fi
   if [ "${#to_move[@]}" -gt 0 ]; then
-    closure=$(resolve_handoff_move_closure_for_home "$source_home" "${to_move[@]}") || return 1
+    closure=$(FM_DATA_OVERRIDE= FM_STATE_OVERRIDE= FM_CONFIG_OVERRIDE= FM_PROJECTS_OVERRIDE= \
+      resolve_handoff_move_closure_for_home "$source_home" "${to_move[@]}") || return 1
     mapfile -t closure_keys <<< "$closure"
     validate_transfer_no_duplicate_ownership "$source_backlog" "$destination_backlog" "${closure_keys[@]}" || return 1
     partition_handoff_closure to_move already "$destination_backlog" -- "${closure_keys[@]}"
