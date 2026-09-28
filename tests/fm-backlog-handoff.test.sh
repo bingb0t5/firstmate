@@ -1009,6 +1009,39 @@ EOF
   pass "secondmate transfer moves a dependency-closed queued set and preserves links"
 }
 
+test_secondmate_transfer_refuses_duplicate_closure_ownership() {
+  local parent="$TMP_ROOT/transfer-duplicate-parent" source="$TMP_ROOT/transfer-duplicate-source"
+  local destination="$TMP_ROOT/transfer-duplicate-destination" source_before destination_before out rc=0
+  setup_transfer_homes "$parent" "$source" "$destination"
+  cat > "$source/data/backlog.md" <<'EOF'
+## Queued
+- [ ] transfer-duplicate-blocker - duplicated prerequisite (repo: alpha) (priority: 2)
+- [ ] transfer-duplicate-dependent - requested dependent (repo: alpha) (priority: 1) blocked-by: transfer-duplicate-blocker - waits
+
+## Done
+EOF
+  cat > "$destination/data/backlog.md" <<'EOF'
+## Queued
+- [ ] transfer-duplicate-blocker - duplicated prerequisite (repo: alpha) (priority: 2)
+
+## Done
+EOF
+  source_before=$(cat "$source/data/backlog.md")
+  destination_before=$(cat "$destination/data/backlog.md")
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-duplicate-dependent 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "transfer accepted duplicate closure ownership"
+  assert_contains "$out" 'transfer-duplicate-blocker: it exists in both source and destination backlogs' \
+    "duplicate closure refusal did not name the shared blocker"
+  [ "$source_before" = "$(cat "$source/data/backlog.md")" ] \
+    || fail "duplicate closure refusal changed the source backlog"
+  [ "$destination_before" = "$(cat "$destination/data/backlog.md")" ] \
+    || fail "duplicate closure refusal changed the destination backlog"
+  assert_absent "$parent/state/destination-mate.inbox" \
+    "duplicate closure refusal notified the destination"
+  pass "secondmate transfer refuses duplicate ownership in its dependency closure"
+}
+
 test_secondmate_transfer_reports_public_binding() {
   local parent="$TMP_ROOT/transfer-public-parent" source="$TMP_ROOT/transfer-public-source"
   local destination="$TMP_ROOT/transfer-public-destination" out rc=0
@@ -1761,6 +1794,7 @@ EOF
 
 test_handoff_wakes_live_local_receiver
 test_secondmate_transfer_moves_dependency_closed_set
+test_secondmate_transfer_refuses_duplicate_closure_ownership
 test_secondmate_transfer_reports_public_binding
 test_secondmate_transfer_retries_public_binding_after_failed_wake
 test_secondmate_transfer_reports_public_binding_for_already_queued_items

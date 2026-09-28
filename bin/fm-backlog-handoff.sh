@@ -860,6 +860,19 @@ validate_transfer_receiver_binding() { # <destination-id> <destination-home>
   }
 }
 
+validate_transfer_no_duplicate_ownership() {
+  local source_backlog=$1 destination_backlog=$2 key source_section destination_section
+  shift 2
+  for key in "$@"; do
+    source_section=$(backlog_key_section "$source_backlog" "$key" 2>/dev/null || true)
+    destination_section=$(backlog_key_section "$destination_backlog" "$key" 2>/dev/null || true)
+    [ -z "$source_section" ] || [ -z "$destination_section" ] || {
+      echo "error: refusing to transfer $key: it exists in both source and destination backlogs" >&2
+      return 1
+    }
+  done
+}
+
 transfer_local_handoff() { # <source-secondmate-id> <destination-secondmate-id> <keys...>
   local source_id=$1 destination_id=$2 source_raw destination_raw source_home destination_home
   local source_backlog destination_backlog source_section destination_section key closure mv_out
@@ -897,14 +910,11 @@ transfer_local_handoff() { # <source-secondmate-id> <destination-secondmate-id> 
     echo "error: source secondmate $source_id has an unresolved receiver wake; retry that handoff before transferring its work" >&2
     return 1
   fi
+  validate_transfer_no_duplicate_ownership "$source_backlog" "$destination_backlog" "$@" || return 1
 
   for key in "$@"; do
     source_section=$(backlog_key_section "$source_backlog" "$key" 2>/dev/null || true)
     destination_section=$(backlog_key_section "$destination_backlog" "$key" 2>/dev/null || true)
-    if [ -n "$source_section" ] && [ -n "$destination_section" ]; then
-      echo "error: refusing to transfer $key: it exists in both source and destination backlogs" >&2
-      return 1
-    fi
     if [ -n "$destination_section" ]; then
       case "$destination_section" in
         '## Queued') already+=("$key") ;;
@@ -934,6 +944,7 @@ transfer_local_handoff() { # <source-secondmate-id> <destination-secondmate-id> 
   if [ "${#to_move[@]}" -gt 0 ]; then
     closure=$(resolve_handoff_move_closure_for_home "$source_home" "${to_move[@]}") || return 1
     mapfile -t closure_keys <<< "$closure"
+    validate_transfer_no_duplicate_ownership "$source_backlog" "$destination_backlog" "${closure_keys[@]}" || return 1
     partition_handoff_closure to_move already "$destination_backlog" -- "${closure_keys[@]}"
     validate_handoff_queued_only "$source_backlog" "${to_move[@]}" || return 1
   fi
