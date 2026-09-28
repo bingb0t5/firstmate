@@ -958,6 +958,7 @@ transfer_local_handoff() { # <source-secondmate-id> <destination-secondmate-id> 
       confirmed|confirmed:*) ;;
       *) ;;
     esac
+    warn_stale_public_commitments_for_transfer "$source_id" "$destination_id" "${already[@]}"
     echo "nothing to transfer: already present (skipped): ${already[*]:-no keys}"
     return 0
   fi
@@ -1015,7 +1016,7 @@ transfer_local_handoff() { # <source-secondmate-id> <destination-secondmate-id> 
     return 1
   }
   wake_pending_secondmate_receiver "$destination_id" || return 1
-  warn_stale_public_commitments_for_transfer "$source_id" "$destination_id" "${to_move[@]}"
+  warn_stale_public_commitments_for_transfer "$source_id" "$destination_id" "${to_move[@]}" "${already[@]}"
 }
 
 remote_handoff() { # <secondmate-id> <keys...>

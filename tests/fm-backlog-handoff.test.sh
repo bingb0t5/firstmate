@@ -1028,6 +1028,56 @@ test_secondmate_transfer_reports_public_binding() {
   pass "secondmate transfer preserves and reports public-followup bindings"
 }
 
+test_secondmate_transfer_retries_public_binding_after_failed_wake() {
+  local parent="$TMP_ROOT/transfer-public-retry-parent" source="$TMP_ROOT/transfer-public-retry-source"
+  local destination="$TMP_ROOT/transfer-public-retry-destination" out rc=0
+  setup_transfer_homes "$parent" "$source" "$destination"
+  printf '## Queued\n- [ ] transfer-public-retry - promised work (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  seed_public_commitment "$parent" pf-transfer-retry secondmate:source-mate transfer-public-retry
+  rm -f "$parent/state/destination-mate.meta"
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-public-retry 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "transfer without a destination endpoint reported success"
+  assert_grep 'transfer-public-retry' "$destination/data/backlog.md" \
+    "failed wake lost the transferred public work"
+  cat > "$parent/state/destination-mate.meta" <<EOF
+window=firstmate:fm-destination-mate
+kind=secondmate
+home=$destination
+worktree=$destination
+EOF
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-public-retry-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$HANDOFF_FAKEBIN/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-public-retry 2>&1) \
+    || fail "public-binding retry did not wake the destination: $out"
+  assert_contains "$out" 'transfer-public-retry still owes a public reply bound to secondmate:source-mate/transfer-public-retry' \
+    "retry did not surface the stale source public binding"
+  pass "secondmate transfer retry reports the stale public-followup binding"
+}
+
+test_secondmate_transfer_reports_public_binding_for_already_queued_items() {
+  local parent="$TMP_ROOT/transfer-public-mixed-parent" source="$TMP_ROOT/transfer-public-mixed-source"
+  local destination="$TMP_ROOT/transfer-public-mixed-destination" out rc=0
+  setup_transfer_homes "$parent" "$source" "$destination"
+  printf '## Queued\n- [ ] transfer-public-fresh - newly transferred work (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  printf '## Queued\n- [ ] transfer-public-already - prior transferred work (repo: alpha) (priority: 2)\n\n## Done\n' > "$destination/data/backlog.md"
+  seed_public_commitment "$parent" pf-transfer-fresh secondmate:source-mate transfer-public-fresh
+  seed_public_commitment "$parent" pf-transfer-already secondmate:source-mate transfer-public-already
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-public-mixed-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$HANDOFF_FAKEBIN/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-public-fresh transfer-public-already 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "mixed public-binding transfer failed: $out"
+  assert_contains "$out" 'transfer-public-fresh still owes a public reply bound to secondmate:source-mate/transfer-public-fresh' \
+    "transfer did not surface the fresh item's source public binding"
+  assert_contains "$out" 'transfer-public-already still owes a public reply bound to secondmate:source-mate/transfer-public-already' \
+    "transfer did not surface the already-queued item's source public binding"
+  pass "secondmate transfer reports public bindings for moved and already-queued work"
+}
+
 test_secondmate_transfer_is_idempotent() {
   local parent="$TMP_ROOT/transfer-idem-parent" source="$TMP_ROOT/transfer-idem-source"
   local destination="$TMP_ROOT/transfer-idem-destination" first_dest out count
@@ -1636,6 +1686,8 @@ EOF
 test_handoff_wakes_live_local_receiver
 test_secondmate_transfer_moves_dependency_closed_set
 test_secondmate_transfer_reports_public_binding
+test_secondmate_transfer_retries_public_binding_after_failed_wake
+test_secondmate_transfer_reports_public_binding_for_already_queued_items
 test_secondmate_transfer_is_idempotent
 test_secondmate_transfer_refuses_invalid_destination
 test_secondmate_transfer_refuses_dependency_inflight
