@@ -287,9 +287,11 @@ When called with `FM_HOME=<this-firstmate-home>` or when `FM_HOME` is already se
 The parent guards every marked request against a missing correlated report without reading the secondmate conversation; `bin/fm-pending-reply-lib.sh` owns the correlation, recovery, escalation, and retention contract.
 Explicit backend-target sends and direct human typing stay unmarked, so captain intervention in a secondmate pane remains conversational.
 After seeding a secondmate, `fm-backlog-handoff.sh` resolves the dependency-closed queued set, validates its priorities and the fleet-specific handoff, atomically delegates the move to `tasks-axi mv`, and then sends a marked routed-work wake through the receiver's recorded endpoint.
+For phase-B consolidation, its local `--transfer` path locks both genuine seeded secondmate homes through validation and the atomic move, refuses remote or ambiguous routes before mutation, and wakes only the destination.
+Any public-followup binding that still names the source is reported for explicit rebind instead of silently moving that external ownership.
 A durable move with a missing, failed, or unresolved wake is reported as failure rather than success; rerunning the same handoff recovers known-undelivered wake intent without moving the item again, while an unresolved delivery is never blindly resent.
 Remote routes move that dependency-closed set into a non-dispatchable backlog-format outbox before transfer, then use an idempotent remote receive under the destination backlog's own lock and retain the outbox until the receiver wake is confirmed.
-The script header owns the wake correlation and recovery mechanics; `tests/fm-backlog-handoff.test.sh` and `tests/fm-remote-backlog-handoff.test.sh` pin the local and remote delivery boundaries.
+The script header owns the wake correlation and recovery mechanics; `tests/fm-backlog-handoff.test.sh` and `tests/fm-remote-backlog-handoff.test.sh` pin the local, transfer, and remote delivery boundaries.
 An unreachable remote host is unknown rather than dead, preserves its route and durable work, and is never failed over or relaunched locally.
 Idle secondmate panes are healthy; teardown is explicit and refuses while the secondmate home has in-flight work unless the captain has approved discard with `--force`.
 
