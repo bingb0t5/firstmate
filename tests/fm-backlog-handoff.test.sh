@@ -1437,6 +1437,66 @@ test_secondmate_transfer_serializes_with_each_local_handoff_home() {
   pass "secondmate transfers serialize with local handoffs to either home"
 }
 
+test_secondmate_transfer_prevents_source_claim_during_move() {
+  local parent="$TMP_ROOT/transfer-claim-parent" source="$TMP_ROOT/transfer-claim-source"
+  local destination="$TMP_ROOT/transfer-claim-destination" fakebin blockbin transfer i out rc=0
+  setup_transfer_homes "$parent" "$source" "$destination"
+  mkdir -p "$source/state" "$destination/state" "$source/data/transfer-claim"
+  cp "$ROOT/.tasks.toml" "$source/.tasks.toml"
+  printf '# transfer claim brief\n' > "$source/data/transfer-claim/brief.md"
+  printf '## Queued\n- [ ] transfer-claim - source task (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+  fakebin=$(make_fake_tmux "$TMP_ROOT/transfer-claim-fake")
+  blockbin="$TMP_ROOT/transfer-claim-blockbin"
+  mkdir -p "$blockbin"
+  cat > "$blockbin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *" --file $FM_TRANSFER_CLAIM_SOURCE --to $FM_TRANSFER_CLAIM_DESTINATION"*)
+    touch "$FM_TRANSFER_CLAIM_ENTERED"
+    while [ ! -f "$FM_TRANSFER_CLAIM_RELEASE" ]; do sleep 0.02; done
+    ;;
+esac
+exec "$FM_REAL_TASKS_AXI" "$@"
+SH
+  chmod +x "$blockbin/tasks-axi"
+  (FM_REAL_TASKS_AXI="$(command -v tasks-axi)" PATH="$blockbin:$fakebin:$PATH" \
+    FM_TRANSFER_CLAIM_SOURCE="$source/data/backlog.md" \
+    FM_TRANSFER_CLAIM_DESTINATION="$destination/data/backlog.md" \
+    FM_TRANSFER_CLAIM_ENTERED="$TMP_ROOT/transfer-claim-entered" \
+    FM_TRANSFER_CLAIM_RELEASE="$TMP_ROOT/transfer-claim-release" \
+    FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-claim-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/transfer-claim-fake/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-claim \
+    > "$TMP_ROOT/transfer-claim-transfer.out" 2>&1; printf '%s\n' "$?" > "$TMP_ROOT/transfer-claim-transfer.exit") &
+  transfer=$!
+  i=0
+  while [ ! -f "$TMP_ROOT/transfer-claim-entered" ]; do
+    kill -0 "$transfer" 2>/dev/null || fail "transfer exited before reaching its atomic move: $(cat "$TMP_ROOT/transfer-claim-transfer.out")"
+    i=$((i + 1))
+    [ "$i" -le 250 ] || fail "transfer never reached its atomic move"
+    sleep 0.02
+  done
+  out=$(FM_HOME="$source" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-pull.sh" start transfer-claim \
+    "$source/missing-project" --mode no-mistakes --yolo off --harness pi 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "source task was claimed while its transfer held the task-set lock"
+  assert_contains "$out" 'task set is locked' \
+    "source pull did not identify the transfer task-set lock"
+  assert_grep 'transfer-claim' "$source/data/backlog.md" \
+    "blocked source pull changed the draining backlog"
+  touch "$TMP_ROOT/transfer-claim-release"
+  wait "$transfer" || fail "transfer wrapper failed after rejecting the source claim"
+  [ "$(cat "$TMP_ROOT/transfer-claim-transfer.exit")" -eq 0 ] \
+    || fail "transfer failed after rejecting the source claim: $(cat "$TMP_ROOT/transfer-claim-transfer.out")"
+  assert_no_grep 'transfer-claim' "$source/data/backlog.md" \
+    "successful transfer left the claimed item in the source home"
+  assert_grep 'transfer-claim' "$destination/data/backlog.md" \
+    "successful transfer did not deliver the protected source item"
+  pass "secondmate transfer blocks source claims through its atomic move"
+}
+
  test_handoff_is_silent_about_public_commitments_without_the_relay() {
   local home="$TMP_ROOT/pf-silent-main"
   local sub="$TMP_ROOT/pf-silent-sub"
@@ -1957,6 +2017,7 @@ test_secondmate_transfer_refuses_invalid_destination
 test_secondmate_transfer_refuses_dependency_inflight
 test_secondmate_transfer_preserves_source_on_tasks_failure
 test_secondmate_transfer_serializes_with_each_local_handoff_home
+test_secondmate_transfer_prevents_source_claim_during_move
 test_already_present_missing_priority_refuses_without_wake
 test_already_done_refuses_without_wake
 test_dependency_closure_refuses_inflight_blocker

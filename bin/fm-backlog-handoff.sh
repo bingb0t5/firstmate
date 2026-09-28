@@ -96,8 +96,18 @@ RECEIVER_WAKE_MESSAGE='New routed work is in your backlog. Run bin/fm-session-st
 
 ACTIVE_HANDOFF_LOCK=
 ACTIVE_SECOND_HANDOFF_LOCK=
+ACTIVE_TASK_SET_LOCK=
+ACTIVE_SECOND_TASK_SET_LOCK=
 ACTIVE_REGISTRY_LOCK=
 release_remote_locks() {
+  if [ -n "$ACTIVE_SECOND_TASK_SET_LOCK" ]; then
+    fm_lock_release "$ACTIVE_SECOND_TASK_SET_LOCK"
+    ACTIVE_SECOND_TASK_SET_LOCK=
+  fi
+  if [ -n "$ACTIVE_TASK_SET_LOCK" ]; then
+    fm_lock_release "$ACTIVE_TASK_SET_LOCK"
+    ACTIVE_TASK_SET_LOCK=
+  fi
   if [ -n "$ACTIVE_SECOND_HANDOFF_LOCK" ]; then
     fm_lock_release "$ACTIVE_SECOND_HANDOFF_LOCK"
     ACTIVE_SECOND_HANDOFF_LOCK=
@@ -884,8 +894,8 @@ validate_transfer_no_duplicate_ownership() {
 transfer_local_handoff() { # <source-secondmate-id> <destination-secondmate-id> <keys...>
   local source_id=$1 destination_id=$2 source_raw destination_raw source_home destination_home
   local source_backlog destination_backlog source_section destination_section key closure mv_out
-  local requested_batch wake_marker source_state
-  local -a to_move=() already=() missing=() in_flight=() done_items=() not_queued=() closure_keys=()
+  local requested_batch wake_marker source_state source_task_set_lock destination_task_set_lock
+  local -a to_move=() already=() missing=() in_flight=() done_items=() not_queued=() closure_keys=() task_set_locks=()
   shift 2
   requested_batch=
   [ "$#" -gt 0 ] || {
@@ -909,6 +919,23 @@ transfer_local_handoff() { # <source-secondmate-id> <destination-secondmate-id> 
     return 1
   }
   validate_transfer_receiver_binding "$destination_id" "$destination_home" || return 1
+  if ! mkdir -p -- "$source_home/state" "$destination_home/state"; then
+    echo "error: source or destination secondmate task state could not be prepared; nothing was transferred" >&2
+    return 1
+  fi
+  source_task_set_lock=$(fm_task_set_lock_path "$source_home/state") || {
+    echo "error: source secondmate task-set lock could not be resolved; nothing was transferred" >&2
+    return 1
+  }
+  destination_task_set_lock=$(fm_task_set_lock_path "$destination_home/state") || {
+    echo "error: destination secondmate task-set lock could not be resolved; nothing was transferred" >&2
+    return 1
+  }
+  mapfile -t task_set_locks < <(printf '%s\n' "$source_task_set_lock" "$destination_task_set_lock" | LC_ALL=C sort)
+  ACTIVE_TASK_SET_LOCK=${task_set_locks[0]}
+  ACTIVE_SECOND_TASK_SET_LOCK=${task_set_locks[1]}
+  fm_lock_acquire_wait "$ACTIVE_TASK_SET_LOCK"
+  fm_lock_acquire_wait "$ACTIVE_SECOND_TASK_SET_LOCK"
   source_backlog="$source_home/data/backlog.md"
   destination_backlog="$destination_home/data/backlog.md"
   validate_backlog_file "source secondmate backlog" "$source_backlog" || return 1
