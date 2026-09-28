@@ -1123,6 +1123,37 @@ EOF
   pass "secondmate transfer refuses targetless receiver before mutation"
 }
 
+test_secondmate_transfer_refuses_remote_receiver_metadata_before_mutation() {
+  local parent="$TMP_ROOT/transfer-remote-meta-parent" source="$TMP_ROOT/transfer-remote-meta-source"
+  local destination="$TMP_ROOT/transfer-remote-meta-destination" out rc=0 source_before destination_before
+  setup_transfer_homes "$parent" "$source" "$destination"
+  printf '## Queued\n- [ ] transfer-remote-meta - blocked remote route (repo: alpha) (priority: 2)\n\n## Done\n' > "$source/data/backlog.md"
+  printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+  cat > "$parent/state/destination-mate.meta" <<EOF
+window=firstmate:fm-destination-mate
+kind=secondmate
+home=$destination
+worktree=$destination
+remote_host=remote-host
+EOF
+  source_before=$(cat "$source/data/backlog.md")
+  destination_before=$(cat "$destination/data/backlog.md")
+  out=$(FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate transfer-remote-meta 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "transfer with remote receiver metadata reported success"
+  assert_contains "$out" 'destination secondmate destination-mate endpoint is a remote route' \
+    "remote receiver metadata was not refused before transfer"
+  [ "$source_before" = "$(cat "$source/data/backlog.md")" ] \
+    || fail "remote receiver metadata changed the source backlog"
+  [ "$destination_before" = "$(cat "$destination/data/backlog.md")" ] \
+    || fail "remote receiver metadata changed the destination backlog"
+  assert_absent "$parent/state/destination-mate.inbox" \
+    "remote receiver metadata transfer sent destination work"
+  assert_absent "$parent/state/.backlog-handoff-destination-mate.wake-pending" \
+    "remote receiver metadata transfer prepared a destination wake"
+  pass "secondmate transfer refuses remote receiver metadata before mutation"
+}
+
 test_secondmate_transfer_reports_public_binding_for_already_queued_items() {
   local parent="$TMP_ROOT/transfer-public-mixed-parent" source="$TMP_ROOT/transfer-public-mixed-source"
   local destination="$TMP_ROOT/transfer-public-mixed-destination" out rc=0
@@ -1831,6 +1862,7 @@ test_secondmate_transfer_refuses_duplicate_closure_ownership
 test_secondmate_transfer_reports_public_binding
 test_secondmate_transfer_refuses_missing_receiver_before_mutation
 test_secondmate_transfer_refuses_targetless_receiver_before_mutation
+test_secondmate_transfer_refuses_remote_receiver_metadata_before_mutation
 test_secondmate_transfer_reports_public_binding_for_already_queued_items
 test_secondmate_transfer_is_idempotent
 test_secondmate_transfer_refuses_invalid_destination

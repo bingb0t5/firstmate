@@ -851,6 +851,10 @@ validate_transfer_receiver_binding() { # <destination-id> <destination-home>
     echo "error: destination secondmate $id has non-secondmate endpoint metadata" >&2
     return 1
   }
+  [ -z "$(fm_meta_get "$meta" remote_host)" ] || {
+    echo "error: destination secondmate $id endpoint is a remote route" >&2
+    return 1
+  }
   meta_home=$(grep '^home=' "$meta" | cut -d= -f2-)
   [ -n "$meta_home" ] || {
     echo "error: destination secondmate $id endpoint has no home binding" >&2
