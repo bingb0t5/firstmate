@@ -95,8 +95,13 @@ MAIN_BACKLOG="$DATA/backlog.md"
 RECEIVER_WAKE_MESSAGE='New routed work is in your backlog. Run bin/fm-session-start.sh now, then run bin/fm-pull.sh ready and claim the first eligible local task.'
 
 ACTIVE_HANDOFF_LOCK=
+ACTIVE_SECOND_HANDOFF_LOCK=
 ACTIVE_REGISTRY_LOCK=
 release_remote_locks() {
+  if [ -n "$ACTIVE_SECOND_HANDOFF_LOCK" ]; then
+    fm_lock_release "$ACTIVE_SECOND_HANDOFF_LOCK"
+    ACTIVE_SECOND_HANDOFF_LOCK=
+  fi
   if [ -n "$ACTIVE_HANDOFF_LOCK" ]; then
     fm_lock_release "$ACTIVE_HANDOFF_LOCK"
     ACTIVE_HANDOFF_LOCK=
@@ -1185,8 +1190,10 @@ if [ "$TRANSFER_MODE" -eq 1 ]; then
   fi
   TRANSFER_LOCK_FIRST=$(printf '%s\n' "$SOURCE_ID" "$DESTINATION_ID" | LC_ALL=C sort | head -n1)
   TRANSFER_LOCK_SECOND=$(printf '%s\n' "$SOURCE_ID" "$DESTINATION_ID" | LC_ALL=C sort | tail -n1)
-  ACTIVE_HANDOFF_LOCK="$STATE/.backlog-handoff-transfer-$TRANSFER_LOCK_FIRST-$TRANSFER_LOCK_SECOND.lock"
+  ACTIVE_HANDOFF_LOCK="$STATE/.backlog-handoff-$TRANSFER_LOCK_FIRST.lock"
   fm_lock_acquire_wait "$ACTIVE_HANDOFF_LOCK"
+  ACTIVE_SECOND_HANDOFF_LOCK="$STATE/.backlog-handoff-$TRANSFER_LOCK_SECOND.lock"
+  fm_lock_acquire_wait "$ACTIVE_SECOND_HANDOFF_LOCK"
   if transfer_local_handoff "$SOURCE_ID" "$DESTINATION_ID" "$@"; then rc=0; else rc=$?; fi
   release_remote_locks
   exit "$rc"

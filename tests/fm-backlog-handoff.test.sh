@@ -1178,6 +1178,82 @@ SH
   pass "secondmate transfer preserves source work and wake state after move failure"
 }
 
+run_transfer_lock_case() {
+  local normal_id=$1 parent="$TMP_ROOT/transfer-lock-$1-parent" source="$TMP_ROOT/transfer-lock-$1-source"
+  local destination="$TMP_ROOT/transfer-lock-$1-destination" fakebin blockbin normal transfer i normal_backlog
+  setup_transfer_homes "$parent" "$source" "$destination"
+  cat > "$parent/state/source-mate.meta" <<EOF
+window=firstmate:fm-source-mate
+kind=secondmate
+home=$source
+worktree=$source
+EOF
+  printf '## Queued\n- [ ] transfer-lock-%s - draining work (repo: alpha) (priority: 2)\n\n## Done\n' "$1" > "$source/data/backlog.md"
+  printf '## Queued\n\n## Done\n' > "$destination/data/backlog.md"
+  printf '## Queued\n- [ ] normal-lock-%s - concurrent handoff (repo: alpha) (priority: 2)\n\n## Done\n' "$1" > "$parent/data/backlog.md"
+  normal_backlog=$source/data/backlog.md
+  [ "$normal_id" = source-mate ] || normal_backlog=$destination/data/backlog.md
+  fakebin=$(make_fake_tmux "$TMP_ROOT/transfer-lock-$1-fake")
+  blockbin="$TMP_ROOT/transfer-lock-$1-blockbin"
+  mkdir -p "$blockbin"
+  cat > "$blockbin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *" --file $FM_TRANSFER_LOCK_MAIN --to $FM_TRANSFER_LOCK_NORMAL_BACKLOG"*)
+    if mkdir "$FM_TRANSFER_LOCK_BLOCK_ONCE" 2>/dev/null; then
+      touch "$FM_TRANSFER_LOCK_ENTERED"
+      while [ ! -f "$FM_TRANSFER_LOCK_RELEASE" ]; do sleep 0.02; done
+    fi
+    ;;
+esac
+exec "$FM_REAL_TASKS_AXI" "$@"
+SH
+  chmod +x "$blockbin/tasks-axi"
+  FM_REAL_TASKS_AXI="$(command -v tasks-axi)" PATH="$blockbin:$fakebin:$PATH" \
+    FM_TRANSFER_LOCK_MAIN="$parent/data/backlog.md" FM_TRANSFER_LOCK_NORMAL_BACKLOG="$normal_backlog" \
+    FM_TRANSFER_LOCK_BLOCK_ONCE="$TMP_ROOT/transfer-lock-$1.once" \
+    FM_TRANSFER_LOCK_ENTERED="$TMP_ROOT/transfer-lock-$1.entered" \
+    FM_TRANSFER_LOCK_RELEASE="$TMP_ROOT/transfer-lock-$1.release" \
+    FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FAKE_TMUX_WINDOW="firstmate:fm-$normal_id" \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-lock-$1-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/transfer-lock-$1-fake/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" "$normal_id" "normal-lock-$1" > "$TMP_ROOT/transfer-lock-$1-normal.out" 2>&1 &
+  normal=$!
+  i=0
+  while [ ! -f "$TMP_ROOT/transfer-lock-$1.entered" ]; do
+    kill -0 "$normal" 2>/dev/null || fail "normal handoff to $normal_id exited before its move paused: $(cat "$TMP_ROOT/transfer-lock-$1-normal.out")"
+    i=$((i + 1))
+    [ "$i" -le 250 ] || fail "normal handoff to $normal_id never reached its locked move"
+    sleep 0.02
+  done
+  (FM_HOME="$parent" FM_ROOT_OVERRIDE="$ROOT" PATH="$fakebin:$PATH" \
+    FM_FAKE_TMUX_WINDOW='firstmate:fm-destination-mate' \
+    FM_FAKE_TMUX_LOG="$TMP_ROOT/transfer-lock-$1-transfer-tmux.log" \
+    FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/transfer-lock-$1-fake/pane.txt" \
+    "$ROOT/bin/fm-backlog-handoff.sh" --transfer source-mate destination-mate "transfer-lock-$1" \
+    > "$TMP_ROOT/transfer-lock-$1-transfer.out" 2>&1; printf '%s\n' "$?" > "$TMP_ROOT/transfer-lock-$1-transfer.exit") &
+  transfer=$!
+  sleep 0.2
+  assert_absent "$TMP_ROOT/transfer-lock-$1-transfer.exit" \
+    "transfer did not wait for the normal handoff to $normal_id"
+  touch "$TMP_ROOT/transfer-lock-$1.release"
+  wait "$normal" || fail "normal handoff to $normal_id failed while transfer waited"
+  wait "$transfer" || fail "transfer wrapper failed after $normal_id handoff"
+  [ "$(cat "$TMP_ROOT/transfer-lock-$1-transfer.exit")" -eq 0 ] \
+    || fail "transfer failed after waiting for normal handoff to $normal_id: $(cat "$TMP_ROOT/transfer-lock-$1-transfer.out")"
+  assert_grep "transfer-lock-$1" "$destination/data/backlog.md" \
+    "transfer work did not reach the destination after $normal_id handoff"
+  assert_grep "normal-lock-$1" "$normal_backlog" \
+    "normal handoff to $normal_id did not complete"
+}
+
+test_secondmate_transfer_serializes_with_each_local_handoff_home() {
+  run_transfer_lock_case source-mate
+  run_transfer_lock_case destination-mate
+  pass "secondmate transfers serialize with local handoffs to either home"
+}
+
  test_handoff_is_silent_about_public_commitments_without_the_relay() {
   local home="$TMP_ROOT/pf-silent-main"
   local sub="$TMP_ROOT/pf-silent-sub"
@@ -1692,6 +1768,7 @@ test_secondmate_transfer_is_idempotent
 test_secondmate_transfer_refuses_invalid_destination
 test_secondmate_transfer_refuses_dependency_inflight
 test_secondmate_transfer_preserves_source_on_tasks_failure
+test_secondmate_transfer_serializes_with_each_local_handoff_home
 test_already_present_missing_priority_refuses_without_wake
 test_already_done_refuses_without_wake
 test_dependency_closure_refuses_inflight_blocker
