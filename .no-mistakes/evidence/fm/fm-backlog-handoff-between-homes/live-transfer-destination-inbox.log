@@ -1,0 +1,4 @@
+schema=fm-task-inbox.v1
+at=2026-09-28T11:24:52Z
+--
+[fm-from-firstmate]⁣corr=7acb407adcf542d8 New routed work is in your backlog. Run bin/fm-session-start.sh now, then run bin/fm-pull.sh ready and claim the first eligible local task.
